@@ -35,6 +35,9 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    codemod prints the exact command after it runs.
 6. **Run your tests.**
 
+Migrating a large codebase gradually instead of in one pass? See
+[Migrating in stages (large codebases)](#migrating-in-stages-large-codebases).
+
 ## Contents
 
 - [What the codemod handles](#what-the-codemod-handles)
@@ -74,7 +77,8 @@ In addition the codemod:
   your imports actually use).
 - Rewrites `.tool()` / `.prompt()` / `.resource()` to `registerTool` / `registerPrompt`
   / `registerResource` and wraps `inputSchema` / `outputSchema` / `argsSchema` /
-  `uriSchema` raw Zod shapes with `z.object()`.
+  `uriSchema` raw Zod shapes with `z.object()`, adding `import { z } from 'zod'`
+  when the file has no `z` binding.
 - Drops the result-schema argument from `client.request()` / `client.callTool()` for
   spec methods.
 - Routes the spec Zod `*Schema` constants imported from `sdk/types.js` to
@@ -85,7 +89,9 @@ In addition the codemod:
   is marked with an action-required diagnostic instead (see
   [Experimental tasks interception removed](#experimental-tasks-interception-removed)).
 - Renames `ErrorCode` → `ProtocolErrorCode` and routes the local-only members
-  (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode`.
+  (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode` — rewriting an all-SDK
+  condition's `instanceof ProtocolError` guard to `SdkError`, and marking guards
+  that mix the two enums.
 - Renames every `StreamableHTTPError` reference to `SdkHttpError` and adds the import
   (constructor calls are marked for review — argument shape changed).
 - Replaces `IsomorphicHeaders` with the Web Standard `Headers` type and drops the
@@ -98,6 +104,13 @@ In addition the codemod:
   to `ResourceTemplateType` (the spec wire type). The `ResourceTemplate` URI-template
   helper **class** from `server/mcp.js` keeps its name and is not renamed.
 - Drops `@modelcontextprotocol/sdk/server/zod-compat.js` imports.
+- Inverts optional completable nesting — `completable(schema.optional(), cb)` becomes
+  `completable(schema, cb).optional()` (see
+  [Standard Schema objects](#standard-schema-objects-raw-shapes-deprecated)); shapes it
+  cannot invert get an `@mcp-codemod-error` marker.
+- Drops `Protocol` / `mergeCapabilities` from `shared/protocol.js` imports, re-exports,
+  mocks, and dynamic imports — no v2 package exports them — leaving a marker with the
+  replacement at each site.
 
 ## What the codemod does NOT handle
 
@@ -105,10 +118,11 @@ Each of these maps to a manual section below. The codemod marks every site it
 recognized but could not safely rewrite with an `@mcp-codemod-error` comment.
 
 - **Node 20 / ESM** — pre-flight, not a code rewrite. → [Packaging & runtime](#packaging--runtime)
-- **`new Headers()` / `.get()` rewrite** — `IsomorphicHeaders` is renamed to `Headers`
+- **Header-read `.get()` rewrite** — `IsomorphicHeaders` is renamed to `Headers`
   and `extra.requestInfo?.headers[…]` is remapped to `ctx.http?.req?.headers[…]`, but
-  converting bracket access to `.get()` and wrapping plain objects with `new Headers()`
-  is manual. → [HTTP & headers](#http--headers)
+  converting that bracket access to `.get()` is manual. (Headers you _pass in_ via
+  `requestInit.headers` need no rewrite — plain objects remain valid.)
+  → [HTTP & headers](#http--headers)
 - **`ctx.mcpReq.send()` schema-arg drop** — the codemod drops the schema arg from
   `client.request()` / `client.callTool()` but leaves nested `ctx.mcpReq.send()` calls
   alone. → [Low-level protocol](#low-level-protocol--handler-context-ctx)
@@ -121,6 +135,15 @@ recognized but could not safely rewrite with an `@mcp-codemod-error` comment.
   `t.CallToolResultSchema.parse(…)` can't be split per-symbol; the codemod flags it
   action-required — re-import the schema from `@modelcontextprotocol/core` by hand.
   → [Types & schemas](#types--schemas)
+- **Import-less (injected) SDK surfaces** — the codemod is import-driven: a file that
+  receives the SDK surface as a parameter (dependency injection, factory seams) and has
+  no SDK import is never rewritten, and the v1 idioms there fail at **runtime**, not
+  compile time — e.g. the v1 schema-first `setRequestHandler(Schema, …)` form throws a
+  `TypeError` at registration. Grep such seams for v1 API tokens beyond import
+  statements (`setRequestHandler(`, `ErrorCode.`, `extra.`) and apply the
+  [handler-registration](#setrequesthandler--setnotificationhandler-use-method-strings)
+  and [Errors](#errors) sections by hand.
+  → [Low-level protocol](#low-level-protocol--handler-context-ctx)
 - **Behavioral adaptation** — list auto-aggregation, capability empties, lazy validator
   compilation, output-schema validation rules. → [Behavioral changes](#behavioral-changes)
 
@@ -147,12 +170,39 @@ whichever package you already depend on. `@modelcontextprotocol/core-internal` i
 `@modelcontextprotocol/core` is the public Zod-schema package (raw `*Schema` constants
 only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
 
-After the codemod runs, verify the dependencies in `package.json`: the swap rewrites
-the **nearest** manifest found walking up from the target directory — one manifest
-total, so workspace-member manifests in a monorepo are not visited (remove the v1
-dependency from those by hand once nothing imports it). On already-migrated sources
-the codemod still removes the v1 dependency but may not add the v2 packages you need
-— check both directions.
+After the codemod runs, review the manifest summary it prints: the swap rewrites the
+**nearest** manifest found walking up from the target directory — one manifest total.
+Workspace-member manifests in a monorepo are never modified; instead the codemod lists
+each member that still declares the v1 SDK together with the exact dependency changes
+it needs (remove the v1 entry, add the v2 packages that member's imports use) — apply
+those edits yourself, then install. The v2 additions are computed from the final import
+state of each package's sources, so already-migrated sources still receive the v2
+packages they need when the v1 dependency is removed. In a hoisted monorepo (members
+without their own SDK dependency), member usage counts toward the manifest that
+declares the v1 SDK, and the summary notes which members contributed. See
+[Monorepo workspace members](#monorepo-workspace-members) for how to decide each
+member's packages.
+
+#### Monorepo workspace members
+
+Declare in every member exactly what its own sources import: files importing
+`@modelcontextprotocol/server` (or its subpaths) need `@modelcontextprotocol/server`;
+client imports need `@modelcontextprotocol/client`; raw `*Schema` constants need
+`@modelcontextprotocol/core`; a framework adapter import (`@modelcontextprotocol/express`
+etc.) needs the adapter package **plus the framework itself** in that member (the
+adapter declares it as a peer dependency). Place a package in `dependencies` when
+shipped runtime code imports it and in `devDependencies` when only tests, fixtures, or
+local tooling do — when in doubt, use the section where the member previously declared
+`@modelcontextprotocol/sdk`.
+
+A member that never declared the v1 SDK and resolved it through the root can keep
+root-level declarations (add the union of all members' v2 packages at the root — the
+codemod's hoisting note lists the contributing members) or move to per-member
+declarations; per-member is recommended, since the v2 package split makes each member's
+actual needs explicit. To answer "which packages does this member need" directly, run
+the codemod against that member's directory with `--dry-run`: the manifest summary is
+computed from that member's own imports. (The authoritative import-path routing lives
+in the codemod's [mapping file](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
@@ -164,6 +214,138 @@ unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
 
 v2 requires **Node.js 20+** and ships **ESM only**. If your project uses CommonJS
 (`require()`), either migrate to ESM or use dynamic `import()`.
+
+Repo-local tooling that encodes the literal v1 package name — dependency-pin lints,
+version allowlists, CI checks, scripts — fails after the manifest swap and is invisible
+to the codemod (it rewrites sources and manifests, not bespoke gates). Grep for
+`@modelcontextprotocol/sdk` outside `src/` before declaring the migration done. While
+grepping, also remove v1-era double casts on SDK types (`as unknown as Transport` and
+similar, usually annotated to a v1 issue) — v2's types satisfy those contracts
+directly, and a surviving cast keeps suppressing type checking that would otherwise
+catch real errors.
+
+Tooling that pins SDK **dist text** (reading a constant out of a built file with
+`require.resolve` + a regex) breaks in three stacked ways: the v2 exports maps offer
+nothing a CJS `require.resolve` can find; the literal usually lives in a
+content-hashed sibling chunk (`dist/sse-<hash>.mjs`), not the subpath's entry module,
+so fixed-path reads do not survive a rebuild — scan the package's `dist/` directory
+for the literal instead; and the emitted quote style differs from v1, so a
+quote-anchored pattern misses silently — match either quote. v2 also ships ESM only:
+`/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no equivalent.
+
+#### Registry availability during the alpha
+
+All v2 packages are published on the public npm registry. Two notes for the alpha
+window:
+
+- The packages do not share one version number — at the time of writing
+  `@modelcontextprotocol/core` rides a lower prerelease than its siblings. The
+  codemod writes ranges that match what is published, so prefer its manifest output
+  over hand-pinning every package to the same tag.
+- Environments that resolve through a corporate or private registry mirror may not
+  have synced the newer scoped packages yet (the symptom is "not found" for a package
+  that exists on npmjs.org). Point the install at the public registry
+  (`npm install --registry=https://registry.npmjs.org/` or the equivalent `.npmrc`
+  entry), ask your mirror's operators to sync the `@modelcontextprotocol` scope, or —
+  where neither is possible — build a tarball from a checkout of this repository
+  (`pnpm install && pnpm build`, then `pnpm pack` in the package directory) and
+  reference it with a committed `file:` dependency.
+
+#### CommonJS test runners (Jest) cannot resolve the v2 packages
+
+Every leaf of the v2 packages' `exports` maps carries only the `types` and `import`
+conditions — there is no `require` or `default` leaf — so the packages cannot be
+resolved by CJS resolvers at all. Jest under its default CommonJS resolution (including
+`next/jest` setups) fails with `Cannot find module '@modelcontextprotocol/client'` even
+when a transform that handles ESM is configured: resolution fails before any transform
+runs. Vitest and native Node ESM are unaffected.
+
+The interim recipe — interim because the packaging shape is still under discussion and
+a later alpha may make it unnecessary — maps the bare specifiers straight to the dist
+ESM files and lets the transform convert them (the dists contain no `import.meta`, so
+an ESM→CJS transform such as SWC or Babel handles them cleanly):
+
+```js
+// jest.config.js
+transformIgnorePatterns: [], // or a pattern that still transforms @modelcontextprotocol/*
+moduleNameMapper: {
+    '^@modelcontextprotocol/client$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/index.mjs',
+    '^@modelcontextprotocol/server$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/index.mjs',
+    // `_shims` is the packages' internal runtime-selection self-reference;
+    // pin it to the Node build under jest.
+    '^@modelcontextprotocol/client/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/shimsNode.mjs',
+    '^@modelcontextprotocol/server/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/shimsNode.mjs',
+},
+```
+
+The entries are exact-anchored — add one per subpath you import (`/stdio` →
+`dist/stdio.mjs`, `/validators/cf-worker` → `dist/validators/cfWorker.mjs`) and one for
+`@modelcontextprotocol/core` (`dist/index.js`) if you import the raw schemas. The
+`_shims` mappings are required whenever the matching root mapping is present: the dist
+entry files import `@modelcontextprotocol/client/_shims` (a package self-reference)
+internally, and that specifier fails CJS resolution the same way. In a hoisted
+monorepo, point the paths at the `node_modules` directory your package manager actually
+installs into.
+
+#### Bundlers: nested `zod` copies in zod@3-pinned monorepos
+
+v1's `zod ^3.25 || ^4.0` peer range deduplicated onto a workspace's hoisted zod@3. The
+v2 packages depend on `zod ^4.2.0`, so in a workspace that pins zod@3 the dependency
+cannot dedupe — each installed v2 package resolves its own nested zod@4 copy. Two
+bundler consequences:
+
+- **Path-substring vendor pins capture the nested copies.** Bundler rules that match
+  zod by module path — `manualChunks` pins, vendor-chunk matchers, bundle budgets keyed
+  on a `zod/` path segment — also match `@modelcontextprotocol/*/node_modules/zod`,
+  which can pull the nested copies into an eagerly-loaded vendor chunk and trip a
+  budget gate. Exclude the SDK-nested paths from such pins so the copies ride with the
+  SDK's own (typically lazy) chunks.
+- **Ballpark size cost.** Measured on a large production SPA, adding the v2 client and
+  server packages (with their nested zod@4 copies) alongside a hoisted zod@3 cost
+  roughly +83 KB gzipped of total JS (about +0.7% whole-app). Upgrading the workspace
+  to `zod ^4.2.0` re-dedupes and removes the duplication.
+
+#### Migrating in stages (large codebases)
+
+The v1 package and the v2 packages have **different names**, so both can be installed
+in one manifest at the same time — nothing forces a one-shot swap. The safe order for
+an incremental migration: (1) add the v2 packages (and the `zod ^4.2.0` bump) while
+**keeping** `@modelcontextprotocol/sdk`; (2) rewrite sources incrementally,
+directory-by-directory or package-by-package; (3) remove the v1 dependency only when
+nothing imports it any more (`grep -rn "@modelcontextprotocol/sdk" --include="*.ts"`,
+plus a look at `package.json`). The inverse order strands files: swapping the manifest
+first leaves every not-yet-rewritten import failing module resolution (TS2307) until it
+is updated.
+
+Two caveats for the transition window. First, a codemod run against a subdirectory
+still updates the nearest manifest walking up — including removing the v1 dependency —
+so during a staged pass review or revert that edit until the final stage (or preview
+with `--dry-run`). Second, v1 and v2 modules each have their own classes and types:
+objects must not flow between v1-imported and v2-imported code (`instanceof` and
+nominal types do not cross — the same boundary described for dual-role processes in
+[Errors](#errors)), so stage along process or transport boundaries where the two sides
+share only the wire format; both speak protocol 2025-06-18 to each other.
+
+Dependencies you do not control (vendored fixtures, third-party packages) that still
+declare `@modelcontextprotocol/sdk` resolve their own v1 copy and need no action. For
+`peerDependencies` declarations, keep the v1 package installed to satisfy the range —
+or point the name at a chosen version via your package manager's
+`overrides`/`resolutions` — until those packages migrate. The same boundary rule
+applies: objects must not flow between their v1-imported code and your v2-imported
+code.
+
+**Dependencies that compile against the host's v1 SDK.** A stricter variant of the
+above: a workspace or vendored package that ships TypeScript **source** importing
+`@modelcontextprotocol/sdk` — resolved from the host's `node_modules` rather than its
+own — pins the host. Keep the v1 package installed as a real dependency (not merely a
+surviving transitive) until that package migrates. The host files that construct or
+hand objects to such a package are part of its v1 boundary and must stay on v1 imports
+— and the codemod cannot see that distinction: it rewrites them like any other file
+(e.g. converting a `setRequestHandler(Schema, …)` call into the v2 method-string form
+against what is still a v1 `Server`, which then fails at runtime). Run the codemod with
+`--ignore` glob patterns covering those interfacing files, and migrate them together
+with the dependency later. The boundary rule above applies unchanged: objects from the
+dependency's v1 modules must never flow into v2-imported code.
 
 ### Imports & transports
 
@@ -203,7 +385,10 @@ A few transports need a decision the codemod can't make:
   local servers; the `Transport` interface is exported if you need a custom
   implementation.
 - **`InMemoryTransport`** is now exported from `@modelcontextprotocol/client` and
-  `@modelcontextprotocol/server` (both re-export it):
+  `@modelcontextprotocol/server` (both re-export it). The two packages bundle separate
+  copies with private state, so the halves of a linked pair must come from the **same
+  package's** import — pick one package per file (per linked pair) rather than mixing
+  the client's `InMemoryTransport` with the server's:
 
     ```typescript
     // v1
@@ -215,6 +400,12 @@ A few transports need a decision the codemod can't make:
 - **`EventStore`, `StreamId`, `EventId`** are exported from `@modelcontextprotocol/server`
   only (v1 re-exported them alongside the transport from `sdk/server/streamableHttp.js`;
   `@modelcontextprotocol/node` does not).
+- **Client fetch middleware moved to the root barrel.** `createMiddleware`,
+  `applyMiddlewares`, `withLogging`, `withOAuth`, and the `Middleware` type (v1:
+  `sdk/client/middleware.js`) are now exported from `@modelcontextprotocol/client`
+  directly, as is `FetchLike` (v1: `sdk/shared/transport.js`). The call signatures are
+  unchanged from v1 (`Middleware` is still `(next: FetchLike) => FetchLike`) — only the
+  import path changes.
 - **Server auth split.** Resource Server helpers (`requireBearerAuth`,
   `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`)
   → `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`,
@@ -233,6 +424,11 @@ A few transports need a decision the codemod can't make:
     `…/server/middleware/hostHeaderValidation.js` to `@modelcontextprotocol/express`. The
     AS→`server-legacy` routing is conservative — re-point RS-only call sites
     (`requireBearerAuth`, `mcpAuthMetadataRouter`) at `@modelcontextprotocol/express` by hand.
+    Staying on the frozen `server-legacy/auth` copy is a supported interim choice when you
+    deliberately want the v1 middleware behavior. If you re-point at
+    `@modelcontextprotocol/express` by hand, also add that package — plus its `express`
+    peer dependency — to your manifest: the codemod's manifest summary reflects only the
+    imports it wrote, not re-points you make afterwards.
 
 ### Low-level protocol & handler context (`ctx`)
 
@@ -245,29 +441,39 @@ The codemod renames the parameter and remaps property access via
 A few mappings need optional-chaining adjustment (the `http` group is `undefined` on
 stdio):
 
-| v1 (`extra.*`)                                    | v2 (`ctx.*`)                   | Note                                                               |
-| ------------------------------------------------- | ------------------------------ | ------------------------------------------------------------------ |
-| `extra.signal`                                    | `ctx.mcpReq.signal`            |                                                                    |
-| `extra.requestId`                                 | `ctx.mcpReq.id`                |                                                                    |
-| `extra._meta`                                     | `ctx.mcpReq._meta`             |                                                                    |
-| `extra.sendRequest(...)`                          | `ctx.mcpReq.send(...)`         |                                                                    |
-| `extra.sendNotification(...)`                     | `ctx.mcpReq.notify(...)`       |                                                                    |
-| `extra.sessionId`                                 | `ctx.sessionId`                |                                                                    |
-| `extra.authInfo`                                  | `ctx.http?.authInfo`           | optional — `undefined` on stdio                                    |
-| `extra.requestInfo`                               | `ctx.http?.req`                | a standard Web `Request`; `ServerContext` only                     |
-| `extra.closeSSEStream`                            | `ctx.http?.closeSSE`           | `ServerContext` only                                               |
-| `extra.closeStandaloneSSEStream`                  | `ctx.http?.closeStandaloneSSE` | `ServerContext` only                                               |
-| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed_                      | see [Experimental tasks](#experimental-tasks-interception-removed) |
+| v1 (`extra.*`)                                    | v2 (`ctx.*`)                   | Note                                                                                                                                                 |
+| ------------------------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extra.signal`                                    | `ctx.mcpReq.signal`            |                                                                                                                                                      |
+| `extra.requestId`                                 | `ctx.mcpReq.id`                |                                                                                                                                                      |
+| `extra._meta`                                     | `ctx.mcpReq._meta`             |                                                                                                                                                      |
+| `extra.sendRequest(...)`                          | `ctx.mcpReq.send(...)`         |                                                                                                                                                      |
+| `extra.sendNotification(...)`                     | `ctx.mcpReq.notify(...)`       |                                                                                                                                                      |
+| `extra.sessionId`                                 | `ctx.sessionId`                |                                                                                                                                                      |
+| `extra.authInfo`                                  | `ctx.http?.authInfo`           | optional — `undefined` on stdio                                                                                                                      |
+| `extra.requestInfo`                               | `ctx.http?.req`                | a standard Web `Request`; `ServerContext` only                                                                                                       |
+| `extra.closeSSEStream`                            | `ctx.http?.closeSSE`           | `ServerContext` only; the member itself is also optional (defined only with an `eventStore`-configured transport) — call as `ctx.http?.closeSSE?.()` |
+| `extra.closeStandaloneSSEStream`                  | `ctx.http?.closeStandaloneSSE` | `ServerContext` only; member optional as above — `ctx.http?.closeStandaloneSSE?.()`                                                                  |
+| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed_                      | see [Experimental tasks](#experimental-tasks-interception-removed)                                                                                   |
 
-`BaseContext` is the common base; `ServerContext` and `ClientContext` extend it.
-`ServerContext.mcpReq` adds convenience methods that replace calling `server.*` from
-inside a handler:
+The transport-level seam behind `ctx.http?.authInfo` is unchanged from v1: a transport
+that passes `{ authInfo }` as the second argument to `onmessage(message, extra)` — e.g.
+an `InMemoryTransport` test seam — still surfaces it as `ctx.http?.authInfo` on any
+transport, and `ctx.http` is defined whenever `authInfo` is supplied, even without an
+HTTP transport.
 
-| `ctx.mcpReq.*` (new)                           | Replaces (inside a handler)                                                                                  |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `ctx.mcpReq.log(level, data, logger?)`         | `server.sendLoggingMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577) |
-| `ctx.mcpReq.elicitInput(params, options?)`     | `server.elicitInput(...)`                                                                                    |
-| `ctx.mcpReq.requestSampling(params, options?)` | `server.createMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577)      |
+`BaseContext` is the common base; `ServerContext` and `ClientContext` extend it. None
+of the three takes type parameters — v1's `RequestHandlerExtra<TRequest, TNotification>`
+arguments selected request/notification unions that the v2 context carries
+intrinsically, so their removal loses no type information; review only handlers that
+passed custom (non-standard) unions, whose `sendRequest` / `sendNotification` typing
+was narrowed by them. `ServerContext.mcpReq` adds convenience methods that replace
+calling `server.*` from inside a handler:
+
+| `ctx.mcpReq.*` (new)                           | Replaces (inside a handler)                                                                                                                                                                                                                                                         |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.mcpReq.log(level, data, logger?)`         | `server.sendLoggingMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577); the notification also becomes request-related on every era — see [§`ctx.mcpReq.log()` is request-related on every era](#ctxmcpreqlog-is-request-related-on-every-era) |
+| `ctx.mcpReq.elicitInput(params, options?)`     | `server.elicitInput(...)`                                                                                                                                                                                                                                                           |
+| `ctx.mcpReq.requestSampling(params, options?)` | `server.createMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577)                                                                                                                                                                             |
 
 #### Deprecated in v2 (SEP-2577)
 
@@ -279,7 +485,9 @@ instead.
 
 - **Runtime APIs**: `Server.createMessage` / `listRoots` / `sendLoggingMessage`,
   `McpServer.sendLoggingMessage`, `Client.setLoggingLevel` / `sendRootsListChanged`, and
-  the `ctx.mcpReq.log` / `ctx.mcpReq.requestSampling` handler-context helpers.
+  the `ctx.mcpReq.log` / `ctx.mcpReq.requestSampling` handler-context helpers. Outside a
+  handler, `McpServer` users reach the `Server.*` methods via the unchanged
+  [`mcpServer.server` accessor](#unchanged-apis).
 - **Capability fields**: the `roots`, `sampling`, and `logging` capability schema fields.
 - **Type stacks**: the full Logging stack (`LoggingLevel`, `SetLevelRequest`,
   `LoggingMessageNotification` and params), the full Sampling stack
@@ -290,8 +498,10 @@ instead.
 - **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
   Documents per SEP-991.
 
-JSDoc/types only — wire behavior is unchanged and remains functional for at least the
-twelve-month deprecation window.
+The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
+else: every deprecated runtime API keeps its v1 call signature (e.g.
+`Server.sendLoggingMessage(params, sessionId?)` keeps the two-argument form) and its
+wire behavior, and remains functional for at least the twelve-month deprecation window.
 
 #### `setRequestHandler` / `setNotificationHandler` use method strings
 
@@ -314,6 +524,52 @@ is at `ctx.mcpReq._meta`. The 3-arg notification handler is `(params, notificati
 ```typescript
 server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => { ... });
 ```
+
+The custom form also covers **spec method names carried with custom payloads**: a v1
+integration that reused a spec method string for its own payload shape (e.g.
+`notifications/message` notifications carrying a proprietary params object) registers
+it with the 3-arg form and its own schema. The overloads are selected by the arguments'
+shape, not by the method name — a schemas object as the second argument always selects
+the custom form, which validates against **your** schema (the spec schema is not
+applied) and hands the handler the parsed params rather than the envelope.
+
+**Spec notifications** use the 2-arg form `setNotificationHandler(method, handler)`.
+Unlike the 3-arg custom form, the spec-form handler receives the **full notification
+envelope** (`{ method, params }`), parsed against the spec schema — read
+`notification.params`:
+
+```typescript
+client.setNotificationHandler('notifications/tools/list_changed', async notification => {
+    console.log(notification.method, notification.params);
+});
+```
+
+The two overloads are selected by the method string's **type**: the spec form binds the
+method to the `NotificationMethod` union (`RequestMethod` on the request side — both
+exported), so a method string computed at runtime must be typed as `NotificationMethod`
+to select it; an untyped `string` lands on the custom-schema overload and fails to
+compile without a schemas argument. `Parameters<Client['setNotificationHandler']>[0]`
+also resolves to the custom `string` overload by design — name `NotificationMethod`
+directly instead. The request side has the same trap one slot over:
+`Parameters<Client['setRequestHandler']>` (and `typeof`-indexed casts over the overload
+set) resolve against the 3-arg custom-method overload, so index `[1]` is the
+`{ params, result }` schemas object, **not** the handler — v1 signature-erasing handler
+casts derived positionally change meaning with no runtime symptom. Name the exported
+types (`RequestMethod` and your own handler/param types) instead of deriving them
+positionally. Generic helpers that v1 parameterized on a notification schema need
+this conversion by hand; the codemod only warns on them.
+
+**Handler returns are spec-typed.** In v1 the handler's return type flowed from the
+schema you registered; v2 types it from the method name (`'tools/list'` →
+`ListToolsResult`, and so on). Tool tables kept as plain object literals surface two
+recurring compile errors: an unannotated literal widens `type: 'object'` to `string`
+and no longer satisfies the spec type's `type: 'object'` literal member (fix:
+`type: 'object' as const`, or annotate the table as `Tool[]`); and a heterogeneous
+table whose inferred union carries `prop?: undefined` members does not satisfy the spec
+types' `Record<string, JSONValue>` index signatures, since `undefined` is not a
+`JSONValue` (fix: annotate the handler's return type —
+`async (req): Promise<ListToolsResult> => …` — or the table itself, so each literal is
+checked against the target type instead of being inferred and widened first).
 
 #### `request()`, `ctx.mcpReq.send()`, and `callTool()` no longer require a schema for spec methods
 
@@ -358,8 +614,22 @@ For byte-exact forwarding (member order preserved), pass your own accept-anythin
 Standard Schema instead. Check call sites whose `method` is **not a literal** — the
 codemod may have dropped the schema argument there; restore it.
 
+The **inbound half** — a relay re-emitting an upstream JSON-RPC error from its own
+handler — has a supported surface too: reconstruct the typed error with
+`ProtocolError.fromError(code, message, data)` and throw it; the encode seam serializes
+it back to the wire shape (see [Typed `ProtocolError` subclasses](#typed-protocolerror-subclasses)).
+Note this is typed reconstruction, not byte-exact relay: legacy codes are normalized at
+the encode seam (`-32002` re-emits as `-32602`) and the typed subclasses keep only their
+schema-defined `data` members, so extra upstream data keys are dropped. Throwing a plain
+object carrying `.code` / `.message` / `.data` happens to work today, but it is
+unspecified behavior — prefer `fromError`.
+
 The return type is inferred from the method name via `ResultTypeMap` (e.g.
 `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`).
+v1 call sites that passed `CreateMessageResultWithToolsSchema` explicitly need no
+replacement: the schema-less send resolves to
+`CreateMessageResult | CreateMessageResultWithTools`, and validation selects the
+with-tools variant when the request set `tools` or `toolChoice`.
 
 ### Server registration API
 
@@ -382,6 +652,16 @@ server.registerTool('greet', { description: 'Greet a user', inputSchema: z.objec
 
 `registerResource` requires a `metadata` argument — pass `{}` if you have none.
 
+A tool or prompt registered **without** an `inputSchema` / `argsSchema` passes the
+context as its callback's single argument — v1 passed `(extra)`, v2 passes `(ctx)`:
+
+```typescript
+server.registerTool('ping', { description: 'Liveness check' }, async ctx => ({ content: [] }));
+```
+
+A one-parameter callback typechecks under either reading, so remember that the first
+parameter here is the context object, not an args object.
+
 #### Standard Schema objects (raw shapes deprecated)
 
 v2 expects schema objects implementing the [Standard Schema spec](https://standardschema.dev/)
@@ -389,6 +669,14 @@ for `inputSchema`, `outputSchema`, and `argsSchema`. Raw `{ field: z.string() }`
 are still **accepted via `@deprecated` overloads** on `registerTool`/`registerPrompt`
 (auto-wrapped with `z.object()`), and `completable()` accepts any `StandardSchemaV1`;
 prefer wrapping explicitly. Zod v4, ArkType, and Valibot all implement the spec.
+
+For **optional completable arguments**, apply `.optional()` to the _result_ of
+`completable()` — `completable(z.string(), cb).optional()`, not
+`completable(z.string().optional(), cb)`. v2 resolves completion metadata on the schema
+found after unwrapping an outer optional wrapper, so the v1 nesting returns empty
+completion lists — nothing errors — and if no argument carries completion metadata in
+the v2 position, the server does not advertise the `completions` capability at all. The
+codemod inverts the common nesting automatically and flags shapes it cannot rewrite.
 
 **Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). Check the **declared
 range** in your `package.json`, not just the installed version: a zod-3 range that
@@ -408,6 +696,61 @@ registry, the fallback **drops them** from the generated JSON Schema. Fix ladder
 via `fromJsonSchema()`. (Raw shapes are wrapped with the SDK's **bundled** Zod — built
 with a foreign Zod they fail at registration or at the first `tools/list`; pass
 `z.object()`-wrapped schemas from your own Zod instead.)
+
+In a monorepo that pins zod@3 workspace-wide and cannot bump, step (1) can be applied
+**per workspace member**: add a zod-4 alias dependency to the migrating member only —
+`"zod-v4": "npm:zod@^4.2.0"` in that member's `package.json` — and author SDK-bound
+schemas with it (`import { z } from 'zod-v4'`), leaving the rest of the workspace, and
+the member's own zod-3 consumer schemas, untouched. The alias copy does not need to be
+the same instance as the SDK's bundled zod: conversion runs through the **authoring**
+instance's `~standard.jsonSchema`, so `.describe()` descriptions are preserved and the
+emitted dialect is 2020-12. Keep the two z's apart — schemas authored with the alias
+are for the SDK; they do not compose with the workspace's zod-3 schemas. (For the
+bundle-side effects of the same pin, see
+[Bundlers: nested `zod` copies](#bundlers-nested-zod-copies-in-zod3-pinned-monorepos).)
+
+**Hosts that forward consumer-authored schemas.** The ladder assumes you author the
+schemas yourself. A host API that accepts raw shapes or schemas written by **its own
+consumers** — plugin systems, agent frameworks — cannot control the authoring zod
+version or instance, and v1's built-in conversion of foreign shapes is gone. Convert on
+the host side and register the result with `fromJsonSchema()`: zod-4 input via zod's
+own `z.toJSONSchema(z.object(shape), { io: 'input', target: 'draft-2020-12' })` (the
+conversion is runtime-structural, so a zod ≥4.2 in the host handles schemas built by a
+different zod-4 copy), zod-3 input via the
+[`zod-to-json-schema`](https://www.npmjs.com/package/zod-to-json-schema) package. Strip
+the `$schema` member from the converted output before passing it to `fromJsonSchema()`
+— `zod-to-json-schema` stamps a draft-07 `$schema` by default, and the default
+validator [accepts 2020-12 only](#json-schema-2020-12-posture-sep-1613-sep-2106).
+
+How a too-old zod surfaces depends on which entry point your code imports. With
+main-entry `import { z } from 'zod'` on a zod-3 range, the project **typechecks cleanly
+and fails at the first `tools/list`** (the quiet runtime path above). With
+`import * as z from 'zod/v4'` — or any zod whose _typings_ predate
+`~standard.jsonSchema` (zod 4.0–4.1, and zod 3.25.x via the `zod/v4` subpath) — the
+same code **runs** through the bundled fallback but **fails to compile**:
+`registerTool`/`registerPrompt` reject the schema with `TS2769: No overload matches
+this call` listing both overloads. The real cause is buried in the first overload's
+elaboration — `Property 'jsonSchema' is missing in type …` (that property is
+`~standard.jsonSchema`, added in zod 4.2.0) — and a follow-on implicit-`any` error on
+the handler's arguments usually appears below it. If you see that two-overload error on
+a registration call with a zod schema, check the installed zod version before anything
+else; both symptoms resolve identically with step (1) of the ladder.
+
+Projects that must stay below zod 4.2 and accept the documented runtime fallback can
+resolve the remaining registration compile errors with an explicit assertion to the
+registration schema type — `inputSchema: schema as unknown as
+StandardSchemaWithJSON<Input, Output>` — or a small typed wrapper that attaches a
+`~standard.jsonSchema` provider (step (2) of the ladder, which changes runtime
+conversion but not the schema's static type) and returns the asserted type. The
+fallback caveats (one-time warning, dropped `.describe()` descriptions) still apply
+unless the provider is attached.
+
+The forced zod-4 bump also surfaces zod's **own** type-level API changes in consumer
+annotations: `z.ZodTypeDef` no longer exists and `z.ZodType`'s generic parameters
+changed, so v3-era annotations like `z.ZodType<Output, z.ZodTypeDef, Input>` fail to
+compile — see [zod's v3-to-v4 changelog](https://zod.dev/v4/changelog). Consumer-only
+schemas can keep compiling via zod's v3 compat subpath (`zod/v3`), but anything passed
+to the SDK must be a zod-4 (or other Standard Schema) schema.
 
 The deprecated raw-shape overloads exist only on `registerTool` / `registerPrompt`.
 `RegisteredTool.update()` / `RegisteredPrompt.update()` take **schema objects**
@@ -447,8 +790,9 @@ produces the dialect v2 advertises.
 
 ### HTTP & headers
 
-Transport APIs and `ctx.http?.req?.headers` use the Web Standard `Headers` object
-(`IsomorphicHeaders` is removed). `ctx.http?.req` is a standard Web `Request`.
+Header **reads** use the Web Standard `Headers` object (`IsomorphicHeaders` is
+removed): `ctx.http?.req` is a standard Web `Request`, so
+`ctx.http?.req?.headers` takes `.get()` instead of bracket access.
 
 ```typescript
 // v1
@@ -457,13 +801,19 @@ const transport = new StreamableHTTPClientTransport(url, {
 });
 const sessionId = extra.requestInfo?.headers['mcp-session-id'];
 
-// v2
+// v2 — requestInit is unchanged; only the header *read* changes
 const transport = new StreamableHTTPClientTransport(url, {
-    requestInit: { headers: new Headers({ Authorization: 'Bearer token' }) }
+    requestInit: { headers: { Authorization: 'Bearer token' } }
 });
 const sessionId = ctx.http?.req?.headers.get('mcp-session-id');
 const debug = new URL(ctx.http!.req!.url).searchParams.get('debug');
 ```
+
+On the **write** side, `requestInit` on `StreamableHTTPClientTransport` /
+`SSEClientTransport` options is a standard fetch `RequestInit`, so `headers` accepts
+any `HeadersInit` — a plain object record (as above), a tuple array, or a `Headers`
+instance all keep working unchanged; the transports normalize whichever form they
+receive. Wrapping with `new Headers()` is optional, not required.
 
 `StreamableHTTPClientTransport` now **appends** any custom `requestInit.headers.Accept`
 value to the spec-required `application/json, text/event-stream` (v1 let it replace
@@ -548,6 +898,25 @@ if (e instanceof SseError && (e.code === 401 || e.code === 403)) reauth(); // SS
 
 Silent at runtime (no compile error) — grep for `.code ===` status comparisons.
 
+**Classification keyed on the error class name.** The same import-free classifiers
+often match by name instead of code: telemetry and allowlists keyed on `error.name` or
+`error.constructor.name` against `'McpError'` / `'StreamableHTTPError'` silently stop
+matching — the v2 classes are named `ProtocolError`, `SdkError`, and `SdkHttpError`,
+and all three assign `.name` accordingly. One v1 asymmetry disappears along the way:
+v1's `StreamableHTTPError` never assigned `.name` (instances reported `'Error'`), so
+`.name`-keyed matchers saw only `'McpError'`; v2's `SdkHttpError` reports
+`'SdkHttpError'`, and assertions pinning `.name === 'Error'` on transport errors need
+re-baselining. Add the v2 names to your match lists; during a
+[staged migration](#migrating-in-stages-large-codebases) keep the v1 names alongside
+for as long as the v1 package remains installed.
+
+**Status read out of the message text.** Per transport: the Streamable HTTP message
+text never carried the status (v1 put it on `.code`, v2 puts it on `.status` — read
+`error.status`), and v2's SSE transport still embeds it exactly as v1 did
+(`Error POSTing to endpoint (HTTP 404): …`). The silent break is **switching
+transports while keeping a message regex**: a status pattern written against SSE
+matches nothing on Streamable HTTP. Read `error.status` instead of parsing text.
+
 **Raw numeric code comparisons.** The codemod rewrites `ErrorCode.X` symbol references,
 but a check against the raw JSON-RPC number — `(e as { code?: unknown }).code === -32000`
 — is invisible to it and silently never matches in v2, because the two SDK-local codes
@@ -557,6 +926,11 @@ it usually targeted are now **string** `SdkErrorCode` values:
 | --------------------------- | -------------------------------------------- |
 | `-32000` (ConnectionClosed) | `SdkError` + `SdkErrorCode.ConnectionClosed` |
 | `-32001` (RequestTimeout)   | `SdkError` + `SdkErrorCode.RequestTimeout`   |
+
+- Requests that require a session but omit the `Mcp-Session-Id` header still
+  respond `400` with JSON-RPC `-32000` (`Bad Request: Mcp-Session-Id header is
+required`), unchanged from v1 — as with `-32001`, the code is an SDK
+  convention; key off the HTTP status.
 
 Replace the literal with the named code. Loud (`TS2367`) when the compared value is
 typed `SdkErrorCode`; silent when the left side is `unknown` or a cast — grep for
@@ -611,13 +985,26 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 (carries `data.requiredCapabilities`) are new typed `ProtocolError` subclasses.
 `resources/read` for an unknown URI now answers `-32602` on every protocol revision
 (v1.x already emitted `-32602`; an interim `-32002` from earlier v2 alphas is mapped at
-the encode seam). The encode-seam mapping applies to **your own throws too**: a handler
+the encode seam — published `2.0.0-alpha.3` predates the mapping and still emits
+`-32002` on the wire, so accept both until the next published alpha). The encode-seam mapping applies to **your own throws too**: a handler
 that deliberately throws `ProtocolError(ProtocolErrorCode.ResourceNotFound, …)` reaches
 peers as `-32602` — a server can no longer emit `-32002` on the wire.
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as
 receive-tolerated vocabulary — accept both `-32602` and `-32002` from peers.
 `ProtocolError.fromError(code, message, data)` reconstructs the typed subclass from
 code + data alone, so it works across bundle boundaries where `instanceof` doesn't.
+The default message text changed alongside: v1's unknown-resource error read
+`Resource <uri> not found`; v2's `ResourceNotFoundError` default is
+`Resource not found: <uri>` (the code is unchanged). Tests pinning the exact string
+need re-baselining — prefer matching `error.code` plus a URI substring (or the typed
+`error.uri`).
+
+Custom **non-spec** codes pass through untouched: a handler that throws a
+`ProtocolError` with a custom code (e.g. `-1`) and `data` reaches the peer as a
+JSON-RPC error with that code and `data` unchanged — the encode seam rewrites only the
+legacy `-32002` code; `data` is sent verbatim for every thrown error (the typed
+subclasses shape their `data` at construction, not at encode time). Construct via
+`ProtocolError.fromError(code, message, data)`.
 
 ### Auth
 
@@ -697,6 +1084,13 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
 - **Metadata discovery falls through on 502.** `discoverAuthorizationServerMetadata()`
   treats `502 Bad Gateway` like 4xx — fall through to the next candidate URL instead of
   throwing (fixes path-aware discovery behind reverse proxies). Other 5xx still throw.
+- **Scoped credential invalidation on `invalid_client` / `unauthorized_client`.** The
+  `auth()` retry for these errors now issues two scoped calls —
+  `invalidateCredentials('client')` then `invalidateCredentials('tokens')` — instead of
+  v1's single `invalidateCredentials('all')`, deliberately preserving the stored
+  discovery state so the callback-leg check on retry does not mask the original error.
+  A provider whose `invalidateCredentials()` implementation special-cases the `'all'`
+  scope must handle the split calls.
 
 #### OAuth client flow errors (new)
 
@@ -711,6 +1105,32 @@ path will not catch them):
 | RFC 9207 `iss` mismatch / RFC 8414 §3.3 issuer-echo mismatch                                                             | `IssuerMismatchError` (`kind`, `expected`, `received`)                                |
 | Transport 403 `insufficient_scope` with `onInsufficientScope: 'throw'`, or default mode without an `OAuthClientProvider` | `InsufficientScopeError` (`requiredScope`, `resourceMetadataUrl`, `errorDescription`) |
 | `auth()` callback leg: discovery resolves a different AS than the recorded redirect target                               | `AuthorizationServerMismatchError` (`recordedIssuer`, `currentIssuer`)                |
+
+#### Connect-time OAuth retry (`UnauthorizedError`)
+
+`UnauthorizedError` survives in v2 (exported from `@modelcontextprotocol/client` —
+its only appearance in the error table above is the removed `SSEClientTransport.send()`
+401 path), and the v1 connect-time pattern carries over: catch it from `connect()`,
+complete the browser flow, call `transport.finishAuth(…)`, reconnect.
+
+```typescript
+try {
+    await client.connect(transport);
+} catch (error) {
+    if (!(error instanceof UnauthorizedError)) throw error;
+    // provider.redirectToAuthorization() has been called; complete the flow,
+    // then reconnect on a FRESH transport (a started transport cannot be restarted).
+    await transport.finishAuth(new URL(callbackUrl).searchParams);
+    await client.connect(new StreamableHTTPClientTransport(url, { authProvider: provider }));
+}
+```
+
+One qualification: this direct `instanceof` check applies under the default `'legacy'`
+version negotiation. Under the probing modes (`versionNegotiation: { mode: 'auto' }`,
+with or without a pin) the connect-time 401 currently surfaces wrapped as
+`SdkError(SdkErrorCode.EraNegotiationFailed)` with the `UnauthorizedError` at
+`error.data.cause` — unwrap before the check, as shown in the
+[client guide's authentication section](../client.md#authentication).
 
 #### `auth()` options are now `AuthOptions`
 
@@ -818,7 +1238,18 @@ add an optional `issuer?: string` field on top of the wire types.
 `saveClientInformation()`. Implement `discoveryState()` / `saveDiscoveryState()` so the
 callback leg can verify it is exchanging the code at the same AS the redirect targeted;
 without it the SDK `console.warn`s once per callback (`discoveryState` must persist with
-the same durability as `codeVerifier`).
+the same durability as `codeVerifier`). Both methods are optional on
+`OAuthClientProvider` and may be sync or async; `OAuthDiscoveryState` (exported from
+`@modelcontextprotocol/client`) extends `OAuthServerInfo` with the optional
+`resourceMetadataUrl` the protected-resource metadata was found at:
+
+```typescript
+import type { OAuthDiscoveryState } from '@modelcontextprotocol/client';
+
+// On OAuthClientProvider:
+saveDiscoveryState?(state: OAuthDiscoveryState): void | Promise<void>;
+discoveryState?(): OAuthDiscoveryState | undefined | Promise<OAuthDiscoveryState | undefined>;
+```
 
 #### Conformance obligations for `OAuthClientProvider` implementers
 
@@ -893,10 +1324,56 @@ The Zod-specific `AnySchema` / `SchemaOutput` types from `…/zod-compat.js` are
 replace with `StandardSchemaV1` / `StandardSchemaV1.InferOutput<T>` (the codemod's
 removal message says the same).
 
+**Composing two core schemas.** Zod composition needs a shared zod: deriving from a
+single core schema (as above) and combining core schemas with your own `z` typecheck
+when your `zod` resolves to the **same copy** `@modelcontextprotocol/core` uses (a
+`zod ^4.2.0` range that dedupes). When it cannot — a zod@3-pinned project nests core's
+own zod@4 — v1 idioms that combined two spec schemas with your `z` no longer compile:
+core does not export its zod instance, and a foreign zod's `z.union(…)` / `.or(…)`
+rejects core's schema types. For accept-either result parsing, skip composition:
+request with the `ResultSchema` passthrough (the same one the
+[gateway note](#request-ctxmcpreqsend-and-calltool-no-longer-require-a-schema-for-spec-methods)
+uses) and discriminate with sequential `safeParse`:
+
+```typescript
+// v1 — one composed schema
+const result = await client.request(req, z.union([CompatibilityCallToolResultSchema, CreateTaskResultSchema]));
+
+// v2 — passthrough request, then sequential discrimination
+import { CompatibilityCallToolResultSchema, CreateTaskResultSchema, ResultSchema } from '@modelcontextprotocol/core';
+const raw = await client.request(req, ResultSchema);
+const asTask = CreateTaskResultSchema.safeParse(raw);
+const result = asTask.success ? asTask.data : CompatibilityCallToolResultSchema.parse(raw);
+```
+
+Order the candidates from most to least specific, and `.parse()` the last one so a
+result that matches no candidate still fails loudly.
+
 The role-aggregate unions (`ClientRequest`, `ServerResult`, `ServerRequest`,
 `ClientResult`, `ClientNotification`, `ServerNotification`) and the typed-method maps
 (`RequestMethod`, `RequestTypeMap`, `ResultTypeMap`, `NotificationTypeMap`) no longer
 include task vocabulary; the deprecated `Task*` types remain importable on their own.
+(One published-alpha qualification, like the `-32002` note in [Errors](#errors): the
+`2.0.0-alpha.3` typings predate this — the typed maps there still carry the `tasks/*`
+entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so a
+`client.request({ method: 'tools/call', … })` result does not assign to
+`Promise<CallToolResult>`. Narrow with the `isCallToolResult` guard until the next
+published alpha — the guard is the recommended discrimination tool anyway, per the next
+paragraph.)
+
+**Discriminating result shapes: use guards, not the `in` operator.** The v2
+zod-inferred result types are passthrough objects — every union member carries an index
+signature — so v1-idiomatic property discrimination such as
+`if ('content' in result) { … } else { result.toolResult }` no longer narrows: the `in`
+check is satisfiable by every member, and the else branch can collapse to `never`
+(surfacing as `TS2339` on the property you then read). Use the exported guards instead:
+`isCallToolResult(result)`, or `isSpecType.GetPromptResult(result)` and friends for any
+other spec type ([above](#zod-schema-constants-moved-to-modelcontextprotocolcore)). An
+adjacent trap when keeping a union for later narrowing: a `const` **annotation** is
+control-flow-narrowed straight back to the initializer's type — after
+`const r: A | B = await fn()`, `r` has `fn`'s return type, not the union — so when you
+need the wider union (e.g. a `CompatibilityCallToolResult` branch), apply an
+`as A | B` assertion instead of an annotation.
 
 #### Removed type aliases
 
@@ -929,13 +1406,18 @@ names — import the TypeScript types, error classes, enums, and type guards fro
 `@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the Zod
 `*Schema` constants from `@modelcontextprotocol/core`.
 
+One type-level narrowing to note: client/server capability `experimental` payloads are
+now typed as JSON-compatible objects (nested JSON values) rather than arbitrary
+objects. A payload typed `Record<string, unknown>` no longer assigns (`TS2322`) — give
+the source a JSON-compatible type or cast at the boundary.
+
 The `Protocol` base class itself is no longer exported (it is internal engine). If you
 were reaching into protocol internals — rare, mostly debugging tools —
 `client.fallbackRequestHandler` / `server.fallbackRequestHandler` receives every
 inbound request that no registered handler matches, before capability gating. Delete
 the v1 `shared/protocol.js` import: `Protocol` has no v2 import path. The codemod
-currently rewrites it to a named import from `@modelcontextprotocol/client` that does
-not exist (a codemod fix is tracked) — delete that import.
+drops `Protocol` (and `mergeCapabilities`) from the rewritten import and leaves an
+`@mcp-codemod-error` marker at the site explaining the replacement.
 
 #### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
 
@@ -977,6 +1459,23 @@ rewrite required unless noted.
 
 #### Error-shape changes (every era)
 
+- **Unchanged, for re-baselining relief:** timeout rejections still carry
+  `data.timeout` / `data.maxTotalTimeout` exactly as v1 `McpError` did — v1 assertions
+  on those survive verbatim. The cancelled-on-timeout signal is unchanged on legacy-era
+  connections and on stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel
+  signal is the per-request stream close instead of a `notifications/cancelled` POST
+  (see [support-2026-07-28.md](./support-2026-07-28.md)).
+- **Also unchanged: SSE reconnection exhaustion.** `StreamableHTTPClientTransport`'s
+  standalone GET-stream reconnection behavior and its exhaustion signal carry over from
+  v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
+  message is `Maximum reconnection attempts (N) exceeded.` — there is no typed error
+  class for this condition, so monitors that match the message text keep working.
+- **Also unchanged: elicitation response validation.** `elicitInput`'s local validation
+  of elicitation responses against `requestedSchema`, the resulting `-32602` error
+  message wording (`Elicitation response content does not match requested schema: …`),
+  and the `McpServer` / `Client` `jsonSchemaValidator` option carry over from v1 —
+  tests pinning the local-validation message and custom validator wiring need no
+  re-baselining.
 - **Unknown / disabled tool calls now reject** with `ProtocolError(-32602 InvalidParams)`
   instead of resolving `CallToolResult{isError: true}`. v1 callers that checked
   `result.isError` for an unknown tool will get an unhandled rejection — catch the
@@ -1025,6 +1524,10 @@ rewrite required unless noted.
   [support-2026-07-28.md](./support-2026-07-28.md#client-side-versionnegotiation)).
   v1 had no public equivalent (`SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) —
   replace any workaround that patched the offered version with this option.
+- **Also unchanged: HTTP 405 tolerances.** A `405` answering the standalone GET stream
+  open is benign (the client proceeds without the stream), and a `405` answering the
+  session DELETE resolves `terminateSession()` normally — stateless-topology servers
+  that decline both verbs keep working without changes, as in v1.
 
 #### stdio transport
 
@@ -1040,6 +1543,10 @@ rewrite required unless noted.
 - `StdioClientTransport` always sets `windowsHide: true` when spawning the server
   process on Windows (previously Electron-only). Prevents stray console windows in
   non-Electron Windows hosts.
+- Outbound write failures — e.g. the host closing the stdout pipe while a send is
+  pending — now reject the pending `send()` and close the transport through
+  `onerror`/`onclose` instead of surfacing an unhandled stream error; lifecycle
+  tests that pinned a crash-class exit observe a clean shutdown instead.
 
 #### Client list methods
 
@@ -1100,12 +1607,23 @@ rewrite required unless noted.
   zero registrations. `new McpServer(info, { capabilities: { tools: {} } })` with no
   registered tools answers `tools/list` with `{ tools: [] }` instead of `-32601 Method
 not found`. Low-level `Server` users remain responsible for registering handlers for
-  declared capabilities.
+  declared capabilities — with one exception: declaring the `logging` capability (in
+  the constructor's capabilities or via pre-connect `registerCapabilities()`) installs
+  the `logging/setLevel` handler on the low-level `Server` too, so `logging/setLevel`
+  requests that answered `-32601` in v1 now resolve. Eager install also rewrites the **advertised** capability
+  objects: a declared `tools: {}` / `resources: {}` / `prompts: {}` is advertised with
+  `listChanged: true` at construction, so capability pins and initialize-result golden
+  tests need re-baselining. To advertise without the default, set
+  `listChanged: false` explicitly; capabilities declared on the low-level `Server` are
+  advertised verbatim.
 - **`WebStandardStreamableHTTPServerTransport` store-first `eventStore` semantics.**
   Request-related events emitted after `closeSSE()` — and the final response when no
   per-request stream is connected — are now persisted to the configured `eventStore` for
   replay (v1 dropped them / threw `"No connection established"`). Without an
   `eventStore`, the same condition surfaces via `onerror` and the request id is retired.
+  `NodeStreamableHTTPServerTransport` is a thin wrapper over
+  `WebStandardStreamableHTTPServerTransport`, so this — like every behavioral note on
+  the web-standard transport — applies to the Node transport too.
 - **`registerResource` reserves the `cacheHint` config key.** It is validated
   (`RangeError` on invalid values) and stripped from the resource's list metadata; v1
   passed it through verbatim as ordinary metadata. Untyped callers that previously
@@ -1142,6 +1660,13 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
 - **Sampling `hasTools` discriminant** now keys on `tools || toolChoice` (previously
   `tools` only) when selecting the with-tools `CreateMessageResult` variant, on every
   era.
+- **Inbound frames that fail message-shape validation are not answered.** v2 routes
+  every inbound frame through typed message guards; a frame that matches no JSON-RPC
+  shape (e.g. a hand-built ping with an explicitly-`undefined` `id`, or non-object
+  `params`) is dropped and surfaces only via `onerror` (`Unknown message type: …`) — no
+  response is sent. v1-era test fences that await a reply to a hand-written raw frame
+  hang instead of resolving; send through the typed surface (`client.ping()`,
+  `client.request()`) instead.
 
 #### Experimental tasks interception removed
 
@@ -1211,17 +1736,50 @@ The following are unchanged between v1 and v2 (only the import path changed):
 - `Client` constructor and `connect`, `close`, and the typed verbs (`listTools`,
   `listPrompts`, `listResources`, `readResource`, …) — note `callTool()` and `request()`
   signatures changed (schema parameter dropped for spec methods).
-- `McpServer` constructor, `server.connect(transport)`, `server.close()`.
-- `StreamableHTTPClientTransport`, `SSEClientTransport` constructors and options.
+- `McpServer` constructor, `server.connect(transport)`, `server.close()`, and the
+  `McpServer.server` accessor — still the supported way to call the low-level
+  `Server`'s push verbs (`createMessage` / `listRoots` / `sendLoggingMessage` — ⚠
+  `@deprecated`, see [§Deprecated in v2](#deprecated-in-v2-sep-2577)) outside a
+  handler context.
+- The server Streamable HTTP transports' **constructor options** (`sessionIdGenerator`,
+  `onsessioninitialized`, `onsessionclosed`, `enableJsonResponse`, `eventStore`,
+  `retryInterval`) and the `handleRequest` surface — only the class name and import
+  moved: `StreamableHTTPServerTransport` is now `NodeStreamableHTTPServerTransport`
+  from `@modelcontextprotocol/node`, a thin wrapper over
+  `WebStandardStreamableHTTPServerTransport` from `@modelcontextprotocol/server`,
+  which exposes the same options ([decision rule](#imports--transports)). The
+  transport-level `closeSSEStream(requestId)` / `closeStandaloneSSEStream()` methods
+  keep their v1 names too — only the handler-context accessors moved to `ctx.http`
+  ([remap table](#low-level-protocol--handler-context-ctx)).
+- `UriTemplate` (v1: `@modelcontextprotocol/sdk/shared/uriTemplate.js`) — `expand` /
+  `match` semantics carry over; import it from `@modelcontextprotocol/server` or
+  `@modelcontextprotocol/client` (top-level export; the codemod rewrites the path).
+- `StreamableHTTPClientTransport`, `SSEClientTransport` constructors and options —
+  including resumability: the per-request `resumptionToken` / `onresumptiontoken`
+  request options carry over from v1 unchanged
+  ([Resumption tokens](../client.md#resumption-tokens) in the client guide).
 - `StdioClientTransport` and `StdioServerTransport` — **import path moved** to the
   `./stdio` subpath and gained an optional `maxBufferSize` ([Imports & transports](#imports--transports)).
+- The **`Transport` interface contract** — `start` / `send` / `close`, `onmessage` /
+  `onclose` / `onerror`, optional `sessionId` and `setProtocolVersion`,
+  `TransportSendOptions`, `MessageExtraInfo`. Hand-rolled v1 transports (recording
+  wrappers, test doubles, decorators) compile and run against v2 with only the import
+  path updated. v2 adds **optional** members only — `hasPerRequestStream` and
+  `setSupportedProtocolVersions` on the interface, `requestSignal` / `headers` /
+  `onRequestStreamEnd` on `TransportSendOptions` — which matter only for 2026-era
+  per-request-stream cancellation and `Mcp-Param-*` header attachment
+  ([support-2026-07-28.md](./support-2026-07-28.md)).
 - All TypeScript **type** definitions from `types.ts` (except the aliases listed under
-  [Removed type aliases](#removed-type-aliases)).
+  [Removed type aliases](#removed-type-aliases) and the `experimental` capability
+  payload narrowing — see [Types & schemas](#types--schemas)).
 - Tool, prompt, and resource callback return types.
 
 > The `Server` (low-level) constructor and **most** of its methods are unchanged, but
 > `setRequestHandler` / `setNotificationHandler` and `request()` signatures changed
-> ([Low-level protocol](#low-level-protocol--handler-context-ctx)). The Zod `*Schema`
+> ([Low-level protocol](#low-level-protocol--handler-context-ctx)). In particular,
+> `Server.createElicitationCompletionNotifier()` is unchanged — including its
+> construction-time client-capability check — for 2025-era URL-mode elicitation
+> ([support-2026-07-28.md](./support-2026-07-28.md)). The Zod `*Schema`
 > constants are **not** part of the unchanged surface — they moved to
 > `@modelcontextprotocol/core` ([Types & schemas](#types--schemas)).
 
