@@ -131,7 +131,7 @@ basket. See `examples/README.md` for the full story matrix.
 
 - `examples/shared/` — `@mcp-examples/shared` package. Root export is args-only (`parseExampleArgs`, `check`, `siblingPath`); the demo OAuth provider and `InMemoryEventStore` live at the `@mcp-examples/shared/auth` subpath so non-auth stories don't eagerly evaluate better-auth/express/better-sqlite3. Stories import only this plumbing and inline the SDK transport setup themselves — see `examples/CONTRIBUTING.md`.
 - `scripts/examples/` — runner (`run-examples.ts`)
-- `examples/guides/` — typecheck-only snippet collections synced into `docs/{server,client}.md`
+- `examples/guides/` — per-page snippet companions for the `docs/` guide pages (one `<section>/<page>.examples.ts` per page); fences sync via `pnpm sync:snippets`, and the runnable ones are executed in CI by `pnpm docs:examples`
 
 ## Message Flow (Bidirectional Protocol)
 

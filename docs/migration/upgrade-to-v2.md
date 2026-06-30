@@ -1145,7 +1145,7 @@ version negotiation. Under the probing modes (`versionNegotiation: { mode: 'auto
 with or without a pin) the connect-time 401 currently surfaces wrapped as
 `SdkError(SdkErrorCode.EraNegotiationFailed)` with the `UnauthorizedError` at
 `error.data.cause` — unwrap before the check, as shown in the
-[client guide's authentication section](../client.md#authentication).
+[client OAuth guide](../clients/oauth.md).
 
 #### `auth()` options are now `AuthOptions`
 
@@ -1777,7 +1777,7 @@ where an entry notes its own signature change:
 - `StreamableHTTPClientTransport`, `SSEClientTransport` constructors and options —
   including resumability: the per-request `resumptionToken` / `onresumptiontoken`
   request options carry over from v1 unchanged
-  ([Resumption tokens](../client.md#resumption-tokens) in the client guide).
+  ([Resume a dropped stream](../serving/sessions-state-scaling.md#resume-a-dropped-stream)).
 - `StdioClientTransport` and `StdioServerTransport` — **import path moved** to the
   `./stdio` subpath and gained an optional `maxBufferSize` ([Imports & transports](#imports--transports)).
 - The **`Transport` interface contract** — `start` / `send` / `close`, `onmessage` /
@@ -1809,7 +1809,7 @@ where an entry notes its own signature change:
 
 - The codemod's [`@mcp-codemod-error`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md) markers point
   at every site it could not safely rewrite.
-- The [FAQ](../faq.md) covers common v2 questions.
+- The [Troubleshooting](../troubleshooting.md) page covers common errors and their fixes.
 - Runnable [examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples)
   for every subsystem.
 - Open an issue on [GitHub](https://github.com/modelcontextprotocol/typescript-sdk/issues).

@@ -24,6 +24,7 @@ Optional framework adapters: [`@modelcontextprotocol/express`](https://www.npmjs
 ## Documentation
 
 - **[Repository README](https://github.com/modelcontextprotocol/typescript-sdk#readme)** — overview, package layout, examples
-- **[Server guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/server.md)**
+- **[Server guide](https://ts.sdk.modelcontextprotocol.io/v2/servers/tools)** — tools, resources, prompts, and the rest of the server surface
+- **[Serving guide](https://ts.sdk.modelcontextprotocol.io/v2/serving/http)** — stdio, HTTP, the framework adapters, sessions, and authorization
 - **[API reference](https://ts.sdk.modelcontextprotocol.io/v2/)**
 - **[MCP specification](https://modelcontextprotocol.io)**

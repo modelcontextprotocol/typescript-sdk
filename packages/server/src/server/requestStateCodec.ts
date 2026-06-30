@@ -147,7 +147,7 @@ export function createRequestStateCodec<T = unknown>(options: RequestStateCodecO
     if (subtle === undefined) {
         throw new TypeError(
             'createRequestStateCodec requires the Web Crypto API (globalThis.crypto.subtle); ' +
-                'see https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/faq.md for the Node.js polyfill instructions'
+                'see https://ts.sdk.modelcontextprotocol.io/v2/troubleshooting for the Node.js polyfill instructions'
         );
     }
 
