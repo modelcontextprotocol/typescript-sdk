@@ -210,7 +210,9 @@ export interface ToWebRequestOptions {
  */
 export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: unknown, options?: ToWebRequestOptions): Promise<Request> {
     const method = (req.method ?? 'GET').toUpperCase();
-    const host = singleHeaderValue(req.headers['host']) ?? 'localhost';
+    // HTTP/2 requests carry their authority as the `:authority` pseudo-header,
+    // usually with no `host` entry at all (mirrors Node's `request.authority`).
+    const host = singleHeaderValue(req.headers['host']) ?? singleHeaderValue(req.headers[':authority']) ?? 'localhost';
     const url = `http://${host}${req.url ?? '/'}`;
 
     const headers = new Headers();

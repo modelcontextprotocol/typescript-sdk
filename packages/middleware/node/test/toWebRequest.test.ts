@@ -115,16 +115,25 @@ describe('toWebRequest', () => {
         expect(new URL(withoutHost.url).host).toBe('localhost');
     });
 
-    it('skips HTTP/2 pseudo-headers, whose names Headers rejects', async () => {
+    it('derives the URL host from :authority for an HTTP/2 request (no host header) and drops pseudo-headers', async () => {
+        // A real HTTP/2 client sends only the pseudo-header — no `host` entry.
         const request = await toWebRequest(
             nodeRequest({
                 method: 'GET',
                 url: '/mcp',
-                headers: { host: 'h2.example.test', ':authority': 'h2.example.test', ':path': '/mcp', 'mcp-protocol-version': '2026-07-28' }
+                headers: { ':authority': 'h2.example.test:8443', ':path': '/mcp', ':scheme': 'http', 'mcp-protocol-version': '2026-07-28' }
             })
         );
-        expect(new URL(request.url).host).toBe('h2.example.test');
+        expect(new URL(request.url).host).toBe('h2.example.test:8443');
+        // Pseudo-header names are skipped — `Headers` rejects them.
         expect(request.headers.get('mcp-protocol-version')).toBe('2026-07-28');
+    });
+
+    it('prefers the host header over :authority when both are present', async () => {
+        const request = await toWebRequest(
+            nodeRequest({ method: 'GET', url: '/mcp', headers: { host: 'h1.example.test', ':authority': 'h2.example.test' } })
+        );
+        expect(new URL(request.url).host).toBe('h1.example.test');
     });
 
     it('produces a body-less Request for GET/HEAD even when parsedBody is supplied', async () => {
