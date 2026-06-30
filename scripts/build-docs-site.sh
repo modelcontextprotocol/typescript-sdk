@@ -37,8 +37,7 @@ echo "=== Building V2 site ==="
 cd "$REPO_ROOT"
 pnpm install
 pnpm -r --filter='./packages/**' build
-pnpm docs:api
-pnpm exec vitepress build docs
+pnpm docs:build
 
 mkdir -p "$OUTPUT_DIR/v2"
 cp -r "$REPO_ROOT/docs/.vitepress/dist/." "$OUTPUT_DIR/v2/"
