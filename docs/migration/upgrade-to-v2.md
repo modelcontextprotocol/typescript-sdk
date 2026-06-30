@@ -999,8 +999,9 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 (carries `data.requiredCapabilities`) are new typed `ProtocolError` subclasses.
 `resources/read` for an unknown URI now answers `-32602` on every protocol revision
 (v1.x already emitted `-32602`; an interim `-32002` from earlier v2 alphas is mapped at
-the encode seam — published `2.0.0-alpha.3` predates the mapping and still emits
-`-32002` on the wire, so accept both until the next published alpha). The encode-seam mapping applies to **your own throws too**: a handler
+the encode seam — `2.0.0-alpha.3` and earlier predate the mapping and still emit
+`-32002` on the wire, so accept both if peers may run those alphas; `2.0.0-alpha.4`
+and later emit `-32602`). The encode-seam mapping applies to **your own throws too**: a handler
 that deliberately throws `ProtocolError(ProtocolErrorCode.ResourceNotFound, …)` reaches
 peers as `-32602` — a server can no longer emit `-32002` on the wire.
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as
@@ -1372,12 +1373,12 @@ The role-aggregate unions (`ClientRequest`, `ServerResult`, `ServerRequest`,
 (`RequestMethod`, `RequestTypeMap`, `ResultTypeMap`, `NotificationTypeMap`) no longer
 include task vocabulary; the deprecated `Task*` types remain importable on their own.
 (One published-alpha qualification, like the `-32002` note in [Errors](#errors): the
-`2.0.0-alpha.3` typings predate this — the typed maps there still carry the `tasks/*`
-entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so a
-`client.request({ method: 'tools/call', … })` result does not assign to
-`Promise<CallToolResult>`. Narrow with the `isCallToolResult` guard until the next
-published alpha — the guard is the recommended discrimination tool anyway, per the next
-paragraph.)
+`2.0.0-alpha.3` and earlier typings predate this — the typed maps there still carry the
+`tasks/*` entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so
+a `client.request({ method: 'tools/call', … })` result does not assign to
+`Promise<CallToolResult>`. If pinned to those alphas, narrow with the
+`isCallToolResult` guard — the recommended discrimination tool anyway, per the next
+paragraph; `2.0.0-alpha.4` and later are unaffected.)
 
 **Discriminating result shapes: use guards, not the `in` operator.** The v2
 zod-inferred result types are passthrough objects — every union member carries an index
