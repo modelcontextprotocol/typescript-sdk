@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/server-legacy",
     "private": false,
-    "version": "2.0.0-beta.0",
+    "version": "2.0.0-beta.1",
     "description": "Frozen v1 SSE transport and OAuth Authorization Server helpers for the Model Context Protocol TypeScript SDK. Deprecated; use StreamableHTTP and a dedicated OAuth server in production.",
     "deprecated": "This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.",
     "license": "MIT",
