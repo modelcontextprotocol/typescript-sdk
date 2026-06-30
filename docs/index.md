@@ -41,7 +41,7 @@ Any MCP host that launches this program lists and calls `get-forecast`; the SDK 
 - Coming from v1 (`@modelcontextprotocol/sdk`) → **[Upgrade](./migration/index.md)**
 - Drop MCP into the app you already run → **[Express](./serving/express.md)** · **[Hono](./serving/hono.md)** · **[Fastify](./serving/fastify.md)** · **[Workers](./serving/web-standard.md)**
 
-For exact signatures, go to the [API reference](https://ts.sdk.modelcontextprotocol.io/v2/).
+For exact signatures, go to the [API reference](/api/).
 
 ## Recap
 
