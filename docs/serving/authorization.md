@@ -1,59 +1,108 @@
 ---
-status: scaffold
 shape: how-to
 ---
 # Require authorization
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Bearer auth, PRM metadata, per-tool scopes. Opens with the one-line auth router.
-teaches: requireBearerAuth, OAuthTokenVerifier, mcpAuthMetadataRouter, getOAuthProtectedResourceMetadataUrl, ctx.http.authInfo, per-tool scope checks
-source: mined from docs/server.md "Authorization (OAuth resource server)" (the best long example in the set — lens 89); examples/scoped-tools/README.md; examples/bearer-auth/
--->
-
-<!-- opening (before any H2) — the one-line auth router, mandatory:
-Protecting a server you run -> this page. Signing a user in from a client -> /clients/oauth. No user present -> /clients/machine-auth. -->
+Protecting a server you run → this page. Signing a user in from a client you build → [Authenticate a user with OAuth](../clients/oauth.md). No user present → [Authenticate without a user](../clients/machine-auth.md).
 
 ## Require a bearer token
-<!-- teaches: requireBearerAuth({ verifier, requiredScopes, resourceMetadataUrl }) in front of the MCP route; your server is an OAuth RESOURCE server — it verifies tokens, it never issues them | salvage: docs/server.md "Authorization (OAuth resource server)" lead -->
 
-```ts
-// draft - API verified against packages/middleware/express/src/auth/bearerAuth.ts (requireBearerAuth) and packages/middleware/express/src/auth/metadataRouter.ts (getOAuthProtectedResourceMetadataUrl)
-import { getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
+Your MCP server is an OAuth **resource server**: it verifies access tokens that an authorization server issued, and it never issues them. `requireBearerAuth` from `@modelcontextprotocol/express` is that whole gate — build it from a verifier and mount it in front of the `/mcp` route from the [Express recipe](./express.md).
 
-// continuing from the Express recipe: `verifier`, `app`, and `node` already exist
+```ts source="../../examples/guides/serving/authorization.examples.ts#requireBearerAuth_basic"
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
+import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+
 const mcpServerUrl = new URL('https://api.example.com/mcp');
+const verifier: OAuthTokenVerifier = { verifyAccessToken };
 
 const auth = requireBearerAuth({
-  verifier,
-  requiredScopes: ['mcp'],
-  resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    verifier,
+    requiredScopes: ['mcp'],
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
 });
 
+const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
+const node = toNodeHandler(createMcpHandler(buildServer));
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 ```
-<!-- result: one line — a request without a valid token gets 401 invalid_token with a WWW-Authenticate: Bearer challenge -->
+
+A request with a missing, malformed, or expired token gets `401` with the OAuth error code `invalid_token`. A valid token missing one of `requiredScopes` gets `403` with `insufficient_scope`. Both responses carry a `WWW-Authenticate: Bearer …` challenge whose `resource_metadata` parameter is the URL you passed — that challenge is what starts a client's OAuth flow.
+
+::: info Coming from v1?
+The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, …) are frozen in `@modelcontextprotocol/server-legacy/auth`. Use a dedicated identity provider for new servers; this page only covers the resource-server half.
+:::
 
 ## Verify tokens your way
-<!-- teaches: OAuthTokenVerifier — verifyAccessToken(token) -> AuthInfo; JWT verification, RFC 7662 introspection, or a call to your IdP | salvage: docs/server.md auth_resourceServer region (verifier half) -->
-<!-- code: const verifier: OAuthTokenVerifier = { async verifyAccessToken(token) { ... return { token, clientId, scopes, expiresAt } } } -->
+
+`verifyAccessToken` is the one function you supply: take the raw token string, return an `AuthInfo`. Local JWT verification, [RFC 7662](https://datatracker.ietf.org/doc/html/rfc7662) introspection, or a call to your identity provider all fit behind it.
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#tokenVerifier_basic"
+async function verifyAccessToken(token: string): Promise<AuthInfo> {
+    const payload = await verifyJwt(token);
+    return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp };
+}
+```
+
+Throw an `OAuthError` with `OAuthErrorCode.InvalidToken` (both from `@modelcontextprotocol/server`) for a token you reject, and `requireBearerAuth` turns it into the `401` challenge. Any other exception comes back as `500 server_error`.
+
+::: warning
+`requireBearerAuth` also answers `401 invalid_token` for a token whose `expiresAt` is unset. Always populate it — from the JWT `exp` claim or the introspection response's `exp` field.
+:::
 
 ## Publish protected resource metadata
-<!-- teaches: mcpAuthMetadataRouter serves /.well-known/oauth-protected-resource (RFC 9728) so clients can discover your AS; the 401 challenge's resource_metadata points at it | salvage: docs/server.md auth_resourceServer region (metadata half) -->
-<!-- code: app.use(mcpAuthMetadataRouter({ oauthMetadata, resourceServerUrl: mcpServerUrl })) -->
+
+`mcpAuthMetadataRouter` serves the [RFC 9728](https://datatracker.ietf.org/doc/html/rfc9728) protected resource metadata document that the `401` challenge points at. `oauthMetadata` is your authorization server's own RFC 8414 metadata document.
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#metadataRouter_basic"
+app.use(mcpAuthMetadataRouter({ oauthMetadata, resourceServerUrl: mcpServerUrl }));
+```
+
+The router mounts two well-known routes: `/.well-known/oauth-protected-resource/mcp` — the path-aware RFC 9728 location, the same string `getOAuthProtectedResourceMetadataUrl(mcpServerUrl)` put into the challenge — and `/.well-known/oauth-authorization-server`, a mirror of `oauthMetadata` for clients that probe your origin directly. An unauthenticated client follows `401` → `resource_metadata` → `authorization_servers` to find your AS, obtains a token, and retries.
 
 ## Read the caller in your handlers
-<!-- teaches: requireBearerAuth sets req.auth; toNodeHandler forwards it; tool handlers read ctx.http.authInfo and factories read ctx.authInfo | salvage: docs/server.md "requireBearerAuth attaches the verified AuthInfo..." paragraph -->
-<!-- code: async (args, ctx) => { const who = ctx.http?.authInfo?.clientId; ... } -->
+
+`requireBearerAuth` attaches the verified `AuthInfo` to `req.auth`, `toNodeHandler` forwards it, and tool handlers inside `buildServer` read it as `ctx.http.authInfo` — the exact object your verifier returned.
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#authInfo_handler"
+server.registerTool('whoami', { description: 'Report the authenticated caller' }, async ctx => {
+    const caller = ctx.http?.authInfo;
+    return { content: [{ type: 'text', text: `${caller?.clientId} [${caller?.scopes.join(' ')}]` }] };
+});
+```
+
+`ctx.http` is `undefined` when the same server runs over [stdio](./stdio.md), so guard the read if your server serves both transports.
+
+::: tip
+The per-request factory itself receives the same value as `ctx.authInfo`, so it can register a different tool set per caller before any handler runs.
+:::
 
 ## Enforce per-tool scopes
-<!-- teaches: requiredScopes gates the whole endpoint; per-tool scopes are checked in the handler against ctx.http?.authInfo?.scopes, returning isError with insufficient_scope | salvage: examples/scoped-tools/README.md -->
-<!-- code: if (!ctx.http?.authInfo?.scopes?.includes('files:write')) return { content: [...], isError: true } -->
-<!-- aside: SEP-2350 scope step-up (the client retries after a 403 insufficient_scope challenge) — one line, link /clients/oauth -->
+
+`requiredScopes` gates the whole endpoint. For a scope only some tools need, check inside the handler — the handler is the only place that knows which tool is executing.
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#perToolScopes_handler"
+server.registerTool('purge-notes', { description: 'Delete every note' }, async ctx => {
+    if (!ctx.http?.authInfo?.scopes.includes('notes:write')) {
+        return { content: [{ type: 'text', text: 'insufficient_scope: purge-notes requires notes:write' }], isError: true };
+    }
+    return { content: [{ type: 'text', text: 'All notes deleted' }] };
+});
+```
+
+A caller holding only `mcp` gets an ordinary tool result with `isError: true`, so the model reads the refusal and moves on instead of losing the connection.
+
+::: info
+Responding `403 insufficient_scope` at the HTTP layer instead triggers the client transport's automatic scope step-up (SEP-2350) — see [Authenticate a user with OAuth](../clients/oauth.md).
+:::
 
 ## Recap
-<!-- the claims this page proves:
-- requireBearerAuth + an OAuthTokenVerifier turn any Express-mounted MCP route into an OAuth resource server.
-- The SDK never issues tokens; AS helpers live frozen in @modelcontextprotocol/server-legacy/auth.
-- mcpAuthMetadataRouter publishes the RFC 9728 document the 401 challenge points at.
-- Validated auth flows req.auth -> ctx.http.authInfo; per-tool scopes are a handler check.
--->
+
+- `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
+- Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
+- `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
+- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-tool scopes are a check inside the handler that returns `isError: true`.
+- The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.

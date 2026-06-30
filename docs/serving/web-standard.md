@@ -1,54 +1,91 @@
 ---
-status: scaffold
 shape: how-to
 ---
 # Serve on web-standard runtimes
-
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Web-standard runtimes (Workers etc.) recipe — same shape as express.md.
-teaches: export default handler ({ fetch }), McpHttpHandler.fetch, hostHeaderValidationResponse/originValidationResponse for bare runtimes
-source: mined from docs/server.md "handler.fetch is a web-standard..." paragraph + "DNS rebinding protection" (framework-agnostic helpers); examples/hono/ (web-standard leg)
--->
 
 ```sh
 npm install @modelcontextprotocol/server
 ```
 
 ## Mount the handler
-<!-- teaches: the handler IS the { fetch } object Workers/Deno/Bun expect from export default | salvage: docs/server.md "on Cloudflare Workers, Deno, or Bun, export default handler is all the mounting you need" -->
-<!-- back-link (one, mandatory): a fresh server instance serves every request — /serving/http#understand-the-per-request-factory -->
 
-```ts
-// draft - API verified against packages/server/src/server/createMcpHandler.ts (McpHttpHandler is the { fetch, close, notify, bus } shape Workers/Bun/Deno expect from export default)
+`createMcpHandler` returns a `{ fetch }` object — the shape Cloudflare Workers, Deno, and Bun expect from a module's default export — so `export default handler` mounts it.
+
+```ts source="../../examples/guides/serving/webStandard.examples.ts#createMcpHandler_exportDefault"
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const handler = createMcpHandler(() => {
-  const server = new McpServer({ name: 'notes', version: '1.0.0' });
-  // server.registerTool(...)
-  return server;
+    const server = new McpServer({ name: 'notes', version: '1.0.0' });
+    server.registerTool(
+        'add-note',
+        { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
+        async ({ text }) => ({ content: [{ type: 'text', text: `Saved: ${text}` }] })
+    );
+    return server;
 });
 
 export default handler;
 ```
-<!-- result: one line — the deployed Worker (or `bun run` / `deno serve` process) answers MCP POSTs on its URL -->
+
+The deployed worker answers MCP requests on every path, with no Node adapter and no body middleware. The factory runs once per request, so a fresh `McpServer` serves every call: [Serve over HTTP](./http.md#understand-the-per-request-factory) covers that model.
 
 ## Protect against DNS rebinding
-<!-- teaches: no app factory here — call the framework-agnostic guards before handler.fetch: hostHeaderValidationResponse / originValidationResponse from @modelcontextprotocol/server | salvage: docs/server.md "When mounting a handler bare on a fetch-native runtime..." -->
-<!-- code: const rejected = hostHeaderValidationResponse(request, ['api.example.com']); if (rejected) return rejected; -->
+
+The handler performs no `Host` or `Origin` validation, and on a bare fetch-native runtime there is no app factory to arm it for you. Put the framework-agnostic response helpers in front of `fetch` and export `guarded` as the default instead.
+
+```ts source="../../examples/guides/serving/webStandard.examples.ts#hostHeaderValidationResponse_guard"
+import { hostHeaderValidationResponse, originValidationResponse } from '@modelcontextprotocol/server';
+
+const guarded = {
+    async fetch(request: Request): Promise<Response> {
+        const rejected =
+            hostHeaderValidationResponse(request, ['api.example.com']) ??
+            originValidationResponse(request, ['app.example.com']);
+        return rejected ?? handler.fetch(request);
+    }
+};
+```
+
+A request whose `Host` is not on the list gets `403` before `handler.fetch` runs; both helpers take hostnames, port-agnostic, and a request without an `Origin` header always passes. For a localhost-only process, `localhostAllowedHostnames()` and `localhostAllowedOrigins()` (same package) replace the explicit lists.
 
 ## Forward auth and the parsed body
-<!-- teaches: route the Request yourself and pass options: handler.fetch(request, { authInfo }); no body middleware exists — fetch reads the Request body itself -->
-<!-- code: async fetch(request) { return handler.fetch(request, { authInfo: await verify(request) }); } — link /serving/authorization -->
+
+There is no body middleware on a fetch-native runtime — `fetch` reads the `Request` itself, so there is no `parsedBody` to forward. The handler never derives auth from request headers either: verify the token yourself and pass the result as `fetch`'s second argument, and handlers read it as `ctx.http.authInfo`.
+
+```ts source="../../examples/guides/serving/webStandard.examples.ts#McpHttpHandler_fetch_authInfo"
+const secured = {
+    async fetch(request: Request): Promise<Response> {
+        const authInfo = await verifyToken(request);
+        return handler.fetch(request, { authInfo });
+    }
+};
+```
+
+`verifyToken` is your token verification. [Authorization](./authorization.md) covers verifying bearer tokens and serving the OAuth metadata documents.
 
 ## Run it and verify
-<!-- teaches: wrangler dev / deno serve / bun run, then point the Inspector (or curl) at /mcp -->
-<!-- code: sh placeholder — npx @modelcontextprotocol/inspector --transport http http://127.0.0.1:8787/mcp -->
-<!-- result: verbatim tools/list output -->
+
+Deploy the default export on your runtime — `wrangler dev server.ts` puts it on `http://127.0.0.1:8787`; `deno serve server.ts` and `bun run server.ts` serve the same `{ fetch }` shape. POST a `tools/list` request to it.
+
+```sh
+curl -s -X POST http://127.0.0.1:8787/mcp \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+The response is a single SSE `message` event carrying the `tools/list` result:
+
+```
+event: message
+data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inputSchema":{"type":"object","$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"]}}]},"jsonrpc":"2.0","id":1}
+```
 
 ## Recap
-<!-- the claims this page proves:
-- The handler is already the export-default shape web-standard runtimes expect.
+
+- One install line, one file: the handler `createMcpHandler` returns is already the `{ fetch }` default export web-standard runtimes serve.
 - No Node adapter and no body middleware are involved.
-- On a bare runtime you mount Host/Origin validation yourself with the exported response helpers.
-- Auth is pass-through via handler.fetch's second argument.
--->
+- A fresh server instance from your factory serves every request.
+- The handler does no `Host`/`Origin` validation; on a bare runtime, put `hostHeaderValidationResponse` and `originValidationResponse` in front of it.
+- Auth is pass-through via `handler.fetch`'s second argument; handlers read it as `ctx.http.authInfo`.
