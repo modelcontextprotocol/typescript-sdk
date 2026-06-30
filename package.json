@@ -27,6 +27,7 @@
         "sync:snippets": "tsx scripts/sync-snippets.ts",
         "examples:oauth-server:w": "pnpm --filter @mcp-examples/oauth exec tsx --watch server.ts",
         "run:examples": "tsx scripts/examples/run-examples.ts",
+        "docs:examples": "tsx scripts/run-guide-examples.ts",
         "docs:api": "typedoc",
         "docs:index": "tsx scripts/build-docs-index.ts",
         "docs:dev": "vitepress dev docs",
