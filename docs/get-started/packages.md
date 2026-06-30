@@ -1,79 +1,81 @@
 ---
-status: scaffold
 shape: explanation
 ---
 
 # Packages and subpath exports
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Which of the 10 packages, why subpaths exist
-teaches: @modelcontextprotocol/server, /client, /core, /node, /express, /hono, /fastify,
-         /server-legacy, /codemod, the ./stdio subpath rule
-source: mined from README.md "Packages" + "Installation"; packages/*/README.md;
-        the runtime-posture invariant (root entry web-standard, node-only code at ./stdio).
-table-minimal (proposal §7): one short list, not a feature matrix; the package count (10,
-incl. private core-internal) is re-verified at the GA freeze. Sits last in get-started, off
-the corridor (crit 92 MF3).
--->
+The SDK is published as nine npm packages. Most projects install exactly one of them.
 
 ## Start from one package
 
-<!-- teaches: @modelcontextprotocol/server root vs ./stdio subpath | salvage: README.md "Getting Started" imports -->
+Everything in [Build your first server](./first-server.md) came from a single install, `@modelcontextprotocol/server` — through two import paths.
 
-```ts
-// draft - API verified against packages/server/src/index.ts and packages/server/src/stdio.ts
+```ts source="../../examples/guides/get-started/packages.examples.ts#packages_serverEntryPoints"
 import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 ```
 
-<!-- result: everything in the server tutorial came from this one package; the second import
-     line is the only place a subpath appeared, and this page explains why. -->
+The first path is the package's root entry. The second is a **subpath export** — a separate entry point inside the same package, declared in its `exports` map.
 
 ## Pick the package for your side of the protocol
 
-<!-- teaches: server vs client as the two installable starting points | salvage: README.md "Packages" + "Installation" -->
-<!-- code: sh — `npm install @modelcontextprotocol/server` and `npm install @modelcontextprotocol/client`,
-     the only two install commands most readers ever run -->
+Install the package for the side of the protocol you are building.
 
-## Keep node-only code behind the ./stdio subpath
+```sh
+npm install @modelcontextprotocol/server   # expose tools, resources, prompts
+npm install @modelcontextprotocol/client   # connect to servers and call them
+```
 
-<!-- teaches: WHY subpath exports exist — the root entry of server and client is runtime-neutral
-     (browser / Workers safe); anything that spawns processes or imports node: builtins lives at
-     ./stdio. | salvage: packages/server/src/stdio.ts and packages/client/src/stdio.ts header
-     comments; report-86 invariant. -->
-<!-- code: ts — the failing counter-example as a comment: importing StdioClientTransport from the
-     root entry is not possible by design; the bundler never sees node:child_process unless you
-     import the subpath -->
+Those two are the starting point for almost everything; a process that plays both roles installs both. The full published set is nine packages:
+
+- `@modelcontextprotocol/server` and `@modelcontextprotocol/client` — the two starting points, one per side.
+- `@modelcontextprotocol/node`, `@modelcontextprotocol/express`, `@modelcontextprotocol/hono`, `@modelcontextprotocol/fastify` — optional adapters for serving over HTTP.
+- `@modelcontextprotocol/core` — the raw Zod wire schemas.
+- `@modelcontextprotocol/server-legacy` and `@modelcontextprotocol/codemod` — migration surfaces for v1 code.
+
+A tenth package in the repository, `@modelcontextprotocol/core-internal`, is private: `server` and `client` bundle it at build time, so it never appears in your dependency tree.
+
+## Keep Node-only code behind the `./stdio` subpath
+
+`StdioClientTransport` spawns the server as a child process, so it is exported from `./stdio`, never from the root entry.
+
+```ts source="../../examples/guides/get-started/packages.examples.ts#packages_clientStdioSubpath"
+// Runs anywhere: browsers, Workers, Node.
+import { Client } from '@modelcontextprotocol/client';
+// Spawns a child process — Node-only, so it lives behind the subpath.
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+```
+
+The root entry of every package is **runtime-neutral**: its module graph never reaches `node:child_process` or any other Node builtin a browser or Cloudflare Workers bundler cannot resolve. Importing `./stdio` is the explicit opt-in to a process runtime. `@modelcontextprotocol/server/stdio` is the server-side counterpart and exports `serveStdio` and `StdioServerTransport`.
+
+::: info Coming from v1?
+v1's single `@modelcontextprotocol/sdk` package exposed deep file paths such as `@modelcontextprotocol/sdk/server/mcp.js`. The v2 packages declare an `exports` map, so only the subpaths each package names resolve — the codemod rewrites the imports for you.
+:::
 
 ## Add a framework adapter when you serve over HTTP
 
-<!-- teaches: @modelcontextprotocol/node, /express, /hono, /fastify are optional thin adapters
-     around createMcpHandler — install only the one matching your framework.
-     salvage: README.md "Middleware packages (optional)" + "Optional middleware packages" install block. -->
-<!-- code: sh — `npm install @modelcontextprotocol/express express` (one representative line;
-     the four recipe pages under serving/ carry their own) -->
+`createMcpHandler` from `@modelcontextprotocol/server` already serves MCP over web-standard `Request` and `Response` objects. An adapter package wires that handler into a specific runtime or framework; install the adapter next to the framework it adapts.
 
-## Reach for core only to validate raw wire JSON
+```sh
+npm install @modelcontextprotocol/express express
+```
 
-<!-- teaches: @modelcontextprotocol/core ships ONLY the Zod schema constants; server and client
-     stay Zod-free on their public surface. Gateways and proxies are its audience.
-     salvage: packages/core/README.md opening paragraphs. -->
-<!-- code: ts — CallToolResultSchema.safeParse(json) as the one canonical use -->
+Four adapters exist: `@modelcontextprotocol/node` for Node's built-in `http` server, and one each for Express, Hono, and Fastify. They are thin layers over `createMcpHandler` and add no MCP behavior of their own.
 
-## Leave server-legacy and codemod to the migration guide
+[Serve over HTTP](../serving/http.md) covers the handler itself; [Express](../serving/express.md), [Hono](../serving/hono.md), and [Fastify](../serving/fastify.md) each have a recipe.
 
-<!-- teaches: @modelcontextprotocol/server-legacy (v1-era SSE transport + OAuth Authorization
-     Server) and @modelcontextprotocol/codemod (the v1 -> v2 CLI) exist to be linked, not taught.
-     salvage: docs/faq.md "Why did we remove server SSE transport?" + "Where are the server auth
-     helpers?"; link target is /migration/upgrade-to-v2. -->
-<!-- code: none — two sentences and a link. -->
+## Reach for `core` only to validate raw wire JSON
+
+`@modelcontextprotocol/core` exports the Zod schema constants the SDK validates protocol payloads against, for code that handles raw JSON-RPC payloads itself — gateways, proxies, log pipelines. Neither `server` nor `client` exports a Zod schema, and the matching TypeScript types ship with both, so if you only call `registerTool` and `callTool` you never install it. [Wire schemas](../advanced/wire-schemas.md) is the how-to.
+
+## Leave `server-legacy` and `codemod` to the migration guide
+
+`@modelcontextprotocol/server-legacy` is a frozen copy of v1's server-side SSE transport and OAuth Authorization Server helpers, published so a v1 deployment can move to v2 without replacing everything at once. `@modelcontextprotocol/codemod` is the command-line tool that rewrites v1 imports and call sites to their v2 forms. Neither belongs in a new project — the [upgrade guide](../migration/upgrade-to-v2.md) covers both.
 
 ## Recap
 
-<!-- the 5 claims this page will prove:
-- Two packages cover almost everyone: server to build servers, client to build clients.
-- Package roots are runtime-neutral; node-only code (process spawning, stdio) lives at ./stdio.
-- The framework adapters (node, express, hono, fastify) are optional and thin; pick one.
-- core exists only for raw Zod schema validation of wire JSON.
-- server-legacy and codemod are migration surfaces, reached from the migration guide.
--->
+- `@modelcontextprotocol/server` and `@modelcontextprotocol/client` are the two packages you install, one per side of the protocol.
+- Package root entries are runtime-neutral; code that spawns processes lives at the `./stdio` subpath and only enters your bundle when you import it.
+- The HTTP adapters — `node`, `express`, `hono`, `fastify` — are optional thin layers over `createMcpHandler`; install at most one.
+- `@modelcontextprotocol/core` exports only Zod schema constants, for code that validates raw wire JSON itself.
+- `@modelcontextprotocol/server-legacy` and `@modelcontextprotocol/codemod` exist for migration from v1, not for new projects.
