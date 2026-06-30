@@ -1,70 +1,182 @@
 ---
-status: scaffold
 shape: explanation
 ---
+
 # Protocol versions
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Eras — THE single quarantine page; the behavior matrix MOVES here from the support guide.
-teaches: ClientOptions.versionNegotiation, Client.getProtocolEra, ProtocolOptions.supportedProtocolVersions, createMcpHandler legacy option, serveStdio legacy option, SdkError(EraNegotiationFailed)
-source: mined from docs/migration/support-2026-07-28.md "Serving the 2026-07-28 revision", "Client side: versionNegotiation", "Probe policy", "Appendix: 2025-era vs 2026-era behavior matrix"
-NOTE: this is the ONE era page. Every other page's era caveat is a single line linking here
-(CONVENTIONS R8 / proposal principle 3). The behavior matrix is MOVED here, not copied —
-the support guide links to this page and stops owning it (one maintained copy, ever).
--->
-
 ## Name the two eras
-<!-- teaches: ProtocolEra ('legacy' | 'modern') | salvage: docs/migration/support-2026-07-28.md intro + agent-report 89 §1.2 -->
-<!-- code: none — two short paragraphs: an "era" is a behavior family, not a version string; 2025-era = 2024-10-07 … 2025-11-25, 2026-era = 2026-07-28; why the SDK serves both -->
+
+An **era** is a behavior family, not a version string. Every protocol revision from `2024-10-07` through `2025-11-25` opens with the `initialize` handshake and shares one wire behavior — the SDK calls that family `legacy`. The `2026-07-28` revision starts the `modern` era: no `initialize`, a `server/discover` advertisement instead, and a `_meta` envelope on every request.
+
+The SDK speaks both eras from the same `Client` and serves both from the same entry points. A connection's era is decided once, at connect time, and every difference it implies is in [the matrix below](#compare-the-eras).
 
 ## Negotiate the era from the client
-<!-- teaches: ClientOptions.versionNegotiation, Client.getProtocolEra | salvage: docs/migration/support-2026-07-28.md "Client side: versionNegotiation" -->
-`versionNegotiation` decides which handshake `connect()` performs; the default is the 2025 `initialize` handshake, byte for byte.
 
-```ts
-// draft - API verified against packages/client/src/client/client.ts (ClientOptions.versionNegotiation L206, getProtocolEra L1272) and packages/client/src/client/versionNegotiation.ts (VersionNegotiationOptions.mode)
+`versionNegotiation` picks which handshake `connect()` performs. `mode: 'auto'` probes the server with `server/discover` and connects on whichever era it finds.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#versionNegotiation_auto"
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-const client = new Client(
-  { name: 'my-client', version: '1.0.0' },
-  { versionNegotiation: { mode: 'auto' } },
-);
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+
 await client.connect(new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp')));
 
-client.getProtocolEra(); // 'modern' or 'legacy' once connected; undefined before
+console.log(client.getProtocolEra());
 ```
-<!-- result: against a 2026-07-28 server getProtocolEra() returns 'modern'; against a 2025-only server the same connect() falls back and returns 'legacy' -->
+
+`http://localhost:3000/mcp` is a `createMcpHandler` server — [built below](#serve-both-eras-from-one-entry-point) — so the probe finds the 2026-07-28 era:
+
+```
+modern
+```
+
+Point the same options at a 2025-only server and `connect()` falls back to the `initialize` handshake on the same connection — one extra round trip, no error.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#versionNegotiation_fallback"
+const fallback = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+
+await fallback.connect(new StreamableHTTPClientTransport(new URL('http://localhost:4000/mcp')));
+
+console.log(fallback.getProtocolEra());
+```
+
+`getProtocolEra()` reports the era the connection landed on; it returns `undefined` before `connect()` resolves and never changes after it.
+
+```
+legacy
+```
 
 ## Pin an era
-<!-- teaches: mode: 'legacy', mode: { pin: '2026-07-28' }, SdkError(EraNegotiationFailed) -->
-<!-- code: the three mode values as a placeholder block: absent/'legacy' (no probe), 'auto' (probe + fallback), { pin } (modern only, connect() rejects with SdkError(EraNegotiationFailed) against a 2025-only server) -->
+
+`mode` takes three values; the first is the default.
+
+- Absent, or `mode: 'legacy'` — the 2025 `initialize` handshake, byte for byte. No probe.
+- `mode: 'auto'` — probe with `server/discover`; fall back to `initialize` against a 2025-only server.
+- `mode: { pin: '2026-07-28' }` — that revision or nothing. A pin never falls back.
+
+Pin against the same 2025-only server and `connect()` rejects instead of falling back.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#versionNegotiation_pin"
+import { SdkError } from '@modelcontextprotocol/client';
+
+const pinned = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
+
+try {
+    await pinned.connect(new StreamableHTTPClientTransport(new URL('http://localhost:4000/mcp')));
+} catch (error) {
+    if (error instanceof SdkError) console.log(`${error.code}: ${error.message}`);
+}
+```
+
+The rejection is a typed, local `SdkError` — nothing reaches the server beyond the probe:
+
+```
+ERA_NEGOTIATION_FAILED: Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)
+```
 
 ## Understand the probe
-<!-- teaches: versionNegotiation.probe (timeoutMs, maxRetries), supportedProtocolVersions | salvage: docs/migration/support-2026-07-28.md "Probe policy" -->
-<!-- code: probe: { timeoutMs, maxRetries } placeholder; prose covers transport-aware timeouts (stdio falls back, HTTP rejects), the browser CORS exception, and who should NOT default to 'auto' (spawn-per-invocation CLI tools) -->
+
+`probe` bounds the `server/discover` round trip that `'auto'` and a pin run before anything else.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#versionNegotiation_probe"
+const cli = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    {
+        versionNegotiation: {
+            mode: 'auto',
+            probe: {
+                timeoutMs: 10_000, // default: the connection's request timeout
+                maxRetries: 0 // default: no probe re-sends after a timeout
+            }
+        }
+    }
+);
+```
+
+A probe timeout is transport-aware. On stdio a silent server is a legacy server, so `connect()` falls back to `initialize` on the same stream; on HTTP silence is an outage, so `connect()` rejects with `SdkError(RequestTimeout)` instead of misreporting a dead server as legacy. One browser exception: an opaque CORS `TypeError` during the probe falls back to the legacy era, because deployed 2025 servers commonly have allow-lists that predate the 2026 headers.
+
+The client's `supportedProtocolVersions` option shapes the probe: its 2026+ entries are the versions the probe offers, and the legacy fallback stays available only while the list keeps a pre-2026 entry. A list with no pre-2026 entry removes the fallback — against a 2025-only server, `connect()` rejects with `SdkError(EraNegotiationFailed)`.
+
+::: warning
+Do not default a spawn-per-invocation CLI tool to `'auto'`. On stdio, a legacy server that never answers unknown pre-`initialize` requests stalls `connect()` for the full probe timeout before falling back, and the extra round trip changes recorded transcripts. Keep the default and expose `'auto'` (or a pin) as a flag.
+:::
 
 ## Serve both eras from one entry point
-<!-- teaches: createMcpHandler legacy: 'stateless' | 'reject', serveStdio legacy option | salvage: docs/migration/support-2026-07-28.md "Server over HTTP: createMcpHandler", "Server over stdio / long-lived connections: serveStdio" -->
-<!-- code: createMcpHandler(factory, { legacy: 'stateless' }) placeholder; one line linking /serving/legacy-clients, which owns the legacy: option and the full recipe -->
+
+`createMcpHandler` is the HTTP entry that answered both clients above: it builds a fresh server per request and passes the factory the `era` that request belongs to.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#createMcpHandler_bothEras"
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
+
+const handler = createMcpHandler(({ era }) => {
+    const server = new McpServer({ name: 'forecast', version: '1.0.0' });
+    server.registerTool(
+        'forecast',
+        {
+            description: 'Forecast for a city',
+            inputSchema: z.object({ city: z.string() })
+        },
+        async ({ city }) => ({ content: [{ type: 'text', text: `${city}: sunny (${era} era)` }] })
+    );
+    return server;
+});
+```
+
+By default the handler also serves 2025-era traffic per request (`legacy: 'stateless'`); pass `legacy: 'reject'` to refuse it. Connect one more client with the default mode to the same URL — no probe, the 2025 handshake — and call the tool from both.
+
+```ts source="../examples/guides/protocolVersions.examples.ts#createMcpHandler_callBothEras"
+const defaultClient = new Client({ name: 'my-client', version: '1.0.0' });
+
+await defaultClient.connect(new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp')));
+
+for (const caller of [client, defaultClient]) {
+    const result = await caller.callTool({ name: 'forecast', arguments: { city: 'Berlin' } });
+    console.log(caller.getProtocolEra(), JSON.stringify(result.content));
+}
+```
+
+One endpoint, one factory, two eras — and the era reached the handler:
+
+```
+modern [{"type":"text","text":"Berlin: sunny (modern era)"}]
+legacy [{"type":"text","text":"Berlin: sunny (legacy era)"}]
+```
+
+On stdio, `serveStdio(factory)` from `@modelcontextprotocol/server/stdio` is the same shape per connection: the opening exchange pins the connection's era, and `legacy: 'reject'` refuses 2025 openings. [Serve legacy clients](./serving/legacy-clients.md) owns the `legacy` option and the hosting recipes for both entries.
 
 ## Compare the eras
-<!-- teaches: the behavior matrix | salvage: docs/migration/support-2026-07-28.md "Appendix: 2025-era vs 2026-era behavior matrix" — MOVED here verbatim (the table carve-out is allowed on this reference-flavored page) -->
-<!-- code: none — the nine-axis 2025-era vs 2026-07-28 table lands here as the page's centerpiece -->
+
+This table is the only copy of the era differences in these docs. `getProtocolEra()` on the client and the factory's `era` on the server tell you which column you are in.
+
+| Axis                                  | 2025 era (`'legacy'`, `2024-10-07` … `2025-11-25`)                       | 2026 era (`'modern'`, `2026-07-28`)                                |
+| ------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Server HTTP entry                     | `*StreamableHTTPServerTransport`                                         | `createMcpHandler` (`legacy: 'stateless'` also serves 2025)        |
+| Server stdio entry                    | `server.connect(new StdioServerTransport())`                             | `serveStdio(factory)` (also serves 2025 unless `legacy: 'reject'`) |
+| Client connect                        | `initialize` handshake                                                   | `server/discover` probe (`versionNegotiation`)                     |
+| Client identity on the server         | `getClientCapabilities()` / `getClientVersion()` (initialize-scoped)     | `ctx.mcpReq.envelope` (per request)                                |
+| Server→client requests                | `ctx.mcpReq.elicitInput` / `requestSampling`, instance `createMessage()` | `return inputRequired(...)` from the handler                       |
+| Change notifications                  | unsolicited `list_changed` / `resources/updated`                         | `subscriptions/listen` stream                                      |
+| Client cancellation (Streamable HTTP) | POST `notifications/cancelled`                                           | close the request's SSE response stream                            |
+| `ctx.mcpReq.log()` level filter       | session-scoped `logging/setLevel`                                        | per-request `logLevel` `_meta` envelope key (absent = no logs)     |
+| HTTP `400` with a JSON-RPC error body | `SdkHttpError`                                                           | `ProtocolError`, delivered in-band                                 |
+| Era-mismatched spec method (outbound) | n/a                                                                      | `SdkError(MethodNotSupportedByProtocolVersion)`                    |
 
 ## Separate deprecation from era
-<!-- teaches: SEP-2577 (sampling, roots, ctx.mcpReq.log) is deprecation, not an era caveat | salvage: agent-report 89 §1.2 + proposal principle 4 -->
-<!-- code: none — one short paragraph: deprecated surfaces carry their own on-page sunset banner; this page is not where deprecation lives -->
+
+Deprecation is not an era difference. `sampling`, `roots`, and the `logging` capability behind `ctx.mcpReq.log()` are deprecated as of `2026-07-28` (SEP-2577) but stay in the specification for at least twelve months; which API carries each one on a given connection is an era difference, and already has its row in the matrix above. Each deprecated surface opens its own page with a sunset banner naming the migration target; nothing in the matrix moves when a deprecation lands.
 
 ## Link here instead of explaining inline
-<!-- teaches: the quarantine rule for every other page | salvage: proposal principle 3 ("Tell the era story exactly once") -->
-<!-- code: none — the one-line cross-link form other pages use, shown as the example sentence authors copy -->
+
+Era differences live on this page and nowhere else. Every other page in these docs spends at most one sentence on an era and links here; do the same in your own server's documentation.
+
+> The wire encoding of structured results differs by protocol era — see [Protocol versions](./protocol-versions.md).
 
 ## Recap
-<!-- the claims this page will prove:
-- An era is a behavior family; the SDK serves 2025-era and 2026-07-28 from the same entry points.
-- versionNegotiation picks the client handshake; the default is the unchanged 2025 initialize.
-- 'auto' probes with server/discover and falls back; a pin never falls back.
-- getProtocolEra() tells you what was negotiated.
+
+- An era is a behavior family: `legacy` covers `2024-10-07` through `2025-11-25`, `modern` starts at `2026-07-28`.
+- `versionNegotiation` picks the client handshake; the default is the unchanged 2025 `initialize`, no probe.
+- `mode: 'auto'` probes with `server/discover` and falls back to `initialize`; a pin never falls back and rejects with `SdkError(EraNegotiationFailed)`.
+- `getProtocolEra()` reports the negotiated era on the client; the `createMcpHandler` / `serveStdio` factory receives the `era` it is about to serve.
 - The behavior matrix on this page is the only copy; every other page links here in one line.
 - Deprecation (SEP-2577) is not an era difference.
--->
