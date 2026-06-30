@@ -11,6 +11,8 @@ agent reads this file before touching a page.
 THE REGISTER — "restrained tiangolo". Felix chose this against live samples. Every fully
 written page must pass EVERY rule; the voice reviewer fails pages per-rule.
 R1. First screenful: a code block, or one lead-in sentence then a code block. Zero preamble.
+    Carve-out (Felix, 2026-06-30): the LANDING PAGE (index.md) leads with a short "what is
+    MCP" orientation paragraph + a spec link BEFORE the code. Every other page: code first.
 R2. No main-flow paragraph exceeds 3 sentences; most are 1-2.
 R3. Second person, imperative, present tense. Never "we", never "the user", never "one can".
 R4. Every code block has a one-line lead-in naming the ONE thing it adds or changes.
