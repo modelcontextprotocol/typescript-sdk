@@ -7,14 +7,14 @@ import { defineConfig, type DefaultTheme } from 'vitepress';
 const siteDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 /**
- * The v1 site's source content (docs + generated API markdown) is populated into docs-v1/content/
+ * The v1 site's source content (docs + generated API markdown) is populated into docs/v1/content/
  * at build time by scripts/build-docs-site.sh from the v1.x branch. The API Reference sidebar is
  * generated there by typedoc + typedoc-vitepress-theme.
  */
 function apiSidebarItems(): DefaultTheme.SidebarItem[] {
     const sidebarPath = resolve(siteDir, 'content/api/typedoc-sidebar.json');
     if (!existsSync(sidebarPath)) {
-        console.warn(`[docs-v1] ${sidebarPath} not found — run \`bash scripts/build-docs-site.sh\` to populate the v1 content.`);
+        console.warn(`[docs/v1] ${sidebarPath} not found — run \`bash scripts/build-docs-site.sh\` to populate the v1 content.`);
         return [];
     }
     return JSON.parse(readFileSync(sidebarPath, 'utf8'));

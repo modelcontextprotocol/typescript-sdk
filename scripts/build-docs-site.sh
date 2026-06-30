@@ -3,7 +3,7 @@
 # Build the combined V1 + V2 documentation site (VitePress).
 #
 # V2 (from the current checkout, sources in docs/) is placed under /v2/.
-# V1 (content from the v1.x branch, VitePress shell in docs-v1/) is placed at the root.
+# V1 (content from the v1.x branch, VitePress shell in docs/v1/) is placed at the root.
 #
 # Usage:
 #   scripts/build-docs-site.sh [output-dir]
@@ -16,7 +16,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 OUTPUT_DIR="$(cd "$REPO_ROOT" && realpath -m "${1:-tmp/docs-combined}")"
 V1_WORKTREE="$REPO_ROOT/.worktrees/v1-docs"
-V1_CONTENT="$REPO_ROOT/docs-v1/content"
+V1_CONTENT="$REPO_ROOT/docs/v1/content"
 V1_GITHUB="https://github.com/modelcontextprotocol/typescript-sdk/blob/v1.x"
 
 cleanup() {
@@ -63,7 +63,7 @@ rm -rf "$V1_CONTENT"
 mkdir -p "$V1_CONTENT"
 
 # Same entry points as the previous typedoc HTML setup for v1, but rendered to
-# markdown (one page per module) for the VitePress shell in docs-v1/.
+# markdown (one page per module) for the VitePress shell in docs/v1/.
 cat > typedoc.v1-site.json << TYPEDOC_EOF
 {
   "name": "MCP TypeScript SDK",
@@ -140,8 +140,8 @@ for f in "$V1_CONTENT"/*.md; do
 done
 
 cd "$REPO_ROOT"
-pnpm exec vitepress build docs-v1
+pnpm exec vitepress build docs/v1
 
-cp -r "$REPO_ROOT/docs-v1/.vitepress/dist/." "$OUTPUT_DIR/"
+cp -r "$REPO_ROOT/docs/v1/.vitepress/dist/." "$OUTPUT_DIR/"
 
 echo "=== Combined docs generated at $OUTPUT_DIR ==="

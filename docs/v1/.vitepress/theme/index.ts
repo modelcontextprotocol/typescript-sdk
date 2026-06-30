@@ -4,7 +4,7 @@ import { h } from 'vue';
 
 import Banner from './Banner.vue';
 // Shared with the v2 site — do not duplicate.
-import '../../../docs/.vitepress/theme/custom.css';
+import '../../../.vitepress/theme/custom.css';
 
 export default {
     extends: DefaultTheme,
