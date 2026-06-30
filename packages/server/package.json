@@ -64,9 +64,6 @@
             "validators/cf-worker": [
                 "dist/validators/cfWorker.d.mts"
             ],
-            "zod-schemas": [
-                "dist/zodSchemas.d.mts"
-            ],
             "stdio": [
                 "dist/stdio.d.mts"
             ]
