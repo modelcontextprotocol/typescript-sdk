@@ -27,6 +27,10 @@ function chunkImportsOf(entryPath: string): string[] {
     return [...visited];
 }
 
+function rootDeclarationFiles(): string[] {
+    return ['index.d.mts', 'index.d.cts'].map(file => join(distDir, file)).filter(existsSync);
+}
+
 describe('@modelcontextprotocol/client root entry is browser-safe', () => {
     beforeAll(() => {
         if (!existsSync(join(distDir, 'index.mjs')) || !existsSync(join(distDir, 'stdio.mjs'))) {
@@ -66,5 +70,21 @@ describe('@modelcontextprotocol/client root entry is browser-safe', () => {
                 );
             }
         }
+    });
+
+    test('root declarations do not advertise validator provider types', () => {
+        const declarations = rootDeclarationFiles();
+        expect(declarations.length).toBeGreaterThan(0);
+
+        for (const declaration of declarations) {
+            expect({ declaration, content: readFileSync(declaration, 'utf8') }).not.toEqual(
+                expect.objectContaining({
+                    content: expect.stringMatching(/\b(AjvJsonSchemaValidator|CfWorkerJsonSchemaValidator|CfWorkerSchemaDraft)\b/)
+                })
+            );
+        }
+
+        expect(readFileSync(join(distDir, 'validators', 'ajv.d.mts'), 'utf8')).toMatch(/\bAjvJsonSchemaValidator\b/);
+        expect(readFileSync(join(distDir, 'validators', 'cfWorker.d.mts'), 'utf8')).toMatch(/\bCfWorkerJsonSchemaValidator\b/);
     });
 });
