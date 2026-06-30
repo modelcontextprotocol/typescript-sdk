@@ -51,7 +51,7 @@ A strict endpoint still acknowledges legacy-classified notification POSTs with `
 serveStdio(buildServer, { legacy: 'reject' });
 ```
 
-Under `'serve'` a 2025-era opening pins the connection to a legacy instance from your factory and serves it exactly as a hand-wired stdio server would. Under `'reject'` the opening is answered with the same unsupported-protocol-version error and the connection stays open for a modern opening.
+Under `'serve'` a 2025-era opening pins the connection to a legacy instance from your factory and serves it exactly as a hand-wired stdio server would. Under `'reject'` the entry answers the opening with the same unsupported-protocol-version error and keeps the connection open for a modern opening.
 
 ## Keep a sessionful 2025 deployment running
 

@@ -32,7 +32,7 @@ The deployed worker answers MCP requests on every path, with no Node adapter and
 
 ## Protect against DNS rebinding
 
-The handler performs no `Host` or `Origin` validation, and on a bare fetch-native runtime there is no app factory to arm it for you. Put the framework-agnostic response helpers in front of `fetch` and export `guarded` as the default instead.
+The handler performs no `Host` or `Origin` validation, and on a bare fetch-native runtime there is no app factory to arm it for you. Put the framework-agnostic response helpers in front of `fetch`.
 
 ```ts source="../../examples/guides/serving/webStandard.examples.ts#hostHeaderValidationResponse_guard"
 import { hostHeaderValidationResponse, originValidationResponse } from '@modelcontextprotocol/server';

@@ -5,7 +5,7 @@ shape: how-to
 
 `createMcpHandler` builds a fresh server instance from your factory for every HTTP request and holds nothing between requests, so a v2 server is stateless and scales horizontally by default — [Serve over HTTP](./http.md) is the whole setup. Read on if you run a sessionful 2025-era deployment, need a dropped stream to resume, or push change notifications across nodes.
 
-## Sessions
+## Pin a client to a session
 
 A **session** pins a client to one long-lived transport instance; sessions belong to the hand-wired 2025-era transport — the 2026-07-28 revision is per-request and has no `Mcp-Session-Id` ([Protocol versions](../protocol-versions.md)). On `NodeStreamableHTTPServerTransport`, `sessionIdGenerator` turns sessions on; leaving it `undefined` is stateless mode.
 
@@ -59,7 +59,7 @@ The map cleans itself up: `transport.onclose` fires when the session ends, wheth
 On shutdown, close every stored transport — `for (const [, transport] of sessions) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.
 :::
 
-## Resumability
+## Resume a dropped stream
 
 A sessionful client holds a `GET` SSE stream open for server notifications, and anything sent while that connection is down is lost. An **event store** closes the gap: with one configured, the transport stamps every SSE message with an event id from the store before sending it.
 
@@ -78,7 +78,7 @@ When the connection drops, the client reconnects with the last event id it recei
 `examples/shared/src/inMemoryEventStore.ts` in the SDK repository is a complete `EventStore` reference implementation — in memory, so single-process only.
 :::
 
-## Multi-node
+## Scale across nodes
 
 The stateless default is the scaling story: every node builds a fresh instance from the same factory and holds nothing between requests, so put the nodes behind any load balancer — no session affinity, nothing to share, nothing to configure.
 
