@@ -1809,7 +1809,7 @@ where an entry notes its own signature change:
 
 - The codemod's [`@mcp-codemod-error`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md) markers point
   at every site it could not safely rewrite.
-- The [FAQ](../faq.md) covers common v2 questions.
+- The [Troubleshooting](../troubleshooting.md) page covers common errors and their fixes.
 - Runnable [examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples)
   for every subsystem.
 - Open an issue on [GitHub](https://github.com/modelcontextprotocol/typescript-sdk/issues).

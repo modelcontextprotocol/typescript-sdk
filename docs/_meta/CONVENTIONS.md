@@ -98,7 +98,7 @@ SCAFFOLD FORMAT — every non-calibration page is a SKELETON, not prose. Exact s
   -->
 
   ## <Imperative micro-step heading>
-  <!-- teaches: X | salvage: docs/server.md "<heading>" -->
+  <!-- teaches: X | salvage: docs/servers/tools.md "<heading>" -->
   <fenced ts block: the page's ONE defining lead code block, REAL verified API, with a
    first-line comment: // draft - API verified against packages/<pkg>/src/<file>.ts>
   <!-- result: one line, what the reader observes -->
@@ -141,11 +141,12 @@ const server = new McpServer(
 //#endregion instructions_basic
 ```
 
-Regions normally live inside a wrapper function whose name equals the region name
-(see `examples/guides/serverGuide.examples.ts`). The sync script dedents the region
-body to the indentation of the `//#region` line, so the indentation inside the wrapper
-function is stripped in the rendered fence. Region extraction only works for `.ts`
-files. Region names follow `exportedName_variant` (e.g. `registerTool_basic`).
+Regions live at the top level of the companion file, or nested inside a helper function
+when the snippet needs surrounding setup (see `examples/guides/serving/stdio.examples.ts`
+for the former and `examples/guides/clients/machine-auth.examples.ts` for the latter).
+The sync script dedents the region body to the indentation of the `//#region` line, so
+any wrapper indentation is stripped in the rendered fence. Region extraction only works
+for `.ts` files. Region names follow `exportedName_variant` (e.g. `registerTool_search`).
 
 ### 2. Fence attribute syntax (in the `.md` page)
 
@@ -158,14 +159,15 @@ Real, working example (this exact fence is live in this file and is verified by
 top-level page, hence the extra `../` — a page at `docs-v2/<page>.md` uses one `../`):
 
 ````md
-```ts source="../../examples/guides/serverGuide.examples.ts#instructions_basic"
-const server = new McpServer(
-    { name: 'db-server', version: '1.0.0' },
-    {
-        instructions:
-            'Always call list_tables before running queries. Use validate_schema before migrate_schema for safe migrations. Results are limited to 1000 rows.'
-    }
-);
+```ts source="../../examples/guides/serving/stdio.examples.ts#serveStdio_basic"
+import { McpServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+
+const handle = serveStdio(() => {
+    const server = new McpServer({ name: 'notes', version: '1.0.0' });
+    // server.registerTool(...) — one factory builds the instance that serves the connection
+    return server;
+});
 ```
 ````
 

@@ -69,7 +69,7 @@ The one exception to the generic commands is the reference pair: [`cli-client/`]
 | Directory                                  | What it is                                                                                                                          | Why not in CI                                                              |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client                                                                             | Interactive — `client.ts` reads from stdin. Run manually in two terminals. |
-| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                                               | Typecheck-only; not a runnable pair.                                       |
+| [`guides/`](./guides/README.md)            | Per-page snippet companions synced into the `docs/` guide pages                                                                     | Typecheck-only; not a runnable pair.                                       |
 | `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                                                                                            | External network / API key; typecheck-only.                                |
 | `shared/`                                  | Argv/assert scaffold (`parseExampleArgs`/`check`/`siblingPath`); demo OAuth provider + `InMemoryEventStore` at the `./auth` subpath | Not a story — imported by every story as scaffolding.                      |
 
@@ -173,5 +173,5 @@ For scenarios where local in-memory state must be maintained on specific nodes, 
 
 ## Backwards compatibility (Streamable HTTP ↔ legacy SSE)
 
-A client that needs to fall back from Streamable HTTP to the legacy HTTP+SSE transport (for servers that only implement the older transport) follows the [`connect_sseFallback`](../docs/client.md#sse-fallback-for-legacy-servers) recipe in the client guide — try
-`StreamableHTTPClientTransport` first, fall back to `SSEClientTransport` on a 4xx. There is no runnable pair for this in `examples/` (the legacy SSE server transport is deprecated); the snippet in `guides/clientGuide.examples.ts` is the complete pattern.
+A client that needs to fall back from Streamable HTTP to the legacy HTTP+SSE transport (for servers that only implement the older transport) follows [Fall back to SSE for servers that predate Streamable HTTP](../docs/clients/connect.md#fall-back-to-sse-for-servers-that-predate-streamable-http) in the client docs — try
+`StreamableHTTPClientTransport` first, fall back to `SSEClientTransport` on a 4xx. There is no runnable pair for this in `examples/` (the legacy SSE server transport is deprecated); the `connect_sseFallback` snippet in `guides/clients/connect.examples.ts` is the complete pattern.

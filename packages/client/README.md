@@ -21,6 +21,6 @@ TypeScript ≥6.0 no longer auto-includes `@types/*` — add `"types": ["node"]`
 ## Documentation
 
 - **[Repository README](https://github.com/modelcontextprotocol/typescript-sdk#readme)** — overview, package layout, examples
-- **[Client guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/client.md)**
+- **[Client guide](https://ts.sdk.modelcontextprotocol.io/v2/clients/connect)** — connecting, calling tools, OAuth, and middleware
 - **[API reference](https://ts.sdk.modelcontextprotocol.io/v2/)**
 - **[MCP specification](https://modelcontextprotocol.io)**

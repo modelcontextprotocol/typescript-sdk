@@ -128,17 +128,6 @@ export default defineConfig({
                 ]
             },
             {
-                text: 'Current guides (being replaced)',
-                collapsed: true,
-                items: [
-                    { text: 'Server quickstart', link: '/server-quickstart' },
-                    { text: 'Client quickstart', link: '/client-quickstart' },
-                    { text: 'Server guide', link: '/server' },
-                    { text: 'Client guide', link: '/client' },
-                    { text: 'FAQ', link: '/faq' }
-                ]
-            },
-            {
                 text: 'API Reference',
                 collapsed: true,
                 items: apiSidebarItems()

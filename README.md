@@ -129,21 +129,21 @@ async function main() {
 main();
 ```
 
-Ready to build something real? Follow the step-by-step quickstart tutorials:
+Ready to build something real? Follow the step-by-step tutorials:
 
-- [Build a weather server](docs/server-quickstart.md) — server quickstart
-- [Build an LLM-powered chatbot](docs/client-quickstart.md) — client quickstart
+- [Build your first server](docs/get-started/first-server.md) — a stdio weather-alert server, from `npm init` to a tool call
+- [Build your first client](docs/get-started/first-client.md) — connect to that server, list its tools, and call them
 
-The complete code for each tutorial is in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/) and
-[`examples/client-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/). For more advanced runnable examples, see:
+For runnable, end-to-end examples beyond the tutorials, see:
 
 - [`examples/README.md`](examples/README.md) — runnable, self-verifying client/server example pairs (one story per directory)
 
 ## Documentation
 
-- [Server Guide](docs/server.md) — building MCP servers: transports, tools, resources, prompts, server-initiated requests, and deployment
-- [Client Guide](docs/client.md) — building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
-- [FAQ](docs/faq.md) — frequently asked questions and troubleshooting
+- [Build a server](docs/get-started/first-server.md) — your first MCP server, step by step
+- [Build a client](docs/get-started/first-client.md) — your first MCP client, step by step
+- [Documentation site](https://ts.sdk.modelcontextprotocol.io/v2/) — the full guides: tools, resources, prompts, serving over HTTP and stdio, clients, OAuth, and migration
+- [Troubleshooting](docs/troubleshooting.md) — common errors and their fixes
 - [API docs](https://modelcontextprotocol.github.io/typescript-sdk/)
 - [MCP documentation](https://modelcontextprotocol.io/docs)
 - [MCP specification](https://modelcontextprotocol.io/specification/latest)
