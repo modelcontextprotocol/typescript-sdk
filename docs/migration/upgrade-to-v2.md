@@ -196,9 +196,9 @@ local tooling do — when in doubt, use the section where the member previously 
 `@modelcontextprotocol/sdk`.
 
 A member that never declared the v1 SDK and resolved it through the root can keep
-root-level declarations (add the union of all members' v2 packages at the root — the
-codemod's hoisting note lists the contributing members) or move to per-member
-declarations; per-member is recommended, since the v2 package split makes each member's
+root-level declarations (the codemod's root rewrite already adds the union of the
+contributing members' v2 packages — its hoisting note names them) or move to
+per-member declarations; per-member is recommended, since the v2 package split makes each member's
 actual needs explicit. To answer "which packages does this member need" directly, run
 the codemod against that member's directory with `--dry-run`: the manifest summary is
 computed from that member's own imports. (The authoritative import-path routing lives
@@ -349,6 +349,18 @@ against what is still a v1 `Server`, which then fails at runtime). Run the codem
 `--ignore` glob patterns covering those interfacing files, and migrate them together
 with the dependency later. The boundary rule above applies unchanged: objects from the
 dependency's v1 modules must never flow into v2-imported code.
+
+#### Library authors: peer-depending on the SDK
+
+If your package declares `@modelcontextprotocol/sdk` as a `peerDependency`, the v2
+packages are differently **named**, so swapping the peer declaration is itself a
+breaking change for every consumer — ship it as a semver-major. You can migrate
+ahead of your consumers only if no SDK object crosses your public API (the
+v1/v2 boundary rule above applies to your exports too: a v1-constructed `Client`
+or error instance handed to v2-importing consumer code fails `instanceof` and
+nominal checks). Until your consumers migrate, they can keep resolving your peer
+range with the v1 package installed alongside their own v2 packages — the two
+coexist under different names.
 
 ### Imports & transports
 
@@ -1269,6 +1281,10 @@ The SDK enforces every authorization MUST that lands in SDK code. The following 
 - **Set `application_type` correctly** when overriding the heuristic (SEP-837).
 - **Track cross-request step-up failures yourself** (SEP-2350) — `maxStepUpRetries` is
   per request; per-session backoff is host state.
+- **Persist discovery state**: implement `discoveryState()` / `saveDiscoveryState()` so
+  the authorization-server metadata your tokens were issued against survives restarts.
+- **Choose the insufficient-scope behavior**: keep the default
+  `onInsufficientScope: 'reauthorize'`, or handle `InsufficientScopeError` yourself.
 - **Resource-server operators: do not advertise `offline_access`** in `WWW-Authenticate`
   `scope` or PRM `scopes_supported` (SEP-2207).
 
@@ -1734,7 +1750,8 @@ breaks.
 
 ## Unchanged APIs
 
-The following are unchanged between v1 and v2 (only the import path changed):
+The following are unchanged between v1 and v2 apart from the import path — except
+where an entry notes its own signature change:
 
 - `Client` constructor and `connect`, `close`, and the typed verbs (`listTools`,
   `listPrompts`, `listResources`, `readResource`, …) — note `callTool()` and `request()`
