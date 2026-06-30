@@ -31,6 +31,7 @@ jobs:
             - run: pnpm install
             - run: pnpm run check:all
             - run: pnpm run build:all
+            - run: node scripts/smoke-dist-types.mjs
 
     test:
         runs-on: ubuntu-latest
