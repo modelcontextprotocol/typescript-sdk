@@ -1,72 +1,205 @@
 ---
-status: scaffold
 shape: how-to
 ---
 # Logging, progress, and cancellation
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: The ctx every handler receives: logging, progress, cancellation.
-teaches: ServerContext, ctx.mcpReq.notify, ctx.mcpReq.log, ctx.mcpReq.signal, ctx.mcpReq._meta
-source: mined from docs/server.md "Logging", "Progress" + protocol cancellation behavior
--->
+Every handler receives a **context** as its second argument; the request-scoped helpers — progress, logging, and the cancellation signal — live on `ctx.mcpReq`.
 
 ## Report progress from a handler
-<!-- teaches: ctx.mcpReq._meta.progressToken, ctx.mcpReq.notify('notifications/progress') | salvage: docs/server.md "Progress" (registerTool_progress) -->
 
-```ts
-// draft - API verified against packages/core-internal/src/shared/protocol.ts (BaseContext.mcpReq._meta/notify, lines 375-433)
+A client that wants progress puts a `progressToken` in the request's `_meta`. Read it from `ctx.mcpReq._meta` and send each update with `ctx.mcpReq.notify`.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#registerTool_progress"
 server.registerTool(
-  'process-files',
-  {
-    description: 'Process files with progress updates',
-    inputSchema: z.object({ files: z.array(z.string()) }),
-  },
-  async ({ files }, ctx) => {
-    const progressToken = ctx.mcpReq._meta?.progressToken;
+    'process-files',
+    {
+        description: 'Process files with progress updates',
+        inputSchema: z.object({ files: z.array(z.string()) })
+    },
+    async ({ files }, ctx) => {
+        const progressToken = ctx.mcpReq._meta?.progressToken;
 
-    for (let i = 0; i < files.length; i++) {
-      // ... process files[i] ...
-      if (progressToken !== undefined) {
-        await ctx.mcpReq.notify({
-          method: 'notifications/progress',
-          params: { progressToken, progress: i + 1, total: files.length, message: `Processed ${files[i]}` },
-        });
-      }
+        for (let i = 0; i < files.length; i++) {
+            // ... process files[i] ...
+
+            if (progressToken !== undefined) {
+                await ctx.mcpReq.notify({
+                    method: 'notifications/progress',
+                    params: { progressToken, progress: i + 1, total: files.length, message: `Processed ${files[i]}` }
+                });
+            }
+        }
+
+        return { content: [{ type: 'text', text: `Processed ${files.length} files` }] };
     }
-
-    return { content: [{ type: 'text', text: `Processed ${files.length} files` }] };
-  }
 );
 ```
-<!-- result: the client's progress callback fires once per file with progress/total/message. -->
+
+Every call on this page comes from an in-memory `Client` connected to this server — [Test a server](../testing.md) shows that wiring. Pass an `onprogress` callback and the SDK puts the `progressToken` in `_meta` for you.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#callTool_onprogress"
+const result = await client.callTool(
+    { name: 'process-files', arguments: { files: ['a.csv', 'b.csv', 'c.csv'] } },
+    { onprogress: update => console.log(update) }
+);
+console.log(result.content);
+```
+
+The callback fires once per file, then the call resolves:
+
+```
+{ progress: 1, total: 3, message: 'Processed a.csv' }
+{ progress: 2, total: 3, message: 'Processed b.csv' }
+{ progress: 3, total: 3, message: 'Processed c.csv' }
+[ { type: 'text', text: 'Processed 3 files' } ]
+```
 
 ## Skip progress when the client did not ask
-<!-- teaches: progressToken is opt-in; progress must increase; total and message are optional | salvage: docs/server.md "Progress" closing rules -->
-<!-- code: the same loop guarded on progressToken === undefined, one comment per rule -->
+
+Drop `onprogress` and the same request arrives with no `progressToken`, so the guard in the handler sends nothing.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#callTool_noProgress"
+const quiet = await client.callTool({ name: 'process-files', arguments: { files: ['d.csv', 'e.csv'] } });
+console.log(quiet.content);
+```
+
+Only the result comes back:
+
+```
+[ { type: 'text', text: 'Processed 2 files' } ]
+```
+
+`progress` must increase on every notification for the same token; `total` and `message` are optional.
 
 ## Log to the client
-<!-- teaches: capabilities: { logging: {} } + ctx.mcpReq.log(level, data) | salvage: docs/server.md "Logging" (logging_capability, registerTool_logging) -->
-<!-- code: declare the logging capability at construction, then ctx.mcpReq.log('info', ...) inside the handler -->
-<!-- ::: warning placeholder: MCP logging is deprecated (SEP-2577); migrate to stderr (stdio) or OpenTelemetry -->
 
-## Respect the client's log level
-<!-- teaches: per-request logLevel _meta key (2026-07-28) vs logging/setLevel (2025-era); silent no-op when unset | salvage: docs/server.md "Logging" closing paragraph -->
-<!-- code: none; one-line era cross-link to /protocol-versions -->
+::: warning Deprecated — SEP-2577
+Log to `stderr` (stdio servers) or use OpenTelemetry instead. **MCP logging** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional through the deprecation window (at least twelve months) — see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated).
+:::
+
+Declare the `logging` capability when you construct the server.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#logging_capability"
+const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { capabilities: { logging: {} } });
+```
+
+`ctx.mcpReq.log(level, data)` then sends a `notifications/message` from inside any handler — `data` is any JSON value.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#registerTool_logging"
+server.registerTool(
+    'validate-records',
+    {
+        description: 'Validate records before import',
+        inputSchema: z.object({ records: z.array(z.string()) })
+    },
+    async ({ records }, ctx) => {
+        await ctx.mcpReq.log('info', `Validating ${records.length} records`);
+        const invalid = records.filter(record => !record.endsWith('.csv'));
+        if (invalid.length > 0) {
+            await ctx.mcpReq.log('warning', { invalid });
+        }
+        return { content: [{ type: 'text', text: `${records.length - invalid.length} of ${records.length} records are valid` }] };
+    }
+);
+```
+
+The connected client surfaces each one through its `notifications/message` handler.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#setNotificationHandler_message"
+client.setNotificationHandler('notifications/message', notification => {
+    console.log(notification.params.level, notification.params.data);
+});
+```
+
+Calling `validate-records` with one bad record delivers both log notifications before the result:
+
+```
+info Validating 2 records
+warning { invalid: [ 'b.txt' ] }
+[ { type: 'text', text: '1 of 2 records are valid' } ]
+```
+
+How the client's log level reaches `ctx.mcpReq.log` differs by protocol era — see [Protocol versions](../protocol-versions.md).
 
 ## Stop work when the request is cancelled
-<!-- teaches: ctx.mcpReq.signal is an AbortSignal aborted by notifications/cancelled and client disconnects | source: packages/core-internal/src/shared/protocol.ts (signal, line 406) -->
-<!-- code: a long-running loop that checks ctx.mcpReq.signal.aborted and returns early -->
-<!-- result: the client sees no response for the cancelled request; the handler stops burning work -->
+
+`ctx.mcpReq.signal` is an `AbortSignal`. The SDK aborts it when the client sends `notifications/cancelled` for the request, and when the connection closes — check it before each unit of work.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#registerTool_abort"
+server.registerTool(
+    'scan-archive',
+    {
+        description: 'Scan every page of the archive',
+        inputSchema: z.object({ pages: z.number().int() })
+    },
+    async ({ pages }, ctx) => {
+        let scanned = 0;
+        for (let page = 0; page < pages; page++) {
+            if (ctx.mcpReq.signal.aborted) {
+                console.error(`Stopped after ${scanned} of ${pages} pages: ${ctx.mcpReq.signal.reason}`);
+                break;
+            }
+            await new Promise(resolve => setTimeout(resolve, 100)); // ... scan one page ...
+            scanned++;
+        }
+        return { content: [{ type: 'text', text: `Scanned ${scanned} pages` }] };
+    }
+);
+```
+
+Cancel from the client by aborting the signal you pass to the call.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#callTool_abort"
+const controller = new AbortController();
+const scan = client.callTool({ name: 'scan-archive', arguments: { pages: 40 } }, { signal: controller.signal });
+
+// the end user clicks Stop while the scan runs
+setTimeout(() => controller.abort('the end user clicked Stop'), 5);
+
+await scan.catch(error => console.log(String(error)));
+```
+
+The call rejects on the client and the handler stops at its next check; the abort reason travels in the notification and comes out as `ctx.mcpReq.signal.reason`:
+
+```
+SdkError: the end user clicked Stop
+Stopped after 1 of 40 pages: the end user clicked Stop
+```
+
+The first line is the client's rejection, the second is the handler's `console.error` on the server. The SDK never sends a response for a cancelled request and discards whatever the handler still returns.
 
 ## Pass the signal to your own I/O
-<!-- teaches: forwarding ctx.mcpReq.signal into fetch / db calls so cancellation propagates -->
-<!-- code: fetch(url, { signal: ctx.mcpReq.signal }) inside the handler -->
+
+Hand the same signal to `fetch` — or any API that accepts an `AbortSignal` — and cancellation propagates into the work the handler started.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#registerTool_forwardSignal"
+const SOURCE_URLS = {
+    readme: 'https://example.com/sources/readme.md',
+    changelog: 'https://example.com/sources/changelog.md'
+};
+
+server.registerTool(
+    'fetch-source',
+    {
+        description: 'Download one of the known source files',
+        inputSchema: z.object({ source: z.enum(['readme', 'changelog']) })
+    },
+    async ({ source }, ctx) => {
+        const response = await fetch(SOURCE_URLS[source], { signal: ctx.mcpReq.signal });
+        return { content: [{ type: 'text', text: await response.text() }] };
+    }
+);
+```
+
+On cancellation `fetch` rejects mid-download and the handler unwinds with it, so no work outlives the request.
+
+::: warning
+Resolve an identifier against a fixed list, as `fetch-source` does. A tool that fetches a caller-supplied URL lets any connected client drive requests from your server's network position (server-side request forgery).
+:::
 
 ## Recap
-<!-- the claims this page will prove:
-- Every handler receives a context as its second argument; request-scoped helpers live on ctx.mcpReq.
-- notify() sends notifications/progress when the client supplied a progressToken; progress must increase.
-- log(level, data) sends structured log notifications once the logging capability is declared; logging is sunset (SEP-2577).
-- The client's level filter is per-request on 2026-07-28 and per-session on 2025-era connections.
-- ctx.mcpReq.signal aborts on cancellation; check it and forward it to your own I/O.
--->
+
+- Every handler receives a context as its second argument; the request-scoped helpers live on `ctx.mcpReq`.
+- `ctx.mcpReq.notify` sends `notifications/progress` when the request carried a `progressToken`; `progress` must increase on each one.
+- `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; MCP logging is deprecated (SEP-2577).
+- `ctx.mcpReq.signal` aborts on cancellation and disconnect — check it in long loops and forward it to your own I/O.
