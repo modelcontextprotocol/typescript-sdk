@@ -53,13 +53,23 @@ function runOne(file: string): Promise<FileResult> {
     return new Promise(resolvePromise => {
         // stdin is 'ignore' so a companion that (incorrectly) reads stdin sees
         // EOF immediately instead of hanging until the timeout.
-        const child = spawn(TSX, [file], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'] });
+        // detached: the child leads its own process group, so a timeout kills the whole
+        // tree (tsx re-spawns node; killing only the wrapper would orphan the real run).
+        const child = spawn(TSX, [file], { cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
         let output = '';
         child.stdout.on('data', d => (output += String(d)));
         child.stderr.on('data', d => (output += String(d)));
         const finish = (ok: boolean, detail: string): void => resolvePromise({ file, ok, durationMs: Date.now() - started, detail });
         const timer = setTimeout(() => {
-            child.kill('SIGKILL');
+            if (child.pid !== undefined) {
+                try {
+                    process.kill(-child.pid, 'SIGKILL');
+                } catch {
+                    child.kill('SIGKILL');
+                }
+            } else {
+                child.kill('SIGKILL');
+            }
             finish(false, `timed out after ${TIMEOUT_MS / 1000}s (hung — possible unclosed handle)\n${output}`);
         }, TIMEOUT_MS);
         child.on('close', code => {
