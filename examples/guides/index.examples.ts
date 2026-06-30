@@ -1,9 +1,9 @@
 /**
- * Type-checked companion for `docs-v2/index.md` (the landing page).
+ * Type-checked companion for `docs/index.md` (the landing page).
  *
  * The single region below is the landing hero: a complete MCP server in one
  * block. Imports live inside the region so the rendered block stands alone.
- * Synced into the page by `pnpm sync:snippets`; typecheck-only, never executed.
+ * Synced into the page by `pnpm sync:snippets`; executed by `pnpm docs:examples` like every runnable companion.
  *
  * @module
  */

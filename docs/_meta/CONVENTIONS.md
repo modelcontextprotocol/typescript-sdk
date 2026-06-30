@@ -1,4 +1,4 @@
-# docs-v2 CONVENTIONS
+# Docs page conventions
 
 Single source of truth for form. Three blocks: REGISTER (voice), SCAFFOLD FORMAT
 (page shape), WIRING (snippet mechanics, verified in this worktree). Every writer
@@ -123,7 +123,7 @@ labeled H3 subsections after it (Felix ruling).
 
 ## WIRING
 
-How a code fence in a docs-v2 page is wired to a typechecked example file. All of this
+How a code fence in a docs page is wired to a typechecked example file. All of this
 was verified live in this worktree on 2026-06-29 (see steps below); the mechanics are
 implemented by `scripts/sync-snippets.ts`.
 
@@ -156,7 +156,7 @@ run, and `--check` reports drift if it does not already match the region byte-fo
 
 Real, working example (this exact fence is live in this file and is verified by
 `pnpm sync:snippets --check`; this file lives in `_meta/`, one level deeper than a
-top-level page, hence the extra `../` — a page at `docs-v2/<page>.md` uses one `../`):
+top-level page, hence the extra `../` — a page at `docs/<page>.md` uses one `../`):
 
 ````md
 ```ts source="../../examples/guides/serving/stdio.examples.ts#serveStdio_basic"
@@ -182,24 +182,23 @@ Notes on the exact form (regex `MARKDOWN_LABELED_FENCE_PATTERN` in sync-snippets
 
 The path in `source="..."` is resolved RELATIVE TO THE MARKDOWN FILE's own directory
 (`resolve(dirname(mdFile), examplePath)` in the script). It is NOT relative to the repo
-root and NOT relative to `docs-v2/`.
+root and NOT relative to `docs/`.
 
 From the standard locations, the prefixes are:
 
 | page location                  | companion example location               | `source=` prefix |
 |--------------------------------|------------------------------------------|------------------|
-| `docs-v2/<page>.md`            | `examples/guides/<file>.examples.ts`     | `../examples/guides/` |
-| `docs-v2/<section>/<page>.md`  | `examples/guides/<section>/<file>.examples.ts` | `../../examples/guides/<section>/` |
+| `docs/<page>.md`            | `examples/guides/<file>.examples.ts`     | `../examples/guides/` |
+| `docs/<section>/<page>.md`  | `examples/guides/<section>/<file>.examples.ts` | `../../examples/guides/<section>/` |
 
-So a page at `docs-v2/get-started/first-server.md` whose companion is
+So a page at `docs/get-started/first-server.md` whose companion is
 `examples/guides/get-started/firstServer.examples.ts` uses:
 
 ```
 source="../../examples/guides/get-started/firstServer.examples.ts#<region>"
 ```
 
-The sync script scans `docs/**/*.md` AND `docs-v2/**/*.md` (the docs-v2 glob was added
-during prep, 2026-06-29).
+The sync script scans `docs/**/*.md`.
 
 ### 4. How example files are typechecked
 
@@ -231,12 +230,12 @@ pnpm sync:snippets --check
 ```
 
 NEVER run bare `pnpm sync:snippets` — it rewrites every fenced block in `docs/` and
-`docs-v2/` in place, and concurrent mutating runs from parallel agents race and clobber
+`docs/` in place, and concurrent mutating runs from parallel agents race and clobber
 each other. Hand-write the fence body to match the region exactly; `--check` confirms.
 
 Verified outputs from prep (2026-06-29):
-- With a stale `source=` fence present in `docs-v2/`, `--check` exits 1 with
-  `1 file(s) out of sync: .../docs-v2/_THROWAWAY-proof.md (1 snippet(s))`.
+- With a stale `source=` fence present in `docs/`, `--check` exits 1 with
+  `1 file(s) out of sync: .../docs/_THROWAWAY-proof.md (1 snippet(s))`.
 - With no drift, `--check` exits 0 with `All snippets are up to date`.
 
 ### 6. Other verified ground truth

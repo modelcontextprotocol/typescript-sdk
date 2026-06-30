@@ -1,5 +1,5 @@
 /**
- * Runnable, type-checked companion for `docs-v2/get-started/first-server.md`.
+ * Runnable, type-checked companion for `docs/get-started/first-server.md`.
  *
  * Each `//#region` block is synced byte-for-byte into that page's code fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift). The regions

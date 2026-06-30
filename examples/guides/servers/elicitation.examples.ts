@@ -1,5 +1,5 @@
 /**
- * Companion example for `docs-v2/servers/elicitation.md`.
+ * Companion example for `docs/servers/elicitation.md`.
  *
  * Every `ts` fence on that page is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs: the harness below the
@@ -110,7 +110,7 @@ server.registerTool(
 const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
 
 // The client-side handler the page shows once (the full client story lives in
-// docs-v2/clients/server-requests.md).
+// docs/clients/server-requests.md).
 //#region Client_elicitationHandler
 const client = new Client({ name: 'feedback-host', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} } } });
 

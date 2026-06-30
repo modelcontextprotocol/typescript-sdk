@@ -1,5 +1,5 @@
 /**
- * Runnable, type-checked companion for `docs-v2/serving/express.md`.
+ * Runnable, type-checked companion for `docs/serving/express.md`.
  *
  * Each `//#region` block is synced byte-for-byte into that page's code fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift). The
@@ -41,7 +41,7 @@ const publicApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.exa
 
 // `verifier` stands in for your deployment's token verification (JWT
 // validation, RFC 7662 introspection, a call to your IdP). The page points at
-// docs-v2/serving/authorization.md for the real thing.
+// docs/serving/authorization.md for the real thing.
 const verifier: OAuthTokenVerifier = {
     async verifyAccessToken(token) {
         return { token, clientId: 'docs-harness', scopes: ['mcp'], expiresAt: Date.now() / 1000 + 3600 };

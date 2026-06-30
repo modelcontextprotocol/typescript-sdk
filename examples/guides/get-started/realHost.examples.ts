@@ -1,5 +1,5 @@
 /**
- * Runnable, type-checked companion for `docs-v2/get-started/real-host.md`.
+ * Runnable, type-checked companion for `docs/get-started/real-host.md`.
  *
  * The page registers an existing server in MCP hosts; its one `ts` fence is
  * the tail of the `src/index.ts` built in `first-server.md` — the entry every

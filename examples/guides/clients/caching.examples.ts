@@ -1,5 +1,5 @@
 /**
- * Runnable, type-checked companion for `docs-v2/clients/caching.md`.
+ * Runnable, type-checked companion for `docs/clients/caching.md`.
  *
  * Each `//#region` block is synced byte-for-byte into that page's code fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift).
@@ -55,7 +55,7 @@ const handler = createMcpHandler(() => {
 
 // ---------------------------------------------------------------------------
 // Harness (not shown on the page). The transport's `fetch` is routed into
-// `handler.fetch` — [Test a server](docs-v2/testing.md) wiring — and counts
+// `handler.fetch` — [Test a server](docs/testing.md) wiring — and counts
 // every JSON-RPC request that reaches the server.
 // ---------------------------------------------------------------------------
 
@@ -73,7 +73,7 @@ const transport = new StreamableHTTPClientTransport(new URL('http://caching.exam
 
 const client = new Client(
     { name: 'caching-docs-harness', version: '1.0.0' },
-    // Cache hints ride the 2026-07-28 revision — see docs-v2/protocol-versions.md.
+    // Cache hints ride the 2026-07-28 revision — see docs/protocol-versions.md.
     { versionNegotiation: { mode: 'auto' } }
 );
 

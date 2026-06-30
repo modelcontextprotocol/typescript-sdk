@@ -1,5 +1,5 @@
 /**
- * Companion example for `docs-v2/servers/sampling.md`.
+ * Companion example for `docs/servers/sampling.md`.
  *
  * The `ts` fence on that page is synced from the `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs: the harness below the

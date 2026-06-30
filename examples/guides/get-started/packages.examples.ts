@@ -1,6 +1,6 @@
 // docs: typecheck-only
 /**
- * Type-checked companion for `docs-v2/get-started/packages.md`.
+ * Type-checked companion for `docs/get-started/packages.md`.
  *
  * Each `//#region` block is synced byte-for-byte into that page's `ts` fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift). The page is

@@ -1,5 +1,5 @@
 /**
- * Runnable, type-checked companion for `docs-v2/serving/hono.md`.
+ * Runnable, type-checked companion for `docs/serving/hono.md`.
  *
  * Each `//#region` block is synced byte-for-byte into that page's code fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift). The harness
@@ -41,7 +41,7 @@ const publicApp = createMcpHonoApp({ host: '0.0.0.0', allowedHosts: ['api.exampl
 
 // `verifyToken` stands in for your deployment's token verification (JWT
 // validation, RFC 7662 introspection, a call to your IdP). The page points at
-// docs-v2/serving/authorization.md for the real thing.
+// docs/serving/authorization.md for the real thing.
 async function verifyToken(request: Request): Promise<AuthInfo> {
     const token = request.headers.get('authorization')?.replace(/^Bearer /, '') ?? '';
     return { token, clientId: 'docs-harness', scopes: ['mcp'], expiresAt: Date.now() / 1000 + 3600 };

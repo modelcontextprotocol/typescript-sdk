@@ -1,5 +1,5 @@
 /**
- * Companion example for `docs-v2/servers/prompts.md`.
+ * Companion example for `docs/servers/prompts.md`.
  *
  * Every `ts` fence on that page is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs: the harness below the

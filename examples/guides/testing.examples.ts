@@ -1,5 +1,5 @@
 /**
- * Companion example for `docs-v2/testing.md`.
+ * Companion example for `docs/testing.md`.
  *
  * Every `ts` fence on that page is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs: it is the no-socket
