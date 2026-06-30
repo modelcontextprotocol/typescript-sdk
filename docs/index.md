@@ -1,9 +1,12 @@
 ---
-status: calibration
 shape: landing
 ---
 
 # MCP TypeScript SDK
+
+::: info v2 beta
+This is the documentation for **v2** of the SDK, currently in **beta**: the API is settling but can still change before the stable release alongside the [2026-07-28 spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/). [Tell us what you find](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml) — and if you need the stable v1, its documentation is at [ts.sdk.modelcontextprotocol.io](https://ts.sdk.modelcontextprotocol.io/).
+:::
 
 The **Model Context Protocol** (MCP) is an open standard that connects AI applications to the systems where your data and tools live. You write a **server** that exposes tools, resources, and prompts; any MCP **host** — Claude Code, VS Code, Cursor, your own application — connects to it and lets a model use them. The protocol is defined by [the MCP specification](https://modelcontextprotocol.io/specification/latest); this SDK is its TypeScript implementation, on Node.js, Bun, and Deno.
 
