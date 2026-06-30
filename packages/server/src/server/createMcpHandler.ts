@@ -669,9 +669,11 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // Pre-dispatch capability gate: a request to a method whose processing
         // structurally requires a client capability the request's validated
         // envelope did not declare is refused here, before any instance is
-        // constructed or dispatched. Answering at the entry pins the
-        // spec-mandated HTTP 400 for this error; a handler-time emission would
-        // surface in-band on HTTP 200.
+        // constructed or dispatched. Answering at the entry short-circuits
+        // before factory construction and pins the spec-mandated HTTP 400 for
+        // this error unconditionally; a handler-time -32021 (the
+        // input_required gate) also maps to 400 at the per-request transport,
+        // but only while no response has been committed.
         if (route.messageKind === 'request') {
             const required = requiredClientCapabilitiesForRequest(route.message.method);
             if (required !== undefined) {

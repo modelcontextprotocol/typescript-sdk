@@ -199,6 +199,9 @@ describe('HTTP status mapping', () => {
     });
 
     it('keeps a handler-thrown unsupported-protocol-version error in-band on HTTP 200', async () => {
+        // A handler relaying a downstream peer's -32022 is not THIS server
+        // rejecting the caller's version; like the -32601 relay above it must
+        // not be re-mapped just because the ladder table maps that code.
         const { server } = modernServer({
             toolsCallHandler: async () => {
                 throw new ProtocolError(-32_022, 'Unsupported protocol version: 2099-01-01');
@@ -208,6 +211,41 @@ describe('HTTP status mapping', () => {
         const response = await transport.handleMessage(toolsCall());
         expect(response.status).toBe(200);
         expect(errorOf(await response.json())?.code).toBe(-32_022);
+    });
+
+    it('maps a post-dispatch -32021 (MissingRequiredClientCapability) to HTTP 400: the spec mandates that status per-error', async () => {
+        const { server } = modernServer({
+            toolsCallHandler: async () => {
+                throw new ProtocolError(-32_021, 'Missing required client capabilities: sampling', {
+                    requiredCapabilities: { sampling: {} }
+                });
+            }
+        });
+        const transport = await connectedTransport(server);
+        const response = await transport.handleMessage(toolsCall());
+        expect(response.status).toBe(400);
+        // The spec shape: `requiredCapabilities` is a ClientCapabilities
+        // OBJECT, never an array.
+        expect(errorOf(await response.json())).toMatchObject({ code: -32_021, data: { requiredCapabilities: { sampling: {} } } });
+    });
+
+    it('leaves a post-dispatch -32021 on the already-open HTTP 200 stream when the handler streamed first', async () => {
+        // Once the lazy SSE upgrade has happened, the 200 is committed — and
+        // the error must still REACH the client as the stream's terminal
+        // frame rather than being swallowed by the status-mapping arm.
+        const { server } = modernServer({
+            toolsCallHandler: async ctx => {
+                await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'capability-test', progress: 1 } });
+                throw new ProtocolError(-32_021, 'Missing required client capabilities: sampling');
+            }
+        });
+        const transport = await connectedTransport(server);
+        const response = await transport.handleMessage(toolsCall());
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toBe('text/event-stream');
+        const frames = (await response.text()).split('\n\n').filter(frame => frame.includes('data: '));
+        const terminal = frames.at(-1)!;
+        expect(JSON.parse(terminal.split('data: ')[1]!)).toMatchObject({ id: 1, error: { code: -32_021 } });
     });
 
     it('keeps handler-produced invalid-params errors in-band on HTTP 200 (never status-mapped)', async () => {
