@@ -45,7 +45,13 @@ const route = async (req: Request, res: Response) => {
         await transport.handleRequest(req, res, req.body);
         return;
     }
-    res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+    if (sessionId) {
+        // Unknown session id: the client should start a new session.
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+        return;
+    }
+    // No session header on a non-initialize request: the request is malformed.
+    res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Session ID required' }, id: null });
 };
 
 app.post('/mcp', route);
@@ -53,7 +59,7 @@ app.get('/mcp', route);
 app.delete('/mcp', route);
 ```
 
-The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session.
+The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
 
 ::: tip
 On shutdown, close every stored transport — `for (const [, transport] of sessions) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.

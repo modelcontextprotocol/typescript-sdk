@@ -57,7 +57,13 @@ function sessions_routing(app: Express, buildServer: () => McpServer) {
             await transport.handleRequest(req, res, req.body);
             return;
         }
-        res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+        if (sessionId) {
+            // Unknown session id: the client should start a new session.
+            res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+            return;
+        }
+        // No session header on a non-initialize request: the request is malformed.
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: Session ID required' }, id: null });
     };
 
     app.post('/mcp', route);
