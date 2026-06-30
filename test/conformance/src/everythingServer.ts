@@ -186,6 +186,63 @@ function createMcpServer() {
         })
     );
 
+    // SEP-2575 `server-stateless` diagnostic fixtures: the scenario hardcodes
+    // these three tool names, and at conformance alpha.8 (conformance#372) the
+    // checks behind them fail as untestable when the names are missing.
+
+    // Requires the `sampling` client capability via an MRTR createMessage
+    // input request; the scenario calls it with empty clientCapabilities and
+    // expects -32021 over HTTP 400.
+    mcpServer.registerTool(
+        'test_missing_capability',
+        {
+            description: 'SEP-2575: requires the `sampling` client capability (drives the -32021 undeclared-capability rejection)',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            if (ctx.mcpReq.inputResponses?.['llm_answer'] === undefined) {
+                return inputRequired({
+                    inputRequests: {
+                        llm_answer: inputRequired.createMessage({
+                            messages: [{ role: 'user', content: { type: 'text', text: 'Reply with the single word: pong' } }],
+                            maxTokens: 16
+                        })
+                    }
+                });
+            }
+            return { content: [{ type: 'text', text: 'sampling round-trip complete' }] };
+        }
+    );
+
+    // A plain successful call: the check only asserts that the response stream
+    // carries no independent top-level JSON-RPC request. It must not elicit
+    // (the scenario declares no `elicitation` capability); the referee's own
+    // reference server does not elicit here either.
+    mcpServer.registerTool(
+        'test_streaming_elicitation',
+        {
+            description: 'SEP-2575: yields a response stream carrying no independent top-level JSON-RPC requests',
+            inputSchema: z.object({})
+        },
+        async (): Promise<CallToolResult> => ({
+            content: [{ type: 'text', text: 'stream observed: result frames only, no top-level requests' }]
+        })
+    );
+
+    // `ctx.mcpReq.log` is gated on the request's `_meta.logLevel`; the scenario
+    // omits it and asserts no notifications/message frame appears.
+    mcpServer.registerTool(
+        'test_logging_tool',
+        {
+            description: 'SEP-2575: logs via ctx.mcpReq.log so the no-log-without-logLevel rule is exercised',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult> => {
+            await ctx.mcpReq.log('info', 'test_logging_tool ran (delivered only when the request set _meta.logLevel)');
+            return { content: [{ type: 'text', text: 'logged through the request-scoped, logLevel-gated channel' }] };
+        }
+    );
+
     // Simple text tool
     mcpServer.registerTool(
         'test_simple_text',

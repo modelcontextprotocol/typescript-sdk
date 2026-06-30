@@ -6,9 +6,13 @@
  *
  *  - errors produced by the validation ladder or a pre-handler protocol gate
  *    map through the table (`-32601` → 404; the small mandated 400 set);
- *  - everything a request handler produces — whatever its code, including
- *    `-32603`, `-32602` and domain-specific codes — stays in-band on HTTP 200,
- *    never a blanket 500;
+ *  - everything a request handler produces — including `-32603`, `-32602` and
+ *    domain-specific codes — stays in-band on HTTP 200, never a blanket 500;
+ *  - EXCEPT `-32021` (MissingRequiredClientCapability): the spec mandates its
+ *    400 per-error with no origin condition, and the `input_required`
+ *    capability gate genuinely emits it after dispatch — so it alone is
+ *    status-mapped wherever it arises. A handler relaying a downstream peer's
+ *    `-32020`/`-32022` is not that peer's spec error and stays in-band;
  *  - `-32602` deliberately has no table entry: the classifier's envelope rung
  *    carries its own HTTP 400 and is the only invalid-params rejection that
  *    maps to 400.
@@ -45,7 +49,7 @@ describe('the status matrix — pinned cells', () => {
         expect(httpStatusForErrorCode(row.code, 'ladder')).toBe(row.status);
     });
 
-    test('every code stays in-band on HTTP 200 when handler-originated — including internal errors and domain codes', () => {
+    test('every code except -32021 stays in-band on HTTP 200 when handler-originated — including internal errors and domain codes', () => {
         const handlerCodes = [
             ProtocolErrorCode.InternalError,
             ProtocolErrorCode.InvalidParams,
@@ -59,6 +63,16 @@ describe('the status matrix — pinned cells', () => {
         for (const code of handlerCodes) {
             expect(httpStatusForErrorCode(code, 'in-band')).toBe(200);
         }
+    });
+
+    test('-32021 is the single code-keyed exception: its spec-mandated 400 applies wherever it arises', () => {
+        expect(httpStatusForErrorCode(ProtocolErrorCode.MissingRequiredClientCapability, 'in-band')).toBe(400);
+        expect(httpStatusForErrorCode(ProtocolErrorCode.MissingRequiredClientCapability, 'ladder')).toBe(400);
+        // The relay contract for the OTHER two spec-defined HTTP errors is
+        // origin-keyed: a handler-relayed -32020/-32022 is not this server's
+        // spec error and stays in-band.
+        expect(httpStatusForErrorCode(HEADER_MISMATCH_ERROR_CODE, 'in-band')).toBe(200);
+        expect(httpStatusForErrorCode(ProtocolErrorCode.UnsupportedProtocolVersion, 'in-band')).toBe(200);
     });
 
     test('-32603 never becomes a blanket 500: handler-originated internal errors are in-band', () => {
