@@ -5,7 +5,9 @@ shape: landing
 
 # MCP TypeScript SDK
 
-This is a complete MCP server: one tool, served over stdio.
+The **Model Context Protocol** (MCP) is an open standard that connects AI applications to the systems where your data and tools live. You write a **server** that exposes tools, resources, and prompts; any MCP **host** — Claude Code, VS Code, Cursor, your own application — connects to it and lets a model use them. The protocol is defined by [the MCP specification](https://modelcontextprotocol.io/specification/latest); this SDK is its TypeScript implementation, on Node.js, Bun, and Deno.
+
+A complete server is one file:
 
 ```ts source="../examples/guides/index.examples.ts#serveStdio_minimal"
 import { McpServer } from '@modelcontextprotocol/server';
@@ -31,8 +33,6 @@ serveStdio(() => {
 ```
 
 Any MCP host that launches this program lists and calls `get-forecast`; the SDK validates every call against that `z.object(...)` schema before your handler runs. [Build a server](./get-started/first-server.md) installs the packages and runs it end to end.
-
-The **Model Context Protocol** (MCP) is an open standard that connects AI applications to the systems where your data and tools already live. You write a **server** that exposes tools (and resources and prompts — data and templates a host can read); any MCP **host** (Claude Code, VS Code, Cursor, your own application) connects to it and lets a model use them. This SDK is the TypeScript implementation of both sides — `@modelcontextprotocol/server` and `@modelcontextprotocol/client` — and runs on Node.js, Bun, and Deno.
 
 ## Pick a path
 
