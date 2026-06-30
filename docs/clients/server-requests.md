@@ -1,62 +1,114 @@
 ---
-status: scaffold
 shape: how-to
 ---
 # Handle requests from the server
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Sampling/elicitation handlers; era unification told once via one cross-link.
-teaches: Client capabilities option, Client.setRequestHandler, elicitation/create handler, sampling/createMessage handler, getSupportedElicitationModes, ClientOptions.inputRequired
-source: mined from docs/client.md "Handling server-initiated requests", "Sampling", "Elicitation", "Manual multi-round-trip handling"
--->
-
 ## Declare what your client can do
 
-<!-- teaches: ClientCapabilities via the Client constructor's options | salvage: docs/client.md "Handling server-initiated requests" (capabilities_declaration) -->
+Declare each **capability** in the `Client` constructor's options — a server only sends your client a request it declared a capability for, and the SDK enforces that on both sides.
 
-```ts
-// draft - API verified against packages/client/src/client/client.ts (Client constructor, ClientOptions.capabilities)
+```ts source="../../examples/guides/clients/server-requests.examples.ts#Client_capabilities"
 import { Client } from '@modelcontextprotocol/client';
 
 const client = new Client(
-  { name: 'my-client', version: '1.0.0' },
-  {
-    capabilities: {
-      sampling: {},
-      elicitation: { form: {} },
-    },
-  }
+    { name: 'my-client', version: '1.0.0' },
+    {
+        capabilities: {
+            sampling: {},
+            elicitation: { form: {}, url: {} }
+        }
+    }
 );
 ```
 
-<!-- result: the server only sends a request your client declared a capability for; the SDK enforces this on both sides. -->
+Every result quoted on this page comes from this client connected over an in-memory transport pair to a server whose tools elicit input and request sampling. [Test a server](../testing.md) shows that wiring; [Elicitation](../servers/elicitation.md) and [Sampling](../servers/sampling.md) show the server side.
+
+::: tip
+An empty `elicitation: {}` declares form mode only — `url` must be listed explicitly. `getSupportedElicitationModes`, exported from `@modelcontextprotocol/client`, turns any `elicitation` capability object into `{ supportsFormMode, supportsUrlMode }`.
+:::
 
 ## Handle an elicitation request
 
-<!-- teaches: client.setRequestHandler('elicitation/create', ...), form vs URL mode, action accept/decline/cancel | salvage: docs/client.md "Elicitation" -->
-<!-- code: setRequestHandler('elicitation/create') branching on request.params.mode, returning { action: 'accept', content } or { action: 'decline' } -->
+A tool that calls `elicitInput` sends your client an `elicitation/create` request. Branch on `request.params.mode`: `'url'` carries a URL to open in the user's browser, and anything else is a form your client builds from `request.params.requestedSchema`.
+
+```ts source="../../examples/guides/clients/server-requests.examples.ts#setRequestHandler_elicitation"
+client.setRequestHandler('elicitation/create', async request => {
+    if (request.params.mode === 'url') {
+        // Open request.params.url in the user's browser; answer when they finish.
+        return { action: 'accept' };
+    }
+    // Render request.params.requestedSchema as a form; return what the user entered.
+    return { action: 'accept', content: { city: 'Lisbon' } };
+});
+```
+
+`action` is the user's decision: `'accept'` carries the submitted `content`, `'decline'` and `'cancel'` carry nothing. Calling a tool that asks where to ship an order now round-trips through the form branch:
+
+```
+[ { type: 'text', text: 'Order placed: Travel mug ships to Lisbon.' } ]
+```
+
+::: tip
+Form requests sent before `mode` existed omit it entirely — branch on `'url'` and treat everything else as a form, never on `mode === 'form'`.
+:::
 
 ## Handle a sampling request
 
-<!-- teaches: client.setRequestHandler('sampling/createMessage', ...) | salvage: docs/client.md "Sampling" -->
-<!-- code: setRequestHandler('sampling/createMessage') returning { model, role, content } from your LLM call -->
-<!-- aside: ::: warning — sampling is deprecated (SEP-2577); link clients/roots.md? no — link /protocol-versions for the era story and the servers/sampling.md banner for the sunset -->
+::: warning Deprecated — SEP-2577
+Servers should call their LLM provider directly instead of sampling — see [Sampling](../servers/sampling.md). Keep this handler to support servers that have not migrated yet.
+:::
+
+A tool that calls `requestSampling` sends your client a `sampling/createMessage` request: a list of messages to run through a model your application controls.
+
+```ts source="../../examples/guides/clients/server-requests.examples.ts#setRequestHandler_sampling"
+client.setRequestHandler('sampling/createMessage', async request => {
+    const lastMessage = request.params.messages.at(-1);
+    console.log('Sampling request:', lastMessage?.content);
+
+    // In production, run the messages through your model here.
+    return {
+        model: 'host-model',
+        role: 'assistant',
+        content: { type: 'text', text: 'One travel mug to Lisbon.' }
+    };
+});
+```
+
+Calling a tool that summarizes the order logs the prompt the server sent, and the tool result carries the handler's completion:
+
+```
+Sampling request: { type: 'text', text: 'Summarize this order: 1 Travel mug to Lisbon' }
+[ { type: 'text', text: 'host-model: One travel mug to Lisbon.' } ]
+```
 
 ## Register each handler once
 
-<!-- teaches: era unification — handlers are era-transparent (older push requests vs an input_required round trip reach the same handler); the page's SINGLE era cross-link | salvage: docs/client.md "Handling server-initiated requests" (era paragraph), "Manual multi-round-trip handling" -->
-<!-- code: none — one ::: info container: "How these handlers are delivered differs by protocol version — see /protocol-versions." Nothing else era-shaped on this page. -->
+Register each handler once, on the `Client` you construct. The same handler answers a request the server pushes to your client and a request the SDK fulfils for you inside a `callTool()` round — your code never sees the difference.
+
+::: info
+Which of those two delivery paths a connection uses depends on its protocol version — see [Protocol versions](../protocol-versions.md).
+:::
 
 ## Cap or disable automatic fulfilment
 
-<!-- teaches: ClientOptions.inputRequired ({ autoFulfill, maxRounds }), INPUT_REQUIRED_ROUNDS_EXCEEDED | salvage: docs/client.md "Manual multi-round-trip handling (2026-07-28)" -->
-<!-- code: new Client(info, { inputRequired: { maxRounds: 3 } }) -->
+When the SDK fulfils requests inside a call, the `inputRequired` option caps how many rounds it runs on your behalf.
+
+```ts source="../../examples/guides/clients/server-requests.examples.ts#Client_inputRequired"
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    {
+        capabilities: { sampling: {}, elicitation: { form: {}, url: {} } },
+        inputRequired: { maxRounds: 3 }
+    }
+);
+```
+
+Past `maxRounds` (default 10) the call rejects with an `SdkError` coded `INPUT_REQUIRED_ROUNDS_EXCEEDED`. Set `autoFulfill: false` to turn the loop off entirely: a call that needs input rejects on its first round instead, and the round trips are yours to drive.
 
 ## Recap
 
-<!-- the claims this page will prove:
-- Declare a capability in the Client constructor or the server never sends that request.
-- setRequestHandler('elicitation/create') and setRequestHandler('sampling/createMessage') are the two handlers; each returns a plain result object.
-- Register the handler once; the SDK delivers it the same way on every protocol version (one cross-link to /protocol-versions).
-- inputRequired on ClientOptions caps the automatic interactive rounds.
--->
+- Declare a capability in the `Client` constructor or the server never sends that request.
+- `setRequestHandler('elicitation/create')` branches on `mode` and returns the user's `action`, plus `content` on accept.
+- `setRequestHandler('sampling/createMessage')` runs the messages through your model and returns `{ model, role, content }`.
+- Register each handler once; it answers the request however the connection delivers it.
+- `inputRequired` caps the automatic interactive rounds; `autoFulfill: false` disables them.

@@ -1,21 +1,15 @@
 ---
-status: scaffold
 shape: how-to
 ---
 # Cache responses
 
-<!-- SCAFFOLD - structure only; prose comes in a later tranche.
-scope: Client store + server cache hints, presented as one feature.
-teaches: CacheableRequestOptions.cacheMode, ClientOptions.responseCacheStore, ClientOptions.cachePartition, ClientOptions.defaultCacheTtlMs, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS, server-side ttlMs/cacheScope hints (SEP-2549)
-source: mined from docs/client.md "Response caching (2026-07-28 draft)"; server hint side mined from docs/server.md / packages/server/src — ONE feature, both halves on this page
--->
+Caching is one feature with two halves: the server marks a result with a freshness hint, and the client's **response cache** serves it locally while it stays fresh.
 
 ## Let the cache work
 
-<!-- teaches: the zero-config path — cacheable verbs honour the server's ttlMs automatically; cacheMode overrides per call | salvage: docs/client.md "Response caching (2026-07-28 draft)" -->
+The cacheable verbs check the cache before they send. A still-fresh entry comes back without a round trip; `cacheMode` overrides the disposition per call.
 
-```ts
-// draft - API verified against packages/client/src/client/client.ts (listTools(params?, options?: CacheableRequestOptions), readResource) and packages/client/src/client/responseCache.ts (InMemoryResponseCacheStore, MAX_CACHE_TTL_MS)
+```ts source="../../examples/guides/clients/caching.examples.ts#responseCache_use"
 const tools = await client.listTools(); // network, then cached for the server's ttlMs
 const again = await client.listTools(); // served from cache while still fresh
 
@@ -23,41 +17,91 @@ await client.listTools(undefined, { cacheMode: 'refresh' }); // always refetch a
 await client.readResource({ uri: 'config://app' }, { cacheMode: 'bypass' }); // no cache read or write
 ```
 
-<!-- result: the second listTools() makes no network round trip; quote the companion example's timing/log output. -->
+`client` is connected to the server in the next section — served in-process by `createMcpHandler`, the wiring [Test a server](../testing.md) shows — and the harness counts every request that reaches it. After all four calls, only the first `listTools()` and the `'refresh'` crossed the wire:
+
+```
+tools/list requests that reached the server: 2
+resources/read requests that reached the server: 1
+```
+
+Nothing on the client opts in: every `Client` holds a response cache, and the server's hint decides what it may serve.
 
 ## Have the server send the hint
 
-<!-- teaches: the other half of the feature — the server attaches ttlMs / cacheScope to cacheable results (SEP-2549); without a hint nothing is served from cache | salvage: net-new (server cache-hint config in packages/server/src); cross-reference, not duplicated prose -->
-<!-- code: the server-side registration option that sets ttlMs / cacheScope on a list result -->
+`ServerOptions.cacheHints` attaches a `ttlMs` and a `cacheScope` to each cacheable result it names (SEP-2549) — without one, the SDK emits `ttlMs: 0` and no client ever serves that result from cache.
+
+```ts source="../../examples/guides/clients/caching.examples.ts#cacheHints_server"
+const server = new McpServer(
+    { name: 'catalog', version: '1.0.0' },
+    {
+        cacheHints: {
+            'tools/list': { ttlMs: 60_000, cacheScope: 'public' },
+            'resources/read': { ttlMs: 5_000, cacheScope: 'private' }
+        }
+    }
+);
+```
+
+`registerResource` also takes a per-resource `cacheHint`; it wins, field by field, over the `resources/read` entry here for that resource's read results. Mark a result `cacheScope: 'public'` only when it is identical for every caller — anything derived from the caller's authorization context stays `'private'`, the default.
+
+::: tip
+A server cannot pin an entry forever: the client caps any `ttlMs` at 24 hours (`MAX_CACHE_TTL_MS`).
+:::
 
 ## Choose a cache mode per call
 
-<!-- teaches: cacheMode 'refresh' vs 'bypass' vs default; which verbs are cacheable (tools/list, prompts/list, resources/list, resources/templates/list, resources/read, server/discover) | salvage: docs/client.md "Response caching" -->
-<!-- code: none — placeholder comment naming the three modes; 'bypass' leaves the cache byte-untouched -->
+`cacheMode` on `listTools()`, `listPrompts()`, `listResources()`, `listResourceTemplates()`, and `readResource()` — the cacheable verbs — takes one of three values. `'use'`, the default, serves a still-fresh entry and otherwise fetches and stores. `'refresh'` always fetches and stores the fresh result.
+
+`'bypass'` fetches without reading or writing: it leaves the cache byte-untouched, including the `tools/list` entry the SDK itself reads for output validation when you [call tools](./calling.md).
 
 ## Bring your own store
 
-<!-- teaches: ClientOptions.responseCacheStore, the ResponseCacheStore interface, InMemoryResponseCacheStore default | salvage: docs/client.md "Response caching" (ClientOptions bullets) -->
-<!-- code: new Client(info, { responseCacheStore: myStore }) -->
+`responseCacheStore` swaps the backing store; the default is a fresh `InMemoryResponseCacheStore` per client, holding at most 512 `resources/read` entries.
+
+```ts source="../../examples/guides/clients/caching.examples.ts#responseCacheStore_shared"
+const store = new InMemoryResponseCacheStore({ maxEntries: 2048 });
+
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { responseCacheStore: store });
+```
+
+Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
 
 ## Partition the store per user
 
-<!-- teaches: ClientOptions.cachePartition isolating 'private'-scoped entries when one store serves several principals | salvage: docs/client.md "Response caching" (IMPORTANT callout) -->
-<!-- code: new Client(info, { responseCacheStore: shared, cachePartition: userId }) -->
-<!-- aside: ::: warning — a shared store without cachePartition can serve one user's private resource bodies to another -->
+When one shared store serves several principals, set `cachePartition` to a stable identity of the authorization context — the auth subject, for example.
+
+```ts source="../../examples/guides/clients/caching.examples.ts#cachePartition_perUser"
+const client = new Client(
+    { name: 'gateway', version: '1.0.0' },
+    { responseCacheStore: sharedStore, cachePartition: userId }
+);
+```
+
+`'private'`-scoped entries are stored under that partition and never read across it; `'public'`-scoped entries stay shared within the server's namespace.
+
+::: warning
+A shared store without `cachePartition` can serve one user's `'private'`-scoped resource bodies to another. Set it whenever the store outlives a single principal.
+:::
 
 ## Cache against servers that send no hints
 
-<!-- teaches: ClientOptions.defaultCacheTtlMs; eviction on list_changed / resources/updated notifications | salvage: docs/client.md "Response caching" (defaultCacheTtlMs bullet + eviction paragraph) -->
-<!-- code: new Client(info, { defaultCacheTtlMs: 60_000 }) -->
-<!-- aside: ::: info — one-line era cross-link to /protocol-versions: cache hints are a 2026-07-28 surface; against 2025-era servers defaultCacheTtlMs is the only lever -->
+`defaultCacheTtlMs` is the TTL applied when a cacheable result arrives without a `ttlMs`. The default is `0`: a result with no hint is never served from cache.
+
+```ts source="../../examples/guides/clients/caching.examples.ts#defaultCacheTtlMs_optIn"
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { defaultCacheTtlMs: 60_000 });
+```
+
+Fresh or not, the cache also evicts itself when the server signals a change: a `list_changed` notification drops the matching list entries, and `notifications/resources/updated` drops the cached body for that URI — see [Subscriptions](./subscriptions.md).
+
+::: info
+Cache hints are a 2026-07-28 surface — see [Protocol versions](../protocol-versions.md). Against a 2025-era server, `defaultCacheTtlMs` is the only lever.
+:::
 
 ## Recap
 
-<!-- the claims this page will prove:
-- Caching is one feature with two halves: the server sends ttlMs/cacheScope, the client honours it — neither half does anything alone (by default).
-- The cacheable verbs serve a still-fresh result without a round trip; cacheMode overrides per call.
-- responseCacheStore swaps the backing store; cachePartition is mandatory when that store is shared across principals.
-- defaultCacheTtlMs is the opt-in for servers that send no hints.
-- list_changed and resources/updated notifications evict automatically.
--->
+- Caching is one feature with two halves: the server attaches `ttlMs` / `cacheScope`, the client honours them — by default neither half does anything alone.
+- `listTools()`, `listPrompts()`, `listResources()`, `listResourceTemplates()`, and `readResource()` serve a still-fresh result without a round trip; `cacheMode` overrides per call.
+- A result without a hint carries `ttlMs: 0` and is never served from cache; the client caps every `ttlMs` at 24 hours.
+- `responseCacheStore` swaps the backing store; `cachePartition` is mandatory when that store serves several principals.
+- `defaultCacheTtlMs` opts in to caching against servers that send no hints.
+- `list_changed` and `notifications/resources/updated` evict matching entries automatically.
