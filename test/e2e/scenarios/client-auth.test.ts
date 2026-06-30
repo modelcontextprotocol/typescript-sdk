@@ -2002,6 +2002,58 @@ verifies('client-auth:authprovider:token-attached', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'client-auth:authprovider:token-attached',
+    async (_args: TestArgs) => {
+        const TOKEN = 'auth-provider-bearer-token';
+        const STALE = 'stale-configured-token';
+
+        const authProvider: AuthProvider = {
+            token: async () => TOKEN
+        };
+
+        const authorizationSeenByServer: Array<string | null> = [];
+        const mcpHost = hostPerSession(() => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+                authorizationSeenByServer.push(ctx.http?.req?.headers.get('authorization') ?? null);
+                return { content: [{ type: 'text', text: 'ok' }] };
+            });
+            return s;
+        });
+
+        const requests: Array<{ method: string; authorization: string | null }> = [];
+        const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+            requests.push({ method: init?.method ?? 'GET', authorization: new Headers(init?.headers).get('authorization') });
+            return mcpHost.handleRequest(new Request(url, init));
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+            authProvider,
+            fetch: recordingFetch,
+            requestInit: { headers: { Authorization: `Bearer ${STALE}` } }
+        });
+
+        try {
+            await client.connect(transport);
+            const result = await client.callTool({ name: 'probe', arguments: {} });
+            expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+            await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+            for (const req of requests) {
+                expect(req.authorization).toBe(`Bearer ${TOKEN}`);
+            }
+            expect(authorizationSeenByServer).toEqual([`Bearer ${TOKEN}`]);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    },
+    { title: 'auth provider token overrides requestInit Authorization header' }
+);
+
 verifies('client-auth:authprovider:onunauthorized-retry', async (_args: TestArgs) => {
     const STALE = 'stale-bearer-token';
     const FRESH = 'fresh-bearer-token';
