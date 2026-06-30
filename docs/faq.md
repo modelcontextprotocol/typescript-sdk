@@ -2,7 +2,7 @@
 title: FAQ
 ---
 
-## FAQ
+# FAQ
 
 <details>
 <summary>Table of Contents</summary>
