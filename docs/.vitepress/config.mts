@@ -24,8 +24,11 @@ export default defineConfig({
     title: 'MCP TypeScript SDK',
     description: 'The TypeScript SDK implementation of the Model Context Protocol specification.',
     base: '/v2/',
-    srcExclude: ['v1/**', 'behavior-surface-pins.md'],
+    srcExclude: ['v1/**', '_meta/**'],
     sitemap: { hostname: 'https://ts.sdk.modelcontextprotocol.io/v2/' },
+    // Phase-2 preview: most pages are scaffolds with placeholder cross-links; the dead-link gate
+    // is suspended on this branch only so the structure is browsable. Re-enable before any merge.
+    ignoreDeadLinks: true,
     markdown: {
         config(md) {
             // Spec-generated JSDoc (packages/core-internal/src/types/spec.types.*.ts) carries
@@ -44,26 +47,81 @@ export default defineConfig({
     },
     themeConfig: {
         nav: [
-            { text: 'Guide', link: '/server-quickstart', activeMatch: '^/(server|client|faq)' },
+            { text: 'Get started', link: '/get-started/first-server', activeMatch: '^/get-started/' },
+            { text: 'Servers', link: '/servers/tools', activeMatch: '^/(servers|serving)/' },
+            { text: 'Clients', link: '/clients/connect', activeMatch: '^/clients/' },
             { text: 'Migration', link: '/migration/', activeMatch: '^/migration/' },
             { text: 'API Reference', link: '/api/', activeMatch: '^/api/' },
             { text: 'V1 Docs', link: 'https://ts.sdk.modelcontextprotocol.io/' }
         ],
         sidebar: [
             {
-                text: 'Getting started',
+                text: 'Get started',
                 items: [
-                    { text: 'Server Quickstart', link: '/server-quickstart' },
-                    { text: 'Client Quickstart', link: '/client-quickstart' }
+                    { text: 'Build a server', link: '/get-started/first-server' },
+                    { text: 'Plug into a real host', link: '/get-started/real-host' },
+                    { text: 'Build a client', link: '/get-started/first-client' },
+                    { text: 'Packages', link: '/get-started/packages' }
                 ]
             },
             {
-                text: 'Guides',
+                text: 'Servers',
                 items: [
-                    { text: 'Server', link: '/server' },
-                    { text: 'Client', link: '/client' }
+                    { text: 'Tools', link: '/servers/tools' },
+                    { text: 'Resources', link: '/servers/resources' },
+                    { text: 'Prompts', link: '/servers/prompts' },
+                    { text: 'Completion', link: '/servers/completion' },
+                    { text: 'Logging, progress, cancellation', link: '/servers/logging-progress-cancellation' },
+                    { text: 'Elicitation', link: '/servers/elicitation' },
+                    { text: 'Sampling (sunset)', link: '/servers/sampling' },
+                    { text: 'Input required', link: '/servers/input-required' },
+                    { text: 'Notifications', link: '/servers/notifications' },
+                    { text: 'Errors', link: '/servers/errors' }
                 ]
             },
+            {
+                text: 'Serving',
+                items: [
+                    { text: 'stdio', link: '/serving/stdio' },
+                    { text: 'HTTP', link: '/serving/http' },
+                    { text: 'Express', link: '/serving/express' },
+                    { text: 'Hono', link: '/serving/hono' },
+                    { text: 'Fastify', link: '/serving/fastify' },
+                    { text: 'Web-standard runtimes', link: '/serving/web-standard' },
+                    { text: 'Sessions, state, scaling', link: '/serving/sessions-state-scaling' },
+                    { text: 'Authorization', link: '/serving/authorization' },
+                    { text: 'Legacy clients', link: '/serving/legacy-clients' }
+                ]
+            },
+            {
+                text: 'Clients',
+                items: [
+                    { text: 'Connect', link: '/clients/connect' },
+                    { text: 'Calling', link: '/clients/calling' },
+                    { text: 'Handle server requests', link: '/clients/server-requests' },
+                    { text: 'Roots (sunset)', link: '/clients/roots' },
+                    { text: 'Subscriptions', link: '/clients/subscriptions' },
+                    { text: 'OAuth', link: '/clients/oauth' },
+                    { text: 'Machine auth', link: '/clients/machine-auth' },
+                    { text: 'Middleware', link: '/clients/middleware' },
+                    { text: 'Caching', link: '/clients/caching' }
+                ]
+            },
+            { text: 'Protocol versions', link: '/protocol-versions' },
+            {
+                text: 'Advanced',
+                collapsed: true,
+                items: [
+                    { text: 'Low-level server', link: '/advanced/low-level-server' },
+                    { text: 'Custom methods', link: '/advanced/custom-methods' },
+                    { text: 'Schema libraries', link: '/advanced/schema-libraries' },
+                    { text: 'Custom transports', link: '/advanced/custom-transports' },
+                    { text: 'Wire schemas', link: '/advanced/wire-schemas' },
+                    { text: 'Gateway', link: '/advanced/gateway' }
+                ]
+            },
+            { text: 'Testing', link: '/testing' },
+            { text: 'Troubleshooting', link: '/troubleshooting' },
             {
                 text: 'Migration',
                 items: [
@@ -73,8 +131,15 @@ export default defineConfig({
                 ]
             },
             {
-                text: 'FAQ',
-                items: [{ text: 'FAQ', link: '/faq' }]
+                text: 'Current guides (being replaced)',
+                collapsed: true,
+                items: [
+                    { text: 'Server quickstart', link: '/server-quickstart' },
+                    { text: 'Client quickstart', link: '/client-quickstart' },
+                    { text: 'Server guide', link: '/server' },
+                    { text: 'Client guide', link: '/client' },
+                    { text: 'FAQ', link: '/faq' }
+                ]
             },
             {
                 text: 'API Reference',
