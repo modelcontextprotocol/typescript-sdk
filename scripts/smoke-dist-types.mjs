@@ -16,12 +16,16 @@ try {
             "import { Client } from '@modelcontextprotocol/client';",
             "import type { AjvJsonSchemaValidator as ClientAjv } from '@modelcontextprotocol/client';",
             "import { AjvJsonSchemaValidator } from '@modelcontextprotocol/client/validators/ajv';",
+            "import { CfWorkerJsonSchemaValidator as ClientCf } from '@modelcontextprotocol/client/validators/cf-worker';",
+            "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';",
             "import { McpServer } from '@modelcontextprotocol/server';",
             "import { AjvJsonSchemaValidator as ServerAjv } from '@modelcontextprotocol/server/validators/ajv';",
+            "import { CfWorkerJsonSchemaValidator as ServerCf } from '@modelcontextprotocol/server/validators/cf-worker';",
+            "import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';",
             "export const c = new Client({ name: 'smoke', version: '1.0.0' });",
             "export const s = new McpServer({ name: 'smoke', version: '1.0.0' });",
             'export type T = ClientAjv;',
-            'export { AjvJsonSchemaValidator, ServerAjv };',
+            'export { AjvJsonSchemaValidator, ServerAjv, ClientCf, ServerCf, StdioClientTransport, StdioServerTransport };',
             ''
         ].join('\n')
     );
@@ -41,8 +45,16 @@ try {
                     paths: {
                         '@modelcontextprotocol/client': [path.join(repo, 'packages/client/dist/index.d.mts')],
                         '@modelcontextprotocol/client/validators/ajv': [path.join(repo, 'packages/client/dist/validators/ajv.d.mts')],
+                        '@modelcontextprotocol/client/validators/cf-worker': [
+                            path.join(repo, 'packages/client/dist/validators/cfWorker.d.mts')
+                        ],
+                        '@modelcontextprotocol/client/stdio': [path.join(repo, 'packages/client/dist/stdio.d.mts')],
                         '@modelcontextprotocol/server': [path.join(repo, 'packages/server/dist/index.d.mts')],
-                        '@modelcontextprotocol/server/validators/ajv': [path.join(repo, 'packages/server/dist/validators/ajv.d.mts')]
+                        '@modelcontextprotocol/server/validators/ajv': [path.join(repo, 'packages/server/dist/validators/ajv.d.mts')],
+                        '@modelcontextprotocol/server/validators/cf-worker': [
+                            path.join(repo, 'packages/server/dist/validators/cfWorker.d.mts')
+                        ],
+                        '@modelcontextprotocol/server/stdio': [path.join(repo, 'packages/server/dist/stdio.d.mts')]
                     }
                 },
                 include: ['consumer.ts']
