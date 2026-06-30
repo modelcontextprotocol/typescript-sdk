@@ -15,10 +15,7 @@
 //#region roots_capability
 import { Client } from '@modelcontextprotocol/client';
 
-const client = new Client(
-    { name: 'workspace-client', version: '1.0.0' },
-    { capabilities: { roots: { listChanged: true } } }
-);
+const client = new Client({ name: 'workspace-client', version: '1.0.0' }, { capabilities: { roots: { listChanged: true } } });
 //#endregion roots_capability
 
 //#region roots_listHandler

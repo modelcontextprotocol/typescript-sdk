@@ -222,10 +222,7 @@ const stateCodec = createRequestStateCodec<{ step: string }>({
     ttlSeconds: 600
 });
 
-const server = new McpServer(
-    { name: 'releases', version: '1.0.0' },
-    { requestState: { verify: stateCodec.verify } }
-);
+const server = new McpServer({ name: 'releases', version: '1.0.0' }, { requestState: { verify: stateCodec.verify } });
 ```
 
 With the hook in place, the accessor hands the handler `verify`'s decoded payload, and tampered or expired state never reaches the handler at all. Retrying `wipe-cache` with `requestState: 'tampered'` answers a wire-level protocol error:

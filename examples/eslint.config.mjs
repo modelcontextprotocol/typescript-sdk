@@ -42,5 +42,25 @@ export default [
                 }
             ]
         }
+    },
+    {
+        // Guide companions are documentation snippets: filenames mirror their page slugs,
+        // every //#region must stay self-contained when rendered on its page, and snippet
+        // style follows the docs register rather than the example-app style rules.
+        // The import restrictions above still apply.
+        files: ['guides/**/*.ts'],
+        rules: {
+            'unicorn/filename-case': 'off',
+            'unicorn/switch-case-braces': 'off',
+            'unicorn/numeric-separators-style': 'off',
+            'unicorn/import-style': 'off',
+            'unicorn/no-await-expression-member': 'off',
+            'unicorn/prefer-response-static-json': 'off',
+            '@typescript-eslint/consistent-type-imports': 'off',
+            'simple-import-sort/imports': 'off',
+            'import/no-duplicates': 'off',
+            'unicorn/require-array-join-separator': 'off',
+            'unicorn/explicit-length-check': 'off'
+        }
     }
 ];

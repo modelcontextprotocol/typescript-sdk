@@ -145,7 +145,10 @@ const heldCursor = 'page-2';
 // "Let the SDK walk the pages" — one raw page, the output the page quotes.
 //#region listTools_onePage
 const page = await client.listTools({ cursor: heldCursor });
-console.log(page.tools.map(tool => tool.name), page.nextCursor);
+console.log(
+    page.tools.map(tool => tool.name),
+    page.nextCursor
+);
 //#endregion listTools_onePage
 
 // "Read structured output" — the narrowed `structuredContent` the page quotes.

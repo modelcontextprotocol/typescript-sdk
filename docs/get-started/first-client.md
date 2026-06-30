@@ -89,14 +89,9 @@ The rejection is an ordinary `isError: true` result, so a model reads the messag
 The weather server registers no **resources** yet — a resource is data a client reads by URI, where a tool is an action it invokes. In `src/index.ts`, register one above the `return server` line.
 
 ```ts source="../../examples/guides/get-started/firstClient.examples.ts#firstClient_registerResource"
-server.registerResource(
-    'about',
-    'weather://about',
-    { title: 'About this server', mimeType: 'text/plain' },
-    async uri => ({
-        contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
-    })
-);
+server.registerResource('about', 'weather://about', { title: 'About this server', mimeType: 'text/plain' }, async uri => ({
+    contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
+}));
 ```
 
 The read handler returns `contents` — a list, because one read can return several text or binary parts. [Resources](../servers/resources.md) covers templates, binary contents, and subscriptions.

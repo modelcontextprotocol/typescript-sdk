@@ -71,10 +71,7 @@ Every method on the `ResponseCacheStore` interface may return a promise, so a Re
 When one shared store serves several principals, set `cachePartition` to a stable identity of the authorization context — the auth subject, for example.
 
 ```ts source="../../examples/guides/clients/caching.examples.ts#cachePartition_perUser"
-const client = new Client(
-    { name: 'gateway', version: '1.0.0' },
-    { responseCacheStore: sharedStore, cachePartition: userId }
-);
+const client = new Client({ name: 'gateway', version: '1.0.0' }, { responseCacheStore: sharedStore, cachePartition: userId });
 ```
 
 `'private'`-scoped entries are stored under that partition and never read across it; `'public'`-scoped entries stay shared within the server's namespace.

@@ -51,10 +51,7 @@ On a 2026-07-28 connection `elicitInput` throws — a handler returns the reques
 The answer comes from the connected client's `elicitation/create` handler. Every call on this page uses an in-memory client whose handler stands in for a real host's UI — [Handle requests from the server](../clients/server-requests.md) covers the client side in full.
 
 ```ts source="../../examples/guides/servers/elicitation.examples.ts#Client_elicitationHandler"
-const client = new Client(
-    { name: 'feedback-host', version: '1.0.0' },
-    { capabilities: { elicitation: { form: {}, url: {} } } }
-);
+const client = new Client({ name: 'feedback-host', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} } } });
 
 client.setRequestHandler('elicitation/create', async request => {
     if (request.params.mode === 'url') {

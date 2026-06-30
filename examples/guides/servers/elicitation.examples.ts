@@ -112,10 +112,7 @@ const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client
 // The client-side handler the page shows once (the full client story lives in
 // docs-v2/clients/server-requests.md).
 //#region Client_elicitationHandler
-const client = new Client(
-    { name: 'feedback-host', version: '1.0.0' },
-    { capabilities: { elicitation: { form: {}, url: {} } } }
-);
+const client = new Client({ name: 'feedback-host', version: '1.0.0' }, { capabilities: { elicitation: { form: {}, url: {} } } });
 
 client.setRequestHandler('elicitation/create', async request => {
     if (request.params.mode === 'url') {

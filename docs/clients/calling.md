@@ -36,7 +36,10 @@ Pass a `cursor` — a page's `nextCursor` your application held on to — and `l
 
 ```ts source="../../examples/guides/clients/calling.examples.ts#listTools_onePage"
 const page = await client.listTools({ cursor: heldCursor });
-console.log(page.tools.map(tool => tool.name), page.nextCursor);
+console.log(
+    page.tools.map(tool => tool.name),
+    page.nextCursor
+);
 ```
 
 The `orders` server hands out its three tools two per page, and `heldCursor` names the second page — one tool, nothing left to follow:

@@ -126,10 +126,7 @@ function responseCacheStore_shared() {
 
 function cachePartition_perUser(sharedStore: ResponseCacheStore, userId: string) {
     //#region cachePartition_perUser
-    const client = new Client(
-        { name: 'gateway', version: '1.0.0' },
-        { responseCacheStore: sharedStore, cachePartition: userId }
-    );
+    const client = new Client({ name: 'gateway', version: '1.0.0' }, { responseCacheStore: sharedStore, cachePartition: userId });
     //#endregion cachePartition_perUser
     return client;
 }

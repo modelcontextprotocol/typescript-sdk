@@ -24,11 +24,9 @@ import * as z from 'zod/v4';
 
 const handler = createMcpHandler(() => {
     const server = new McpServer({ name: 'notes', version: '1.0.0' });
-    server.registerTool(
-        'add-note',
-        { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
-        async ({ text }) => ({ content: [{ type: 'text', text: `Saved: ${text}` }] })
-    );
+    server.registerTool('add-note', { description: 'Append a note', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+        content: [{ type: 'text', text: `Saved: ${text}` }]
+    }));
     return server;
 });
 

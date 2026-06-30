@@ -105,14 +105,9 @@ console.log(rejectedBlock.text);
 
 function firstClient_registerResource(server: McpServer) {
     //#region firstClient_registerResource
-    server.registerResource(
-        'about',
-        'weather://about',
-        { title: 'About this server', mimeType: 'text/plain' },
-        async uri => ({
-            contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
-        })
-    );
+    server.registerResource('about', 'weather://about', { title: 'About this server', mimeType: 'text/plain' }, async uri => ({
+        contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
+    }));
     //#endregion firstClient_registerResource
 }
 void firstClient_registerResource;

@@ -51,14 +51,9 @@ function createServer(): McpServer {
     );
 
     // Added by docs/get-started/first-client.md ("Add a resource and read it").
-    server.registerResource(
-        'about',
-        'weather://about',
-        { title: 'About this server', mimeType: 'text/plain' },
-        async uri => ({
-            contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
-        })
-    );
+    server.registerResource('about', 'weather://about', { title: 'About this server', mimeType: 'text/plain' }, async uri => ({
+        contents: [{ uri: uri.href, text: 'Alert data comes from the US National Weather Service.' }]
+    }));
 
     return server;
 }

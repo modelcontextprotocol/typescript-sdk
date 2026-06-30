@@ -20,10 +20,7 @@ Send the path a call should act on as a tool argument ([Tools](../servers/tools.
 ```ts source="../../examples/guides/clients/roots.examples.ts#roots_capability"
 import { Client } from '@modelcontextprotocol/client';
 
-const client = new Client(
-    { name: 'workspace-client', version: '1.0.0' },
-    { capabilities: { roots: { listChanged: true } } }
-);
+const client = new Client({ name: 'workspace-client', version: '1.0.0' }, { capabilities: { roots: { listChanged: true } } });
 ```
 
 Declare the capability before registering the handler: without it, `setRequestHandler('roots/list', …)` throws.

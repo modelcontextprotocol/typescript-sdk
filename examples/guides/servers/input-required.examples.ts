@@ -31,10 +31,7 @@ const stateCodec = createRequestStateCodec<{ step: string }>({
     ttlSeconds: 600
 });
 
-const server = new McpServer(
-    { name: 'releases', version: '1.0.0' },
-    { requestState: { verify: stateCodec.verify } }
-);
+const server = new McpServer({ name: 'releases', version: '1.0.0' }, { requestState: { verify: stateCodec.verify } });
 //#endregion requestState_codec
 
 // "Return `input_required` instead of pushing a request"
@@ -190,10 +187,7 @@ export function inputRequired_kinds(): InputRequiredResult {
 
 const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
 
-const client = new Client(
-    { name: 'input-required-docs-harness', version: '1.0.0' },
-    { capabilities: { elicitation: { form: {} } } }
-);
+const client = new Client({ name: 'input-required-docs-harness', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
 
 const answers: Record<string, Record<string, string | boolean>> = {
     'Deploy to prod?': { confirm: true },

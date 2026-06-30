@@ -11,7 +11,12 @@ Your MCP server is an OAuth **resource server**: it verifies access tokens that 
 
 ```ts source="../../examples/guides/serving/authorization.examples.ts#requireBearerAuth_basic"
 import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
-import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import {
+    createMcpExpressApp,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';

@@ -13,7 +13,12 @@
  */
 //#region requireBearerAuth_basic
 import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
-import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import {
+    createMcpExpressApp,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';

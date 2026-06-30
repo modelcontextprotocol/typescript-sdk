@@ -105,11 +105,9 @@ const observeStatus = createMiddleware(async (next, input, init) => {
 
 const handler = createMcpHandler(() => {
     const server = new McpServer({ name: 'reports', version: '1.0.0' });
-    server.registerTool(
-        'ping',
-        { description: 'Reply with pong', inputSchema: z.object({ tag: z.string() }) },
-        async ({ tag }) => ({ content: [{ type: 'text', text: `pong ${tag}` }] })
-    );
+    server.registerTool('ping', { description: 'Reply with pong', inputSchema: z.object({ tag: z.string() }) }, async ({ tag }) => ({
+        content: [{ type: 'text', text: `pong ${tag}` }]
+    }));
     return server;
 });
 type AnyFetch = (url: string | URL, init?: RequestInit) => Promise<Response>;
