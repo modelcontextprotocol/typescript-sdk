@@ -1,16 +1,16 @@
 [
     {
-        "repo": "firebase/firebase-tools",
+        "repo": "KKonstantinov/firebase-tools-fork",
         "ref": "main",
         "packages": [
             {
                 "dir": ".",
-                "sourceDir": "src/mcp",
+                "sourceDir": "src",
                 "checks": {
-                    "typecheck": "npx tsc -p tsconfig.compile.json",
+                    "typecheck": "npm run test:compile",
                     "build": null,
-                    "test": null,
-                    "lint": null
+                    "test": "npx mocha 'src/mcp/onemcp/onemcp_server.spec.ts' 'src/mcp/tool.spec.ts' 'src/mcp/prompt.spec.ts'",
+                    "lint": "ESLINT_USE_FLAT_CONFIG=false npx eslint --config .eslintrc.js --ext .ts,.js src/mcp"
                 }
             }
         ]
