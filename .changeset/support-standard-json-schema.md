@@ -13,9 +13,13 @@ Tool and prompt registration now accepts any schema library that implements the 
 ```typescript
 import { type } from 'arktype';
 
-server.registerTool('greet', {
-  inputSchema: type({ name: 'string' })
-}, async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] }));
+server.registerTool(
+    'greet',
+    {
+        inputSchema: type({ name: 'string' })
+    },
+    async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
+);
 ```
 
 For raw JSON Schema (e.g. TypeBox output), use the new `fromJsonSchema` adapter:
@@ -23,12 +27,17 @@ For raw JSON Schema (e.g. TypeBox output), use the new `fromJsonSchema` adapter:
 ```typescript
 import { fromJsonSchema } from '@modelcontextprotocol/server';
 
-server.registerTool('greet', {
-  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } })
-}, handler);
+server.registerTool(
+    'greet',
+    {
+        inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } })
+    },
+    handler
+);
 ```
 
 **Breaking changes:**
+
 - `experimental.tasks.getTaskResult()` no longer accepts a `resultSchema` parameter. Returns `GetTaskPayloadResult` (a loose `Result`); cast to the expected type at the call site.
 - Removed unused exports from `@modelcontextprotocol/core-internal`: `SchemaInput`, `schemaToJson`, `parseSchemaAsync`, `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema`. Use the new `standardSchemaToJsonSchema` and `validateStandardSchema` instead.
 - `completable()` remains Zod-specific (it relies on Zod's `.shape` introspection).

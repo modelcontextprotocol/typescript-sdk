@@ -18,6 +18,8 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/node
 - `StreamableHTTPServerTransportOptions` (type alias for `WebStandardStreamableHTTPServerTransportOptions`)
 - `toNodeHandler(handler, opts?)` — adapt a web-standard `{ fetch }` MCP handler to a Node `(req, res, parsedBody?)` handler
 - `ToNodeHandlerOptions`, `FetchLikeMcpHandler`, `NodeMcpRequestHandler` (types for `toNodeHandler`)
+- `toWebRequest(req, parsedBody?, opts?)` — the Node `IncomingMessage` → web-standard `Request` conversion `toNodeHandler` performs internally, exported on its own (for example to feed `isLegacyRequest()` from a hand-wired `(req, res)` handler)
+- `ToWebRequestOptions` (options type for `toWebRequest`)
 - `NodeIncomingMessageLike`, `NodeServerResponseLike` (structural Node request/response shapes)
 
 ## Usage

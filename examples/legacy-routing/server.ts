@@ -14,7 +14,7 @@ import { randomUUID } from 'node:crypto';
 
 import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
-import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, isInitializeRequest, isLegacyRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
@@ -72,14 +72,10 @@ app.use(
 );
 
 app.post('/mcp', async (req: Request, res: Response) => {
-    // The predicate inspects the same headers + body the entry does. Express
-    // has parsed the JSON body; pass it as `parsedBody` so the predicate need
-    // not re-read the stream.
-    const probe = new globalThis.Request(`http://localhost${req.url}`, {
-        method: req.method,
-        headers: req.headers as Record<string, string>
-    });
-    await ((await isLegacyRequest(probe, req.body)) ? handleLegacy(req, res) : modernNode(req, res, req.body));
+    // `toWebRequest` builds the web-standard `Request` the predicate takes.
+    // Express has already parsed (and consumed) the JSON body — pass it along.
+    const probe = await toWebRequest(req, req.body);
+    await ((await isLegacyRequest(probe)) ? handleLegacy(req, res) : modernNode(req, res, req.body));
 });
 // GET (standalone SSE stream / reconnect with Last-Event-ID) and DELETE
 // (explicit session termination per the MCP spec) are sessionful-2025-only —

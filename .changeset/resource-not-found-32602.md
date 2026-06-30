@@ -1,7 +1,7 @@
 ---
-"@modelcontextprotocol/core-internal": minor
-"@modelcontextprotocol/server": major
-"@modelcontextprotocol/client": minor
+'@modelcontextprotocol/core-internal': minor
+'@modelcontextprotocol/server': major
+'@modelcontextprotocol/client': minor
 ---
 
 `resources/read` for an unknown URI now answers with JSON-RPC error code `-32602`

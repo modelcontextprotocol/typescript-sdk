@@ -328,3 +328,32 @@ describe('comment insertion', () => {
         expect(lines[commentIdx + 1]).toContain('setRequestHandler');
     });
 });
+
+describe('markers whose import-declaration anchor is removed by the same pass', () => {
+    it('inserts the resource-server auth helper marker at the usage site', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } })
+        );
+        const file = path.join(dir, 'auth.ts');
+        writeFileSync(
+            file,
+            [
+                `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';`,
+                ``,
+                `export const guard = requireBearerAuth({ verifier });`,
+                ''
+            ].join('\n')
+        );
+
+        run(migration, { targetDir: dir, dryRun: false });
+
+        const output = readFileSync(file, 'utf8');
+        expect(output).toContain('@mcp-codemod-error');
+        expect(output).toContain('frozen');
+        const lines = output.split('\n');
+        const markerIndex = lines.findIndex(line => line.includes('@mcp-codemod-error'));
+        expect(lines[markerIndex + 1]).toContain('requireBearerAuth({ verifier })');
+    });
+});

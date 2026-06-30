@@ -17,6 +17,10 @@
  * app.all('/mcp', (req, res) => void node(req, res, req.body));
  * ```
  *
+ * The Node→web `Request` conversion the adapter performs is also exported on
+ * its own as {@linkcode toWebRequest}, for hand-wired compositions (for
+ * example, routing on `isLegacyRequest`).
+ *
  * The Node request/response shapes are duck-typed (kept structural so this
  * module stays free of `node:` imports); the conversion reads `req.auth`
  * (validated authentication info attached by upstream middleware) and forwards
@@ -111,7 +115,7 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
 
         let response: Response;
         try {
-            const request = await nodeRequestToFetchRequest(req, parsedBody, abort.signal);
+            const request = await toWebRequest(req, parsedBody, { signal: abort.signal });
             response = await handler.fetch(request, {
                 ...(req.auth !== undefined && { authInfo: req.auth }),
                 ...(parsedBody !== undefined && { parsedBody })
@@ -175,16 +179,40 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
 }
 
 /* ------------------------------------------------------------------------ *
- * Node request conversion (duck-typed; no node: imports)
+ * Node request conversion — `toWebRequest` (duck-typed; no node: imports)
  * ------------------------------------------------------------------------ */
 
 function singleHeaderValue(value: string | string[] | undefined): string | undefined {
     return Array.isArray(value) ? value[0] : value;
 }
 
-async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBody: unknown, signal: AbortSignal): Promise<Request> {
+/** Options for {@linkcode toWebRequest}. */
+export interface ToWebRequestOptions {
+    /** An `AbortSignal` to attach to the constructed `Request` (`request.signal`). */
+    signal?: AbortSignal;
+}
+
+/**
+ * Convert a Node.js `IncomingMessage` (duck-typed — an Express `req` works) to
+ * the web-standard `Request` that `handler.fetch()` and `isLegacyRequest()`
+ * take. This is the conversion {@linkcode toNodeHandler} performs internally,
+ * exported for hand-wired compositions:
+ *
+ * ```ts
+ * const probe = await toWebRequest(req, req.body);
+ * await ((await isLegacyRequest(probe)) ? legacy(req, res) : modern(req, res, req.body));
+ * ```
+ *
+ * With no `parsedBody` the Node stream is read to completion — read the body
+ * from the returned `Request` afterwards, not from `req`. When a body parser
+ * already consumed the stream (`express.json()`), pass the parsed value as
+ * `parsedBody` and nothing is read from `req`.
+ */
+export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: unknown, options?: ToWebRequestOptions): Promise<Request> {
     const method = (req.method ?? 'GET').toUpperCase();
-    const host = singleHeaderValue(req.headers['host']) ?? 'localhost';
+    // HTTP/2 requests carry their authority as the `:authority` pseudo-header,
+    // usually with no `host` entry at all (mirrors Node's `request.authority`).
+    const host = singleHeaderValue(req.headers['host']) ?? singleHeaderValue(req.headers[':authority']) ?? 'localhost';
     const url = `http://${host}${req.url ?? '/'}`;
 
     const headers = new Headers();
@@ -241,7 +269,7 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBod
     return new Request(url, {
         method,
         headers,
-        signal,
+        ...(options?.signal !== undefined && { signal: options.signal }),
         ...(body !== undefined && { body })
     });
 }

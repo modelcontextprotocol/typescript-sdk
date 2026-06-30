@@ -84,6 +84,13 @@ export function addOrMergeImport(
     }
 }
 
+/** True when the specifier resolves to one of the published v2 packages (root or subpath). */
+export function isV2Specifier(specifier: string): boolean {
+    if (V2_PACKAGES.has(specifier)) return true;
+    const secondSlash = specifier.indexOf('/', specifier.indexOf('/') + 1);
+    return secondSlash !== -1 && V2_PACKAGES.has(specifier.slice(0, secondSlash));
+}
+
 export function isAnyMcpSpecifier(specifier: string): boolean {
     if (isSdkSpecifier(specifier)) return true;
     if (V2_PACKAGES.has(specifier)) return true;

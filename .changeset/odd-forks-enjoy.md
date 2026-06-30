@@ -1,5 +1,5 @@
 ---
-"@modelcontextprotocol/client": patch
+'@modelcontextprotocol/client': patch
 ---
 
 fix(client): append custom Accept headers to spec-required defaults in StreamableHTTPClientTransport
