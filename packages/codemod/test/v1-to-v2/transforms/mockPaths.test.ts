@@ -569,3 +569,35 @@ describe('mock-paths transform', () => {
         });
     });
 });
+
+describe('removed symbols in mocks and dynamic imports', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = mockPathsTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('leaves a mock factory providing Protocol unrewritten and flags it', () => {
+        const input = `vi.mock('@modelcontextprotocol/sdk/shared/protocol.js', () => ({ Protocol: class {} }));\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/sdk/shared/protocol.js');
+        const diag = result.diagnostics.find(d => d.insertComment);
+        expect(diag?.message).toContain('Protocol');
+        expect(diag?.message).toContain('no v2 package exports');
+    });
+
+    it('leaves a dynamic import destructuring Protocol unrewritten and flags it', () => {
+        const input = `const { Protocol } = await import('@modelcontextprotocol/sdk/shared/protocol.js');\nexport { Protocol };\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/sdk/shared/protocol.js');
+        const diag = result.diagnostics.find(d => d.insertComment);
+        expect(diag?.message).toContain('undefined at runtime');
+    });
+
+    it('still rewrites protocol.js mocks that only touch surviving symbols', () => {
+        const input = `vi.mock('@modelcontextprotocol/sdk/shared/protocol.js', () => ({ ProtocolOptions: {} }));\nimport '@modelcontextprotocol/sdk/server/mcp.js';\n`;
+        const { text } = applyWithDiagnostics(input);
+        expect(text).toContain(`vi.mock('@modelcontextprotocol/server'`);
+    });
+});

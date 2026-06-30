@@ -322,7 +322,7 @@ describe('integration', () => {
 
         // Phantom package from the reverted transform should not leak into package.json
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/phantom-pkg');
+        expect(result.packageJsonChanges![0]!.added).not.toContain('@modelcontextprotocol/phantom-pkg');
     });
 
     it('respects transform filter option', () => {
@@ -422,9 +422,9 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/node');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/node');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -460,8 +460,8 @@ describe('integration', () => {
 
         // So core must not be added; the package actually imported (server) still is.
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/core');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).not.toContain('@modelcontextprotocol/core');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeUndefined();
@@ -491,7 +491,7 @@ describe('integration', () => {
         expect(output).toContain('CallToolResultSchema.parse');
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/core');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/core');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeDefined();
@@ -509,7 +509,7 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir, dryRun: true });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBe('^1.0.0');
@@ -532,10 +532,10 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/client');
-        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/node');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/client');
+        expect(result.packageJsonChanges![0]!.added).not.toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).not.toContain('@modelcontextprotocol/node');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -568,9 +568,9 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/client');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/client');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -596,9 +596,9 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/express');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/express');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -644,9 +644,9 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/node');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges![0]!.added).toContain('@modelcontextprotocol/node');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
         expect(pkgJson.dependencies['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -688,7 +688,7 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
         expect(result.filesChanged).toBe(0);
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result.packageJsonChanges![0]!.removed).toContain('@modelcontextprotocol/sdk');
     });
 
     it('emits info diagnostics for legacy-moved imports', () => {

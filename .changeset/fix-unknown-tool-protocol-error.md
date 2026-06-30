@@ -1,6 +1,6 @@
 ---
-"@modelcontextprotocol/core-internal": minor
-"@modelcontextprotocol/server": major
+'@modelcontextprotocol/core-internal': minor
+'@modelcontextprotocol/server': major
 ---
 
 Fix error handling for unknown tools and resources per MCP spec.

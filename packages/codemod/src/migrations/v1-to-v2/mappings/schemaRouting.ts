@@ -37,3 +37,13 @@ export function symbolTargetOverride(name: string, mapping: ImportMapping): stri
     }
     return undefined;
 }
+
+/**
+ * Guidance for a symbol from this module that has no v2 export anywhere (it must be
+ * dropped/flagged rather than routed), or `undefined` when the symbol routes normally.
+ * Shared by the static-import, re-export, mock, and dynamic-import rewrites so all
+ * four treat such symbols the same way.
+ */
+export function removedSymbolGuidance(name: string, mapping: ImportMapping): string | undefined {
+    return mapping.removedSymbols?.[name];
+}

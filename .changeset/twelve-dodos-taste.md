@@ -1,5 +1,5 @@
 ---
-"@modelcontextprotocol/express": patch
+'@modelcontextprotocol/express': patch
 ---
 
 Add jsonLimit option to createMcpExpressApp

@@ -7,8 +7,5 @@
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
-    "ignore": [
-        "@modelcontextprotocol/examples",
-        "@mcp-examples/*"
-    ]
+    "ignore": ["@modelcontextprotocol/examples", "@mcp-examples/*"]
 }

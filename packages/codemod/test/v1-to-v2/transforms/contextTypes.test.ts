@@ -215,7 +215,7 @@ describe('context-types transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).toContain('ctx?.mcpReq.signal');
         expect(result).not.toContain('extra');
     });
 
@@ -380,5 +380,260 @@ describe('context-types transform', () => {
         expect(result).toContain('typeof ctx.mcpReq.signal');
         expect(result).not.toContain('typeof ctx.signal');
         expect(result).not.toContain('extra');
+    });
+});
+
+describe('trailing context parameter selection (B2)', () => {
+    it('processes the 3-parameter registerResource template callback', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', template, {}, async (uri, variables, extra) => {`,
+                `    const s = extra.signal;`,
+                `    return { contents: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('(uri, variables, ctx)');
+        expect(text).toContain('ctx.mcpReq.signal');
+    });
+
+    it('does not flag a destructured middle parameter when the trailing context is already named ctx', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', tpl, {}, async (uri, { id }, ctx) => ({ contents: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(false);
+    });
+
+    it('still processes the 2-parameter form via index fallback', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    const s = extra.signal;`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('(args, ctx)');
+        expect(text).toContain('ctx.mcpReq.signal');
+    });
+});
+
+describe('destructured trailing parameter key gate (B4)', () => {
+    it('does not flag template-variable destructures', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', tpl, {}, async (uri, { owner, repo }) => ({ contents: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(false);
+    });
+
+    it('flags renamed context destructures and requestInfo', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('a', {}, async (args, { signal: abort }) => ({ content: [] }));`,
+                `server.registerTool('b', {}, async (args, { requestInfo }) => ({ content: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const flagged = result.diagnostics.filter(d => d.message.includes('Destructuring of context parameter'));
+        expect(flagged).toHaveLength(2);
+    });
+
+    it('still flags destructures carrying context-like keys', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('t', {}, async (args, { signal, sessionId }) => ({ content: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(true);
+    });
+});
+
+describe('fallback handler and annotated context params (B5, #152)', () => {
+    function apply(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMPORT = `import { McpServer } from '@modelcontextprotocol/server';\n`;
+
+    it('remaps fallbackRequestHandler assignments', () => {
+        const code =
+            IMPORT +
+            [
+                `server.fallbackRequestHandler = async (request, extra) => {`,
+                `    extra.sendNotification(note);`,
+                `    return { ok: true };`,
+                `};`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('(request, ctx)');
+        expect(text).toContain('ctx.mcpReq.notify(note)');
+    });
+
+    it('remaps accesses on parameters annotated with a context type alias', () => {
+        const code =
+            IMPORT +
+            [
+                `type ToolExtra = ServerContext;`,
+                `class Host {`,
+                `    private screenParty(args: unknown, extra: ToolExtra) {`,
+                `        extra.sendRequest(req, schema);`,
+                `        return extra.authInfo;`,
+                `    }`,
+                `}`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.send(req, schema)');
+        expect(text).toContain('extra.http?.authInfo');
+    });
+
+    it('remaps direct ServerContext annotations on free functions', () => {
+        const code = IMPORT + [`function helper(extra: ServerContext) {`, `    return extra.signal;`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.signal');
+    });
+
+    it('does not remap shadowed inner parameters with the same name', () => {
+        const code =
+            IMPORT +
+            [`function helper(extra: ServerContext) {`, `    return items.map((extra: ItemMeta) => extra.signal);`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('=> extra.signal');
+        expect(text).not.toContain('mcpReq');
+    });
+
+    it('resolves alias-of-alias annotations and nullable widening', () => {
+        const code =
+            IMPORT +
+            [
+                `type A = ServerContext;`,
+                `type B = A;`,
+                `function h1(extra: B) { return extra.signal; }`,
+                `function h2(extra: ServerContext | undefined) { return extra?.signal; }`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('function h1(extra: B) { return extra.mcpReq.signal; }');
+        expect(text).toContain('return extra?.mcpReq.signal;');
+    });
+
+    it('accepts direct aliases whose generic arguments contain unions', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type Extra = RequestHandlerExtra<ServerRequest | PingRequest, ServerNotification>;`,
+            `function h(extra: Extra) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.signal');
+    });
+
+    it('does not remap intersection aliases involving a context type', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type Augmented = ServerContext & { tenant: string };`,
+            `function h(extra: Augmented) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.signal;');
+        expect(result.diagnostics.some(d => d.message.includes('cannot remap'))).toBe(true);
+    });
+
+    it('does not remap wrapper aliases that merely mention a context type', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type ToolCallContext = { mcp: ServerContext; signal: AbortSignal };`,
+            `function run(extra: ToolCallContext) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.signal;');
+        expect(text).not.toContain('mcpReq');
+        const advisory = result.diagnostics.find(d => d.message.includes('cannot remap'));
+        expect(advisory).toBeDefined();
+        expect(advisory?.advisoryOnly).toBe(true);
+    });
+
+    it('advises on context-mentioning annotations it cannot remap', () => {
+        const code = IMPORT + [`function pool(extra: Map<string, ServerContext>) { return extra.size; }`, ''].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.size;');
+        const diag = result.diagnostics.find(d => d.message.includes('cannot remap'));
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+
+    it('preserves optional chaining in processed callbacks', () => {
+        const code =
+            IMPORT +
+            [
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    return { content: [], note: extra?.sessionId };`,
+                `});`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('ctx?.sessionId');
+    });
+
+    it('notes contexts forwarded wholesale to helpers', () => {
+        const code =
+            IMPORT +
+            [
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    if (!hasScope(extra)) throw new Error('denied');`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n');
+        const { result } = apply(code);
+        const diag = result.diagnostics.find(d => d.message.includes('forwarded to hasScope'));
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
     });
 });
