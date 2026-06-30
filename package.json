@@ -29,7 +29,6 @@
         "run:examples": "tsx scripts/examples/run-examples.ts",
         "docs:examples": "tsx scripts/run-guide-examples.ts",
         "docs:api": "typedoc",
-        "docs:index": "tsx scripts/build-docs-index.ts",
         "docs:dev": "vitepress dev docs",
         "docs:build": "pnpm docs:api && vitepress build docs",
         "docs:multi": "bash scripts/build-docs-site.sh",
