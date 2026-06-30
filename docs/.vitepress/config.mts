@@ -26,9 +26,6 @@ export default defineConfig({
     base: '/v2/',
     srcExclude: ['v1/**', '_meta/**'],
     sitemap: { hostname: 'https://ts.sdk.modelcontextprotocol.io/v2/' },
-    // Phase-2 preview: most pages are scaffolds with placeholder cross-links; the dead-link gate
-    // is suspended on this branch only so the structure is browsable. Re-enable before any merge.
-    ignoreDeadLinks: true,
     markdown: {
         config(md) {
             // Spec-generated JSDoc (packages/core-internal/src/types/spec.types.*.ts) carries
