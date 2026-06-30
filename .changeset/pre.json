@@ -6,8 +6,6 @@
     "@modelcontextprotocol/tsconfig": "2.0.0",
     "@modelcontextprotocol/vitest-config": "2.0.0",
     "@modelcontextprotocol/examples": "2.0.0-alpha.0",
-    "@modelcontextprotocol/examples-client-quickstart": "2.0.0-alpha.0",
-    "@modelcontextprotocol/examples-server-quickstart": "2.0.0-alpha.0",
     "@modelcontextprotocol/client": "2.0.0-alpha.0",
     "@modelcontextprotocol/core-internal": "2.0.0-alpha.0",
     "@modelcontextprotocol/express": "2.0.0-alpha.0",

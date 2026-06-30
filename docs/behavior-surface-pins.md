@@ -29,6 +29,7 @@ CI pass — that reopens the silent-drift hole the pin exists to close.
 | Schema strict/strip/loose boundaries, key existence | `packages/core-internal/test/types/schemaBoundaryPins.test.ts` |
 | Published package set, export maps, ESM-only topology | `packages/core-internal/test/packageTopologyPins.test.ts` |
 | stdio environment-inheritance safelist | `packages/client/test/client/stdioEnvPins.test.ts` |
+| 2025-11-25 wire method-registry membership, schema identity | `packages/core-internal/test/types/registryPins.test.ts` |
 
 ## Writing a new pin
 

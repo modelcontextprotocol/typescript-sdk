@@ -10,6 +10,8 @@
 //#region imports
 import type {
     AuthProvider,
+    CallToolResult,
+    InputRequiredResult,
     OAuthClientInformationContext,
     OAuthClientInformationMixed,
     OAuthClientMetadata,
@@ -19,16 +21,21 @@ import type {
 } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
+    checkResourceAllowed,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
     CrossAppAccessProvider,
     discoverAndRequestJwtAuthGrant,
+    isInputRequiredResult,
     IssuerMismatchError,
+    LOG_LEVEL_META_KEY,
     PrivateKeyJwtProvider,
     ProtocolError,
+    resourceUrlFromServerUrl,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     SSEClientTransport,
     StreamableHTTPClientTransport,
     TRACEPARENT_META_KEY,
@@ -296,6 +303,20 @@ function auth_oauthClientProvider(onRedirect: (url: URL) => void) {
         authProvider: provider
     });
     //#endregion auth_oauthClientProvider
+
+    //#region auth_validateResourceURL
+    class PinnedResourceProvider extends MyOAuthProvider {
+        async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
+            const expected = resourceUrlFromServerUrl(serverUrl); // strips the fragment (RFC 8707 §2)
+            if (resource && !checkResourceAllowed({ requestedResource: expected, configuredResource: resource })) {
+                throw new Error(`Refusing resource ${resource} for server ${expected.href}`);
+            }
+            return expected;
+        }
+    }
+    //#endregion auth_validateResourceURL
+    void PinnedResourceProvider;
+
     return { provider, transport };
 }
 
@@ -466,6 +487,23 @@ async function complete_basic(client: Client) {
 }
 
 // ---------------------------------------------------------------------------
+// Response caching
+// ---------------------------------------------------------------------------
+
+/** Example: Per-call cache disposition via cacheMode. */
+async function responseCache_basic(client: Client) {
+    //#region responseCache_basic
+    const tools = await client.listTools(); // network, then cached for the server's ttlMs
+    const again = await client.listTools(); // served from cache while still fresh
+
+    await client.listTools(undefined, { cacheMode: 'refresh' }); // always refetch and re-store
+    await client.readResource({ uri: 'config://app' }, { cacheMode: 'bypass' }); // no cache read or write
+    //#endregion responseCache_basic
+    void tools;
+    void again;
+}
+
+// ---------------------------------------------------------------------------
 // Notifications
 // ---------------------------------------------------------------------------
 
@@ -491,6 +529,18 @@ async function setLoggingLevel_basic(client: Client) {
     //#region setLoggingLevel_basic
     await client.setLoggingLevel('warning');
     //#endregion setLoggingLevel_basic
+}
+
+/** Example: Per-request log-level opt-in on a 2026-07-28 connection. */
+async function logLevelMeta_modern(client: Client) {
+    //#region logLevelMeta_modern
+    const result = await client.callTool({
+        name: 'fetch-data',
+        arguments: { url: 'https://example.com' },
+        _meta: { [LOG_LEVEL_META_KEY]: 'debug' }
+    });
+    //#endregion logLevelMeta_modern
+    void result;
 }
 
 /** Example: Automatic list-change tracking via the listChanged option. */
@@ -519,11 +569,45 @@ async function listChanged_basic() {
     return client;
 }
 
+/** Example: Open a subscriptions/listen stream explicitly (2026-07-28). */
+async function listen_basic(client: Client) {
+    //#region listen_basic
+    client.setNotificationHandler('notifications/tools/list_changed', async () => {
+        const { tools } = await client.listTools();
+        console.log('Tools changed:', tools.length);
+    });
+    client.setNotificationHandler('notifications/resources/updated', async notification => {
+        console.log('Resource updated:', notification.params.uri);
+    });
+
+    const subscription = await client.listen({
+        toolsListChanged: true,
+        resourceSubscriptions: ['config://app']
+    });
+    console.log('Server honored:', subscription.honoredFilter);
+
+    // Later: tear the stream down
+    await subscription.close();
+    //#endregion listen_basic
+}
+
+/** Example: Watch loop that re-listens on unexpected closes. */
+async function listen_watchLoop(client: Client, watching: boolean) {
+    //#region listen_watchLoop
+    while (watching) {
+        const sub = await client.listen({ resourceSubscriptions: ['config://app'] });
+        const reason = await sub.closed;
+        if (reason !== 'remote') break; // 'local' or 'graceful': done
+        await new Promise(resolve => setTimeout(resolve, 1000)); // back off, then re-listen
+    }
+    //#endregion listen_watchLoop
+}
+
 // ---------------------------------------------------------------------------
 // Handling server-initiated requests
 // ---------------------------------------------------------------------------
 
-/** Example: Declare client capabilities for sampling and elicitation. */
+/** Example: Declare client capabilities for sampling, elicitation, and roots. */
 function capabilities_declaration() {
     //#region capabilities_declaration
     const client = new Client(
@@ -531,7 +615,8 @@ function capabilities_declaration() {
         {
             capabilities: {
                 sampling: {},
-                elicitation: { form: {} }
+                elicitation: { form: {} },
+                roots: { listChanged: true }
             }
         }
     );
@@ -588,6 +673,42 @@ function roots_handler(client: Client) {
         };
     });
     //#endregion roots_handler
+}
+
+/** Example: Manual multi-round-trip handling with autoFulfill disabled (2026-07-28). */
+async function inputRequired_manual(transport: StreamableHTTPClientTransport) {
+    //#region inputRequired_manual
+    const client = new Client(
+        { name: 'my-client', version: '1.0.0' },
+        {
+            capabilities: { elicitation: { form: {} } },
+            versionNegotiation: { mode: 'auto' },
+            inputRequired: { autoFulfill: false }
+        }
+    );
+    await client.connect(transport);
+
+    const value = (await client.request(
+        { method: 'tools/call', params: { name: 'deploy', arguments: { env: 'prod' } } },
+        { allowInputRequired: true }
+    )) as CallToolResult | InputRequiredResult;
+
+    if (isInputRequiredResult(value)) {
+        // Collect responses for value.inputRequests from your UI, then retry:
+        await client.request(
+            {
+                method: 'tools/call',
+                params: {
+                    name: 'deploy',
+                    arguments: { env: 'prod' },
+                    inputResponses: { confirm: { action: 'accept', content: { confirm: true } } },
+                    requestState: value.requestState // echo byte-exact
+                }
+            },
+            { allowInputRequired: true }
+        );
+    }
+    //#endregion inputRequired_manual
 }
 
 // ---------------------------------------------------------------------------
@@ -653,6 +774,21 @@ async function errorHandling_timeout(client: Client) {
         }
     }
     //#endregion errorHandling_timeout
+}
+
+/** Example: Typed HTTP transport errors. */
+async function errorHandling_http(client: Client, transport: StreamableHTTPClientTransport) {
+    //#region errorHandling_http
+    try {
+        await client.connect(transport);
+    } catch (error) {
+        if (error instanceof SdkHttpError) {
+            console.error(`HTTP ${error.status} (${error.statusText ?? ''}) [${error.code}]`);
+        } else {
+            throw error;
+        }
+    }
+    //#endregion errorHandling_http
 }
 
 // ---------------------------------------------------------------------------
@@ -765,16 +901,22 @@ void readResource_basic;
 void subscribeResource_basic;
 void getPrompt_basic;
 void complete_basic;
+void responseCache_basic;
 void notificationHandler_basic;
 void setLoggingLevel_basic;
+void logLevelMeta_modern;
 void listChanged_basic;
+void listen_basic;
+void listen_watchLoop;
 void capabilities_declaration;
 void sampling_handler;
 void elicitation_handler;
 void roots_handler;
+void inputRequired_manual;
 void errorHandling_toolErrors;
 void errorHandling_lifecycle;
 void errorHandling_timeout;
+void errorHandling_http;
 void middleware_basic;
 void traceContext_perRequest;
 void traceContext_middleware;

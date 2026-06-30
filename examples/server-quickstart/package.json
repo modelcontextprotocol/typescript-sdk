@@ -1,11 +1,8 @@
 {
-    "name": "@modelcontextprotocol/examples-server-quickstart",
+    "name": "@mcp-examples/server-quickstart",
     "private": true,
     "version": "2.0.0-alpha.0",
     "type": "module",
-    "bin": {
-        "weather": "./build/index.js"
-    },
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit"
