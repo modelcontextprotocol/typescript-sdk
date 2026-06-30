@@ -539,6 +539,25 @@ importers:
         specifier: catalog:devTools
         version: 4.21.0
 
+  examples/extension-capabilities:
+    dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
+      '@modelcontextprotocol/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+    devDependencies:
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+
   examples/gateway:
     dependencies:
       '@mcp-examples/shared':

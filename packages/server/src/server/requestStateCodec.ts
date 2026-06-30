@@ -47,9 +47,10 @@ export interface RequestStateCodecOptions {
  * JSON-serializable payload into the wire string a handler returns from
  * `inputRequired({ requestState })`; `verify` is the function to drop into
  * {@linkcode server/server.ServerOptions | ServerOptions}`.requestState.verify`
- * (it throws on any failure, which the seam answers as the frozen `-32602`)
- * AND the function a handler calls to read the payload back from
- * `ctx.mcpReq.requestState` after the seam has run.
+ * (it throws on any failure, which the seam answers as the frozen `-32602`).
+ * The decoded payload `verify` resolves with is handed to the handler by the
+ * seam via the typed `ctx.mcpReq.requestState<T>()` accessor — `mint<T>` and
+ * `requestState<T>()` are the typed encode/read pair.
  */
 export interface RequestStateCodec<T = unknown> {
     /**
@@ -125,10 +126,9 @@ function base64UrlToBytes(s: string): Uint8Array<ArrayBuffer> {
  * The codec is **signed, not encrypted**: the body is integrity-protected but
  * the client can base64url-decode it and read the payload (`p`) in clear. Do
  * not put secrets in the payload; use an AEAD construction if confidentiality
- * is required. The handler reads its payload back by calling `verify` again on
- * `ctx.mcpReq.requestState` after the seam has run — re-calling `verify` is
- * the intended pattern (the seam already proved integrity; the second call is
- * the decode).
+ * is required. The handler reads its payload back via the typed
+ * `ctx.mcpReq.requestState<T>()` accessor — the seam has already run `verify`
+ * (integrity proven, payload decoded) by the time the handler is entered.
  *
  * Verification is fail-closed and constant-time (WebCrypto `subtle.verify` for
  * the body MAC; a fixed-length XOR-accumulator compare for the bind tag).

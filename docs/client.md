@@ -15,6 +15,8 @@ The examples below use these imports. Adjust based on which features and transpo
 ```ts source="../examples/guides/clientGuide.examples.ts#imports"
 import type {
     AuthProvider,
+    CallToolResult,
+    InputRequiredResult,
     OAuthClientInformationContext,
     OAuthClientInformationMixed,
     OAuthClientMetadata,
@@ -24,16 +26,21 @@ import type {
 } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
+    checkResourceAllowed,
     Client,
     ClientCredentialsProvider,
     createMiddleware,
     CrossAppAccessProvider,
     discoverAndRequestJwtAuthGrant,
+    isInputRequiredResult,
     IssuerMismatchError,
+    LOG_LEVEL_META_KEY,
     PrivateKeyJwtProvider,
     ProtocolError,
+    resourceUrlFromServerUrl,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     SSEClientTransport,
     StreamableHTTPClientTransport,
     TRACEPARENT_META_KEY,
@@ -119,6 +126,7 @@ client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
 
 Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an
 already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [2026-07-28 support guide › Probe policy](./migration/support-2026-07-28.md#probe-policy) for the full failure semantics and probe-timeout behavior.
+The version lists come from `ClientOptions.supportedProtocolVersions`: under `'auto'`, its 2026-era entries form the modern offer (default: the SDK's modern list), and a list with no 2025-era entry removes the legacy fallback; `connect()` rejects with `SdkError(EraNegotiationFailed)` instead of downgrading. The same modern subset bounds the overlap check of `connect({ prior })`.
 
 #### Skipping the probe: `connect({ prior })`
 
@@ -139,6 +147,8 @@ await worker.connect(new StreamableHTTPClientTransport(url), { prior: JSON.parse
 {@linkcode @modelcontextprotocol/client!client/client.Client#getDiscoverResult | client.getDiscoverResult()} returns the value that the `'auto'`/pinned probe path, an explicit {@linkcode @modelcontextprotocol/client!client/client.Client#discover | client.discover()} call, or a
 prior `connect({ prior })` recorded; it round-trips through `JSON.stringify`/`JSON.parse`. `connect({ prior })` is **2026-07-28+ only** — it rejects with `SdkError(EraNegotiationFailed)` when the supplied result and the client share no modern revision. Only reuse a persisted
 `DiscoverResult` across clients that present the **same authorization context** as the one that obtained it. See the [`gateway/` example](../examples/gateway/README.md) for the full probe-once / connect-many pattern with a server-side proof.
+
+Unlike an `'auto'`/pinned connect, `connect({ prior })` never auto-opens a `subscriptions/listen` stream. Workers on this path are assumed request-only. A configured `listChanged` option registers its handlers but stays silent. Call [`client.listen(filter)`](#subscription-streams-2026-07-28) yourself if a prior-connected client should observe changes.
 
 ### Disconnecting
 
@@ -165,6 +175,20 @@ const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boole
 
 console.log(systemPrompt);
 ```
+
+### Extension capabilities
+
+The negotiated server capabilities include `extensions` — a map from extension identifier to that extension's settings object. Read it after connecting via {@linkcode @modelcontextprotocol/client!client/client.Client#getServerCapabilities | client.getServerCapabilities()}:
+
+```ts source="../examples/guides/clientGuide.examples.ts#extensionCapabilities_read"
+const extensions = client.getServerCapabilities()?.extensions ?? {};
+
+if ('com.example/feature-flags' in extensions) {
+    // Advertised on this connection; the entry's value is its settings object.
+}
+```
+
+See [Extension capabilities](./server.md#extension-capabilities) in the server guide for the declaring side.
 
 ## Authentication
 
@@ -332,6 +356,32 @@ return client;
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClient.ts) and
 [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClientProvider.ts).
 
+Issuer validation also runs during discovery: the authorization server metadata's `issuer` must match the issuer identifier the well-known URL was built from (RFC 8414 §3.3), and a mismatch throws `IssuerMismatchError`
+with `kind: 'metadata'` (the callback-leg RFC 9207 check above uses `kind: 'authorization_response'`). For authorization servers known to publish a mismatched `issuer`, both HTTP transports accept `skipIssuerMetadataValidation: true` (honoured when `authProvider` is an
+`OAuthClientProvider`). This weakens mix-up protection, so leave it off unless you control the server. The migration guide's [Authorization-server mix-up defense](./migration/upgrade-to-v2.md#authorization-server-mix-up-defense-rfc-9207--rfc-8414-33--action-required) section
+describes the full model.
+
+#### Resource indicators (RFC 8707)
+
+The SDK binds tokens to your MCP server with the RFC 8707 `resource` parameter automatically. When protected resource metadata (RFC 9728) is discovered, the metadata's `resource` value is checked against the server URL (same origin, path prefix; see
+`checkResourceAllowed()`) and attached to the authorization redirect and every token request. When the server publishes no resource metadata, no `resource` parameter is sent.
+
+Implement `validateResourceURL` on your provider to override the selection. Return a URL to force a specific `resource` value, or `undefined` to omit the parameter:
+
+```ts source="../examples/guides/clientGuide.examples.ts#auth_validateResourceURL"
+class PinnedResourceProvider extends MyOAuthProvider {
+    async validateResourceURL(serverUrl: string | URL, resource?: string): Promise<URL | undefined> {
+        const expected = resourceUrlFromServerUrl(serverUrl); // strips the fragment (RFC 8707 §2)
+        if (resource && !checkResourceAllowed({ requestedResource: expected, configuredResource: resource })) {
+            throw new Error(`Refusing resource ${resource} for server ${expected.href}`);
+        }
+        return expected;
+    }
+}
+```
+
+`checkResourceAllowed` and `resourceUrlFromServerUrl` are exported from `@modelcontextprotocol/client` for custom implementations.
+
 ### Cross-App Access (Enterprise Managed Authorization)
 
 {@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access
@@ -403,6 +453,9 @@ const result = await client.callTool({
 console.log(result.content);
 ```
 
+The aggregate walk is capped at `ClientOptions.listMaxPages` pages (default 64; `0` disables the cap). If a server's pagination never terminates, the call rejects with {@linkcode @modelcontextprotocol/client!index.SdkError | SdkError} code {@linkcode
+@modelcontextprotocol/client!index.SdkErrorCode.ListPaginationExceeded | LIST_PAGINATION_EXCEEDED}. The same applies to `listPrompts()`, `listResources()`, and `listResourceTemplates()`.
+
 Tool results may include a `structuredContent` field — a machine-readable JSON value (any JSON type per SEP-2106) for programmatic use by the client application, complementing `content` which is for the LLM:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#callTool_structuredOutput"
@@ -442,7 +495,8 @@ console.log(result.content);
 ### `x-mcp-header` parameter mirroring (2026-07-28 draft)
 
 On a 2026-07-28 connection over Streamable HTTP, `callTool()` mirrors any argument whose `inputSchema` property carries an `x-mcp-header` annotation into an `Mcp-Param-{Name}` HTTP request header so intermediaries can route on it without parsing the body. The mirrored headers
-are built from the client's internal `tools/list` cache; if you already hold the tool definition (e.g. from configuration), pass it via `CallToolRequestOptions.toolDefinition` so mirroring runs without a prior list. On a cache miss the call is sent without `Mcp-Param-*` headers
+are built from the client's cached `tools/list` result (see [Response caching](#response-caching-2026-07-28-draft)); if you already hold the tool definition (e.g. from configuration), pass it via `CallToolRequestOptions.toolDefinition` so mirroring runs without a prior list.
+On a cache miss the call is sent without `Mcp-Param-*` headers
 and, when a conforming server rejects it with `-32020` (`HeaderMismatch`), `callTool()` refreshes the definition cache once and retries.
 
 On a non-stdio modern connection `listTools()` (and the internal `tools/list` cache) exclude tool definitions whose `x-mcp-header` declarations violate the spec's constraints, logging a warning that names the tool and the reason. Browser clients skip mirroring (dynamically named
@@ -489,6 +543,10 @@ client.setNotificationHandler('notifications/resources/updated', async notificat
 await client.unsubscribeResource({ uri: 'config://app' });
 ```
 
+> [!NOTE]
+> `resources/subscribe` is a 2025-era method. On a 2026-07-28 connection, `subscribeResource()` throws a typed `SdkError` (`MethodNotSupportedByProtocolVersion`); request per-resource updates through the `resourceSubscriptions` field of a
+> [subscription stream](#subscription-streams-2026-07-28) instead. The `notifications/resources/updated` handler is identical on both paths.
+
 ## Prompts
 
 Prompts are reusable message templates that servers offer to help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview).
@@ -528,6 +586,36 @@ const { completion } = await client.complete({
 console.log(completion.values); // e.g. ['typescript']
 ```
 
+## Response caching (2026-07-28 draft)
+
+On a 2026-07-28 connection, the cacheable results (`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, `resources/read`, `server/discover`) carry `ttlMs` / `cacheScope` freshness hints (SEP-2549). The client honours them automatically: `listTools()`,
+`listPrompts()`, `listResources()`, `listResourceTemplates()`, and `readResource()` serve a still-fresh cached result without a round trip. `ttlMs` is capped at 24 hours (`MAX_CACHE_TTL_MS`); a missing or zero `ttlMs` means the result is never
+served from cache, so against servers that don't send hints (including all 2025-era servers), nothing changes.
+
+Override the disposition per call with `cacheMode`:
+
+```ts source="../examples/guides/clientGuide.examples.ts#responseCache_basic"
+const tools = await client.listTools(); // network, then cached for the server's ttlMs
+const again = await client.listTools(); // served from cache while still fresh
+
+await client.listTools(undefined, { cacheMode: 'refresh' }); // always refetch and re-store
+await client.readResource({ uri: 'config://app' }, { cacheMode: 'bypass' }); // no cache read or write
+```
+
+`'bypass'` leaves the cache byte-untouched, including the internal `tools/list` entry that [`x-mcp-header` parameter mirroring](#x-mcp-header-parameter-mirroring-2026-07-28-draft) and output-schema validation read. Cached entries are evicted automatically when the server
+signals a change: a `list_changed` notification drops the matching list entries, and `notifications/resources/updated` drops the cached body for that URI (see [Notifications](#notifications)).
+
+Three {@linkcode @modelcontextprotocol/client!client/client.ClientOptions | ClientOptions} fields tune the behavior:
+
+- **`responseCacheStore`**: the backing store; defaults to a per-client `InMemoryResponseCacheStore` (at most 512 `resources/read` entries by default). Supply your own `ResponseCacheStore` implementation (the interface is async-ready, so a
+  Redis-style store fits) to persist entries or share one store across clients. Entries are keyed by connected-server identity, so co-tenants never collide.
+- **`cachePartition`**: opaque per-principal identifier (e.g. the auth subject) isolating `'private'`-scoped entries when one store serves several principals. `'public'`-scoped entries are shared within a server's namespace; `'private'` ones never cross partitions.
+- **`defaultCacheTtlMs`**: TTL applied when a result arrives without `ttlMs` (any legacy-era response, for example). The default `0` means such results are never served from cache; list results are still stored (already stale) so the `tools/list`-derived index behind
+  mirroring and output validation keeps working, while `resources/read` bodies with a resolved TTL of `0` are not stored at all. Raise it to enable TTL caching against servers that don't send hints.
+
+> [!IMPORTANT]
+> When one `responseCacheStore` is shared across users, always set `cachePartition` per principal. Without it, one user's `'private'`-scoped resource bodies can be served to another.
+
 ## Notifications
 
 ### Automatic list-change tracking
@@ -557,6 +645,8 @@ const client = new Client(
 );
 ```
 
+`listChanged` is era-transparent: on a 2025-era connection it is fed by unsolicited notifications; on a 2026-07-28 connection the SDK [auto-opens a subscription stream](#subscription-streams-2026-07-28) for the configured types.
+
 ### Manual notification handlers
 
 For full control — or for notification types not covered by `listChanged` (such as log messages) — register handlers directly with {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()}:
@@ -576,8 +666,8 @@ client.setNotificationHandler('notifications/resources/list_changed', async () =
 ```
 
 > [!WARNING]
-> MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the
-> [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
+> MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). It remains fully functional on
+> 2025-era connections during the deprecation window (at least twelve months); on the 2026-07-28 revision the log level travels per request instead (see below). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
 
 To control the minimum severity of log messages the server sends, use {@linkcode @modelcontextprotocol/client!client/client.Client#setLoggingLevel | setLoggingLevel()}:
 
@@ -585,8 +675,65 @@ To control the minimum severity of log messages the server sends, use {@linkcode
 await client.setLoggingLevel('warning');
 ```
 
+`logging/setLevel` is not part of the 2026-07-28 revision, so on a connection that negotiated a modern era (see [Protocol version negotiation](#protocol-version-negotiation-2026-07-28-revision)) `setLoggingLevel()` rejects with `SdkError(MethodNotSupportedByProtocolVersion)`. On 2026-07-28 connections the level is declared **per request** instead: set the `io.modelcontextprotocol/logLevel` `_meta` key (exported as `LOG_LEVEL_META_KEY`) on each request you want logs for. When the key is absent, the server sends no `notifications/message` for that request; the client never attaches it automatically.
+
+```ts source="../examples/guides/clientGuide.examples.ts#logLevelMeta_modern"
+const result = await client.callTool({
+    name: 'fetch-data',
+    arguments: { url: 'https://example.com' },
+    _meta: { [LOG_LEVEL_META_KEY]: 'debug' }
+});
+```
+
+Messages arrive through the same `notifications/message` handler shown above. See the [2026-07-28 support guide](./migration/support-2026-07-28.md#ctxmcpreqlog-and-the-per-request-loglevel) for the server-side semantics.
+
 > [!WARNING]
-> `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} are mutually exclusive per notification type — using both for the same notification will cause the manual handler to be overwritten.
+> `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} resolve per notification type by last registration wins: `listChanged` installs its handler during `connect()`, so a manual handler registered
+> after connecting silently disables `listChanged` for that type, and one registered before connecting is overwritten by it.
+
+### Subscription streams (2026-07-28)
+
+On a 2026-07-28 connection the server delivers change notifications only on a `subscriptions/listen` stream the client opens: nothing arrives unsolicited. The `listChanged` option handles this transparently: on a modern connection it auto-opens a stream whose filter is the
+intersection of the configured sub-options and the server's advertised capabilities (the handle is exposed as {@linkcode @modelcontextprotocol/client!client/client.Client#autoOpenedSubscription | autoOpenedSubscription}). To open a stream explicitly, use {@linkcode
+@modelcontextprotocol/client!client/client.Client#listen | listen()}:
+
+```ts source="../examples/guides/clientGuide.examples.ts#listen_basic"
+client.setNotificationHandler('notifications/tools/list_changed', async () => {
+    const { tools } = await client.listTools();
+    console.log('Tools changed:', tools.length);
+});
+client.setNotificationHandler('notifications/resources/updated', async notification => {
+    console.log('Resource updated:', notification.params.uri);
+});
+
+const subscription = await client.listen({
+    toolsListChanged: true,
+    resourceSubscriptions: ['config://app']
+});
+console.log('Server honored:', subscription.honoredFilter);
+
+// Later: tear the stream down
+await subscription.close();
+```
+
+`listen()` resolves once the server acknowledges the subscription. `honoredFilter` is the capability-gated subset the server agreed to deliver (e.g. `resourceSubscriptions` requires the server to advertise `resources: { subscribe: true }`). Notifications on the stream
+dispatch to the same `setNotificationHandler` registrations as 2025-era unsolicited notifications.
+
+There is no automatic re-listen. `subscription.closed` resolves exactly once (it never rejects) with the reason: `'local'` (you called `close()`), `'graceful'` (the server ended the subscription deliberately, e.g. on shutdown), or `'remote'` (unexpected disconnect). A watch
+loop re-listens on unexpected closes:
+
+```ts source="../examples/guides/clientGuide.examples.ts#listen_watchLoop"
+while (watching) {
+    const sub = await client.listen({ resourceSubscriptions: ['config://app'] });
+    const reason = await sub.closed;
+    if (reason !== 'remote') break; // 'local' or 'graceful': done
+    await new Promise(resolve => setTimeout(resolve, 1000)); // back off, then re-listen
+}
+```
+
+On a 2025-era connection `listen()` throws a typed error steering to [`subscribeResource()`](#subscribing-to-resource-changes) and `listChanged`. See the
+[2026-07-28 support guide › `subscriptions/listen`](./migration/support-2026-07-28.md#subscriptionslisten) for migration-level detail, and [`subscriptions/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/subscriptions/client.ts) for a
+runnable example of both watch styles.
 
 ## Handling server-initiated requests
 
@@ -599,11 +746,17 @@ const client = new Client(
     {
         capabilities: {
             sampling: {},
-            elicitation: { form: {} }
+            elicitation: { form: {} },
+            roots: { listChanged: true }
         }
     }
 );
 ```
+
+On 2025-era connections these arrive as server→client JSON-RPC requests. On a 2026-07-28 connection there is no server→client request channel: the server answers `tools/call` / `prompts/get` / `resources/read` with an `input_required` result instead, and the client fulfils
+the embedded requests automatically through the same handlers you register below, then retries the call with the collected responses and a byte-exact echo of the server's opaque `requestState`. `callTool()` and its siblings keep returning their plain result: the interactive
+rounds happen inside the call, capped at `maxRounds` (default 10), after which the call rejects with a typed {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.InputRequiredRoundsExceeded | INPUT_REQUIRED_ROUNDS_EXCEEDED} error. Configure or disable this via
+`ClientOptions.inputRequired` (`{ autoFulfill?: boolean; maxRounds?: number }`); see [Manual multi-round-trip handling](#manual-multi-round-trip-handling-2026-07-28) for the opt-out flow. Handlers are era-transparent: register once for both delivery paths.
 
 ### Sampling
 
@@ -673,6 +826,47 @@ client.setRequestHandler('roots/list', async () => {
 
 When the available roots change, notify the server with {@linkcode @modelcontextprotocol/client!client/client.Client#sendRootsListChanged | client.sendRootsListChanged()}.
 
+### Manual multi-round-trip handling (2026-07-28)
+
+Hosts that surface input requests through their own UI loop can take over the rounds themselves. Set `inputRequired: { autoFulfill: false }`. An `input_required` response then surfaces as a typed error unless the call passes `allowInputRequired: true` to receive the raw
+result. Retry with top-level `inputResponses` and a byte-exact `requestState` echo:
+
+```ts source="../examples/guides/clientGuide.examples.ts#inputRequired_manual"
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    {
+        capabilities: { elicitation: { form: {} } },
+        versionNegotiation: { mode: 'auto' },
+        inputRequired: { autoFulfill: false }
+    }
+);
+await client.connect(transport);
+
+const value = (await client.request(
+    { method: 'tools/call', params: { name: 'deploy', arguments: { env: 'prod' } } },
+    { allowInputRequired: true }
+)) as CallToolResult | InputRequiredResult;
+
+if (isInputRequiredResult(value)) {
+    // Collect responses for value.inputRequests from your UI, then retry:
+    await client.request(
+        {
+            method: 'tools/call',
+            params: {
+                name: 'deploy',
+                arguments: { env: 'prod' },
+                inputResponses: { confirm: { action: 'accept', content: { confirm: true } } },
+                requestState: value.requestState // echo byte-exact
+            }
+        },
+        { allowInputRequired: true }
+    );
+}
+```
+
+The manual retry goes through `client.request()` rather than `callTool()`: `inputResponses` and `requestState` are not fields of the typed `CallToolRequest` params. On the explicit-schema `request()` path, wrap the result schema with {@linkcode
+@modelcontextprotocol/client!index.withInputRequired | withInputRequired()} so both outcomes are typed and validated. For the full loop (including URL-mode elicitation), see [`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts).
+
 ## Error handling
 
 ### Tool errors vs protocol errors
@@ -707,7 +901,8 @@ try {
 
 {@linkcode @modelcontextprotocol/client!index.ProtocolError | ProtocolError} represents JSON-RPC errors from the server (method not found, invalid params, internal error). {@linkcode @modelcontextprotocol/client!index.SdkError | SdkError} represents local SDK errors — {@linkcode
 @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | REQUEST_TIMEOUT}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.CapabilityNotSupported |
-CAPABILITY_NOT_SUPPORTED}, and others.
+CAPABILITY_NOT_SUPPORTED}, and others. The {@linkcode @modelcontextprotocol/client!index.SdkErrorCode | SdkErrorCode} enum is the complete vocabulary; the [error mapping table](./migration/upgrade-to-v2.md#sdkerrorcode-enum-complete) in the upgrade guide describes when each
+code is raised.
 
 ### Connection lifecycle
 
@@ -728,8 +923,8 @@ client.onclose = () => {
 
 ### Timeouts
 
-All requests have a 60-second default timeout. Pass a custom `timeout` in the options to override it. On timeout, the SDK sends a cancellation notification to the server and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout |
-SdkErrorCode.RequestTimeout}:
+All requests have a 60-second default timeout. Pass a custom `timeout` in the options to override it. On timeout, the SDK sends a cancellation notification to the server (on a 2026-07-28 Streamable HTTP connection the per-request stream is aborted instead, which is the
+spec's cancellation signal) and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | SdkErrorCode.RequestTimeout}:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#errorHandling_timeout"
 try {
@@ -741,6 +936,23 @@ try {
 } catch (error) {
     if (error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout) {
         console.error('Request timed out');
+    }
+}
+```
+
+### HTTP transport errors
+
+When an HTTP transport request fails with a non-OK status, the SDK throws {@linkcode @modelcontextprotocol/client!index.SdkHttpError | SdkHttpError}, an `SdkError` subclass with typed `data` (`{ status, statusText? }`) and `status`/`statusText` getters, so you can branch on the status without casting. The codes are the `ClientHttp*` members of `SdkErrorCode`: e.g. `CLIENT_HTTP_AUTHENTICATION` (a 401 persisting after re-authentication), `CLIENT_HTTP_FORBIDDEN` (a 403 `insufficient_scope` after the step-up
+retry cap), `CLIENT_HTTP_FAILED_TO_OPEN_STREAM`. (Exception: an unexpected response content type throws a plain `SdkError` with code `CLIENT_HTTP_UNEXPECTED_CONTENT`.)
+
+```ts source="../examples/guides/clientGuide.examples.ts#errorHandling_http"
+try {
+    await client.connect(transport);
+} catch (error) {
+    if (error instanceof SdkHttpError) {
+        console.error(`HTTP ${error.status} (${error.statusText ?? ''}) [${error.code}]`);
+    } else {
+        throw error;
     }
 }
 ```
@@ -857,3 +1069,5 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 | SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`sse-polling/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts)         |
 | Multiple clients              | Independent client lifecycles to the same server                             | [`parallel-calls/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts)   |
 | URL elicitation               | Handle sensitive data collection via browser                                 | [`elicitation/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation/client.ts)         |
+| Subscription streams          | Auto-opened and manual `subscriptions/listen` streams (2026-07-28)           | [`subscriptions/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/subscriptions/client.ts)     |
+| Multi-round-trip input        | Auto-fulfilled and manual `input_required` flows (2026-07-28)                | [`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts)                       |

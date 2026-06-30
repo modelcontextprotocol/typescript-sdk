@@ -142,11 +142,22 @@ export function buildInputRequiredRetryParams(
 }
 
 /**
+ * The message both multi-round-trip loops emit when the round cap is
+ * exhausted — the client driver as a typed error, the server-side legacy
+ * shim as its per-family failure. One formatter so the texts cannot drift
+ * (hosts and models read the tool-result copy verbatim).
+ */
+export function inputRequiredRoundsExceededMessage(method: string, maxRounds: number): string {
+    return `Multi-round-trip request '${method}' still required input after ${maxRounds} rounds (inputRequired.maxRounds)`;
+}
+
+/**
  * Abortable delay: resolves after `ms`, or rejects with the signal's reason
  * (wrapped in an `SdkError` when it isn't already one) if the signal aborts
- * first. Aborting after resolution is a no-op.
+ * first. Aborting after resolution is a no-op. Shared with the server-side
+ * legacy shim (the pacing semantics must match per era).
  */
-function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
             reject(signal.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal.reason)));
@@ -167,9 +178,14 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
 /**
  * A per-round abort linked to the caller's signal: the embedded sibling
  * dispatches share it, so the first failure (or a caller abort) cancels the
- * others instead of leaving them running.
+ * others instead of leaving them running. Shared with the server-side legacy
+ * shim (the abort-linkage semantics must match per era).
  */
-function linkedRoundAbort(outer: AbortSignal | undefined): { signal: AbortSignal; abort: (reason: unknown) => void; dispose: () => void } {
+export function linkedRoundAbort(outer: AbortSignal | undefined): {
+    signal: AbortSignal;
+    abort: (reason: unknown) => void;
+    dispose: () => void;
+} {
     const controller = new AbortController();
     const onOuterAbort = (): void => controller.abort(outer?.reason);
     outer?.addEventListener('abort', onOuterAbort, { once: true });
@@ -211,17 +227,13 @@ export async function runInputRequiredDriver(args: {
     while (true) {
         round += 1;
         if (round > config.maxRounds) {
-            throw new SdkError(
-                SdkErrorCode.InputRequiredRoundsExceeded,
-                `Multi-round-trip request '${method}' still required input after ${config.maxRounds} rounds (inputRequired.maxRounds)`,
-                {
-                    rounds: config.maxRounds,
-                    lastResult: {
-                        inputRequests: payload.inputRequests,
-                        ...(payload.requestState !== undefined && { requestState: payload.requestState })
-                    }
+            throw new SdkError(SdkErrorCode.InputRequiredRoundsExceeded, inputRequiredRoundsExceededMessage(method, config.maxRounds), {
+                rounds: config.maxRounds,
+                lastResult: {
+                    inputRequests: payload.inputRequests,
+                    ...(payload.requestState !== undefined && { requestState: payload.requestState })
                 }
-            );
+            });
         }
 
         // Surface the round as synthetic progress: long interactive flows stay

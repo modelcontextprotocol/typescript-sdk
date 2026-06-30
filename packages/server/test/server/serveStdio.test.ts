@@ -32,6 +32,7 @@ import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
+    inputRequired,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
@@ -809,5 +810,62 @@ describe('teardown', () => {
         await handle.close();
         expect(closed[0]).toBe(true);
         expect(peerClosed).toBe(true);
+    });
+});
+
+describe('legacy input_required shim through the stdio entry', () => {
+    it('a write-once tool returning inputRequired() is fulfilled over the legacy-pinned connection', async () => {
+        const factory = () => {
+            const server = new McpServer({ name: 'shim-stdio', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.registerTool('confirm-deploy', { inputSchema: z.object({}) }, async (_args, ctx) => {
+                const responses = ctx.mcpReq.inputResponses as Record<string, { action?: string; content?: { ok?: boolean } }> | undefined;
+                if (responses?.confirm?.content?.ok !== true) {
+                    return inputRequired({
+                        inputRequests: {
+                            confirm: inputRequired.elicit({ message: 'OK?', requestedSchema: { type: 'object', properties: {} } })
+                        }
+                    });
+                }
+                return { content: [{ type: 'text', text: 'confirmed' }] };
+            });
+            return server;
+        };
+        const harness = await startEntryWith(factory);
+
+        // Teach the peer side to ANSWER the server→client elicitation leg.
+        const original = harness.peerTx.onmessage!;
+        harness.peerTx.onmessage = (message, extra) => {
+            const candidate = message as { method?: string; id?: string | number };
+            if (candidate.method === 'elicitation/create' && candidate.id !== undefined) {
+                void harness.peerTx.send({ jsonrpc: '2.0', id: candidate.id, result: { action: 'accept', content: { ok: true } } });
+                return;
+            }
+            original(message, extra);
+        };
+
+        const init: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: { elicitation: { form: {} } },
+                clientInfo: { name: 'legacy-client', version: '1.0.0' }
+            }
+        };
+        expect(isJSONRPCResultResponse(await harness.request(init))).toBe(true);
+
+        const answer = await harness.request({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/call',
+            params: { name: 'confirm-deploy', arguments: {} }
+        });
+        expect(isJSONRPCResultResponse(answer)).toBe(true);
+        const result = (answer as unknown as { result: { content: Array<{ text: string }>; isError?: boolean } }).result;
+        expect(result.isError).toBeUndefined();
+        expect(result.content[0]!.text).toBe('confirmed');
+
+        await harness.handle.close();
     });
 });

@@ -40,14 +40,14 @@ Once your project is using a single, compatible `zod` version, the `TS2589` erro
 
 ### How do I enable Web Crypto (`globalThis.crypto`) for client authentication in older Node.js versions?
 
-The SDK’s OAuth client authentication helpers (for example, those in `packages/client/src/client/auth-extensions.ts` that use `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`. This is especially important for **client credentials** and **JWT-based**
+The SDK’s OAuth client authentication helpers (for example, those in `packages/client/src/client/authExtensions.ts` that use `jose`) rely on the Web Crypto API exposed as `globalThis.crypto`. This is especially important for **client credentials** and **JWT-based**
 authentication flows used by MCP clients.
 
 - **Node.js v19.0.0 and later**: `globalThis.crypto` is available by default.
 - **Node.js v18.x**: `globalThis.crypto` may not be defined by default. In this repository we polyfill it for tests (see `packages/client/vitest.setup.js`), and you should do the same in your app if it is missing – or alternatively, run Node with `--experimental-global-webcrypto`
   as per your Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
 
-If you run clients on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.ts`:
+If you run clients on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.js`:
 
 ```typescript
 import { webcrypto } from 'node:crypto';
@@ -76,7 +76,7 @@ Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTok
 ### Why did we remove `server` SSE transport?
 
 The SSE transport has been deprecated for a long time, and `v2` will not support it on the server side any more. Client side will keep supporting it in order to be able to connect to legacy SSE servers via the `v2` SDK, but serving SSE from `v2` will not be possible. Servers
-wanting to switch to `v2` and using SSE should migrate to Streamable HTTP.
+wanting to switch to `v2` and using SSE should migrate to Streamable HTTP. A frozen v1 copy of the server SSE transport remains available as `@modelcontextprotocol/server-legacy/sse` (deprecated).
 
 ## v1 (legacy)
 

@@ -9,12 +9,28 @@
 
 //#region imports
 import { randomUUID } from 'node:crypto';
+import { createServer } from 'node:http';
 
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate, TRACEPARENT_META_KEY } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
+import {
+    createMcpExpressApp,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
+import type { CallToolResult, InputRequiredResult, OAuthMetadata, ResourceLink } from '@modelcontextprotocol/server';
+import {
+    acceptedContent,
+    completable,
+    createMcpHandler,
+    createRequestStateCodec,
+    inputRequired,
+    McpServer,
+    ResourceTemplate,
+    TRACEPARENT_META_KEY
+} from '@modelcontextprotocol/server';
+import { serveStdio, StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 //#endregion imports
 
@@ -277,6 +293,53 @@ function registerPrompt_completion(server: McpServer) {
 }
 
 // ---------------------------------------------------------------------------
+// Extension capabilities
+// ---------------------------------------------------------------------------
+
+/** Example: Declare an extension capability with its settings. */
+function extensionCapabilities_register(server: McpServer) {
+    //#region extensionCapabilities_register
+    server.server.registerCapabilities({
+        extensions: { 'com.example/feature-flags': { flags: ['dark-mode', 'beta-search'] } }
+    });
+    //#endregion extensionCapabilities_register
+}
+
+// ---------------------------------------------------------------------------
+// Cache hints
+// ---------------------------------------------------------------------------
+
+/** Example: cache hints via ServerOptions.cacheHints and a per-resource cacheHint. */
+function cacheHints_basic() {
+    //#region cacheHints_basic
+    const server = new McpServer(
+        { name: 'my-server', version: '1.0.0' },
+        {
+            cacheHints: {
+                // The tool list is the same for every caller and rarely changes:
+                'tools/list': { ttlMs: 60_000, cacheScope: 'public' }
+            }
+        }
+    );
+
+    server.registerResource(
+        'config',
+        'config://app',
+        {
+            mimeType: 'text/plain',
+            // Wins field-by-field over a cacheHints['resources/read'] entry;
+            // cacheScope stays at the 'private' default here.
+            cacheHint: { ttlMs: 300_000 }
+        },
+        async uri => ({
+            contents: [{ uri: uri.href, text: 'App configuration here' }]
+        })
+    );
+    //#endregion cacheHints_basic
+    return server;
+}
+
+// ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
@@ -364,6 +427,50 @@ function registerTool_traceContext(server: McpServer) {
         }
     );
     //#endregion registerTool_traceContext
+}
+
+// ---------------------------------------------------------------------------
+// Change notifications
+// ---------------------------------------------------------------------------
+
+/** Example: hand-wired resources/subscribe handlers + sendResourceUpdated (2025-era). */
+function subscriptions_legacy() {
+    //#region subscriptions_legacy
+    const server = new McpServer(
+        { name: 'my-server', version: '1.0.0' },
+        { capabilities: { resources: { subscribe: true, listChanged: true } } }
+    );
+
+    const subscriptions = new Set<string>();
+    server.server.setRequestHandler('resources/subscribe', async request => {
+        subscriptions.add(request.params.uri);
+        return {};
+    });
+    server.server.setRequestHandler('resources/unsubscribe', async request => {
+        subscriptions.delete(request.params.uri);
+        return {};
+    });
+
+    // When the underlying data changes:
+    async function onConfigChanged() {
+        if (subscriptions.has('config://app')) {
+            await server.server.sendResourceUpdated({ uri: 'config://app' });
+        }
+    }
+    //#endregion subscriptions_legacy
+    return onConfigChanged;
+}
+
+/** Example: publishing change events through the createMcpHandler notify facade (2026-07-28). */
+function subscriptions_notify(buildServer: () => McpServer) {
+    //#region subscriptions_notify
+    const handler = createMcpHandler(() => buildServer());
+
+    // When the underlying data changes:
+    handler.notify.resourceUpdated('config://app');
+    handler.notify.toolsChanged();
+    //#endregion subscriptions_notify
+    return handler;
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +573,90 @@ function registerTool_roots(server: McpServer) {
     //#endregion registerTool_roots
 }
 
+/** Example: write-once tool requesting input via an input_required return (2026-07-28). */
+function registerTool_inputRequired(server: McpServer) {
+    //#region registerTool_inputRequired
+    server.registerTool(
+        'deploy',
+        {
+            description: 'Deploy after user confirmation',
+            inputSchema: z.object({ env: z.string() })
+        },
+        async ({ env }, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            if (confirmed?.confirm !== true) {
+                return inputRequired({
+                    inputRequests: {
+                        confirm: inputRequired.elicit({
+                            message: `Deploy to ${env}?`,
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { confirm: { type: 'boolean' } },
+                                required: ['confirm']
+                            }
+                        })
+                    }
+                });
+            }
+            return { content: [{ type: 'text', text: `Deployed to ${env}` }] };
+        }
+    );
+    //#endregion registerTool_inputRequired
+}
+
+/** Example: HMAC-protected requestState via createRequestStateCodec + the verify hook. */
+function requestState_codec() {
+    //#region requestState_codec
+    const stateCodec = createRequestStateCodec<{ step: string }>({
+        key: crypto.getRandomValues(new Uint8Array(32)), // >= 32 bytes; share across instances in a fleet
+        ttlSeconds: 600
+    });
+
+    const server = new McpServer(
+        { name: 'my-server', version: '1.0.0' },
+        { capabilities: { tools: {} }, requestState: { verify: stateCodec.verify } }
+    );
+    //#endregion requestState_codec
+
+    //#region requestState_mintDecode
+    server.registerTool(
+        'wipe-cache',
+        { description: 'Confirm, then pick a scope, then wipe', inputSchema: z.object({}) },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const state = ctx.mcpReq.requestState<{ step: string }>();
+
+            if (state?.step !== 'confirmed') {
+                const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+                if (confirmed?.confirm !== true) {
+                    return inputRequired({
+                        inputRequests: {
+                            confirm: inputRequired.elicit({
+                                message: 'Really wipe the cache?',
+                                requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                            })
+                        }
+                    });
+                }
+                // Mint only what the response above already proved: the user confirmed.
+                return inputRequired({
+                    inputRequests: {
+                        scope: inputRequired.elicit({
+                            message: 'Which scope?',
+                            requestedSchema: { type: 'object', properties: { scope: { type: 'string' } }, required: ['scope'] }
+                        })
+                    },
+                    requestState: await stateCodec.mint({ step: 'confirmed' })
+                });
+            }
+
+            const scope = acceptedContent<{ scope: string }>(ctx.mcpReq.inputResponses, 'scope');
+            return { content: [{ type: 'text', text: `Wiped ${scope?.scope ?? 'all'}` }] };
+        }
+    );
+    //#endregion requestState_mintDecode
+    return server;
+}
+
 // ---------------------------------------------------------------------------
 // Transports
 // ---------------------------------------------------------------------------
@@ -517,6 +708,38 @@ async function stdio_basic() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     //#endregion stdio_basic
+}
+
+/** Example: serveStdio serving both protocol eras on stdio from one factory. */
+function serveStdio_basic() {
+    //#region serveStdio_basic
+    serveStdio(() => {
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+        // register tools/resources/prompts once; the same factory serves both eras
+        return server;
+    });
+    //#endregion serveStdio_basic
+}
+
+/** Example: createMcpHandler serving both protocol eras over HTTP from one factory. */
+function createMcpHandler_basic() {
+    //#region createMcpHandler_basic
+    const handler = createMcpHandler(() => {
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+        // register tools/resources/prompts once; the same factory serves both eras
+        return server;
+    });
+    //#endregion createMcpHandler_basic
+    return handler;
+}
+
+/** Example: mounting an McpHttpHandler on node:http via toNodeHandler. */
+function createMcpHandler_node(handler: ReturnType<typeof createMcpHandler>) {
+    //#region createMcpHandler_node
+    createServer(toNodeHandler(handler)).listen(3000);
+    // Express: app.all('/mcp', toNodeHandler(handler));
+    // behind express.json(): const node = toNodeHandler(handler); app.all('/mcp', (req, res) => void node(req, res, req.body));
+    //#endregion createMcpHandler_node
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +805,50 @@ function dnsRebinding_allowedHosts() {
     return app;
 }
 
+// ---------------------------------------------------------------------------
+// Authorization (OAuth resource server)
+// ---------------------------------------------------------------------------
+
+/** Example: protecting an HTTP server as an OAuth resource server. */
+function auth_resourceServer(
+    verifyJwt: (token: string) => Promise<{ sub: string; scopes: string[]; exp: number }>,
+    oauthMetadata: OAuthMetadata,
+    buildServer: () => McpServer
+) {
+    //#region auth_resourceServer
+    const mcpServerUrl = new URL('https://api.example.com/mcp');
+
+    // Verify tokens however your deployment requires: JWT verification,
+    // RFC 7662 introspection, a call to your IdP.
+    const verifier: OAuthTokenVerifier = {
+        async verifyAccessToken(token) {
+            const payload = await verifyJwt(token);
+            return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp };
+        }
+    };
+
+    // Public deployment: allow-list the public host (see DNS rebinding protection).
+    const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
+
+    // Serves /.well-known/oauth-protected-resource/mcp (RFC 9728) and mirrors the
+    // authorization server's metadata, so clients can discover your AS.
+    app.use(mcpAuthMetadataRouter({ oauthMetadata, resourceServerUrl: mcpServerUrl }));
+
+    // 401/403 responses carry `WWW-Authenticate: Bearer …` with `resource_metadata`
+    // pointing at the document above. That challenge is what starts the client
+    // SDK's OAuth flow.
+    const auth = requireBearerAuth({
+        verifier,
+        requiredScopes: ['mcp'],
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    });
+
+    const node = toNodeHandler(createMcpHandler(buildServer));
+    app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
+    //#endregion auth_resourceServer
+    return app;
+}
+
 // Suppress unused-function warnings (functions exist solely for type-checking)
 void instructions_basic;
 void registerTool_basic;
@@ -595,15 +862,25 @@ void registerTool_traceContext;
 void registerTool_sampling;
 void registerTool_elicitation;
 void registerTool_roots;
+void registerTool_inputRequired;
+void requestState_codec;
 void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;
 void registerPrompt_completion;
+void extensionCapabilities_register;
+void cacheHints_basic;
+void subscriptions_legacy;
+void subscriptions_notify;
 void streamableHttp_stateful;
 void streamableHttp_stateless;
 void streamableHttp_jsonResponse;
 void stdio_basic;
+void serveStdio_basic;
+void createMcpHandler_basic;
+void createMcpHandler_node;
 void shutdown_statefulHttp;
 void shutdown_stdio;
 void dnsRebinding_basic;
 void dnsRebinding_allowedHosts;
+void auth_resourceServer;
