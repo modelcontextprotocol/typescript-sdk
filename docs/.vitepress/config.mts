@@ -24,6 +24,7 @@ export default defineConfig({
     title: 'MCP TypeScript SDK',
     description: 'The TypeScript SDK implementation of the Model Context Protocol specification.',
     base: '/v2/',
+    sitemap: { hostname: 'https://ts.sdk.modelcontextprotocol.io/v2/' },
     markdown: {
         config(md) {
             // Spec-generated JSDoc (packages/core-internal/src/types/spec.types.*.ts) carries

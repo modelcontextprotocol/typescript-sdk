@@ -24,6 +24,7 @@ export default defineConfig({
     title: 'MCP TypeScript SDK (v1)',
     description: 'Documentation for v1.x of the MCP TypeScript SDK.',
     base: '/',
+    sitemap: { hostname: 'https://ts.sdk.modelcontextprotocol.io' },
     srcDir: 'content',
     markdown: {
         config(md) {
