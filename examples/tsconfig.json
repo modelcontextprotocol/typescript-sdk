@@ -9,6 +9,8 @@
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/stdio.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
+            "@modelcontextprotocol/server/validators/ajv": ["./node_modules/@modelcontextprotocol/server/src/validators/ajv.ts"],
+            "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
