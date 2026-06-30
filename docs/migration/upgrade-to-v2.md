@@ -13,48 +13,166 @@ work through the manual sections for what the codemod can't rewrite.
 If you are already on v2 and want to adopt the **2026-07-28 protocol revision**, see
 [support-2026-07-28.md](./support-2026-07-28.md) instead.
 
+The codemod handles the v1→v2 SDK surface upgrade only — adopting the 2026-07-28
+protocol revision (`createMcpHandler`, multi-round-trip requests, `versionNegotiation`)
+is architectural and not codemod-automatable.
+
 ## TL;DR — quick path
 
 1. **Prerequisites.** Node.js 20+ and ESM (`"type": "module"` or `.mts`). v2 ships ESM
-   only; CommonJS callers must use dynamic `import()`.
+   only; CommonJS callers must use dynamic `import()`. If you pass **zod** schemas to
+   the SDK, declare **`zod ^4.2.0`** — a zod-3 range that satisfied the v1 peer still
+   installs and typechecks cleanly under v2, and only fails (quietly) at the first
+   `tools/list`; see [Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist).
+   The codemod adds `zod ^4.2.0` only to a manifest with **no** `zod` entry; it warns
+   about — but never rewrites — an existing zod-3 / 4.0–4.1 range.
 2. **Run the codemod.**
     ```bash
     npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
     ```
     Run it at the **package root** (`.`), not `./src` — it also rewrites `package.json`,
     and real projects import the SDK from `test/`, `scripts/`, and fixtures too.
+    `--dry-run` previews every rewrite including the manifest summary;
+    `--ignore <glob...>` excludes files the codemod must not touch.
 3. **Grep for markers.** Anything the codemod recognized but could not safely rewrite is
    marked in place:
     ```bash
     grep -rn '@mcp-codemod-error' .
     ```
-4. **Type-check.** `tsc --noEmit` (or your build). Remaining errors map to the
-   [manual sections](#manual-changes-what-the-codemod-does-not-handle) below.
+4. **Type-check.** `tsc --noEmit` (or your build). Look up each remaining error in the
+   [symptom index](#symptom-index) below; anything not listed maps to the
+   [manual sections](#manual-changes).
 5. **Format.** The codemod rewrites the AST without reformatting — run your formatter on
    the changed files (`prettier --write` / `eslint --fix` / `biome format --write`); the
    codemod prints the exact command after it runs.
-6. **Run your tests.**
+6. **Run your tests.** Jest under its default CommonJS resolution fails with
+   `Cannot find module '@modelcontextprotocol/client'` — see
+   [CommonJS test runners (Jest)](#commonjs-test-runners-jest-cannot-resolve-the-v2-packages);
+   Vitest and native Node ESM are unaffected. Failures from runtime-behavior changes
+   (not compile errors) map to [Behavioral changes](#behavioral-changes). Then
+   [verify you're done](#verifying-youre-done).
 
 Migrating a large codebase gradually instead of in one pass? See
 [Migrating in stages (large codebases)](#migrating-in-stages-large-codebases).
 
+## Symptom index
+
+Literal diagnostics → the section that fixes them. The strings are verbatim — search
+for yours.
+
+| Symptom / diagnostic                                                                                                                                                    | Section                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `TS2307: Cannot find module '@modelcontextprotocol/sdk/…'` — staged-migration order inverted (manifest swapped before sources are rewritten)                            | [Migrating in stages](#migrating-in-stages-large-codebases)                                                                             |
+| `TS2307` on `server/zod-json-schema-compat.js` (`toJsonSchemaCompat`) — the codemod does not rewrite this import                                                        | [Removed Zod helpers and compat modules](#removed-zod-helpers-and-compat-modules)                                                       |
+| `TS2307` in a file the codemod never rewrote — outside the run target (run at the package root), or `--ignore`'d while the manifest swap also dropped the v1 dependency | [TL;DR step 2](#tldr--quick-path); [Migrating in stages](#migrating-in-stages-large-codebases)                                          |
+| `TS2769: No overload matches this call` on `registerTool` / `registerPrompt` — elaborated as `Property 'jsonSchema' is missing in type …`                               | [TS2769](#ts2769-no-overload-matches-this-call-registertool--registerprompt)                                                            |
+| Server starts and connects normally, but the first `tools/list` answers an error pointing at `fromJsonSchema()`                                                         | [Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist) |
+| `TS2367` on `=== -32000` / `=== -32001`                                                                                                                                 | [Errors](#errors)                                                                                                                       |
+| `TS2339` on a property read after an `in` narrow                                                                                                                        | [Discriminating result shapes](#discriminating-result-shapes-use-guards-not-the-in-operator)                                            |
+| `TS2322` on a capability `experimental` payload typed `Record<string, unknown>`                                                                                         | [Removed type aliases](#removed-type-aliases)                                                                                           |
+| Jest: `Cannot find module '@modelcontextprotocol/client'`                                                                                                               | [CommonJS test runners (Jest)](#commonjs-test-runners-jest-cannot-resolve-the-v2-packages)                                              |
+| `TypeError: '…' is not a spec method; pass a result schema`                                                                                                             | [`request()` / `callTool()` schema drop](#request-ctxmcpreqsend-and-calltool-no-longer-require-a-schema-for-spec-methods)               |
+| `TypeError` thrown at `setRequestHandler(Schema, …)` registration in a file with no SDK import                                                                          | [Files the codemod never sees](#files-the-codemod-never-sees-injected-sdk-surfaces)                                                     |
+| Repeating `[mcp-sdk]` warning on every credential read after upgrading                                                                                                  | [Credentials bound to the issuing AS (SEP-2352)](#credentials-bound-to-the-issuing-authorization-server-sep-2352)                       |
+| npm/pnpm "not found" for an `@modelcontextprotocol` package that exists on npmjs.org                                                                                    | [Registry availability during the alpha](#registry-availability-during-the-alpha)                                                       |
+| `Error("…unsupported dialect…")`                                                                                                                                        | [JSON Schema 2020-12 posture](#json-schema-2020-12-posture-sep-1613-sep-2106)                                                           |
+| `MissingRefError` surfaced per-tool on `callTool`                                                                                                                       | [JSON Schema 2020-12 posture](#json-schema-2020-12-posture-sep-1613-sep-2106)                                                           |
+| `onerror`: `Unknown message type: …` / a raw-frame test fence hangs awaiting a reply                                                                                    | [Wire tightening](#wire-tightening-every-era)                                                                                           |
+| Invalid tokens answered HTTP `500` after re-pointing `requireBearerAuth`                                                                                                | [Token verifiers must throw the v2 `OAuthError`](#token-verifiers-must-throw-the-v2-oautherror)                                         |
+
 ## Contents
 
+- [Symptom index](#symptom-index)
+- [By situation](#by-situation)
 - [What the codemod handles](#what-the-codemod-handles)
-- [What the codemod does NOT handle](#what-the-codemod-does-not-handle)
-- [Manual changes](#manual-changes-what-the-codemod-does-not-handle)
+- [Manual changes](#manual-changes)
     - [Packaging & runtime](#packaging--runtime)
+        - [Monorepo workspace members](#monorepo-workspace-members)
+        - [Repo tooling pinned to the v1 package](#repo-tooling-pinned-to-the-v1-package)
+        - [Registry availability during the alpha](#registry-availability-during-the-alpha)
+        - [CommonJS test runners (Jest) cannot resolve the v2 packages](#commonjs-test-runners-jest-cannot-resolve-the-v2-packages)
+        - [Bundlers: nested `zod` copies in zod@3-pinned monorepos](#bundlers-nested-zod-copies-in-zod3-pinned-monorepos)
+        - [Migrating in stages (large codebases)](#migrating-in-stages-large-codebases)
+        - [Library authors: peer-depending on the SDK](#library-authors-peer-depending-on-the-sdk)
     - [Imports & transports](#imports--transports)
     - [Low-level protocol & handler context (`ctx`)](#low-level-protocol--handler-context-ctx)
+        - [`setRequestHandler` / `setNotificationHandler` use method strings](#setrequesthandler--setnotificationhandler-use-method-strings)
+        - [Files the codemod never sees: injected SDK surfaces](#files-the-codemod-never-sees-injected-sdk-surfaces)
+        - [`request()`, `ctx.mcpReq.send()`, and `callTool()` no longer require a schema for spec methods](#request-ctxmcpreqsend-and-calltool-no-longer-require-a-schema-for-spec-methods)
+    - [Deprecated in v2 (SEP-2577)](#deprecated-in-v2-sep-2577)
     - [Server registration API](#server-registration-api)
+        - [Standard Schema objects (raw shapes deprecated)](#standard-schema-objects-raw-shapes-deprecated)
+        - [Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist)
+        - [TS2769: No overload matches this call](#ts2769-no-overload-matches-this-call-registertool--registerprompt)
+        - [zod@3-pinned monorepos: the `npm:zod@^4.2.0` alias](#zod3-pinned-monorepos-the-npmzod420-alias)
+        - [Hosts that forward consumer-authored schemas](#hosts-that-forward-consumer-authored-schemas)
+        - [Zod 4's own type-level API changes](#zod-4s-own-type-level-api-changes-zzodtypedef-zzodtype-generics)
+        - [Removed Zod helpers and compat modules](#removed-zod-helpers-and-compat-modules)
     - [HTTP & headers](#http--headers)
     - [Errors](#errors)
+        - [`SdkErrorCode` enum (complete)](#sdkerrorcode-enum-complete)
+        - [Typed `ProtocolError` subclasses](#typed-protocolerror-subclasses)
     - [Auth](#auth)
+        - [OAuth error consolidation](#oauth-error-consolidation)
+        - [Token verifiers must throw the v2 `OAuthError`](#token-verifiers-must-throw-the-v2-oautherror)
+        - [`AuthProvider` — non-OAuth bearer auth and the widened `authProvider` option](#authprovider--non-oauth-bearer-auth-and-the-widened-authprovider-option)
+        - [OAuth client flow — behavioral changes](#oauth-client-flow--behavioral-changes)
+        - [OAuth client flow errors (new)](#oauth-client-flow-errors-new)
+        - [Connect-time OAuth retry (`UnauthorizedError`)](#connect-time-oauth-retry-unauthorizederror)
+        - [`auth()` options are now `AuthOptions`](#auth-options-are-now-authoptions)
+        - [Authorization-server mix-up defense (RFC 9207 / RFC 8414 §3.3)](#authorization-server-mix-up-defense-rfc-9207--rfc-8414-33--action-required)
+        - [Dynamic Client Registration defaults (SEP-837, SEP-2207)](#dynamic-client-registration-defaults-sep-837-sep-2207)
+        - [Token endpoint must use TLS (SEP-2207)](#token-endpoint-must-use-tls-sep-2207)
+        - [Scope step-up on `403 insufficient_scope` (SEP-2350)](#scope-step-up-on-403-insufficient_scope-sep-2350)
+        - [Credentials bound to the issuing authorization server (SEP-2352)](#credentials-bound-to-the-issuing-authorization-server-sep-2352)
+        - [Conformance obligations for `OAuthClientProvider` implementers](#conformance-obligations-for-oauthclientprovider-implementers)
     - [Types & schemas](#types--schemas)
+        - [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore)
+        - [Removed type aliases](#removed-type-aliases)
+        - [JSON Schema 2020-12 posture (SEP-1613, SEP-2106)](#json-schema-2020-12-posture-sep-1613-sep-2106)
     - [Behavioral changes](#behavioral-changes)
+        - [Error-shape changes (every era)](#error-shape-changes-every-era)
+        - [Client connection & dispatch](#client-connection--dispatch)
+        - [stdio transport](#stdio-transport)
+        - [Client list methods](#client-list-methods)
+        - [Streamable HTTP: resumability requires protocol version `>= 2025-11-25`](#streamable-http-resumability-requires-protocol-version--2025-11-25)
+        - [SDK-convention JSON-RPC codes in HTTP error bodies](#sdk-convention-json-rpc-codes-in-http-error-bodies)
+        - [`getClientCapabilities()` / `getClientVersion()` / `getNegotiatedProtocolVersion()` are `@deprecated`](#getclientcapabilities--getclientversion--getnegotiatedprotocolversion-are-deprecated)
+        - [`createMcp*App()` validates the `Origin` header by default](#createmcpapp-validates-the-origin-header-by-default)
+        - [McpServer installs capability handlers eagerly](#mcpserver-installs-capability-handlers-eagerly-toolslist-answers-tools-not--32601-listchanged-true-advertised-by-default)
+        - [`eventStore` store-first semantics (Streamable HTTP)](#eventstore-store-first-semantics-streamable-http)
+        - [`registerResource` reserves the `cacheHint` key](#registerresource-reserves-the-cachehint-key)
+        - [`ctx.mcpReq.log()` is request-related on every era](#ctxmcpreqlog-is-request-related-on-every-era)
+        - [Wire tightening (every era)](#wire-tightening-every-era)
+    - [Experimental tasks interception removed](#experimental-tasks-interception-removed)
 - [Enhancements](#enhancements)
+    - [Automatic JSON Schema validator selection by runtime](#automatic-json-schema-validator-selection-by-runtime)
+    - [Serving the 2026-07-28 revision](#serving-the-2026-07-28-revision)
 - [Unchanged APIs](#unchanged-apis)
+    - [Specification clarifications adopted (no SDK behavior change)](#specification-clarifications-adopted-no-sdk-behavior-change)
+- [Verifying you're done](#verifying-youre-done)
 - [Need help?](#need-help)
+
+## By situation
+
+Situations whose entry point is not a heading name — the full map is the Contents
+above:
+
+- A gateway or proxy forwarding arbitrary methods, or relaying upstream errors →
+  [`request()` / `callTool()` schema drop](#request-ctxmcpreqsend-and-calltool-no-longer-require-a-schema-for-spec-methods);
+  [Errors](#errors)
+- A plugin host or agent framework registering schemas its own consumers author →
+  [Hosts that forward consumer-authored schemas](#hosts-that-forward-consumer-authored-schemas)
+- A process that is both MCP client and server, or objects crossing the two packages →
+  [Errors](#errors) (dual-role `instanceof` note)
+- A workspace or vendored dependency that compiles against the host's v1 SDK →
+  [Migrating in stages](#migrating-in-stages-large-codebases)
+- An SDK surface received by injection (dependency injection / factory seams), with no
+  import in the file →
+  [Files the codemod never sees](#files-the-codemod-never-sees-injected-sdk-surfaces)
+- A workspace whose declared zod range is still `^3` →
+  [Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist);
+  [the `npm:zod@^4.2.0` alias](#zod3-pinned-monorepos-the-npmzod420-alias)
 
 ---
 
@@ -71,97 +189,88 @@ mechanically applies every rename whose mapping is fixed. The mappings are the
 | `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
 | `extra.*` → `ctx.mcpReq.*` / `ctx.http?.*` property remap                                 | [`mappings/contextPropertyMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts) |
 
-In addition the codemod:
+In addition the codemod applies the structural transforms below. A transform may still
+leave `@mcp-codemod-error` markers at sites it recognized but could not rewrite safely
+(noted per bullet); each marker's comment text names the problem and the replacement —
+find them all with `grep -rn '@mcp-codemod-error' .`
+([step 3](#tldr--quick-path), [marker format](../../packages/codemod/README.md#mcp-codemod-error-markers)).
+Idioms the codemod cannot see at all are listed at the top of
+[Manual changes](#manual-changes).
 
 - Updates `package.json` dependencies (`@modelcontextprotocol/sdk` → the v2 packages
-  your imports actually use).
+  your imports actually use) — [Packaging & runtime](#packaging--runtime).
 - Rewrites `.tool()` / `.prompt()` / `.resource()` to `registerTool` / `registerPrompt`
-  / `registerResource` and wraps `inputSchema` / `outputSchema` / `argsSchema` /
-  `uriSchema` raw Zod shapes with `z.object()`, adding `import { z } from 'zod'`
-  when the file has no `z` binding.
+  / `registerResource`, wrapping raw Zod shapes with `z.object()` and adding the `z`
+  import when the file has no `z` binding —
+  [Server registration API](#server-registration-api).
 - Drops the result-schema argument from `client.request()` / `client.callTool()` for
-  spec methods.
+  spec methods —
+  [details](#request-ctxmcpreqsend-and-calltool-no-longer-require-a-schema-for-spec-methods).
 - Routes the spec Zod `*Schema` constants imported from `sdk/types.js` to
-  `@modelcontextprotocol/core` (mixed imports are split; `.parse()` / `.safeParse()`
-  calls are left untouched). Task-handler schema constants
-  (`GetTaskRequestSchema` etc.) used as `setRequestHandler` args are **not** rewritten
-  — the experimental tasks feature was removed (SEP-2663), so each such registration
-  is marked with an action-required diagnostic instead (see
-  [Experimental tasks interception removed](#experimental-tasks-interception-removed)).
-- Renames `ErrorCode` → `ProtocolErrorCode` and routes the local-only members
-  (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode` — rewriting an all-SDK
-  condition's `instanceof ProtocolError` guard to `SdkError`, and marking guards
-  that mix the two enums.
+  `@modelcontextprotocol/core` (mixed imports are split); task-handler schema
+  registrations (`GetTaskRequestSchema` etc.) are marked, not rewritten — the
+  experimental tasks feature was removed (SEP-2663)
+  ([Experimental tasks interception removed](#experimental-tasks-interception-removed);
+  [Types & schemas](#types--schemas)).
+- Renames `ErrorCode` → `ProtocolErrorCode`, routing the local-only members
+  (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode` (guards mixing the two
+  enums are marked) — [Errors](#errors).
 - Renames every `StreamableHTTPError` reference to `SdkHttpError` and adds the import
-  (constructor calls are marked for review — argument shape changed).
+  (constructor calls are marked for review — argument shape changed) —
+  [Errors](#errors).
 - Replaces `IsomorphicHeaders` with the Web Standard `Headers` type and drops the
-  import (a warning notes `Headers` uses `.get()`/`.set()`, not bracket access).
+  import — [HTTP & headers](#http--headers).
 - Rewrites `SchemaInput<T>` → `StandardSchemaWithJSON.InferInput<T>`.
 - Renames `RequestHandlerExtra` → `ServerContext` / `ClientContext` and the `extra`
-  parameter to `ctx`.
+  parameter to `ctx` —
+  [Low-level protocol & handler context](#low-level-protocol--handler-context-ctx).
 - Rewrites `vi.mock` / `jest.mock` and dynamic `import()` paths.
-- Renames the `ResourceTemplate` **type** imported from `@modelcontextprotocol/sdk/types.js`
-  to `ResourceTemplateType` (the spec wire type). The `ResourceTemplate` URI-template
-  helper **class** from `server/mcp.js` keeps its name and is not renamed.
+- Renames the `ResourceTemplate` **type** imported from `sdk/types.js` to
+  `ResourceTemplateType`, scoped so the URI-template helper **class** keeps its name —
+  [footnote ³](#removed-type-aliases).
 - Drops `@modelcontextprotocol/sdk/server/zod-compat.js` imports.
 - Inverts optional completable nesting — `completable(schema.optional(), cb)` becomes
-  `completable(schema, cb).optional()` (see
-  [Standard Schema objects](#standard-schema-objects-raw-shapes-deprecated)); shapes it
-  cannot invert get an `@mcp-codemod-error` marker.
+  `completable(schema, cb).optional()` (uninvertible shapes are marked) —
+  [Standard Schema objects](#standard-schema-objects-raw-shapes-deprecated).
 - Drops `Protocol` / `mergeCapabilities` from `shared/protocol.js` imports, re-exports,
   mocks, and dynamic imports — no v2 package exports them — leaving a marker with the
-  replacement at each site.
-
-## What the codemod does NOT handle
-
-Each of these maps to a manual section below. The codemod marks every site it
-recognized but could not safely rewrite with an `@mcp-codemod-error` comment.
-
-- **Node 20 / ESM** — pre-flight, not a code rewrite. → [Packaging & runtime](#packaging--runtime)
-- **Header-read `.get()` rewrite** — `IsomorphicHeaders` is renamed to `Headers`
-  and `extra.requestInfo?.headers[…]` is remapped to `ctx.http?.req?.headers[…]`, but
-  converting that bracket access to `.get()` is manual. (Headers you _pass in_ via
-  `requestInit.headers` need no rewrite — plain objects remain valid.)
-  → [HTTP & headers](#http--headers)
-- **`ctx.mcpReq.send()` schema-arg drop** — the codemod drops the schema arg from
-  `client.request()` / `client.callTool()` but leaves nested `ctx.mcpReq.send()` calls
-  alone. → [Low-level protocol](#low-level-protocol--handler-context-ctx)
-- **OAuth error-class consolidation** — `instanceof InvalidGrantError` → `OAuthError` +
-  `OAuthErrorCode` is a judgment rewrite. → [Auth](#auth)
-- **`SdkErrorCode` branch selection** — the codemod renames `StreamableHTTPError` →
-  `SdkHttpError`; deciding which `SdkErrorCode` branch a given catch should match is
-  judgment. → [Errors](#errors)
-- **Namespace schema access** — `import * as t from '…/types.js'` +
-  `t.CallToolResultSchema.parse(…)` can't be split per-symbol; the codemod flags it
-  action-required — re-import the schema from `@modelcontextprotocol/core` by hand.
-  → [Types & schemas](#types--schemas)
-- **Import-less (injected) SDK surfaces** — the codemod is import-driven: a file that
-  receives the SDK surface as a parameter (dependency injection, factory seams) and has
-  no SDK import is never rewritten, and the v1 idioms there fail at **runtime**, not
-  compile time — e.g. the v1 schema-first `setRequestHandler(Schema, …)` form throws a
-  `TypeError` at registration. Grep such seams for v1 API tokens beyond import
-  statements (`setRequestHandler(`, `ErrorCode.`, `extra.`) and apply the
-  [handler-registration](#setrequesthandler--setnotificationhandler-use-method-strings)
-  and [Errors](#errors) sections by hand.
-  → [Low-level protocol](#low-level-protocol--handler-context-ctx)
-- **Behavioral adaptation** — list auto-aggregation, capability empties, lazy validator
-  compilation, output-schema validation rules. → [Behavioral changes](#behavioral-changes)
+  replacement at each site ([details](#removed-type-aliases)).
 
 ---
 
-## Manual changes (what the codemod does not handle)
+## Manual changes
+
+Each gap below maps to a manual section in this part of the guide. The codemod marks
+every site it recognized but could not safely rewrite with an `@mcp-codemod-error`
+comment.
+
+| Gap                                                    | Why it's manual                                                                                                                                                                      | Section                                                                                                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **Node 20 / ESM**                                      | pre-flight, not a code rewrite                                                                                                                                                       | [Packaging & runtime](#packaging--runtime)                                                                                              |
+| **`zod ^4.2.0` bump on an existing `zod` declaration** | the codemod adds `zod ^4.2.0` only to a manifest that declares no `zod`; it warns about — but never rewrites — a declared zod-3 / 4.0–4.1 range                                      | [Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist) |
+| **Header-read `.get()` rewrite**                       | `IsomorphicHeaders` is renamed to `Headers` and `extra.requestInfo?.headers[…]` is remapped to `ctx.http?.req?.headers[…]`, but converting that bracket access to `.get()` is manual | [HTTP & headers](#http--headers)                                                                                                        |
+| **`ctx.mcpReq.send()` schema-arg drop**                | the codemod drops the schema arg from `client.request()` / `client.callTool()` but leaves nested `ctx.mcpReq.send()` calls alone                                                     | [Low-level protocol](#low-level-protocol--handler-context-ctx)                                                                          |
+| **OAuth error-class consolidation**                    | `instanceof InvalidGrantError` → `OAuthError` + `OAuthErrorCode` is a judgment rewrite                                                                                               | [Auth](#auth)                                                                                                                           |
+| **`SdkErrorCode` branch selection**                    | the codemod renames `StreamableHTTPError` → `SdkHttpError`; deciding which `SdkErrorCode` branch a given catch should match is judgment                                              | [Errors](#errors)                                                                                                                       |
+| **Namespace schema access**                            | `import * as t from '…/types.js'` can't be split per-symbol; the codemod marks it action-required                                                                                    | [Zod `*Schema` constants moved](#zod-schema-constants-moved-to-modelcontextprotocolcore)                                                |
+| **Import-less (injected) SDK surfaces**                | the codemod is import-driven: a file with no SDK import is never rewritten, and the v1 idioms there fail at **runtime**, not compile time                                            | [Files the codemod never sees](#files-the-codemod-never-sees-injected-sdk-surfaces)                                                     |
+| **Behavioral adaptation**                              | list auto-aggregation, capability empties, lazy validator compilation, output-schema validation rules                                                                                | [Behavioral changes](#behavioral-changes)                                                                                               |
 
 ### Packaging & runtime
 
+v2 requires **Node.js 20+** and ships **ESM only**. If your project uses CommonJS
+(`require()`), either migrate to ESM or use dynamic `import()`.
+
 The single `@modelcontextprotocol/sdk` package is split:
 
-| v1                              | v2                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk`     | `@modelcontextprotocol/client` (client implementation)                                                                          |
-|                                 | `@modelcontextprotocol/server` (server implementation)                                                                          |
-|                                 | `@modelcontextprotocol/core` (public Zod `*Schema` constants)                                                                   |
-|                                 | `@modelcontextprotocol/core-internal` (internal — never import directly)                                                        |
-| Built-in HTTP framework support | `@modelcontextprotocol/node` / `@modelcontextprotocol/express` / `@modelcontextprotocol/hono` / `@modelcontextprotocol/fastify` |
+| v1                                    | v2                                                                                                                              |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk`           | `@modelcontextprotocol/client` (client implementation)                                                                          |
+|                                       | `@modelcontextprotocol/server` (server implementation)                                                                          |
+|                                       | `@modelcontextprotocol/core` (public Zod `*Schema` constants)                                                                   |
+|                                       | `@modelcontextprotocol/core-internal` (internal — never import directly)                                                        |
+| `SSEServerTransport`, AS auth helpers | `@modelcontextprotocol/server-legacy` (frozen v1 copies: `/sse`, `/auth` — deprecated migration bridge)                         |
+| Built-in HTTP framework support       | `@modelcontextprotocol/node` / `@modelcontextprotocol/express` / `@modelcontextprotocol/hono` / `@modelcontextprotocol/fastify` |
 
 `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared
 types from `@modelcontextprotocol/core-internal`, so import types and error classes from
@@ -169,6 +278,14 @@ whichever package you already depend on. `@modelcontextprotocol/core-internal` i
 `private: true` and is not published — **do not import from it directly.**
 `@modelcontextprotocol/core` is the public Zod-schema package (raw `*Schema` constants
 only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
+
+The framework adapter packages declare their framework as a **peer dependency**
+(`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
+`@modelcontextprotocol/*` packages your imports use, but does not add the framework
+peer — install it explicitly (`pnpm add express` etc.). `@modelcontextprotocol/node`
+depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion) but
+does **not** require the `hono` framework — your package manager may emit a harmless
+unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
 
 After the codemod runs, review the manifest summary it prints: the swap rewrites the
 **nearest** manifest found walking up from the target directory — one manifest total.
@@ -179,9 +296,7 @@ those edits yourself, then install. The v2 additions are computed from the final
 state of each package's sources, so already-migrated sources still receive the v2
 packages they need when the v1 dependency is removed. In a hoisted monorepo (members
 without their own SDK dependency), member usage counts toward the manifest that
-declares the v1 SDK, and the summary notes which members contributed. See
-[Monorepo workspace members](#monorepo-workspace-members) for how to decide each
-member's packages.
+declares the v1 SDK.
 
 #### Monorepo workspace members
 
@@ -195,48 +310,49 @@ shipped runtime code imports it and in `devDependencies` when only tests, fixtur
 local tooling do — when in doubt, use the section where the member previously declared
 `@modelcontextprotocol/sdk`.
 
-A member that never declared the v1 SDK and resolved it through the root can keep
-root-level declarations (add the union of all members' v2 packages at the root — the
-codemod's hoisting note lists the contributing members) or move to per-member
-declarations; per-member is recommended, since the v2 package split makes each member's
-actual needs explicit. To answer "which packages does this member need" directly, run
-the codemod against that member's directory with `--dry-run`: the manifest summary is
-computed from that member's own imports. (The authoritative import-path routing lives
+A member that never declared the v1 SDK and resolved it through the root has two
+options. **Keep root-level declarations:** nothing to do — the codemod's root rewrite
+already wrote the union of the contributing members' v2 packages into the root
+manifest, and its hoisting note names each contributor. **Move to per-member
+declarations** (recommended, since the v2 package split makes each member's actual
+needs explicit): derive each member's packages from the import → package rule above —
+the hoisting note names contributors, not packages. The codemod's `--dry-run` answer
+to "which packages does this member need" works only for a member that itself declares
+the v1 SDK (where the root run already prints the same edits); against a hoisted
+member it prints no manifest summary. (The authoritative import-path routing lives
 in the codemod's [mapping file](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
 
-The framework adapter packages declare their framework as a **peer dependency**
-(`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
-`@modelcontextprotocol/*` packages your imports use, but does not add the framework
-peer — install it explicitly (`pnpm add express` etc.). `@modelcontextprotocol/node`
-depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion) but
-does **not** require the `hono` framework — your package manager may emit a harmless
-unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
+#### Repo tooling pinned to the v1 package
 
-v2 requires **Node.js 20+** and ships **ESM only**. If your project uses CommonJS
-(`require()`), either migrate to ESM or use dynamic `import()`.
-
-Repo-local tooling that encodes the literal v1 package name — dependency-pin lints,
+**Repo-local tooling that encodes the literal v1 package name** — dependency-pin lints,
 version allowlists, CI checks, scripts — fails after the manifest swap and is invisible
 to the codemod (it rewrites sources and manifests, not bespoke gates). Grep for
-`@modelcontextprotocol/sdk` outside `src/` before declaring the migration done. While
-grepping, also remove v1-era double casts on SDK types (`as unknown as Transport` and
-similar, usually annotated to a v1 issue) — v2's types satisfy those contracts
+`@modelcontextprotocol/sdk` outside `src/` before declaring the migration done.
+
+While grepping, also remove v1-era double casts on SDK types (`as unknown as Transport`
+and similar, usually annotated to a v1 issue) — v2's types satisfy those contracts
 directly, and a surviving cast keeps suppressing type checking that would otherwise
 catch real errors.
 
-Tooling that pins SDK **dist text** (reading a constant out of a built file with
-`require.resolve` + a regex) breaks in three stacked ways: the v2 exports maps offer
-nothing a CJS `require.resolve` can find; the literal usually lives in a
-content-hashed sibling chunk (`dist/sse-<hash>.mjs`), not the subpath's entry module,
-so fixed-path reads do not survive a rebuild — scan the package's `dist/` directory
-for the literal instead; and the emitted quote style differs from v1, so a
-quote-anchored pattern misses silently — match either quote. v2 also ships ESM only:
-`/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no equivalent.
+**Tooling that pins SDK dist text** (reading a constant out of a built file with
+`require.resolve` + a regex) breaks in three stacked ways:
+
+- the v2 exports maps offer nothing a CJS `require.resolve` can find;
+- the literal usually lives in a content-hashed sibling chunk (`dist/sse-<hash>.mjs`),
+  not the subpath's entry module, so fixed-path reads do not survive a rebuild — scan
+  the package's `dist/` directory for the literal instead;
+- the emitted quote style differs from v1, so a quote-anchored pattern misses silently
+  — match either quote.
+
+v2 also ships ESM only: `/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no
+equivalent.
 
 #### Registry availability during the alpha
 
 All v2 packages are published on the public npm registry. Two notes for the alpha
 window:
+
+<!-- published-alpha-lag: re-verify against the latest published alpha before shipping -->
 
 - The packages do not share one version number — at the time of writing
   `@modelcontextprotocol/core` rides a lower prerelease than its siblings. The
@@ -259,6 +375,8 @@ resolved by CJS resolvers at all. Jest under its default CommonJS resolution (in
 `next/jest` setups) fails with `Cannot find module '@modelcontextprotocol/client'` even
 when a transform that handles ESM is configured: resolution fails before any transform
 runs. Vitest and native Node ESM are unaffected.
+
+<!-- published-alpha-lag: re-verify against the latest published alpha before shipping -->
 
 The interim recipe — interim because the packaging shape is still under discussion and
 a later alpha may make it unnecessary — maps the bare specifiers straight to the dist
@@ -305,12 +423,20 @@ bundler consequences:
   roughly +83 KB gzipped of total JS (about +0.7% whole-app). Upgrading the workspace
   to `zod ^4.2.0` re-dedupes and removes the duplication.
 
+For the registration-time and runtime symptoms of the same pin — and the per-member
+`npm:zod@^4.2.0` alias workaround — see
+[Zod: `^4.2.0` required](#zod-420-required-a-declared-zod-3-range-typechecks-cleanly-under-v2-and-fails-quietly-at-the-first-toolslist).
+
 #### Migrating in stages (large codebases)
 
 The v1 package and the v2 packages have **different names**, so both can be installed
 in one manifest at the same time — nothing forces a one-shot swap. The safe order for
 an incremental migration: (1) add the v2 packages (and the `zod ^4.2.0` bump) while
-**keeping** `@modelcontextprotocol/sdk`; (2) rewrite sources incrementally,
+**keeping** `@modelcontextprotocol/sdk` — the v2 packages do not share one version, so
+do not hand-pin them to one tag; run the codemod with `--dry-run` first and copy the
+package ranges from its manifest summary
+([Registry availability during the alpha](#registry-availability-during-the-alpha));
+(2) rewrite sources incrementally,
 directory-by-directory or package-by-package; (3) remove the v1 dependency only when
 nothing imports it any more (`grep -rn "@modelcontextprotocol/sdk" --include="*.ts"`,
 plus a look at `package.json`). The inverse order strands files: swapping the manifest
@@ -333,22 +459,47 @@ Dependencies you do not control (vendored fixtures, third-party packages) that s
 declare `@modelcontextprotocol/sdk` resolve their own v1 copy and need no action. For
 `peerDependencies` declarations, keep the v1 package installed to satisfy the range —
 or point the name at a chosen version via your package manager's
-`overrides`/`resolutions` — until those packages migrate. The same boundary rule
-applies: objects must not flow between their v1-imported code and your v2-imported
-code.
+`overrides`/`resolutions` — until those packages migrate; the boundary rule above
+still governs objects you exchange with them.
 
 **Dependencies that compile against the host's v1 SDK.** A stricter variant of the
 above: a workspace or vendored package that ships TypeScript **source** importing
 `@modelcontextprotocol/sdk` — resolved from the host's `node_modules` rather than its
 own — pins the host. Keep the v1 package installed as a real dependency (not merely a
-surviving transitive) until that package migrates. The host files that construct or
-hand objects to such a package are part of its v1 boundary and must stay on v1 imports
+surviving transitive) until that package migrates. The host files that construct,
+hand objects to, or receive objects from such a package are part of its v1 boundary
+and must stay on v1 imports
 — and the codemod cannot see that distinction: it rewrites them like any other file
 (e.g. converting a `setRequestHandler(Schema, …)` call into the v2 method-string form
 against what is still a v1 `Server`, which then fails at runtime). Run the codemod with
 `--ignore` glob patterns covering those interfacing files, and migrate them together
-with the dependency later. The boundary rule above applies unchanged: objects from the
-dependency's v1 modules must never flow into v2-imported code.
+with the dependency later.
+
+#### Library authors: peer-depending on the SDK
+
+If you publish a library whose `peerDependencies` name `@modelcontextprotocol/sdk`:
+
+- **The codemod does not rewrite `peerDependencies`.** The manifest swap reads and
+  writes only `dependencies` and `devDependencies` — after a run, your sources import
+  v2 but a `peerDependencies` entry naming `@modelcontextprotocol/sdk` is left
+  untouched and unreported. Update it by hand.
+- Swapping which package(s) your consumers must supply is a breaking change to your
+  package contract — bump your major.
+- Because the v2 packages are differently _named_, consumers can satisfy your new v2
+  peer alongside their own still-installed `@modelcontextprotocol/sdk`
+  ([both can be installed in one manifest at the same time](#migrating-in-stages-large-codebases)).
+- You can ship that major before your consumers migrate **only if no SDK object
+  crosses your public API surface** — the boundary rule above (objects must not flow
+  between v1-imported and v2-imported code; `instanceof` and nominal types do not
+  cross) and the dual-role `instanceof` note in [Errors](#errors) (match on stable
+  fields / `ProtocolError.fromError` at the boundary) apply at your package boundary.
+  A peer dependency typically exists _because_ objects cross (you register tools on
+  the host's `McpServer`, accept its `Transport`, return its `Client`) — if so, your
+  consumers must take your major and migrate their own SDK usage in the same step.
+- Peer ranges during the alpha: the packages
+  [do not share one version number](#registry-availability-during-the-alpha) — mirror
+  the ranges the codemod writes into `dependencies` when transposing them into
+  `peerDependencies`.
 
 ### Imports & transports
 
@@ -431,7 +582,10 @@ A few transports need a decision the codemod can't make:
     deliberately want the v1 middleware behavior. If you re-point at
     `@modelcontextprotocol/express` by hand, also add that package — plus its `express`
     peer dependency — to your manifest: the codemod's manifest summary reflects only the
-    imports it wrote, not re-points you make afterwards.
+    imports it wrote, not re-points you make afterwards. Doing this re-point alone turns
+    invalid tokens into HTTP 500 — apply
+    [Token verifiers must throw the v2 `OAuthError`](#token-verifiers-must-throw-the-v2-oautherror)
+    in the same change.
 
 ### Low-level protocol & handler context (`ctx`)
 
@@ -440,9 +594,12 @@ object named `extra` — is now a structured **context** object named `ctx`. Thi
 `ctx` that appears throughout the rest of this guide.
 
 The codemod renames the parameter and remaps property access via
-[`contextPropertyMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts).
-A few mappings need optional-chaining adjustment (the `http` group is `undefined` on
-stdio):
+[`contextPropertyMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts)
+(the source of truth). The full remap is reproduced here — the one mapping table that
+is — because
+[files the codemod never sees (injected SDK surfaces)](#files-the-codemod-never-sees-injected-sdk-surfaces)
+are never rewritten and need it applied by hand. Mappings into the `http?` group need
+optional chaining (`http` is `undefined` on stdio):
 
 | v1 (`extra.*`)                                    | v2 (`ctx.*`)                   | Note                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------------------- | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -477,34 +634,6 @@ calling `server.*` from inside a handler:
 | `ctx.mcpReq.log(level, data, logger?)`         | `server.sendLoggingMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577); the notification also becomes request-related on every era — see [§`ctx.mcpReq.log()` is request-related on every era](#ctxmcpreqlog-is-request-related-on-every-era) |
 | `ctx.mcpReq.elicitInput(params, options?)`     | `server.elicitInput(...)`                                                                                                                                                                                                                                                           |
 | `ctx.mcpReq.requestSampling(params, options?)` | `server.createMessage(...)` — ⚠ **`@deprecated`**, see [§Deprecated in v2](#deprecated-in-v2-sep-2577)                                                                                                                                                                             |
-
-#### Deprecated in v2 (SEP-2577)
-
-The roots, sampling, and logging subsystems are deprecated as of protocol version
-2026-07-28 (SEP-2577). Everything below is **still fully functional in v2** and marked
-`@deprecated` for removal in a later major; on a 2026-07-28 connection prefer the
-[multi-round-trip `input_required` pattern](./support-2026-07-28.md#multi-round-trip-requests)
-instead.
-
-- **Runtime APIs**: `Server.createMessage` / `listRoots` / `sendLoggingMessage`,
-  `McpServer.sendLoggingMessage`, `Client.setLoggingLevel` / `sendRootsListChanged`, and
-  the `ctx.mcpReq.log` / `ctx.mcpReq.requestSampling` handler-context helpers. Outside a
-  handler, `McpServer` users reach the `Server.*` methods via the unchanged
-  [`mcpServer.server` accessor](#unchanged-apis).
-- **Capability fields**: the `roots`, `sampling`, and `logging` capability schema fields.
-- **Type stacks**: the full Logging stack (`LoggingLevel`, `SetLevelRequest`,
-  `LoggingMessageNotification` and params), the full Sampling stack
-  (`CreateMessageRequest`/`Result`, `SamplingMessage`, `ModelPreferences`/`ModelHint`,
-  `ToolChoice`, `ToolUseContent`/`ToolResultContent`, the `includeContext` enum values),
-  and the full Roots stack (`Root`, `ListRootsRequest`/`Result`,
-  `RootsListChangedNotification`).
-- **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
-  Documents per SEP-991.
-
-The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
-else: every deprecated runtime API keeps its v1 call signature (e.g.
-`Server.sendLoggingMessage(params, sessionId?)` keeps the two-argument form) and its
-wire behavior, and remains functional for at least the twelve-month deprecation window.
 
 #### `setRequestHandler` / `setNotificationHandler` use method strings
 
@@ -547,20 +676,27 @@ client.setNotificationHandler('notifications/tools/list_changed', async notifica
 });
 ```
 
-The two overloads are selected by the method string's **type**: the spec form binds the
+**Overloads are selected by the method string's static type.** The spec form binds the
 method to the `NotificationMethod` union (`RequestMethod` on the request side — both
 exported), so a method string computed at runtime must be typed as `NotificationMethod`
 to select it; an untyped `string` lands on the custom-schema overload and fails to
-compile without a schemas argument. `Parameters<Client['setNotificationHandler']>[0]`
-also resolves to the custom `string` overload by design — name `NotificationMethod`
-directly instead. The request side has the same trap one slot over:
-`Parameters<Client['setRequestHandler']>` (and `typeof`-indexed casts over the overload
-set) resolve against the 3-arg custom-method overload, so index `[1]` is the
-`{ params, result }` schemas object, **not** the handler — v1 signature-erasing handler
-casts derived positionally change meaning with no runtime symptom. Name the exported
-types (`RequestMethod` and your own handler/param types) instead of deriving them
-positionally. Generic helpers that v1 parameterized on a notification schema need
-this conversion by hand; the codemod only warns on them.
+compile without a schemas argument.
+
+**Never derive types positionally from these methods** — `Parameters<…>` and
+`typeof`-indexed casts resolve against the custom-schema overload on both sides; name
+the exported `NotificationMethod` / `RequestMethod` and your own handler/param types
+instead.
+
+- Notification side: `Parameters<Client['setNotificationHandler']>[0]` resolves to the
+  custom `string` overload by design.
+- Request side: `Parameters<Client['setRequestHandler']>` (and `typeof`-indexed casts
+  over the overload set) resolve against the 3-arg custom-method overload, so index
+  `[1]` is the `{ params, result }` schemas object, **not** the handler — v1
+  signature-erasing handler casts derived positionally change meaning with no runtime
+  symptom.
+
+Generic helpers that v1 parameterized on a notification schema need this conversion by
+hand; the codemod only warns on them.
 
 **Handler returns are spec-typed.** In v1 the handler's return type flowed from the
 schema you registered; v2 types it from the method name (`'tools/list'` →
@@ -573,6 +709,17 @@ types' `Record<string, JSONValue>` index signatures, since `undefined` is not a
 `JSONValue` (fix: annotate the handler's return type —
 `async (req): Promise<ListToolsResult> => …` — or the table itself, so each literal is
 checked against the target type instead of being inferred and widened first).
+
+#### Files the codemod never sees: injected SDK surfaces
+
+The codemod is import-driven: a file that receives the SDK surface as a parameter
+(dependency injection, factory seams) and has no SDK import is never rewritten, and
+the v1 idioms there fail at **runtime**, not compile time — e.g. the v1 schema-first
+`setRequestHandler(Schema, …)` form throws a `TypeError` at registration. Grep such
+seams for v1 API tokens beyond import statements (`setRequestHandler(`, `ErrorCode.`,
+`extra.`) and apply the
+[handler-registration](#setrequesthandler--setnotificationhandler-use-method-strings)
+and [Errors](#errors) sections by hand.
 
 #### `request()`, `ctx.mcpReq.send()`, and `callTool()` no longer require a schema for spec methods
 
@@ -619,13 +766,10 @@ codemod may have dropped the schema argument there; restore it.
 
 The **inbound half** — a relay re-emitting an upstream JSON-RPC error from its own
 handler — has a supported surface too: reconstruct the typed error with
-`ProtocolError.fromError(code, message, data)` and throw it; the encode seam serializes
-it back to the wire shape (see [Typed `ProtocolError` subclasses](#typed-protocolerror-subclasses)).
-Note this is typed reconstruction, not byte-exact relay: legacy codes are normalized at
-the encode seam (`-32002` re-emits as `-32602`) and the typed subclasses keep only their
-schema-defined `data` members, so extra upstream data keys are dropped. Throwing a plain
-object carrying `.code` / `.message` / `.data` happens to work today, but it is
-unspecified behavior — prefer `fromError`.
+`ProtocolError.fromError(code, message, data)` and throw it. This is typed
+reconstruction, **not byte-exact relay** — see
+[Typed `ProtocolError` subclasses](#typed-protocolerror-subclasses) for the two ways
+it deviates and why not to throw a plain `.code` / `.message` / `.data` object.
 
 The return type is inferred from the method name via `ResultTypeMap` (e.g.
 `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`).
@@ -633,6 +777,35 @@ v1 call sites that passed `CreateMessageResultWithToolsSchema` explicitly need n
 replacement: the schema-less send resolves to
 `CreateMessageResult | CreateMessageResultWithTools`, and validation selects the
 with-tools variant when the request set `tools` or `toolChoice`.
+
+### Deprecated in v2 (SEP-2577)
+
+**No action required for v1→v2.** The roots, sampling, and logging subsystems are
+deprecated as of protocol version 2026-07-28 (SEP-2577). Everything below is **still
+fully functional in v2** and marked `@deprecated` for removal in a later major; on a
+2026-07-28 connection prefer the
+[multi-round-trip `input_required` pattern](./support-2026-07-28.md#multi-round-trip-requests)
+instead.
+
+- **Runtime APIs**: `Server.createMessage` / `listRoots` / `sendLoggingMessage`,
+  `McpServer.sendLoggingMessage`, `Client.setLoggingLevel` / `sendRootsListChanged`, and
+  the `ctx.mcpReq.log` / `ctx.mcpReq.requestSampling` handler-context helpers. Outside a
+  handler, `McpServer` users reach the `Server.*` methods via the unchanged
+  [`mcpServer.server` accessor](#unchanged-apis).
+- **Capability fields**: the `roots`, `sampling`, and `logging` capability schema fields.
+- **Type stacks**: the full Logging stack (`LoggingLevel`, `SetLevelRequest`,
+  `LoggingMessageNotification` and params), the full Sampling stack
+  (`CreateMessageRequest`/`Result`, `SamplingMessage`, `ModelPreferences`/`ModelHint`,
+  `ToolChoice`, `ToolUseContent`/`ToolResultContent`, the `includeContext` enum values),
+  and the full Roots stack (`Root`, `ListRootsRequest`/`Result`,
+  `RootsListChangedNotification`).
+- **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
+  Documents per SEP-991.
+
+The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
+else: every deprecated runtime API keeps its v1 call signature (e.g.
+`Server.sendLoggingMessage(params, sessionId?)` keeps the two-argument form) and its
+wire behavior, and remains functional for at least the twelve-month deprecation window.
 
 ### Server registration API
 
@@ -681,6 +854,28 @@ completion lists — nothing errors — and if no argument carries completion me
 the v2 position, the server does not advertise the `completions` capability at all. The
 codemod inverts the common nesting automatically and flags shapes it cannot rewrite.
 
+The deprecated raw-shape overloads exist only on `registerTool` / `registerPrompt`.
+`RegisteredTool.update()` / `RegisteredPrompt.update()` take **schema objects**
+(`paramsSchema` / `outputSchema`: `StandardSchemaWithJSON`) — a raw shape passed to
+`update()` is not auto-wrapped; wrap it with `z.object()` yourself.
+
+```typescript
+import * as z from 'zod/v4';
+server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, handler);
+
+// ArkType works too
+import { type } from 'arktype';
+server.registerTool('greet', { inputSchema: type({ name: 'string' }) }, handler);
+
+// Raw JSON Schema via fromJsonSchema (validator defaults to runtime-appropriate choice)
+import { fromJsonSchema } from '@modelcontextprotocol/server';
+server.registerTool('greet', { inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }) }, handler);
+
+// No-parameter tools: z.object({})
+```
+
+#### Zod: `^4.2.0` required (a declared zod-3 range typechecks cleanly under v2 and fails quietly at the first `tools/list`)
+
 **Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). Check the **declared
 range** in your `package.json`, not just the installed version: a zod-3 range that
 satisfied the v1 peer installs and typechecks cleanly under v2 and only fails at
@@ -700,30 +895,7 @@ via `fromJsonSchema()`. (Raw shapes are wrapped with the SDK's **bundled** Zod �
 with a foreign Zod they fail at registration or at the first `tools/list`; pass
 `z.object()`-wrapped schemas from your own Zod instead.)
 
-In a monorepo that pins zod@3 workspace-wide and cannot bump, step (1) can be applied
-**per workspace member**: add a zod-4 alias dependency to the migrating member only —
-`"zod-v4": "npm:zod@^4.2.0"` in that member's `package.json` — and author SDK-bound
-schemas with it (`import { z } from 'zod-v4'`), leaving the rest of the workspace, and
-the member's own zod-3 consumer schemas, untouched. The alias copy does not need to be
-the same instance as the SDK's bundled zod: conversion runs through the **authoring**
-instance's `~standard.jsonSchema`, so `.describe()` descriptions are preserved and the
-emitted dialect is 2020-12. Keep the two z's apart — schemas authored with the alias
-are for the SDK; they do not compose with the workspace's zod-3 schemas. (For the
-bundle-side effects of the same pin, see
-[Bundlers: nested `zod` copies](#bundlers-nested-zod-copies-in-zod3-pinned-monorepos).)
-
-**Hosts that forward consumer-authored schemas.** The ladder assumes you author the
-schemas yourself. A host API that accepts raw shapes or schemas written by **its own
-consumers** — plugin systems, agent frameworks — cannot control the authoring zod
-version or instance, and v1's built-in conversion of foreign shapes is gone. Convert on
-the host side and register the result with `fromJsonSchema()`: zod-4 input via zod's
-own `z.toJSONSchema(z.object(shape), { io: 'input', target: 'draft-2020-12' })` (the
-conversion is runtime-structural, so a zod ≥4.2 in the host handles schemas built by a
-different zod-4 copy), zod-3 input via the
-[`zod-to-json-schema`](https://www.npmjs.com/package/zod-to-json-schema) package. Strip
-the `$schema` member from the converted output before passing it to `fromJsonSchema()`
-— `zod-to-json-schema` stamps a draft-07 `$schema` by default, and the default
-validator [accepts 2020-12 only](#json-schema-2020-12-posture-sep-1613-sep-2106).
+#### TS2769: No overload matches this call (`registerTool` / `registerPrompt`)
 
 How a too-old zod surfaces depends on which entry point your code imports. With
 main-entry `import { z } from 'zod'` on a zod-3 range, the project **typechecks cleanly
@@ -748,6 +920,37 @@ conversion but not the schema's static type) and returns the asserted type. The
 fallback caveats (one-time warning, dropped `.describe()` descriptions) still apply
 unless the provider is attached.
 
+#### zod@3-pinned monorepos: the `npm:zod@^4.2.0` alias
+
+In a monorepo that pins zod@3 workspace-wide and cannot bump, step (1) can be applied
+**per workspace member**: add a zod-4 alias dependency to the migrating member only —
+`"zod-v4": "npm:zod@^4.2.0"` in that member's `package.json` — and author SDK-bound
+schemas with it (`import { z } from 'zod-v4'`), leaving the rest of the workspace, and
+the member's own zod-3 consumer schemas, untouched. The alias copy does not need to be
+the same instance as the SDK's bundled zod: conversion runs through the **authoring**
+instance's `~standard.jsonSchema`, so `.describe()` descriptions are preserved and the
+emitted dialect is 2020-12. Keep the two z's apart — schemas authored with the alias
+are for the SDK; they do not compose with the workspace's zod-3 schemas. (For the
+bundle-side effects of the same pin, see
+[Bundlers: nested `zod` copies](#bundlers-nested-zod-copies-in-zod3-pinned-monorepos).)
+
+#### Hosts that forward consumer-authored schemas
+
+The ladder assumes you author the
+schemas yourself. A host API that accepts raw shapes or schemas written by **its own
+consumers** — plugin systems, agent frameworks — cannot control the authoring zod
+version or instance, and v1's built-in conversion of foreign shapes is gone. Convert on
+the host side and register the result with `fromJsonSchema()`: zod-4 input via zod's
+own `z.toJSONSchema(z.object(shape), { io: 'input', target: 'draft-2020-12' })` (the
+conversion is runtime-structural, so a zod ≥4.2 in the host handles schemas built by a
+different zod-4 copy), zod-3 input via the
+[`zod-to-json-schema`](https://www.npmjs.com/package/zod-to-json-schema) package. Strip
+the `$schema` member from the converted output before passing it to `fromJsonSchema()`
+— `zod-to-json-schema` stamps a draft-07 `$schema` by default, and the default
+validator [accepts 2020-12 only](#json-schema-2020-12-posture-sep-1613-sep-2106).
+
+#### Zod 4's own type-level API changes (`z.ZodTypeDef`, `z.ZodType` generics)
+
 The forced zod-4 bump also surfaces zod's **own** type-level API changes in consumer
 annotations: `z.ZodTypeDef` no longer exists and `z.ZodType`'s generic parameters
 changed, so v3-era annotations like `z.ZodType<Output, z.ZodTypeDef, Input>` fail to
@@ -755,34 +958,18 @@ compile — see [zod's v3-to-v4 changelog](https://zod.dev/v4/changelog). Consum
 schemas can keep compiling via zod's v3 compat subpath (`zod/v3`), but anything passed
 to the SDK must be a zod-4 (or other Standard Schema) schema.
 
-The deprecated raw-shape overloads exist only on `registerTool` / `registerPrompt`.
-`RegisteredTool.update()` / `RegisteredPrompt.update()` take **schema objects**
-(`paramsSchema` / `outputSchema`: `StandardSchemaWithJSON`) — a raw shape passed to
-`update()` is not auto-wrapped; wrap it with `z.object()` yourself.
+#### Removed Zod helpers and compat modules
 
-```typescript
-import * as z from 'zod/v4';
-server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, handler);
+Removed Zod-specific helpers — the codemod marks each call site `@mcp-codemod-error`:
 
-// ArkType works too
-import { type } from 'arktype';
-server.registerTool('greet', { inputSchema: type({ name: 'string' }) }, handler);
+| Removed                                                                                 | Replacement                                                                                                            | Note                                                        |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `schemaToJson`                                                                          | `fromJsonSchema()` from `@modelcontextprotocol/server` for raw JSON Schema, or your schema library's native conversion |                                                             |
+| `parseSchemaAsync`                                                                      | your schema library's validation directly (e.g. Zod's `.safeParseAsync()`)                                             |                                                             |
+| `getSchemaShape` / `getSchemaDescription` / `isOptionalSchema` / `unwrapOptionalSchema` | —                                                                                                                      | no replacement (internal Zod introspection)                 |
+| `SchemaInput<T>`                                                                        | `StandardSchemaWithJSON.InferInput<T>`                                                                                 | rewritten mechanically by the codemod, unlike its row-mates |
 
-// Raw JSON Schema via fromJsonSchema (validator defaults to runtime-appropriate choice)
-import { fromJsonSchema } from '@modelcontextprotocol/server';
-server.registerTool('greet', { inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }) }, handler);
-
-// No-parameter tools: z.object({})
-```
-
-Removed Zod-specific helpers (the codemod marks each call site `@mcp-codemod-error`):
-`schemaToJson` — use `fromJsonSchema()` from `@modelcontextprotocol/server` for raw JSON
-Schema, or your schema library's native JSON-Schema conversion; `parseSchemaAsync` — use
-your schema library's validation directly (e.g. Zod's `.safeParseAsync()`);
-`getSchemaShape` / `getSchemaDescription` / `isOptionalSchema` / `unwrapOptionalSchema`
-have no replacement (internal Zod introspection). `SchemaInput<T>` →
-`StandardSchemaWithJSON.InferInput<T>` is rewritten mechanically by the codemod. The
-internal `standardSchemaToJsonSchema` / `validateStandardSchema` helpers are **not** part
+The internal `standardSchemaToJsonSchema` / `validateStandardSchema` helpers are **not** part
 of the public surface — do not import them.
 
 v1's second compat module, `server/zod-json-schema-compat.js` (`toJsonSchemaCompat`), is
@@ -813,10 +1000,9 @@ const debug = new URL(ctx.http!.req!.url).searchParams.get('debug');
 ```
 
 On the **write** side, `requestInit` on `StreamableHTTPClientTransport` /
-`SSEClientTransport` options is a standard fetch `RequestInit`, so `headers` accepts
-any `HeadersInit` — a plain object record (as above), a tuple array, or a `Headers`
-instance all keep working unchanged; the transports normalize whichever form they
-receive. Wrapping with `new Headers()` is optional, not required.
+`SSEClientTransport` options is a standard fetch `RequestInit`: `headers` accepts any
+`HeadersInit` (a plain object record as above, a tuple array, or a `Headers`
+instance) — wrapping with `new Headers()` is optional, not required.
 
 `StreamableHTTPClientTransport` now **appends** any custom `requestInit.headers.Accept`
 value to the spec-required `application/json, text/event-stream` (v1 let it replace
@@ -840,8 +1026,12 @@ The SDK now distinguishes three error kinds:
    and `.statusText`.
 
 The codemod renames `McpError` → `ProtocolError`, `ErrorCode` → `ProtocolErrorCode`
-(routing `RequestTimeout` / `ConnectionClosed` to `SdkErrorCode`), and
-`StreamableHTTPError` → `SdkHttpError`. After the codemod runs, your `instanceof`
+(routing `RequestTimeout` / `ConnectionClosed` to `SdkErrorCode` — an all-SDK
+condition's `instanceof ProtocolError` guard is rewritten to `instanceof SdkError`
+with it), and `StreamableHTTPError` → `SdkHttpError`. Guards that mix
+`ProtocolErrorCode` and `SdkErrorCode` members in one condition are not rewritten —
+the codemod marks them.
+After the codemod runs, your `instanceof`
 checks already name the v2 classes — what's left is choosing which `SdkErrorCode` /
 class to match per scenario:
 
@@ -880,8 +1070,6 @@ if (error instanceof SdkHttpError) {
     }
 }
 ```
-
-`StreamableHTTPError` is removed.
 
 **Status read off `.code` by duck-typing.** Code that classified HTTP failures by the
 status without an `instanceof` — `if ('code' in e && e.code === 403)` — silently stops
@@ -930,10 +1118,11 @@ it usually targeted are now **string** `SdkErrorCode` values:
 | `-32000` (ConnectionClosed) | `SdkError` + `SdkErrorCode.ConnectionClosed` |
 | `-32001` (RequestTimeout)   | `SdkError` + `SdkErrorCode.RequestTimeout`   |
 
-- Requests that require a session but omit the `Mcp-Session-Id` header still
-  respond `400` with JSON-RPC `-32000` (`Bad Request: Mcp-Session-Id header is
-required`), unchanged from v1 — as with `-32001`, the code is an SDK
-  convention; key off the HTTP status.
+Two hits that grep will also surface are not this break: the server still puts
+SDK-convention `-32000` / `-32001` in the HTTP `400` (missing `Mcp-Session-Id`) /
+`404` (session mismatch) error bodies, unchanged from v1 — key off the HTTP status,
+not the body code (see
+[SDK-convention JSON-RPC codes in HTTP error bodies](#sdk-convention-json-rpc-codes-in-http-error-bodies)).
 
 Replace the literal with the named code. Loud (`TS2367`) when the compared value is
 typed `SdkErrorCode`; silent when the left side is `unknown` or a cast — grep for
@@ -947,8 +1136,8 @@ class imported from the other, silently. When an error may originate from the ot
 package, match on stable fields instead of class identity: `error.code` values
 (`SdkErrorCode` strings for SDK errors, numeric JSON-RPC codes for protocol errors,
 `OAuthErrorCode` strings for OAuth errors) plus presence checks like `'status' in e`,
-or reconstruct typed protocol errors with `ProtocolError.fromError(code, message, data)`
-— it exists precisely because `instanceof` does not survive bundle boundaries.
+or reconstruct typed protocol errors with
+[`ProtocolError.fromError(code, message, data)`](#typed-protocolerror-subclasses).
 
 **Constructing the error (test stubs, custom transports).** v1
 `new StreamableHTTPError(code, message)` becomes
@@ -984,6 +1173,8 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 
 #### Typed `ProtocolError` subclasses
 
+<!-- published-alpha-lag: re-verify against the latest published alpha before shipping -->
+
 `ResourceNotFoundError` (carries `.uri`) and `MissingRequiredClientCapabilityError`
 (carries `data.requiredCapabilities`) are new typed `ProtocolError` subclasses.
 `resources/read` for an unknown URI now answers `-32602` on every protocol revision
@@ -1006,10 +1197,21 @@ Custom **non-spec** codes pass through untouched: a handler that throws a
 `ProtocolError` with a custom code (e.g. `-1`) and `data` reaches the peer as a
 JSON-RPC error with that code and `data` unchanged — the encode seam rewrites only the
 legacy `-32002` code; `data` is sent verbatim for every thrown error (the typed
-subclasses shape their `data` at construction, not at encode time). Construct via
-`ProtocolError.fromError(code, message, data)`.
+subclasses shape their `data` at construction, not at encode time — a `fromError`
+reconstruction keeps only the subclass's schema-defined `data` members, so extra
+upstream `data` keys are dropped). Construct via
+`ProtocolError.fromError(code, message, data)`; throwing a plain object carrying
+`.code` / `.message` / `.data` happens to work today, but it is unspecified behavior —
+prefer `fromError`.
 
 ### Auth
+
+Skip this section if you don't use SDK auth. `OAuthClientProvider` implementers: the
+[conformance checklist](#conformance-obligations-for-oauthclientprovider-implementers)
+is the complete list of obligations that live in your code rather than the SDK's.
+`requireBearerAuth` users: read
+[Token verifiers must throw the v2 `OAuthError`](#token-verifiers-must-throw-the-v2-oautherror)
+before re-pointing anything.
 
 #### OAuth error consolidation
 
@@ -1050,6 +1252,11 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
 
+A frozen copy of the v1 classes (and `mcpAuthRouter`) is available from
+`@modelcontextprotocol/server-legacy/auth` during migration.
+
+#### Token verifiers must throw the v2 `OAuthError`
+
 ⚠ **Token verifiers must throw the v2 `OAuthError`.** `requireBearerAuth` (from
 `@modelcontextprotocol/express`) classifies the error your
 `OAuthTokenVerifier.verifyAccessToken()` throws: a v2
@@ -1059,9 +1266,6 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 become HTTP `500`**. When you re-point `requireBearerAuth` at
 `@modelcontextprotocol/express`, migrate the error classes your verifier throws in the
 same change.
-
-A frozen copy of the v1 classes (and `mcpAuthRouter`) is available from
-`@modelcontextprotocol/server-legacy/auth` during migration.
 
 #### `AuthProvider` — non-OAuth bearer auth and the widened `authProvider` option
 
@@ -1261,6 +1465,10 @@ The SDK enforces every authorization MUST that lands in SDK code. The following 
 
 - **Round-trip the `issuer` stamp** on persisted credentials (SEP-2352). Persist the
   value verbatim from `saveTokens` / `saveClientInformation` and return it verbatim.
+- **Implement `discoveryState()` / `saveDiscoveryState()`** (SEP-2352) — so the
+  callback leg can verify it exchanges the code at the AS the redirect targeted;
+  without it the SDK `console.warn`s once per callback
+  ([details](#credentials-bound-to-the-issuing-authorization-server-sep-2352)).
 - **Pass `expectedIssuer`** when constructing static-credential providers (SEP-2352).
 - **Keep refresh tokens confidential in storage** (SEP-2207) — OS keychain or
   encrypted-at-rest store, never `localStorage` / plain files / logs.
@@ -1268,7 +1476,9 @@ The SDK enforces every authorization MUST that lands in SDK code. The following 
   `IssuerMismatchError` is thrown, do not render the callback's `error*` values.
 - **Set `application_type` correctly** when overriding the heuristic (SEP-837).
 - **Track cross-request step-up failures yourself** (SEP-2350) — `maxStepUpRetries` is
-  per request; per-session backoff is host state.
+  per request; per-session backoff is host state; and either keep
+  `onInsufficientScope: 'reauthorize'` (the default) or handle
+  `InsufficientScopeError` yourself.
 - **Resource-server operators: do not advertise `offline_access`** in `WWW-Authenticate`
   `scope` or PRM `scopes_supported` (SEP-2207).
 
@@ -1293,6 +1503,10 @@ if (CallToolResultSchema.safeParse(value).success) { ... }
 import { CallToolResultSchema } from '@modelcontextprotocol/core';
 if (CallToolResultSchema.safeParse(value).success) { ... }
 ```
+
+A namespace import — `import * as t from '…/types.js'` +
+`t.CallToolResultSchema.parse(…)` — can't be split per-symbol; the codemod flags it
+action-required. Re-import the schema from `@modelcontextprotocol/core` by hand.
 
 `@modelcontextprotocol/core` is the canonical home for the spec's Zod schema constants
 (and the OAuth/OpenID metadata schemas). It is runtime-neutral (its only dependency is
@@ -1356,15 +1570,19 @@ The role-aggregate unions (`ClientRequest`, `ServerResult`, `ServerRequest`,
 `ClientResult`, `ClientNotification`, `ServerNotification`) and the typed-method maps
 (`RequestMethod`, `RequestTypeMap`, `ResultTypeMap`, `NotificationTypeMap`) no longer
 include task vocabulary; the deprecated `Task*` types remain importable on their own.
-(One published-alpha qualification, like the `-32002` note in [Errors](#errors): the
-`2.0.0-alpha.3` typings predate this — the typed maps there still carry the `tasks/*`
+
+<!-- published-alpha-lag: re-verify against the latest published alpha before shipping -->
+
+(The published `2.0.0-alpha.3` typings predate this — the typed maps there still carry the `tasks/*`
 entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so a
 `client.request({ method: 'tools/call', … })` result does not assign to
 `Promise<CallToolResult>`. Narrow with the `isCallToolResult` guard until the next
 published alpha — the guard is the recommended discrimination tool anyway, per the next
 paragraph.)
 
-**Discriminating result shapes: use guards, not the `in` operator.** The v2
+##### Discriminating result shapes: use guards, not the `in` operator
+
+The v2
 zod-inferred result types are passthrough objects — every union member carries an index
 signature — so v1-idiomatic property discrimination such as
 `if ('content' in result) { … } else { result.toolResult }` no longer narrows: the `in`
@@ -1502,8 +1720,7 @@ rewrite required unless noted.
 
 - **`connect()` skips the `initialize` handshake when the transport already exposes a
   `sessionId`** — it assumes it is reconnecting to an existing session (unchanged from
-  v1.x, where the same guard has existed since 1.10.0; recorded here because the
-  far-away symptom keeps surprising migrators). A custom or test transport that sets `sessionId` at construction
+  v1.x, where the same guard has existed since 1.10.0). A custom or test transport that sets `sessionId` at construction
   silently skips initialization: `getServerCapabilities()` stays `undefined` and the
   list verbs return empty results. Expose `sessionId` only after the first request has
   been sent.
@@ -1520,11 +1737,9 @@ rewrite required unless noted.
   `ProtocolOptions.supportedProtocolVersions` pins the legacy `initialize` handshake:
   the **first** pre-2026 entry in the list is offered (list order is preference order),
   a counter-offer is accepted only if it is one of the list's pre-2026 entries, and a
-  list with no pre-2026 entry makes the handshake throw. Under
-  `versionNegotiation: 'auto'` the modern probe candidates are the list's modern
-  entries when it has any (otherwise the SDK's default modern set); a `{ pin }` is
-  honored as given and is not checked against the list (see
-  [support-2026-07-28.md](./support-2026-07-28.md#client-side-versionnegotiation)).
+  list with no pre-2026 entry makes the handshake throw. The same list also shapes the
+  2026-07-28 probing modes (`'auto'` / `{ pin }`) — see
+  [support-2026-07-28.md › Client side: `versionNegotiation`](./support-2026-07-28.md#client-side-versionnegotiation).
   v1 had no public equivalent (`SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) —
   replace any workaround that patched the offered version with this option.
 - **Also unchanged: HTTP 405 tolerances.** A `405` answering the standalone GET stream
@@ -1577,20 +1792,30 @@ rewrite required unless noted.
   `cachePartition`, `defaultCacheTtlMs`. `ResponseCacheStore` gained `delete(key)`;
   `InMemoryResponseCacheStore` is now bounded (`{ maxEntries }`, default 512).
 
-#### Server (Streamable HTTP transport)
+#### Streamable HTTP: resumability requires protocol version `>= 2025-11-25`
 
-- Resumability behavior (SSE priming events, `closeSSE` / `closeStandaloneSSE`
-  callbacks) is only enabled for protocol versions in the transport's supported-versions
-  list that are `>= 2025-11-25`. Unknown future version strings in an `initialize`
-  request body no longer enable it.
-- Session-ID mismatch still responds `404` with JSON-RPC `-32001` (`Session not found`),
-  unchanged from v1. This `-32001` is an SDK convention, not spec-assigned; client code
-  should key off the HTTP `404` status, not `-32001`.
+Resumability behavior (SSE priming events, `closeSSE` / `closeStandaloneSSE`
+callbacks) is only enabled for protocol versions in the transport's supported-versions
+list that are `>= 2025-11-25`. Unknown future version strings in an `initialize`
+request body no longer enable it.
 
-#### Server (deprecated accessors and app-factory Origin validation)
+#### SDK-convention JSON-RPC codes in HTTP error bodies
 
-- `Server.getClientCapabilities()`, `getClientVersion()`, `getNegotiatedProtocolVersion()`
-  are `@deprecated` but functional. On 2026-07-28 requests, prefer `ctx.mcpReq.envelope`.
+Unchanged from v1 — key off the HTTP status, not the body code; neither code is
+spec-assigned:
+
+| HTTP response                                                                                                                       | JSON-RPC code in body |
+| ----------------------------------------------------------------------------------------------------------------------------------- | --------------------- |
+| `400` to a request that requires a session but omits the `Mcp-Session-Id` header (`Bad Request: Mcp-Session-Id header is required`) | `-32000`              |
+| `404` on a session-ID mismatch (`Session not found`)                                                                                | `-32001`              |
+
+#### `getClientCapabilities()` / `getClientVersion()` / `getNegotiatedProtocolVersion()` are `@deprecated`
+
+`Server.getClientCapabilities()`, `getClientVersion()`, `getNegotiatedProtocolVersion()`
+are `@deprecated` but functional. On 2026-07-28 requests, prefer `ctx.mcpReq.envelope`.
+
+#### `createMcp*App()` validates the `Origin` header by default
+
 - `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a
   localhost-class `host` now also validate the `Origin` header by default. Browser-served
   clients on a non-localhost origin need `allowedOrigins: [...]` (replaces the default
@@ -1603,22 +1828,27 @@ rewrite required unless noted.
   `@modelcontextprotocol/server`; `@modelcontextprotocol/node` ships
   `hostHeaderValidation` / `originValidation` request guards for plain `node:http`.
 
-#### Server (McpServer / Streamable HTTP behavior)
+#### McpServer installs capability handlers eagerly: `tools/list` answers `{tools:[]}` (not `-32601`); `listChanged: true` advertised by default
 
 - **Eager capability-handler install.** `McpServer` now installs list/read/call handlers
   for every primitive capability declared in `ServerOptions.capabilities`, even with
   zero registrations. `new McpServer(info, { capabilities: { tools: {} } })` with no
   registered tools answers `tools/list` with `{ tools: [] }` instead of `-32601 Method
-not found`. Low-level `Server` users remain responsible for registering handlers for
+not found`.
+- Low-level `Server` users remain responsible for registering handlers for
   declared capabilities — with one exception: declaring the `logging` capability (in
   the constructor's capabilities or via pre-connect `registerCapabilities()`) installs
   the `logging/setLevel` handler on the low-level `Server` too, so `logging/setLevel`
-  requests that answered `-32601` in v1 now resolve. Eager install also rewrites the **advertised** capability
+  requests that answered `-32601` in v1 now resolve.
+- Eager install also rewrites the **advertised** capability
   objects: a declared `tools: {}` / `resources: {}` / `prompts: {}` is advertised with
   `listChanged: true` at construction, so capability pins and initialize-result golden
   tests need re-baselining. To advertise without the default, set
   `listChanged: false` explicitly; capabilities declared on the low-level `Server` are
   advertised verbatim.
+
+#### `eventStore` store-first semantics (Streamable HTTP)
+
 - **`WebStandardStreamableHTTPServerTransport` store-first `eventStore` semantics.**
   Request-related events emitted after `closeSSE()` — and the final response when no
   per-request stream is connected — are now persisted to the configured `eventStore` for
@@ -1627,6 +1857,9 @@ not found`. Low-level `Server` users remain responsible for registering handlers
   `NodeStreamableHTTPServerTransport` is a thin wrapper over
   `WebStandardStreamableHTTPServerTransport`, so this — like every behavioral note on
   the web-standard transport — applies to the Node transport too.
+
+#### `registerResource` reserves the `cacheHint` key
+
 - **`registerResource` reserves the `cacheHint` config key.** It is validated
   (`RangeError` on invalid values) and stripped from the resource's list metadata; v1
   passed it through verbatim as ordinary metadata. Untyped callers that previously
@@ -1671,7 +1904,7 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
   hang instead of resolving; send through the typed surface (`client.ping()`,
   `client.request()`) instead.
 
-#### Experimental tasks interception removed
+### Experimental tasks interception removed
 
 The 2025-11 task side-channel through `Protocol` is removed (was always `@experimental`).
 No mechanical migration; remove usages. Gone: `ProtocolOptions.tasks`,
@@ -1684,23 +1917,12 @@ types they yielded, `registerToolTask`, `ToolTaskHandler`, `TaskRequestHandler`,
 `BaseQueuedMessage` / `Queued*`, `CreateTaskServerContext`, `TaskServerContext`,
 `TaskToolExecution`, `TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`,
 and the `new McpServer(info, { taskStore, taskMessageQueue })` constructor option keys
-(the codemod emits an action-required diagnostic at each — remove the option).
+(the codemod emits an action-required diagnostic at each removed accessor, constructor
+option key, and `setRequestHandler(GetTask…Schema, …)` registration — remove the
+usage).
 
 The task **wire types** remain importable as `@deprecated` vocabulary for 2025-11-25
 interop — see [support-2026-07-28.md](./support-2026-07-28.md#tasks-deprecated-wire-vocabulary).
-
-#### Specification clarifications adopted (no SDK behavior change)
-
-The 2026-07-28 specification revision includes a number of documentation-only
-clarifications recorded here so an audit of the revision's changelog against this guide
-is complete; nothing in this list requires code changes: per-operation timeout guidance
-removal (`RequestOptions.timeout` / `DEFAULT_REQUEST_TIMEOUT_MSEC` unchanged); stdio
-shutdown wording; transports-as-bindings reframe; `resources/read` wording (the
-`file://` path-sanitization MUST is server-author guidance — your handler must reject
-traversal / symlink escapes itself); `PromptMessage` resource links (already in
-`ContentBlock`); completion `ref/resource` URI templates; pagination empty-string
-cursors (already passed through verbatim); sampling host-requirement docs; elicitation
-statefulness wording; cosmetic schema/JSDoc sweeps.
 
 ---
 
@@ -1716,15 +1938,11 @@ the named class from the explicit subpath
 (`@modelcontextprotocol/{client,server}/validators/ajv` or `…/cf-worker`) — importing
 from a subpath means the corresponding peer dep must be in your `package.json`.
 
-### `Client.connect(transport, { prior })` — zero-round-trip connect
-
-Probe once, persist `client.getDiscoverResult()` (`JSON.stringify`), and feed it to
-every worker as `client.connect(transport, { prior })` — 2026-07-28+ only. New exported
-type `ConnectOptions` (extends `RequestOptions` with `prior?: DiscoverResult`).
-
 ### Serving the 2026-07-28 revision
 
-`createMcpHandler`, `serveStdio`, `versionNegotiation`, multi-round-trip requests
+`createMcpHandler`, `serveStdio`, `versionNegotiation`,
+`Client.connect(transport, { prior })` / `ConnectOptions` (zero-round-trip connect),
+multi-round-trip requests
 (`requestState`), client cancellation via stream-close, `subscriptions/listen`,
 `Mcp-Param-*` headers, and per-era wire codecs are covered in
 **[support-2026-07-28.md](./support-2026-07-28.md)** — they are net-new in v2, not v1→v2
@@ -1734,7 +1952,9 @@ breaks.
 
 ## Unchanged APIs
 
-The following are unchanged between v1 and v2 (only the import path changed):
+The following carry over from v1 to v2. Most need only an import-path update; where an
+entry has a residual difference (a renamed class, a dropped or added parameter), it is
+called out inline after the em-dash with a link to its section.
 
 - `Client` constructor and `connect`, `close`, and the typed verbs (`listTools`,
   `listPrompts`, `listResources`, `readResource`, …) — note `callTool()` and `request()`
@@ -1746,11 +1966,11 @@ The following are unchanged between v1 and v2 (only the import path changed):
   handler context.
 - The server Streamable HTTP transports' **constructor options** (`sessionIdGenerator`,
   `onsessioninitialized`, `onsessionclosed`, `enableJsonResponse`, `eventStore`,
-  `retryInterval`) and the `handleRequest` surface — only the class name and import
+  `retryInterval`) and the `handleRequest` surface — only the class names and imports
   moved: `StreamableHTTPServerTransport` is now `NodeStreamableHTTPServerTransport`
-  from `@modelcontextprotocol/node`, a thin wrapper over
-  `WebStandardStreamableHTTPServerTransport` from `@modelcontextprotocol/server`,
-  which exposes the same options ([decision rule](#imports--transports)). The
+  from `@modelcontextprotocol/node`, and
+  `WebStandardStreamableHTTPServerTransport` from `@modelcontextprotocol/server`
+  exposes the same options ([decision rule](#imports--transports)). The
   transport-level `closeSSEStream(requestId)` / `closeStandaloneSSEStream()` methods
   keep their v1 names too — only the handler-context accessors moved to `ctx.http`
   ([remap table](#low-level-protocol--handler-context-ctx)).
@@ -1785,6 +2005,49 @@ The following are unchanged between v1 and v2 (only the import path changed):
 > ([support-2026-07-28.md](./support-2026-07-28.md)). The Zod `*Schema`
 > constants are **not** part of the unchanged surface — they moved to
 > `@modelcontextprotocol/core` ([Types & schemas](#types--schemas)).
+
+### Specification clarifications adopted (no SDK behavior change)
+
+The 2026-07-28 revision's remaining changelog entries are documentation-only
+clarifications; none changes SDK behavior or requires code changes: per-operation
+timeout guidance
+removal (`RequestOptions.timeout` / `DEFAULT_REQUEST_TIMEOUT_MSEC` unchanged); stdio
+shutdown wording; transports-as-bindings reframe; `resources/read` wording (the
+`file://` path-sanitization MUST is server-author guidance — your handler must reject
+traversal / symlink escapes itself); `PromptMessage` resource links (already in
+`ContentBlock`); completion `ref/resource` URI templates; pagination empty-string
+cursors (already passed through verbatim); sampling host-requirement docs; elicitation
+statefulness wording; cosmetic schema/JSDoc sweeps.
+
+---
+
+## Verifying you're done
+
+Each check links to the section that explains a hit.
+
+1. `grep -rn '@mcp-codemod-error' .` returns nothing — every marker the codemod left is
+   resolved ([Manual changes](#manual-changes)).
+2. `grep -rn '@modelcontextprotocol/sdk' --exclude-dir=node_modules .` returns only
+   hits you deliberately kept — a v1 boundary around an unmigrated dependency, or the
+   transition window of a [staged migration](#migrating-in-stages-large-codebases).
+   Everything else must go: sources, manifests, and the repo-local tooling that
+   encodes the literal name (dependency-pin lints, version allowlists, CI checks,
+   scripts), which the codemod never touches
+   ([Packaging & runtime](#packaging--runtime)). While here, drop surviving v1-era
+   double casts (`as unknown as Transport` and kin).
+3. `tsc --noEmit` (or your build) is clean.
+4. The silent breaks — wrong at runtime with no compile error. Grep each; the linked
+   section says what to change:
+    - `grep -rn '\.code ===' .` — an HTTP status compared against `.code`
+      ([Errors](#errors): it moved to `.status` on `SdkHttpError`).
+    - `grep -rn -e '=== -32000' -e '=== -32001' .` — raw numeric SDK codes
+      ([Errors](#errors): both are string `SdkErrorCode` values now).
+    - `grep -rn -e "'McpError'" -e "'StreamableHTTPError'" -e "'MCP error " .` —
+      class-name and message-text matchers ([Errors](#errors)).
+    - Files that receive the SDK by injection (no `@modelcontextprotocol` import)
+      still using v1 idioms — the codemod never visits them
+      ([Files the codemod never sees](#files-the-codemod-never-sees-injected-sdk-surfaces)).
+5. Your tests pass.
 
 ---
 
