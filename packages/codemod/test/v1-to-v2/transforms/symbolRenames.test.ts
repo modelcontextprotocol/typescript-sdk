@@ -498,3 +498,425 @@ describe('symbol-renames transform', () => {
         expect(result).toContain('export { Foo as McpError }');
     });
 });
+
+describe('ErrorCode split — instanceof pairing (B2)', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('rewrites the paired instanceof class to SdkError and imports it', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (e instanceof McpError && e.code === ErrorCode.RequestTimeout) retry();`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('instanceof SdkError');
+        expect(text).toContain('SdkErrorCode.RequestTimeout');
+        expect(text).toMatch(/import \{[^}]*SdkError[^}]*\}/);
+    });
+
+    it('stays silent for an SdkErrorCode comparison with no instanceof guard', () => {
+        const code = [
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (e.code === ErrorCode.ConnectionClosed) reconnect();`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).toContain('SdkErrorCode.ConnectionClosed');
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(false);
+    });
+
+    it('stays silent for switch cases over SDK members', () => {
+        const code = [
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `switch (e.code) { case ErrorCode.RequestTimeout: retry(); }`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).toContain('case SdkErrorCode.RequestTimeout');
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(false);
+    });
+
+    it('marks a mixed SDK/protocol guard instead of rewriting it', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (e instanceof McpError && (e.code === ErrorCode.ConnectionClosed || e.code === ErrorCode.ParseError)) handle();`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).not.toContain('instanceof SdkError');
+        expect(text).toContain('SdkErrorCode.ConnectionClosed');
+        expect(text).toContain('ProtocolErrorCode.ParseError');
+        const diag = result.diagnostics.find(d => d.insertComment);
+        expect(diag?.message).toContain('Split the check');
+    });
+
+    it('does not claim guards stored through assignments', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `const isProto = e instanceof McpError;`,
+            `if (e.code === ErrorCode.RequestTimeout) retry();`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).not.toContain('instanceof SdkError');
+    });
+
+    it('rewrites the guard of an all-SDK two-member condition without markers', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (e instanceof McpError && (e.code === ErrorCode.RequestTimeout || e.code === ErrorCode.ConnectionClosed)) retry();`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).toContain('instanceof SdkError');
+        expect(text).not.toContain('instanceof McpError');
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(false);
+    });
+
+    it('stays silent for bare member uses outside comparisons', () => {
+        const code = [`import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`, `const t = ErrorCode.RequestTimeout;`, ''].join(
+            '\n'
+        );
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(false);
+    });
+
+    it('leaves ProtocolError untouched for ProtocolErrorCode members', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `if (e instanceof McpError && e.code === ErrorCode.InvalidParams) reject();`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('ProtocolErrorCode.InvalidParams');
+        expect(text).not.toContain('instanceof SdkError');
+    });
+});
+
+describe('matcher and constructor pairing (B3)', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('rewrites a toBeInstanceOf paired with an SDK-code matcher on the same subject', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('times out', () => {`,
+            `    expect(err).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('toBeInstanceOf(SdkError)');
+        expect(text).toContain('SdkErrorCode.RequestTimeout');
+        expect(text).toMatch(/import \{[^}]*SdkError[^}]*\}/);
+    });
+
+    it('marks a mixed-subject toBeInstanceOf instead of rewriting it', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('mixed', () => {`,
+            `    expect(err).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `    expect(err.code).toBe(ErrorCode.ParseError);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).not.toContain('toBeInstanceOf(SdkError)');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('Split the assertions'))).toBe(true);
+    });
+
+    it('does not touch a toBeInstanceOf whose subject has no SDK-code assertion', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('proto', () => {`,
+            `    expect(other).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('toBeInstanceOf(ProtocolError)');
+    });
+
+    it('moves the constructor class with an SDK-routed code argument', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `throw new McpError(ErrorCode.ConnectionClosed, 'closed');`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('new SdkError(SdkErrorCode.ConnectionClosed');
+        expect(text).not.toContain('new ProtocolError');
+    });
+
+    it('leaves constructors with protocol codes on ProtocolError', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `throw new McpError(ErrorCode.InvalidParams, 'bad');`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('new ProtocolError(ProtocolErrorCode.InvalidParams');
+    });
+});
+
+describe('pairing redesign (B3 review)', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('pairs cast subjects: expect((err as any).code)', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', () => {`,
+            `    expect(err).toBeInstanceOf(McpError);`,
+            `    expect((err as any).code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('toBeInstanceOf(SdkError)');
+    });
+
+    it('does not pair an assertion about a different property (err.cause)', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', () => {`,
+            `    expect(err.cause).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('toBeInstanceOf(ProtocolError)');
+        expect(text).not.toContain('toBeInstanceOf(SdkError)');
+    });
+
+    it('marks a constructor whose code argument mixes both enums', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `throw new McpError(isTimeout ? ErrorCode.RequestTimeout : ErrorCode.InvalidRequest, 'm');`,
+            ''
+        ].join('\n');
+        const { text, result } = applyWithDiagnostics(code);
+        expect(text).not.toContain('new SdkError');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('Split the construction'))).toBe(true);
+    });
+
+    it('ignores SDK members outside the constructor first argument', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `throw new McpError(ErrorCode.InvalidRequest, 'x', { hint: ErrorCode.RequestTimeout });`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('new ProtocolError(ProtocolErrorCode.InvalidRequest');
+    });
+
+    it('removes the stranded error-class import after a sole-use constructor rewrite', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `throw new McpError(ErrorCode.ConnectionClosed, 'closed');`,
+            ''
+        ].join('\n');
+        const { text } = applyWithDiagnostics(code);
+        expect(text).toContain('new SdkError(');
+        expect(text).not.toMatch(/import \{[^}]*ProtocolError\b[^}]*\} from/);
+    });
+
+    it('notes unpaired class matchers in files with SDK-routed codes', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', async () => {`,
+            `    await expect(p).rejects.toMatchObject({ code: ErrorCode.RequestTimeout });`,
+            `    expect(somethingElse).toBeInstanceOf(McpError);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes('review those assertions'))).toBe(true);
+    });
+});
+
+describe('ErrorCode passthrough imports (sweep rollup)', () => {
+    it('drops an ErrorCode import with no member accesses and marks the remaining use', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [`import { ErrorCode } from '@modelcontextprotocol/server';`, `registerCodes(ErrorCode);`, ''].join('\n')
+        );
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).not.toContain('import { ErrorCode }');
+        const diag = result.diagnostics.find(d => d.insertComment);
+        expect(diag?.message).toContain('ProtocolErrorCode');
+        expect(diag?.message).toContain('SdkErrorCode');
+    });
+
+    it('leaves a still-v1 ErrorCode import alone in isolated runs', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+                `export function f(code: ErrorCode): boolean { return retryable(code); }`,
+                ''
+            ].join('\n')
+        );
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(sourceFile.getFullText()).toContain(`from '@modelcontextprotocol/sdk/types.js'`);
+        expect(result.diagnostics.some(d => d.message.includes('not exported by the v2 packages'))).toBe(false);
+    });
+});
+
+describe('cast repointing and dynamic-import bindings (B6)', () => {
+    function applyB6(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('re-points stale as-casts when the pairing moves the asserted class', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', async () => {`,
+            `    const err = (await settled) as McpError;`,
+            `    expect(err).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyB6(code);
+        expect(text).toContain('(await settled) as SdkError');
+        expect(text).toContain('toBeInstanceOf(SdkError)');
+    });
+
+    it('leaves casts alone when the pairing does not move the class', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', async () => {`,
+            `    const err = (await settled) as McpError;`,
+            `    expect(err.code).toBe(ErrorCode.InvalidRequest);`,
+            `});`,
+            ''
+        ].join('\n');
+        const { text } = applyB6(code);
+        expect(text).toContain('as ProtocolError');
+    });
+
+    it('renames shorthand dynamic-import destructure bindings and references', () => {
+        const code = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `async function load() {`,
+            `    const { McpError } = await import('@modelcontextprotocol/sdk/types.js');`,
+            `    throw new McpError(1, 'x');`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = applyB6(code);
+        expect(text).toContain('const { ProtocolError }');
+        expect(text).toContain('new ProtocolError(1');
+    });
+
+    it('re-points only the property name for aliased destructures', () => {
+        const code = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `const { McpError: LocalError } = await import('@modelcontextprotocol/sdk/types.js');`,
+            `throw new LocalError(1, 'x');`,
+            ''
+        ].join('\n');
+        const { text } = applyB6(code);
+        expect(text).toContain('{ ProtocolError: LocalError }');
+        expect(text).toContain('new LocalError(1');
+    });
+
+    it('ignores destructures of non-SDK dynamic imports', () => {
+        const code = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `const { McpError } = await import('./local-errors');`,
+            ''
+        ].join('\n');
+        const { text } = applyB6(code);
+        expect(text).toContain(`const { McpError } = await import('./local-errors')`);
+    });
+});
+
+describe('assignment-cast repointing (B6 review)', () => {
+    it('re-points casts assigned in catch blocks when the matcher moves the class', () => {
+        const code = [
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `it('t', async () => {`,
+            `    let err: any;`,
+            `    try { await op(); } catch (e) { err = e as McpError; }`,
+            `    expect(err).toBeInstanceOf(McpError);`,
+            `    expect(err.code).toBe(ErrorCode.RequestTimeout);`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('err = e as SdkError');
+        expect(text).toContain('toBeInstanceOf(SdkError)');
+    });
+});
+
+describe('guard polarity in the ErrorCode split (review round 3)', () => {
+    function applyR3(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = symbolRenamesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMP = `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';\n`;
+
+    it('marks guards joined to the SDK code by a disjunction instead of rewriting', () => {
+        const { text, result } = applyR3(IMP + `if (e instanceof McpError || e.code === ErrorCode.RequestTimeout) retry();\n`);
+        expect(text).toContain('e instanceof ProtocolError || e.code === SdkErrorCode.RequestTimeout');
+        expect(text).not.toContain('SdkError ');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('does not pin'))).toBe(true);
+    });
+
+    it('rewrites negated guards conjoined with a same-subject SDK code', () => {
+        const { text, result } = applyR3(IMP + `if (!(e instanceof McpError) && e.code === ErrorCode.RequestTimeout) bail();\n`);
+        expect(text).toContain('!(e instanceof SdkError) && e.code === SdkErrorCode.RequestTimeout');
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(false);
+    });
+
+    it('rewrites guards conjoined inside a disjunct', () => {
+        const { text } = applyR3(IMP + `const retriable = (e instanceof McpError && e.code === ErrorCode.RequestTimeout) || isAbort(e);\n`);
+        expect(text).toContain('(e instanceof SdkError && e.code === SdkErrorCode.RequestTimeout)');
+    });
+
+    it('marks guards whose conjoined SDK code is on another subject or in a nested function', () => {
+        const code =
+            IMP +
+            `if ((e instanceof McpError && retries.every(r => r.code === ErrorCode.RequestTimeout)) || e.code === ErrorCode.ConnectionClosed) requeue(e);\n`;
+        const { text, result } = applyR3(code);
+        expect(text).toContain('e instanceof ProtocolError &&');
+        expect(text).not.toContain('instanceof SdkError');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('does not pin'))).toBe(true);
+    });
+
+    it('marks guards conjoined with a negated code comparison', () => {
+        const { text, result } = applyR3(IMP + `if (e instanceof McpError && e.code !== ErrorCode.RequestTimeout) propagate(e);\n`);
+        expect(text).toContain('e instanceof ProtocolError &&');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('does not pin'))).toBe(true);
+    });
+});

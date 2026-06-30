@@ -69,10 +69,32 @@ export const schemaParamRemovalTransform: Transform = {
             // argument too many (TS2554). Drop it only when a third argument follows — a 2-arg
             // `callTool(params, undefined)` already type-checks, since `undefined` is a valid options arg.
             if (secondArg.getText() === 'undefined') {
-                if (fileHasMcpImports && args.length >= 3) {
-                    call.removeArgument(1);
-                    changesCount++;
+                if (!fileHasMcpImports || args.length < 3) continue;
+                const firstArg = args[0]!;
+                if (methodName === 'request') {
+                    // Drop only when the method is provably a literal spec method (the same
+                    // proof the schema-identifier path requires). When the skip leaves an
+                    // explicit undefined behind, the result is a LOUD compile error the user
+                    // resolves with the call's intent in view — strictly better than silently
+                    // changing semantics. The proof also keeps the rewrite off non-SDK
+                    // receivers that happen to be named `request` with a bare-string first
+                    // argument, where deleting the middle argument corrupts the call.
+                    const literal = literalMethodOf(firstArg);
+                    if (literal === undefined || !SPEC_REQUEST_METHODS.has(literal)) continue;
+                } else if (
+                    Node.isStringLiteral(firstArg) ||
+                    Node.isNoSubstitutionTemplateLiteral(firstArg) ||
+                    Node.isTemplateExpression(firstArg) ||
+                    Node.isNumericLiteral(firstArg) ||
+                    firstArg.getKind() === SyntaxKind.TrueKeyword ||
+                    firstArg.getKind() === SyntaxKind.FalseKeyword
+                ) {
+                    // v1 callTool() takes a params OBJECT first — a primitive first argument
+                    // means a non-SDK receiver sharing the method name.
+                    continue;
                 }
+                call.removeArgument(1);
+                changesCount++;
                 continue;
             }
 

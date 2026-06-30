@@ -161,6 +161,46 @@ describe('schema-param-removal transform', () => {
         expect(result).toContain('someHttpClient.request(payload, undefined, { timeout: 5000 })');
     });
 
+    it('does not corrupt a non-SDK .request() helper taking a bare-string method', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `await end.request('ping', undefined, 'fence-after-cancel');`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain(`end.request('ping', undefined, 'fence-after-cancel')`);
+    });
+
+    it('keeps an explicit undefined on request() when the method is not provably a spec literal', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `await client.request(reqVar, undefined, { timeout: 5000 });`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('client.request(reqVar, undefined, { timeout: 5000 })');
+    });
+
+    it('does not strip undefined from a callTool() whose first argument is a primitive', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `await runner.callTool('add', undefined, retries);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain(`runner.callTool('add', undefined, retries)`);
+    });
+
+    it('does not strip undefined from a callTool() whose first argument is a template with substitutions', () => {
+        const input = [
+            `import { Client } from '@modelcontextprotocol/client';`,
+            'await runner.callTool(`${ns}/add`, undefined, retries);',
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('undefined, retries');
+    });
+
     it('leaves a 2-arg callTool(params, undefined) unchanged (already valid as options in v2)', () => {
         const input = [`await client.callTool({ name: 'add' }, undefined);`, ''].join('\n');
         const result = applyTransform(input);

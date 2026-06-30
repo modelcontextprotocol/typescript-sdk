@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/codemod': minor
+---
+
+Overhaul manifest handling. The codemod now discovers workspace-member manifests (npm/yarn/bun `workspaces` and `pnpm-workspace.yaml`), writes only the nearest `package.json`, and reports the exact dependency changes every other affected manifest needs, so you can apply them deliberately. The v2 additions are computed from the post-transform import state of the files each manifest owns, so already-migrated packages still receive the packages their imports need when the v1 dependency is removed; in hoisted monorepos, member usage counts toward the manifest that declares the SDK dependency, with a note naming the contributing members. File collection no longer follows symbolic links (pnpm `node_modules` layouts contain cycles that previously aborted the run) and honors `--ignore` patterns during directory descent. Manifests whose `zod` range cannot satisfy the v2 floor get a warning describing the runtime failure mode. `RunnerResult.packageJsonChanges` is now an array of per-manifest changes with optional `warnings` and `notes`.

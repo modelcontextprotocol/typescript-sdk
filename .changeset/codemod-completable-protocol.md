@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/codemod': minor
+---
+
+Three migration-sweep fixes. `completable()` calls whose first argument is an optional-wrapped schema are rewritten to apply `.optional()` to the `completable(...)` result — v2 resolves completion metadata after unwrapping an outer optional wrapper, so the v1 nesting produced empty completion lists without an error; wrapper shapes the codemod cannot invert get an action-required marker instead. Imports of `Protocol` and `mergeCapabilities` from v1's `shared/protocol.js` are no longer rewritten to a member the v2 packages do not export: the symbols are dropped from the rewritten import and an action-required marker explains the replacement (`fallbackRequestHandler` for unrouted inbound requests; a plain object spread for capability merging). The manifest zod-range warning now describes the symptom by vintage — zod 4.0–4.1 ranges fail type-checking (TS2769), while zod-3 ranges fail type-checking or at the first `tools/list` depending on the imported zod entry point.
