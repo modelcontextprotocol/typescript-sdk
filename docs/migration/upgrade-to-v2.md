@@ -19,7 +19,7 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    only; CommonJS callers must use dynamic `import()`.
 2. **Run the codemod.**
     ```bash
-    npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
+    npx @modelcontextprotocol/codemod@beta v1-to-v2 .
     ```
     Run it at the **package root** (`.`), not `./src` — it also rewrites `package.json`,
     and real projects import the SDK from `test/`, `scripts/`, and fixtures too.
@@ -233,15 +233,14 @@ for the literal instead; and the emitted quote style differs from v1, so a
 quote-anchored pattern misses silently — match either quote. v2 also ships ESM only:
 `/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no equivalent.
 
-#### Registry availability during the alpha
+#### Registry availability during the beta
 
-All v2 packages are published on the public npm registry. Two notes for the alpha
+All v2 packages are published on the public npm registry. Two notes for the beta
 window:
 
-- The packages do not share one version number — at the time of writing
-  `@modelcontextprotocol/core` rides a lower prerelease than its siblings. The
-  codemod writes ranges that match what is published, so prefer its manifest output
-  over hand-pinning every package to the same tag.
+- As of `2.0.0-beta.1` all v2 packages share one version number (earlier alphas
+  did not). The codemod writes ranges that match what is published, so prefer its
+  manifest output over hand-pinning every package.
 - Environments that resolve through a corporate or private registry mirror may not
   have synced the newer scoped packages yet (the symptom is "not found" for a package
   that exists on npmjs.org). Point the install at the public registry
