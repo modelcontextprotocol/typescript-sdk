@@ -58,7 +58,8 @@ export default defineConfig({
                     { text: 'Build a server', link: '/get-started/first-server' },
                     { text: 'Plug into a real host', link: '/get-started/real-host' },
                     { text: 'Build a client', link: '/get-started/first-client' },
-                    { text: 'Packages', link: '/get-started/packages' }
+                    { text: 'Packages', link: '/get-started/packages' },
+                    { text: 'Examples', link: '/get-started/examples' }
                 ]
             },
             {
