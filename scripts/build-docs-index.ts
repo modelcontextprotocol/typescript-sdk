@@ -17,6 +17,9 @@ const GITHUB = 'https://github.com/modelcontextprotocol/typescript-sdk/blob/main
 let markdown = readFileSync(join(repoRoot, 'README.md'), 'utf8');
 
 markdown = markdown
+    // The README's "API docs" link points at the old typedoc site; on the landing it is the
+    // in-site API Reference section.
+    .replaceAll('](https://modelcontextprotocol.github.io/typescript-sdk/)', '](./api/index.md)')
     .replaceAll('](docs/', '](./')
     .replaceAll('](packages/', `](${GITHUB}/packages/`)
     .replaceAll('](examples/', `](${GITHUB}/examples/`)
