@@ -23,6 +23,7 @@ interface PackageManifest {
     name: string;
     private?: boolean;
     type?: string;
+    main?: string;
     files?: string[];
     bin?: Record<string, string>;
     exports?: Record<string, unknown>;
@@ -75,16 +76,32 @@ describe('public package topology', () => {
                 expect(Object.keys(manifest.exports ?? {})).toEqual(expected.exportKeys);
             });
 
-            test('ships ESM only', () => {
+            test('ships dual ESM + CJS', () => {
+                // The v2 packages are ESM-first but ship a CommonJS build too, so
+                // require('@modelcontextprotocol/…') resolves natively. Pin that
+                // deliberate dual surface: type stays 'module', a `.cjs` main is
+                // present for bare-require fallback, and every export condition
+                // that resolves a module format offers BOTH an `import` (ESM) and a
+                // `require` (CJS) branch — recursively, so nested runtime conditions
+                // (e.g. ./_shims → workerd/browser/node/default) are covered.
                 expect(manifest.type).toBe('module');
-                // No entry may grow a 'require' condition: the v2 packages are
-                // ESM-only by design (a CJS build would be a new public surface).
-                const conditionsOf = (entry: unknown): string[] =>
-                    entry !== null && typeof entry === 'object'
-                        ? Object.entries(entry).flatMap(([key, value]) => [key, ...conditionsOf(value)])
-                        : [];
+                expect(manifest.main).toMatch(/\.cjs$/);
+
+                const assertDual = (node: unknown): void => {
+                    if (node === null || typeof node !== 'object') {
+                        return;
+                    }
+                    const keys = Object.keys(node);
+                    if (keys.includes('import') || keys.includes('require')) {
+                        expect(keys).toContain('import');
+                        expect(keys).toContain('require');
+                    }
+                    for (const value of Object.values(node)) {
+                        assertDual(value);
+                    }
+                };
                 for (const entry of Object.values(manifest.exports ?? {})) {
-                    expect(conditionsOf(entry)).not.toContain('require');
+                    assertDual(entry);
                 }
             });
 

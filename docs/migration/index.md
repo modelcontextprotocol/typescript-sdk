@@ -19,7 +19,7 @@ v2 packages (`@modelcontextprotocol/client`, `@modelcontextprotocol/server`, …
 Start by running the codemod:
 
 ```bash
-npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
+npx @modelcontextprotocol/codemod@beta v1-to-v2 .
 ```
 
 Run it at the package root (`.`) — real projects import the SDK from `test/`,
@@ -50,5 +50,5 @@ the codemod first; the guide is the codemod's companion for what's left.
 ## See also
 
 - [`@modelcontextprotocol/codemod` README](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md)
-- [FAQ](../faq.md)
+- [Troubleshooting](../troubleshooting.md)
 - [Examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples)

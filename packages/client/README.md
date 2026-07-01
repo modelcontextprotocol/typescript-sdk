@@ -4,7 +4,7 @@ The MCP (Model Context Protocol) TypeScript client SDK. Build MCP clients that c
 
 <!-- prettier-ignore -->
 > [!WARNING]
-> **This is an alpha release.** Expect breaking changes until v2 stabilizes. We're publishing early to gather feedback — please try it and open issues — but we can't guarantee API stability yet. We'll aim to minimize disruption between alphas.
+> **This is a beta release.** The API surface is settling but breaking changes remain possible until v2 stabilizes. Please try it and open issues — feedback during the beta directly shapes the stable release.
 
 <!-- prettier-ignore -->
 > [!NOTE]
@@ -13,7 +13,7 @@ The MCP (Model Context Protocol) TypeScript client SDK. Build MCP clients that c
 ## Install
 
 ```bash
-npm install @modelcontextprotocol/client@alpha
+npm install @modelcontextprotocol/client@beta
 ```
 
 TypeScript ≥6.0 no longer auto-includes `@types/*` — add `"types": ["node"]` to your `tsconfig.json` `compilerOptions` (the published `.d.mts` references `Buffer`).
@@ -21,6 +21,6 @@ TypeScript ≥6.0 no longer auto-includes `@types/*` — add `"types": ["node"]`
 ## Documentation
 
 - **[Repository README](https://github.com/modelcontextprotocol/typescript-sdk#readme)** — overview, package layout, examples
-- **[Client guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/client.md)**
+- **[Client guide](https://ts.sdk.modelcontextprotocol.io/v2/clients/connect)** — connecting, calling tools, OAuth, and middleware
 - **[API reference](https://ts.sdk.modelcontextprotocol.io/v2/)**
 - **[MCP specification](https://modelcontextprotocol.io)**

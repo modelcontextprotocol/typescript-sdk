@@ -15,11 +15,11 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
 
 ## TL;DR — quick path
 
-1. **Prerequisites.** Node.js 20+ and ESM (`"type": "module"` or `.mts`). v2 ships ESM
-   only; CommonJS callers must use dynamic `import()`.
+1. **Prerequisites.** Node.js 20+. v2 is ESM-first but ships a CommonJS build too, so
+   both `import` and `require('@modelcontextprotocol/…')` resolve natively.
 2. **Run the codemod.**
     ```bash
-    npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
+    npx @modelcontextprotocol/codemod@beta v1-to-v2 .
     ```
     Run it at the **package root** (`.`), not `./src` — it also rewrites `package.json`,
     and real projects import the SDK from `test/`, `scripts/`, and fixtures too.
@@ -212,8 +212,9 @@ depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion
 does **not** require the `hono` framework — your package manager may emit a harmless
 unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
 
-v2 requires **Node.js 20+** and ships **ESM only**. If your project uses CommonJS
-(`require()`), either migrate to ESM or use dynamic `import()`.
+v2 requires **Node.js 20+**. It is ESM-first but ships a **CommonJS build alongside
+ESM**, so CommonJS projects can `require('@modelcontextprotocol/…')` directly — no
+dynamic `import()` shim required.
 
 Repo-local tooling that encodes the literal v1 package name — dependency-pin lints,
 version allowlists, CI checks, scripts — fails after the manifest swap and is invisible
@@ -225,23 +226,22 @@ directly, and a surviving cast keeps suppressing type checking that would otherw
 catch real errors.
 
 Tooling that pins SDK **dist text** (reading a constant out of a built file with
-`require.resolve` + a regex) breaks in three stacked ways: the v2 exports maps offer
-nothing a CJS `require.resolve` can find; the literal usually lives in a
+`require.resolve` + a regex) breaks in two stacked ways: the literal usually lives in a
 content-hashed sibling chunk (`dist/sse-<hash>.mjs`), not the subpath's entry module,
 so fixed-path reads do not survive a rebuild — scan the package's `dist/` directory
 for the literal instead; and the emitted quote style differs from v1, so a
-quote-anchored pattern misses silently — match either quote. v2 also ships ESM only:
-`/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no equivalent.
+quote-anchored pattern misses silently — match either quote. The build layout also
+changed: v2 emits `.mjs`/`.cjs` siblings in a flat `dist/`, so v1's `/dist/cjs/` ↔
+`/dist/esm/` flavor-pair path swaps have no equivalent.
 
-#### Registry availability during the alpha
+#### Registry availability during the beta
 
-All v2 packages are published on the public npm registry. Two notes for the alpha
+All v2 packages are published on the public npm registry. Two notes for the beta
 window:
 
-- The packages do not share one version number — at the time of writing
-  `@modelcontextprotocol/core` rides a lower prerelease than its siblings. The
-  codemod writes ranges that match what is published, so prefer its manifest output
-  over hand-pinning every package to the same tag.
+- As of `2.0.0-beta.1` all v2 packages share one version number (earlier alphas
+  did not). The codemod writes ranges that match what is published, so prefer its
+  manifest output over hand-pinning every package.
 - Environments that resolve through a corporate or private registry mirror may not
   have synced the newer scoped packages yet (the symptom is "not found" for a package
   that exists on npmjs.org). Point the install at the public registry
@@ -251,41 +251,13 @@ window:
   (`pnpm install && pnpm build`, then `pnpm pack` in the package directory) and
   reference it with a committed `file:` dependency.
 
-#### CommonJS test runners (Jest) cannot resolve the v2 packages
+#### CommonJS test runners (Jest)
 
-Every leaf of the v2 packages' `exports` maps carries only the `types` and `import`
-conditions — there is no `require` or `default` leaf — so the packages cannot be
-resolved by CJS resolvers at all. Jest under its default CommonJS resolution (including
-`next/jest` setups) fails with `Cannot find module '@modelcontextprotocol/client'` even
-when a transform that handles ESM is configured: resolution fails before any transform
-runs. Vitest and native Node ESM are unaffected.
-
-The interim recipe — interim because the packaging shape is still under discussion and
-a later alpha may make it unnecessary — maps the bare specifiers straight to the dist
-ESM files and lets the transform convert them (the dists contain no `import.meta`, so
-an ESM→CJS transform such as SWC or Babel handles them cleanly):
-
-```js
-// jest.config.js
-transformIgnorePatterns: [], // or a pattern that still transforms @modelcontextprotocol/*
-moduleNameMapper: {
-    '^@modelcontextprotocol/client$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/index.mjs',
-    '^@modelcontextprotocol/server$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/index.mjs',
-    // `_shims` is the packages' internal runtime-selection self-reference;
-    // pin it to the Node build under jest.
-    '^@modelcontextprotocol/client/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/shimsNode.mjs',
-    '^@modelcontextprotocol/server/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/shimsNode.mjs',
-},
-```
-
-The entries are exact-anchored — add one per subpath you import (`/stdio` →
-`dist/stdio.mjs`, `/validators/cf-worker` → `dist/validators/cfWorker.mjs`) and one for
-`@modelcontextprotocol/core` (`dist/index.js`) if you import the raw schemas. The
-`_shims` mappings are required whenever the matching root mapping is present: the dist
-entry files import `@modelcontextprotocol/client/_shims` (a package self-reference)
-internally, and that specifier fails CJS resolution the same way. In a hoisted
-monorepo, point the paths at the `node_modules` directory your package manager actually
-installs into.
+v2 ships a CommonJS build, so CJS test runners resolve the packages natively through the
+`require` export condition — Jest (including `next/jest` setups) no longer needs a
+`moduleNameMapper` workaround to import `@modelcontextprotocol/*`. If you carried a
+v1-era mapping that pinned these packages to their `dist/*.mjs` files, remove it. Vitest
+and native Node ESM are unaffected.
 
 #### Bundlers: nested `zod` copies in zod@3-pinned monorepos
 
@@ -1000,8 +972,9 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 (carries `data.requiredCapabilities`) are new typed `ProtocolError` subclasses.
 `resources/read` for an unknown URI now answers `-32602` on every protocol revision
 (v1.x already emitted `-32602`; an interim `-32002` from earlier v2 alphas is mapped at
-the encode seam — published `2.0.0-alpha.3` predates the mapping and still emits
-`-32002` on the wire, so accept both until the next published alpha). The encode-seam mapping applies to **your own throws too**: a handler
+the encode seam — `2.0.0-alpha.3` and earlier predate the mapping and still emit
+`-32002` on the wire, so accept both if peers may run those alphas; `2.0.0-alpha.4`
+and later emit `-32602`). The encode-seam mapping applies to **your own throws too**: a handler
 that deliberately throws `ProtocolError(ProtocolErrorCode.ResourceNotFound, …)` reaches
 peers as `-32602` — a server can no longer emit `-32002` on the wire.
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as
@@ -1145,7 +1118,7 @@ version negotiation. Under the probing modes (`versionNegotiation: { mode: 'auto
 with or without a pin) the connect-time 401 currently surfaces wrapped as
 `SdkError(SdkErrorCode.EraNegotiationFailed)` with the `UnauthorizedError` at
 `error.data.cause` — unwrap before the check, as shown in the
-[client guide's authentication section](../client.md#authentication).
+[client OAuth guide](../clients/oauth.md).
 
 #### `auth()` options are now `AuthOptions`
 
@@ -1373,12 +1346,12 @@ The role-aggregate unions (`ClientRequest`, `ServerResult`, `ServerRequest`,
 (`RequestMethod`, `RequestTypeMap`, `ResultTypeMap`, `NotificationTypeMap`) no longer
 include task vocabulary; the deprecated `Task*` types remain importable on their own.
 (One published-alpha qualification, like the `-32002` note in [Errors](#errors): the
-`2.0.0-alpha.3` typings predate this — the typed maps there still carry the `tasks/*`
-entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so a
-`client.request({ method: 'tools/call', … })` result does not assign to
-`Promise<CallToolResult>`. Narrow with the `isCallToolResult` guard until the next
-published alpha — the guard is the recommended discrimination tool anyway, per the next
-paragraph.)
+`2.0.0-alpha.3` and earlier typings predate this — the typed maps there still carry the
+`tasks/*` entries, and `ResultTypeMap['tools/call']` still unions `CreateTaskResult`, so
+a `client.request({ method: 'tools/call', … })` result does not assign to
+`Promise<CallToolResult>`. If pinned to those alphas, narrow with the
+`isCallToolResult` guard — the recommended discrimination tool anyway, per the next
+paragraph; `2.0.0-alpha.4` and later are unaffected.)
 
 **Discriminating result shapes: use guards, not the `in` operator.** The v2
 zod-inferred result types are passthrough objects — every union member carries an index
@@ -1777,7 +1750,7 @@ where an entry notes its own signature change:
 - `StreamableHTTPClientTransport`, `SSEClientTransport` constructors and options —
   including resumability: the per-request `resumptionToken` / `onresumptiontoken`
   request options carry over from v1 unchanged
-  ([Resumption tokens](../client.md#resumption-tokens) in the client guide).
+  ([Resume a dropped stream](../serving/sessions-state-scaling.md#resume-a-dropped-stream)).
 - `StdioClientTransport` and `StdioServerTransport` — **import path moved** to the
   `./stdio` subpath and gained an optional `maxBufferSize` ([Imports & transports](#imports--transports)).
 - The **`Transport` interface contract** — `start` / `send` / `close`, `onmessage` /
@@ -1809,7 +1782,7 @@ where an entry notes its own signature change:
 
 - The codemod's [`@mcp-codemod-error`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md) markers point
   at every site it could not safely rewrite.
-- The [FAQ](../faq.md) covers common v2 questions.
+- The [Troubleshooting](../troubleshooting.md) page covers common errors and their fixes.
 - Runnable [examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples)
   for every subsystem.
 - Open an issue on [GitHub](https://github.com/modelcontextprotocol/typescript-sdk/issues).

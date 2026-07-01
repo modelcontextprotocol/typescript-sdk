@@ -1,5 +1,0 @@
----
-'@modelcontextprotocol/codemod': patch
----
-
-Fixes from migrating two large consumers. Registrations nested inside another handler's body no longer crash the transform with a whole-file rollback (calls process inner-first). Legacy `.tool()`/`.prompt()`/`.resource()` calls migrate without a direct `McpServer` import when their shape matches the v1 signature AND the receiver is named like an MCP server (`server`, `harness.mcp`, `this.mockServer`); other receivers are left alone, without hard markers, since their type is unknown to the codemod. `setRequestHandler`/`setNotificationHandler` with a schema _expression_ first argument get a marker pointing at the typed two-argument or custom three-argument form instead of being skipped silently, and `removeRequestHandler`/`removeNotificationHandler` with `Schema.shape.method.value` arguments rewrite to the method string. Destructured trailing callback parameters only count as the context when their keys look like context members, so template-variable destructures stop collecting false markers. The manifest zod note only appears for manifests that actually take part in the migration.

@@ -6,6 +6,24 @@
  * light, white on slate dark. We map that onto VitePress brand variables.
  */
 
+/* ------------------------------------------------------------------ layout */
+
+/*
+ * The default theme caps the doc column at 688px (and the page at 1440px),
+ * which forces horizontal scrolling on most of our ~100-column code blocks.
+ * Let the layout breathe and the column grow so typical snippets fit;
+ * genuinely long lines still scroll inside their own block.
+ */
+:root {
+    --vp-layout-max-width: 1680px;
+}
+
+/* !important: the default rule is a scoped component style ([data-v-…]), which
+   otherwise out-specifies any override written here. */
+.VPDoc.has-aside .content-container {
+    max-width: 960px !important;
+}
+
 /* ---------------------------------------------------------------- branding */
 
 :root {
