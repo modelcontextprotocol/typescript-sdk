@@ -48,7 +48,7 @@ pnpm --filter @mcp-examples/todos-server start:http
 ANTHROPIC_API_KEY=sk-… pnpm --filter @mcp-examples/cli-client start -- --server http://127.0.0.1:3000/mcp --provider anthropic
 ```
 
-The status line shows what was negotiated — `connected to "todos" (2026-07-28, 8 tools, 2 resources, 2 prompts)`. Add `--legacy` in terminal B to force the 2025-era handshake against the same server and watch the legacy arms of every feature run instead (`connected to "todos" (2025-11-25, …)`).
+The status line shows what was negotiated — `connected to "todos" (2026-07-28, 8 tools, 2 resources, 2 prompts)`. Add `--legacy` in terminal B to force the 2025-era handshake against the same server and watch the legacy arms of every feature run instead (`connected to "todos" (2025-11-25, …)`). To hold the connection to one exact revision, use `--protocol-version 2025-06-18` (or any supported revision) — the connection fails rather than settle on anything else.
 
 A tour that touches everything, in one sitting:
 
@@ -111,14 +111,15 @@ For a persistent setup, copy `config.example.json` to `config.json` (or pass `--
 ## All flags
 
 ```text
---server <target>    connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
---config <path>      mcpServers config file (default: ./config.json, falling back to spawning todos-server)
---provider <name>    scripted | anthropic | openai | gemini (default: first one with a key in the env, else scripted)
---model <id>         pin a model id (default: the provider's latest mid-tier model)
---root <path>        workspace root exposed to servers via roots/list (repeatable; default: cwd)
---callback-port <n>  fixed loopback port for the OAuth callback (default: a free port)
---legacy             use the 2025 initialize handshake instead of probing for 2026-07-28
--h, --help           show usage
+--server <target>       connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
+--config <path>         mcpServers config file (default: ./config.json, falling back to spawning todos-server)
+--provider <name>       scripted | anthropic | openai | gemini (default: first one with a key in the env, else scripted)
+--model <id>            pin a model id (default: the provider's latest mid-tier model)
+--root <path>           workspace root exposed to servers via roots/list (repeatable; default: cwd)
+--callback-port <n>     fixed loopback port for the OAuth callback (default: a free port)
+--legacy                use the 2025 initialize handshake instead of probing for 2026-07-28
+--protocol-version <v>  negotiate exactly this revision: 2025-era values (e.g. 2025-06-18) via the legacy handshake, 2026-07-28+ via a modern pin
+-h, --help              show usage
 ```
 
 ## How this example is tested
