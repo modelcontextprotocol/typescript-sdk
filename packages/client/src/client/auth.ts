@@ -260,6 +260,8 @@ export interface OAuthClientProvider {
      * @param ctx - Carries the resolved authorization-server `issuer`. Providers
      *   that persist credentials per authorization server should return the entry
      *   keyed by `ctx.issuer`. Providers with a single credential set may ignore it.
+     *   `ctx` is omitted only for legacy/single-slot compatibility; issuer-keyed
+     *   providers may return `undefined` when no `ctx` is supplied.
      */
     clientInformation(
         ctx?: OAuthClientInformationContext
@@ -1203,6 +1205,8 @@ async function authInternal(
     // (the identifier SEP-2352 specifies). The authorization server URL is only
     // comparable when it came from protected resource metadata. Legacy fallback to
     // the MCP server origin is not authoritative enough to invalidate credentials.
+    const previousAuthorizationServerIssuer =
+        cachedState?.authorizationServerMetadata?.issuer ?? cachedState?.authorizationServerUrl ?? savedAuthorizationServerUrl;
     const previousAuthServerIdentities = [
         cachedState?.authorizationServerMetadata?.issuer,
         cachedState?.authorizationServerUrl,
@@ -1258,7 +1262,9 @@ async function authInternal(
     if (authorizationServerChanged) {
         await provider.invalidateCredentials?.('tokens');
 
-        const staleClientInformation = await Promise.resolve(provider.clientInformation());
+        const staleClientInformation = await Promise.resolve(
+            provider.clientInformation(previousAuthorizationServerIssuer ? { issuer: previousAuthorizationServerIssuer } : undefined)
+        );
         const staleClientIsPortableAtCurrentAs =
             staleClientInformation !== undefined && isHttpsUrl(staleClientInformation.client_id) && supportsUrlBasedClientId;
         // CIMD (URL-based) client IDs are portable across authorization servers

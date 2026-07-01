@@ -5232,6 +5232,65 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('invalidates issuer-keyed stale client credentials when the authorization server changes', async () => {
+        const clientsByIssuer = new Map<string, StoredOAuthClientInformation>([
+            [oldAuthServerUrl, { client_id: 'old-client-id', client_secret: 'old-client-secret', issuer: oldAuthServerUrl }]
+        ]);
+        const clientInformation = vi.fn(async (ctx?: OAuthClientInformationContext) =>
+            ctx === undefined ? undefined : clientsByIssuer.get(ctx.issuer)
+        );
+        const invalidateCredentials = vi.fn(async (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+            if (scope === 'all' || scope === 'client') {
+                clientsByIssuer.delete(oldAuthServerUrl);
+            }
+        });
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation, ctx?: OAuthClientInformationContext) => {
+            if (ctx) clientsByIssuer.set(ctx.issuer, info);
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation,
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(clientInformation).toHaveBeenCalledWith(expect.objectContaining({ issuer: oldAuthServerUrl }));
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
     it('treats unstamped legacy credentials as stale after an AS migration without an invalidation hook', async () => {
         let clientInformation: { client_id: string; client_secret?: string; issuer?: string } | undefined = {
             client_id: 'old-client-id',
