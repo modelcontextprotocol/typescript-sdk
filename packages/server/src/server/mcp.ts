@@ -1216,6 +1216,7 @@ export type ZodRawShape = Record<string, z.ZodType>;
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
 export type CallToolResultWithStructuredContent<T> = CallToolResult & { structuredContent: T };
+type ErrorCallToolResult = CallToolResult & { isError: true };
 
 /**
  * Maps a tool's declared `outputSchema` to the precise {@link CallToolResult} its handler returns.
@@ -1228,9 +1229,9 @@ export type CallToolResultWithStructuredContent<T> = CallToolResult & { structur
  * @typeParam Output - the tool's `outputSchema`: a Standard Schema, a {@linkcode ZodRawShape}, or `undefined`.
  */
 export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | undefined> = Output extends StandardSchemaWithJSON
-    ? CallToolResultWithStructuredContent<StandardSchemaWithJSON.InferOutput<Output>>
+    ? CallToolResultWithStructuredContent<StandardSchemaWithJSON.InferOutput<Output>> | ErrorCallToolResult
     : Output extends ZodRawShape
-      ? CallToolResultWithStructuredContent<InferRawShape<Output>>
+      ? CallToolResultWithStructuredContent<InferRawShape<Output>> | ErrorCallToolResult
       : CallToolResult;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */

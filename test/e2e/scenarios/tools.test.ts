@@ -95,6 +95,8 @@ function schemaServer(): McpServer {
         structuredContent: { value: 'not-a-number' },
         content: []
     }));
+    // @ts-expect-error structuredContent is required for non-error results with outputSchema;
+    // the scenario exercises runtime validation for a misbehaving handler.
     s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         content: [{ type: 'text', text: 'handler-body-no-structured' }]
     }));
