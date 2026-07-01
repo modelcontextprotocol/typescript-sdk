@@ -27,9 +27,7 @@ describe('installCommand', () => {
     it('respects a pnpm clone that is its own workspace and scopes the install to the target packages', () => {
         const cmd = installCommand('pnpm', { hasOwnPnpmWorkspace: true, packageDirs: ['packages/core', 'packages/mcp'] });
         expect(cmd).not.toContain('--ignore-workspace');
-        expect(cmd).toBe(
-            'pnpm install --ignore-scripts --no-frozen-lockfile --filter "./packages/core..." --filter "./packages/mcp..."'
-        );
+        expect(cmd).toBe('pnpm install --ignore-scripts --no-frozen-lockfile --filter "./packages/core..." --filter "./packages/mcp..."');
     });
 
     it('installs the whole workspace (no --filter) when the only target is the clone root', () => {

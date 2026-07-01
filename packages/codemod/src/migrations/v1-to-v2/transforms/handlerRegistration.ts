@@ -193,7 +193,7 @@ export const handlerRegistrationTransform: Transform = {
                 if (method === undefined || !isImportedFromMcp(sourceFile, local)) continue;
                 const parent = id.getParent();
                 if (parent === undefined) continue;
-                const isCallArg = Node.isCallExpression(parent) && parent.getArguments().some(a => a === id);
+                const isCallArg = Node.isCallExpression(parent) && parent.getArguments().includes(id);
                 const isComparand =
                     Node.isBinaryExpression(parent) &&
                     ['===', '!==', '==', '!='].includes(parent.getOperatorToken().getText()) &&
