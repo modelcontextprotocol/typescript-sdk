@@ -405,7 +405,7 @@ export class Server extends Protocol<ServerContext> {
                     // session-wide stream to deliver it on.
                     return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                 },
-                elicitInput: (params, options) => this.elicitInput(params, options),
+                elicitInput: this.elicitInput.bind(this) as ServerContext['mcpReq']['elicitInput'],
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
             http: hasHttpInfo
@@ -1174,7 +1174,7 @@ export class Server extends Protocol<ServerContext> {
         params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
         options?: RequestOptions,
         behavior?: { validateAcceptedContent: boolean }
-    ): Promise<ElicitResult> {
+    ): Promise<ElicitResult | ElicitInputResult<StandardSchemaWithJSON>> {
         const mode = (params.mode ?? 'form') as 'form' | 'url';
         const validateAcceptedContent = behavior?.validateAcceptedContent ?? true;
 
