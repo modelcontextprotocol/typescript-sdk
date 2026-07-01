@@ -34,7 +34,8 @@ import type {
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
-    RequestId
+    RequestId,
+    SdkLogger
 } from '@modelcontextprotocol/core-internal';
 import {
     classifyInboundRequest,
@@ -162,6 +163,8 @@ export interface CreateMcpHandlerOptions {
     legacy?: 'stateless' | 'reject';
     /** Callback for out-of-band errors and rejected requests (reporting only; it never alters the response). */
     onerror?: (error: Error) => void;
+    /** Logger used for SDK diagnostics emitted by the HTTP handler. Defaults to `console`. */
+    logger?: SdkLogger;
     /**
      * Response shaping for modern (2026-07-28) request exchanges:
      *
@@ -581,7 +584,7 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  * request headers.
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
-    const { legacy, onerror, responseMode } = options;
+    const { legacy, onerror, responseMode, logger = console } = options;
 
     // Construction-time guard for JavaScript callers passing a handler as the
     // legacy value: the option only selects a posture ('stateless' | 'reject').
@@ -614,8 +617,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         onerror: reportError
     });
     if (responseMode === 'json') {
-        // eslint-disable-next-line no-console
-        console.warn(
+        logger.warn?.(
             "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; " +
                 'other notifications emitted before a result are dropped.'
         );
