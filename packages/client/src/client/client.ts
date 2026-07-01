@@ -2442,7 +2442,9 @@ export class Client extends Protocol<ClientContext> {
         const filtered = result.tools.filter(tool => {
             const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
             if (!scan.valid) {
-                console.warn(`[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`);
+                this._logger.warn?.(
+                    `[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`
+                );
                 return false;
             }
             return true;
