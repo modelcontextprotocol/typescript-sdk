@@ -74,6 +74,35 @@ describe('inputRequired() builder', () => {
         });
     });
 
+    test('elicit drops annotation-only metadata from Standard Schema properties', () => {
+        const request = inputRequired.elicit({
+            message: 'Name?',
+            requestedSchema: z.object({
+                name: z.string().meta({
+                    title: 'Name',
+                    examples: ['Ada Lovelace'],
+                    deprecated: false,
+                    readOnly: true,
+                    'x-ui-order': 1
+                })
+            })
+        });
+
+        expect(request).toEqual({
+            method: 'elicitation/create',
+            params: {
+                mode: 'form',
+                message: 'Name?',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: { name: { type: 'string', title: 'Name' } },
+                    required: ['name']
+                }
+            }
+        });
+    });
+
     test('elicit rejects non-object Standard Schema roots as invalid elicitation params', () => {
         expect(() =>
             inputRequired.elicit({

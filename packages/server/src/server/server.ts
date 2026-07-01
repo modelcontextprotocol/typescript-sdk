@@ -1136,6 +1136,18 @@ export class Server extends Protocol<ServerContext> {
         params: ElicitInputFormParams<Schema>,
         options?: RequestOptions
     ): Promise<ElicitInputResult<Schema>>;
+    /**
+     * Creates an elicitation request for the given parameters.
+     * For backwards compatibility, `mode` may be omitted for form requests and will default to `"form"`.
+     * @param params The parameters for the elicitation request.
+     * @param options Optional request options.
+     * @returns The result of the elicitation request.
+     *
+     * @deprecated Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip)
+     * instead. The 2025 push-style server-to-client request model is replaced by input_required
+     * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
+     * legacy path.
+     */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
     async elicitInput(
         params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
