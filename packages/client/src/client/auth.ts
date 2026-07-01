@@ -447,13 +447,16 @@ export interface OAuthClientProvider {
 
     /**
      * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
-     * discovery. Providers can persist this state to avoid redundant discovery requests
-     * on subsequent {@linkcode auth} calls.
+     * discovery. Providers can persist this state so ordinary subsequent
+     * {@linkcode auth} calls can reuse discovery results without repeating the
+     * RFC 9728 / AS metadata probes.
      *
      * This state can also be provided out-of-band (e.g., from a previous session or
      * external configuration) to bootstrap the OAuth flow without discovery.
      *
-     * Called by {@linkcode auth} after successful discovery.
+     * Called by {@linkcode auth} after successful discovery, including when a fresh
+     * `WWW-Authenticate: Bearer ... resource_metadata="..."` challenge causes cached
+     * discovery to be refreshed.
      *
      * MUST persist with the same durability as `codeVerifier` (survives the redirect
      * round-trip).
@@ -463,13 +466,17 @@ export interface OAuthClientProvider {
     /**
      * Returns previously saved discovery state, or `undefined` if none is cached.
      *
-     * When available, {@linkcode auth} restores the discovery state (authorization server
-     * URL, resource metadata, etc.) instead of performing RFC 9728 discovery, reducing
-     * latency on subsequent calls.
+     * When available, {@linkcode auth} normally restores the discovery state
+     * (authorization server URL, resource metadata, etc.) instead of performing
+     * RFC 9728 discovery, reducing latency on subsequent calls.
      *
-     * Hosts should call {@linkcode invalidateCredentials} with scope `'discovery'`
-     * on repeated 401s so a changed `authorization_servers` list is picked up; the
-     * SDK does not invoke that scope itself.
+     * A non-code-exchange {@linkcode auth} call that carries a fresh
+     * `WWW-Authenticate` `resource_metadata` challenge may refresh cached discovery
+     * before selecting the authorization server. If that refreshed metadata names a
+     * different authorization server, the SDK invalidates the stale tokens/client
+     * credentials it owns and re-registers as needed. Hosts may still call
+     * {@linkcode invalidateCredentials} with scope `'discovery'` when they know the
+     * persisted discovery document itself should be discarded.
      *
      * MUST persist with the same durability as `codeVerifier` (survives the redirect
      * round-trip).
@@ -481,8 +488,10 @@ export interface OAuthClientProvider {
  * Discovery state that can be persisted across sessions by an {@linkcode OAuthClientProvider}.
  *
  * Contains the results of RFC 9728 protected resource metadata discovery and
- * authorization server metadata discovery. Persisting this state avoids
- * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
+ * authorization server metadata discovery. Persisting this state lets ordinary
+ * subsequent {@linkcode auth} calls avoid redundant discovery HTTP requests; fresh
+ * `WWW-Authenticate` resource metadata challenges can still ask {@linkcode auth} to
+ * refresh the state before comparing authorization servers.
  */
 // TODO: Consider adding `authorizationServerMetadataUrl` to capture the exact well-known URL
 // at which authorization server metadata was discovered. This would require
@@ -932,6 +941,15 @@ export interface AuthOptions {
     scope?: string;
     /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
     resourceMetadataUrl?: URL;
+    /**
+     * Whether a provided {@linkcode resourceMetadataUrl} is a fresh challenge signal
+     * that should refresh cached discovery before authorization-server comparison.
+     *
+     * Defaults to `true` when `resourceMetadataUrl` is provided. Transports that are
+     * merely carrying a previously observed resource metadata URL, rather than one
+     * from the current response, set this to `false` so cached discovery can be reused.
+     */
+    refreshCachedDiscovery?: boolean;
     /** Custom `fetch` implementation. */
     fetchFn?: FetchLike;
     /**
@@ -1035,6 +1053,7 @@ async function authInternal(
         iss,
         scope,
         resourceMetadataUrl,
+        refreshCachedDiscovery,
         fetchFn,
         skipIssuerMetadataValidation,
         forceReauthorization
@@ -1063,7 +1082,10 @@ async function authInternal(
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
     const shouldRefreshCachedDiscovery =
-        authorizationCode === undefined && cachedState?.authorizationServerUrl !== undefined && resourceMetadataUrl !== undefined;
+        authorizationCode === undefined &&
+        cachedState?.authorizationServerUrl !== undefined &&
+        resourceMetadataUrl !== undefined &&
+        refreshCachedDiscovery !== false;
 
     if (cachedState?.authorizationServerUrl && !shouldRefreshCachedDiscovery) {
         // Restore discovery state from cache
