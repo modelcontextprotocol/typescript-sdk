@@ -5140,7 +5140,7 @@ describe('SEP-2352: authorization server binding', () => {
 
     function mockDiscoveryAndRegistration(options: {
         resourceMetadata: { resource: string; authorization_servers: string[] };
-        authMetadata: { issuer: string };
+        authMetadata: { issuer: string; client_id_metadata_document_supported?: boolean };
         registeredClient?: { client_id: string; client_secret?: string };
         tokens?: OAuthTokens;
     }): void {
@@ -5456,7 +5456,7 @@ describe('SEP-2352: authorization server binding', () => {
 
         mockDiscoveryAndRegistration({
             resourceMetadata: newResourceMetadata,
-            authMetadata: newAuthMetadata
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true }
         });
 
         const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
@@ -5474,6 +5474,105 @@ describe('SEP-2352: authorization server binding', () => {
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://new-auth.example.com');
         expect(redirectUrl.searchParams.get('client_id')).toBe(clientMetadataUrl);
+    });
+
+    it('falls back to DCR for URL-based client IDs when the new AS does not advertise CIMD support', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        let clientInformation: StoredOAuthClientInformation | undefined = {
+            client_id: clientMetadataUrl,
+            issuer: oldAuthServerUrl
+        };
+        const invalidateCredentials = vi.fn();
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-dcr-client-id', client_secret: 'new-dcr-client-secret' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-dcr-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(1);
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-dcr-client-id');
+    });
+
+    it('does not restamp URL-based client IDs on an authorization-code exchange after AS mismatch', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        const saveClientInformation = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => ({
+                client_id: clientMetadataUrl,
+                issuer: oldAuthServerUrl
+            })),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials: vi.fn()
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        await expect(
+            auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'returned-code'
+            })
+        ).rejects.toThrow('Existing OAuth client information is required when exchanging an authorization code');
+
+        expect(saveClientInformation).not.toHaveBeenCalled();
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(0);
     });
 
     it('refreshes cached discovery from an explicit resource metadata challenge before comparing authorization servers', async () => {
@@ -6040,7 +6139,7 @@ describe('SEP-2352: authorization server binding', () => {
 
         mockDiscoveryAndRegistration({
             resourceMetadata: newResourceMetadata,
-            authMetadata: newAuthMetadata
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true }
         });
 
         const result = await auth(provider, { serverUrl: 'https://resource.example.com' });

@@ -1202,6 +1202,7 @@ async function authInternal(
     // found (legacy fallback) the discovery URL itself is the only identifier available.
     const issuer = metadata?.issuer ?? String(authorizationServerUrl);
     const infoCtx: OAuthClientInformationContext = { issuer };
+    const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
 
     // SEP-2352 callback-leg gate. Stored credentials are protected structurally by the
     // issuer stamp, but the in-flight `authorization_code` + PKCE `code_verifier` are not
@@ -1235,11 +1236,13 @@ async function authInternal(
         await provider.invalidateCredentials?.('tokens');
 
         const staleClientInformation = await Promise.resolve(provider.clientInformation());
+        const staleClientIsPortableAtCurrentAs =
+            staleClientInformation !== undefined && isHttpsUrl(staleClientInformation.client_id) && supportsUrlBasedClientId;
         // CIMD (URL-based) client IDs are portable across authorization servers
         // (SEP-991/SEP-2352) — no client invalidation or re-registration is needed.
         // During code exchange, keep the client registered by the redirect flow
         // that produced this authorization code.
-        if (staleClientInformation && !isHttpsUrl(staleClientInformation.client_id) && authorizationCode === undefined) {
+        if (staleClientInformation && !staleClientIsPortableAtCurrentAs && authorizationCode === undefined) {
             await provider.invalidateCredentials?.('client');
         }
     }
@@ -1284,6 +1287,8 @@ async function authInternal(
         rawClientInfo.issuer === undefined &&
         !isHttpsUrl(rawClientInfo.client_id);
     const restampPortableClientInfo =
+        authorizationCode === undefined &&
+        supportsUrlBasedClientId &&
         rawClientInfo !== undefined &&
         isHttpsUrl(rawClientInfo.client_id) &&
         (rawClientInfo.issuer === undefined || !issuersMatch(rawClientInfo.issuer, issuer));
@@ -1316,7 +1321,6 @@ async function authInternal(
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
         }
 
-        const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
         const clientMetadataUrl = provider.clientMetadataUrl;
 
         if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
