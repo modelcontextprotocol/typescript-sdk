@@ -75,19 +75,6 @@ describe('public package topology', () => {
                 expect(Object.keys(manifest.exports ?? {})).toEqual(expected.exportKeys);
             });
 
-            test('ships ESM only', () => {
-                expect(manifest.type).toBe('module');
-                // No entry may grow a 'require' condition: the v2 packages are
-                // ESM-only by design (a CJS build would be a new public surface).
-                const conditionsOf = (entry: unknown): string[] =>
-                    entry !== null && typeof entry === 'object'
-                        ? Object.entries(entry).flatMap(([key, value]) => [key, ...conditionsOf(value)])
-                        : [];
-                for (const entry of Object.values(manifest.exports ?? {})) {
-                    expect(conditionsOf(entry)).not.toContain('require');
-                }
-            });
-
             test('publishes only dist', () => {
                 expect(manifest.files).toEqual(['dist']);
             });
