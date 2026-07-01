@@ -1,5 +1,6 @@
 ---
 shape: how-to
+description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-tool scopes.'
 ---
 # Require authorization
 

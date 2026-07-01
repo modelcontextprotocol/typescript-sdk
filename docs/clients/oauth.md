@@ -1,5 +1,6 @@
 ---
 shape: how-to
+description: 'Sign an end user in from a client you build with the OAuth authorization-code flow.'
 ---
 # Authenticate a user with OAuth
 
