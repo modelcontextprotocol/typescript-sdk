@@ -35,7 +35,6 @@ import type {
     MessageExtraInfo,
     NonCompleteResultFlow,
     NotificationMethod,
-    Prompt,
     ProtocolEra,
     ProtocolOptions,
     ReadResourceRequest,
@@ -43,7 +42,6 @@ import type {
     RequestMethod,
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
-    Resource,
     Result,
     ServerCapabilities,
     StandardSchemaV1,
@@ -728,45 +726,6 @@ export class Client extends Protocol<ClientContext> {
                 return result.resources;
             });
         }
-    }
-
-    private async _listAllTools(): Promise<Tool[]> {
-        const tools: Tool[] = [];
-        let cursor: string | undefined;
-
-        do {
-            const result = await this.listTools(cursor === undefined ? undefined : { cursor });
-            tools.push(...result.tools);
-            cursor = result.nextCursor;
-        } while (cursor !== undefined);
-
-        return tools;
-    }
-
-    private async _listAllPrompts(): Promise<Prompt[]> {
-        const prompts: Prompt[] = [];
-        let cursor: string | undefined;
-
-        do {
-            const result = await this.listPrompts(cursor === undefined ? undefined : { cursor });
-            prompts.push(...result.prompts);
-            cursor = result.nextCursor;
-        } while (cursor !== undefined);
-
-        return prompts;
-    }
-
-    private async _listAllResources(): Promise<Resource[]> {
-        const resources: Resource[] = [];
-        let cursor: string | undefined;
-
-        do {
-            const result = await this.listResources(cursor === undefined ? undefined : { cursor });
-            resources.push(...result.resources);
-            cursor = result.nextCursor;
-        } while (cursor !== undefined);
-
-        return resources;
     }
 
     /**

@@ -52,11 +52,9 @@ function createDefaultAjvInstance(): AjvLike {
  *
  * Default validates as **JSON Schema 2020-12** (SEP-1613). Schemas declaring a different
  * `$schema` are rejected with a plain `Error`; pass a pre-configured Ajv instance to validate
- * other dialects. The SDK bundles ajv internally but does not re-export `Ajv2020` (its type
- * graph tips downstream declaration bundling — see #2339). To construct a custom 2020-12
- * instance, add `ajv` to your own dependencies (matching the SDK's pinned version) and
- * `import { Ajv2020 } from 'ajv/dist/2020.js'` — `new Ajv(...)` is the draft-07 class and would
- * silently downgrade dialect.
+ * other dialects. The SDK re-exports the bundled `Ajv2020`, `Ajv`, and `addFormats` symbols for
+ * custom validator construction. Use `Ajv2020` for 2020-12 schemas; `new Ajv(...)` is the draft-07
+ * class and would silently downgrade dialect.
  *
  * @example Use with default configuration
  * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_default"
@@ -155,11 +153,10 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
  * "no schema with key or ref …" engine error; omitting `addFormats` silently drops `format`
  * validation that the v1 default had).
  *
- * The SDK bundles ajv internally but does not re-export `Ajv2020` (its type graph tips downstream
- * declaration bundling — see #2339). To construct a custom 2020-12 instance, add `ajv` to your own
- * dependencies (matching the SDK's pinned version) and `import { Ajv2020 } from 'ajv/dist/2020.js'`.
+ * `Ajv2020` is also re-exported below for consumers constructing custom 2020-12 validators.
  */
 export { Ajv } from 'ajv';
+/** JSON Schema 2020-12 AJV class, re-exported for custom default-dialect validators. */
 export { Ajv2020 } from 'ajv/dist/2020.js';
 /** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
 export { addFormats };

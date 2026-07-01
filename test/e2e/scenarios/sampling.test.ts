@@ -215,8 +215,8 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
     });
     const structuredContent = asSamplingPassthroughResult(r.structuredContent);
 
-    expect(r.structuredContent).toMatchObject({ ok: false, code: -1 });
-    expect((r.structuredContent as { message?: unknown }).message).toMatch(/User rejected sampling request/);
+    expect(structuredContent).toMatchObject({ ok: false, code: -1 });
+    expect(structuredContent.message).toMatch(/User rejected sampling request/);
 });
 
 verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
@@ -354,8 +354,8 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
     });
     const structuredContent = asSamplingPassthroughResult(r.structuredContent);
 
-    expect(r.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
-    expect((r.structuredContent as { message?: unknown }).message).toMatch(/tool.?result/i);
+    expect(structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
+    expect(structuredContent.message).toMatch(/tool.?result/i);
 });
 
 verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
@@ -440,8 +440,8 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
     const withToolsContent = asSamplingPassthroughResult(withTools.structuredContent);
 
-    expect(withTools.structuredContent).toMatchObject({ ok: false });
-    expect((withTools.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(withToolsContent).toMatchObject({ ok: false });
+    expect(withToolsContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const withChoice = await client.callTool({
@@ -450,8 +450,8 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
     const withChoiceContent = asSamplingPassthroughResult(withChoice.structuredContent);
 
-    expect(withChoice.structuredContent).toMatchObject({ ok: false });
-    expect((withChoice.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(withChoiceContent).toMatchObject({ ok: false });
+    expect(withChoiceContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const empty = await client.callTool({
@@ -460,8 +460,8 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
     const emptyContent = asSamplingPassthroughResult(empty.structuredContent);
 
-    expect(empty.structuredContent).toMatchObject({ ok: false });
-    expect((empty.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(emptyContent).toMatchObject({ ok: false });
+    expect(emptyContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 });
 
