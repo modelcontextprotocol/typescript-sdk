@@ -158,7 +158,7 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         const response = responses.find(r => 'id' in r && r.id === 2) as {
             result?: { content?: Array<{ type: string; text?: string }>; structuredContent?: unknown };
         };
-        expect(response.result?.structuredContent).toEqual([1, 2, 3]);
+        expect(response.result?.structuredContent).toEqual({ result: [1, 2, 3] });
         expect(response.result?.content).toEqual([{ type: 'text', text: '[1,2,3]' }]);
 
         await server.close();
