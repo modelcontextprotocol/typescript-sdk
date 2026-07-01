@@ -522,7 +522,7 @@ function isIssParameterSupported(metadata: AuthorizationServerMetadata | undefin
     return metadata?.authorization_response_iss_parameter_supported === true;
 }
 
-type AuthorizationResponseIssuerValidation = {
+export type AuthorizationResponseIssuerValidation = {
     /** The form-urldecoded `iss` query parameter from the authorization callback, or `undefined` if absent. */
     iss: string | null | undefined;
     /** The `issuer` value from the authorization server's validated metadata document. */
@@ -531,7 +531,7 @@ type AuthorizationResponseIssuerValidation = {
     issParameterSupported: boolean;
 };
 
-type AuthorizationResponseIssuerMetadata = {
+export type AuthorizationResponseIssuerMetadata = {
     issuer: string;
     authorization_response_iss_parameter_supported?: boolean;
 };
@@ -551,13 +551,18 @@ export function validateAuthorizationResponseIssuer(
     argsOrMetadata: AuthorizationResponseIssuerValidation | AuthorizationResponseIssuerMetadata | undefined,
     explicitIss?: string | null
 ): void {
-    const { iss, expectedIssuer, issParameterSupported } = isAuthorizationResponseIssuerValidation(argsOrMetadata)
-        ? argsOrMetadata
-        : {
-              iss: explicitIss,
-              expectedIssuer: argsOrMetadata?.issuer,
-              issParameterSupported: argsOrMetadata?.authorization_response_iss_parameter_supported === true
-          };
+    const useArgsObject = arguments.length < 2 && isAuthorizationResponseIssuerValidation(argsOrMetadata);
+    const { iss, expectedIssuer, issParameterSupported } = (() => {
+        if (useArgsObject) {
+            return argsOrMetadata as AuthorizationResponseIssuerValidation;
+        }
+        const metadata = argsOrMetadata as AuthorizationResponseIssuerMetadata | undefined;
+        return {
+            iss: explicitIss,
+            expectedIssuer: metadata?.issuer,
+            issParameterSupported: metadata?.authorization_response_iss_parameter_supported === true
+        };
+    })();
 
     if (iss === undefined) {
         // Legacy callers did not provide authorization-response parameters at all.
@@ -994,18 +999,23 @@ function normalizeDiscoveredIssuerIdentifier(issuer: string | URL, label: string
     return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }
 
+function rawIssuerIdentifier(issuer: string | URL): string {
+    return typeof issuer === 'string' ? issuer : issuer.href;
+}
+
+function metadataIssuerMatches(expectedIssuer: string, actualIssuer: string): boolean {
+    return actualIssuer === expectedIssuer || (expectedIssuer.endsWith('/') && actualIssuer === expectedIssuer.slice(0, -1));
+}
+
 function validateAuthorizationServerMetadataIssuer(metadata: { issuer: string } | undefined, authorizationServerUrl: string | URL): void {
     if (!metadata) {
         return;
     }
 
-    const expectedIssuer = normalizeDiscoveredIssuerIdentifier(authorizationServerUrl, 'Authorization server URL');
-    const actualIssuer = normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
+    const expectedIssuer = rawIssuerIdentifier(authorizationServerUrl);
 
-    if (actualIssuer !== expectedIssuer) {
-        throw new Error(
-            `Authorization server metadata issuer does not match the expected issuer: expected ${expectedIssuer}, got ${metadata.issuer} (RFC 8414 Section 3.3)`
-        );
+    if (!metadataIssuerMatches(expectedIssuer, metadata.issuer)) {
+        throw new IssuerMismatchError('metadata', expectedIssuer, metadata.issuer);
     }
 }
 
@@ -1162,6 +1172,7 @@ async function authInternal(
     let authorizationServerUrl: string | URL | undefined;
     let metadata: AuthorizationServerMetadata | undefined;
     let freshDiscoveryState: OAuthDiscoveryState | undefined;
+    let cachedStateWasStaleLegacyFallback = false;
 
     // If resourceMetadataUrl is not provided, try to load it from cached state
     // This handles browser redirects where the URL was saved before navigation
@@ -1195,6 +1206,7 @@ async function authInternal(
 
                     await provider.invalidateCredentials?.('discovery');
                     useCachedDiscoveryState = false;
+                    cachedStateWasStaleLegacyFallback = true;
                 }
             }
         }
@@ -1312,7 +1324,12 @@ async function authInternal(
     // the (legacy) warn-and-proceed behavior.
     if (authorizationCode !== undefined) {
         let recordedIssuer = cachedState?.authorizationServerMetadata?.issuer ?? cachedState?.authorizationServerUrl;
-        if (cachedState?.authorizationServerMetadata && cachedState.authorizationServerUrl && !skipIssuerMetadataValidation) {
+        if (
+            cachedState?.authorizationServerMetadata &&
+            cachedState.authorizationServerUrl &&
+            !skipIssuerMetadataValidation &&
+            !cachedStateWasStaleLegacyFallback
+        ) {
             try {
                 validateAuthorizationServerMetadataIssuer(cachedState.authorizationServerMetadata, cachedState.authorizationServerUrl);
             } catch {
@@ -1432,6 +1449,7 @@ async function authInternal(
 
         const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
+            issuer,
             resource,
             authorizationCode,
             iss,
@@ -2421,6 +2439,7 @@ export async function fetchToken(
     authorizationServerUrl: string | URL,
     {
         metadata,
+        issuer,
         resource,
         authorizationCode,
         iss,
@@ -2428,6 +2447,11 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
+        /**
+         * Canonical issuer key for provider persistence callbacks. Defaults to
+         * `metadata.issuer` when available, otherwise `authorizationServerUrl`.
+         */
+        issuer?: string;
         resource?: URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
@@ -2471,7 +2495,7 @@ export async function fetchToken(
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
-    const clientInformation = await provider.clientInformation({ issuer: metadata?.issuer ?? String(authorizationServerUrl) });
+    const clientInformation = await provider.clientInformation({ issuer: issuer ?? metadata?.issuer ?? String(authorizationServerUrl) });
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,

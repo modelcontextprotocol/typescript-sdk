@@ -849,7 +849,7 @@ export class StreamableHTTPClientTransport implements Transport {
      * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
      *   present. Pass `null` to assert that the callback was inspected and carried no `iss`;
      *   when the authorization server advertises `authorization_response_iss_parameter_supported:
-     *   true`, that observed absence is rejected with {@linkcode IssuerMismatchError}. Omit this
+     *   true`, that observed absence is rejected with `IssuerMismatchError`. Omit this
      *   argument, or pass `undefined`, only when the caller does not have the full callback
      *   parameters; that preserves the legacy `finishAuth(code)` behavior and skips RFC 9207
      *   authorization-response validation. Non-null values are validated against the recorded

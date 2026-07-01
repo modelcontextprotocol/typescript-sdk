@@ -5439,6 +5439,17 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
         it('rejects when an iss is present but no metadata was recorded to validate against', () => {
             expect(() => validateAuthorizationResponseIssuer(undefined, issuer)).toThrow(/no authorization server metadata was recorded/);
         });
+
+        it('uses the metadata overload when loose metadata includes an expectedIssuer extension key', () => {
+            const metadata = {
+                issuer,
+                authorization_response_iss_parameter_supported: true,
+                expectedIssuer: 'https://extension.example.com'
+            };
+
+            expect(() => validateAuthorizationResponseIssuer(metadata, 'https://attacker.example.com')).toThrow(IssuerMismatchError);
+            expect(() => validateAuthorizationResponseIssuer(metadata, null)).toThrow(/did not include an iss parameter/);
+        });
     });
 
     describe('auth() with an authorization code', () => {
@@ -5549,7 +5560,7 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
                     authorizationCode: 'code123',
                     iss: 'https://attacker.example.com'
                 })
-            ).rejects.toThrow(/Authorization server metadata issuer does not match the expected issuer/);
+            ).rejects.toMatchObject({ name: 'IssuerMismatchError', kind: 'metadata' });
 
             expect(tokenEndpointCalls()).toHaveLength(0);
             expect(provider.saveTokens).not.toHaveBeenCalled();
@@ -5563,8 +5574,17 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
                 token_endpoint: 'https://auth.example.com/oauth/token'
             };
             const invalidateCredentials = vi.fn();
+            const clientInformation = vi.fn(async (ctx?: { issuer?: string }) =>
+                ctx?.issuer === 'https://resource.example.com/'
+                    ? {
+                          client_id: 'test-client-id',
+                          client_secret: 'test-client-secret'
+                      }
+                    : undefined
+            );
             const provider: OAuthClientProvider = {
                 ...createMockProvider(legacyAuthMetadata),
+                clientInformation,
                 discoveryState: vi.fn().mockResolvedValue({
                     authorizationServerUrl: 'https://resource.example.com/',
                     authorizationServerMetadata: legacyAuthMetadata
@@ -5581,6 +5601,7 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
             expect(invalidateCredentials).not.toHaveBeenCalled();
             expect(tokenEndpointCalls()).toHaveLength(1);
             expect(tokenEndpointCalls()[0]?.[0]?.toString()).toBe(legacyAuthMetadata.token_endpoint);
+            expect(clientInformation).not.toHaveBeenCalledWith({ issuer: legacyAuthMetadata.issuer });
             expect(provider.saveTokens).toHaveBeenCalled();
         });
 

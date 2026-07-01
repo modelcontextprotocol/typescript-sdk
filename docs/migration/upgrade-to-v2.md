@@ -64,8 +64,8 @@ The codemod ([`@modelcontextprotocol/codemod`](https://github.com/modelcontextpr
 mechanically applies every rename whose mapping is fixed. The mappings are the
 **source of truth** — they live in the codemod package and are not reproduced here:
 
-| Mapping                                                                                   | Source file                                                                                                       |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Mapping                                                                                   | Source file                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@modelcontextprotocol/sdk/...` import paths → v2 packages                                | [`mappings/importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)                   |
 | Symbol renames (`McpError` → `ProtocolError`, `JSONRPCError` → `JSONRPCErrorResponse`, …) | [`mappings/symbolMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts)                   |
 | `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
@@ -1150,8 +1150,9 @@ with or without a pin) the connect-time 401 currently surfaces wrapped as
 #### `auth()` options are now `AuthOptions`
 
 The inline options object on `auth()` is now the named `AuthOptions` type. New fields:
-`iss?: string` (the form-urldecoded `iss` from the authorization callback — pass it
-alongside `authorizationCode` for RFC 9207 validation), `skipIssuerMetadataValidation?:
+`iss?: string | null` (the form-urldecoded `iss` from the authorization callback — pass it
+alongside `authorizationCode` for RFC 9207 validation, or pass `null` when the callback was
+inspected and had no `iss`), `skipIssuerMetadataValidation?:
 boolean` (security-weakening opt-out of the RFC 8414 §3.3 issuer-echo check), and
 `forceReauthorization?: boolean` (skip the refresh-token branch — set by the transport's
 step-up path; hosts driving step-up themselves set it under the same condition).
@@ -1160,9 +1161,11 @@ step-up path; hosts driving step-up themselves set it under the same condition).
 
 `transport.finishAuth()` and `auth()` now validate `iss` from the authorization callback
 against the issuer recorded from validated AS metadata. A mismatched `iss` throws
-`IssuerMismatchError` before the code is exchanged regardless of advertised support; a
-**missing** `iss` throws only when the AS advertised
-`authorization_response_iss_parameter_supported: true`.
+`IssuerMismatchError` before the code is exchanged regardless of advertised support. An
+inspected missing `iss` (`URLSearchParams` without `iss`, or `iss: null`) throws only when
+the AS advertised `authorization_response_iss_parameter_supported: true`; omitting `iss`
+entirely preserves legacy `finishAuth(code)` / `auth({ authorizationCode })` behavior and
+skips RFC 9207 authorization-response validation.
 
 Pass the callback URL's `URLSearchParams` so the SDK can read `iss` alongside `code`.
 The SDK does **not** validate `state`; compare it yourself before calling `finishAuth`:
