@@ -6,3 +6,5 @@ Accumulate scopes (union) when re-authorizing after a `403 insufficient_scope` s
 previously granted scopes (from stored tokens), previously requested scopes, protected resource metadata scopes, provider-configured default scopes, and the newly challenged scopes, using the existing exported `computeScopeUnion` helper.
 
 The 401 re-authorization path now preserves accumulated `scope` and `resourceMetadataUrl` context too: `UnauthorizedContext` exposes optional `scope` / `resourceMetadataUrl` fields for custom `AuthProvider.onUnauthorized` handlers, and `handleOAuthUnauthorized` folds that context into the next `auth()` call.
+
+The `withOAuth` fetch middleware likewise unions the stored token scope with the 401 challenge scope when re-authenticating.
