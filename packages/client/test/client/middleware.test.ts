@@ -148,6 +148,7 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com',
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
+            forceReauthorization: true,
             fetchFn: mockFetch
         });
 
@@ -188,6 +189,7 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com',
             resourceMetadataUrl: undefined,
             scope: 'read write admin',
+            forceReauthorization: true,
             fetchFn: mockFetch
         });
     });
@@ -231,6 +233,7 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com', // Should be extracted from request URL
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
+            forceReauthorization: true,
             fetchFn: mockFetch
         });
 
@@ -945,6 +948,7 @@ describe('Integration Tests', () => {
             serverUrl: 'https://mcp-server.example.com',
             resourceMetadataUrl: new URL('https://auth.example.com/.well-known/oauth-protected-resource'),
             scope: 'read',
+            forceReauthorization: true,
             fetchFn: mockFetch
         });
     });
