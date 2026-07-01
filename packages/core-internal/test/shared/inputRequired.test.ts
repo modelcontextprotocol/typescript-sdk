@@ -8,6 +8,7 @@ import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired';
+import { ProtocolError } from '../../src/types/errors';
 import { isInputRequiredResult } from '../../src/types/guards';
 import { validateStandardSchema } from '../../src/util/standardSchema';
 
@@ -50,6 +51,42 @@ describe('inputRequired() builder', () => {
             params: { messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }], maxTokens: 5 }
         });
         expect(inputRequired.listRoots()).toEqual({ method: 'roots/list' });
+    });
+
+    test('elicit converts Standard Schema requestedSchema to elicitation JSON Schema', () => {
+        const request = inputRequired.elicit({
+            message: 'Email?',
+            requestedSchema: z.object({ email: z.email() })
+        });
+
+        expect(request).toEqual({
+            method: 'elicitation/create',
+            params: {
+                mode: 'form',
+                message: 'Email?',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: { email: { type: 'string', format: 'email' } },
+                    required: ['email']
+                }
+            }
+        });
+    });
+
+    test('elicit rejects non-object Standard Schema roots as invalid elicitation params', () => {
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.string()
+            })
+        ).toThrow(ProtocolError);
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.string()
+            })
+        ).toThrow(/Elicitation requestedSchema must describe an object/);
     });
 });
 
