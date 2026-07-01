@@ -2289,47 +2289,6 @@ export async function fetchToken(
 }
 
 /**
- * Infers the OIDC `application_type` for dynamic client registration from a
- * client's redirect URIs (SEP-837).
- *
- * Returns `'native'` when every redirect URI is either an HTTP loopback address
- * (`localhost`, `127.0.0.1`, or `[::1]`) or uses a custom non-http(s) scheme
- * (e.g. `myapp://callback`); otherwise returns `'web'`.
- *
- * OIDC-based authorization servers default `application_type` to `'web'`, which
- * rejects loopback/custom-scheme redirect URIs — so native apps must declare
- * themselves explicitly. Invalid or empty inputs conservatively yield `'web'`,
- * matching the OIDC default.
- */
-function inferApplicationType(redirectUris: string[]): 'web' | 'native' {
-    if (redirectUris.length === 0) {
-        return 'web';
-    }
-
-    return redirectUris.every(uri => isNativeRedirectUri(uri)) ? 'native' : 'web';
-}
-
-function isNativeRedirectUri(uri: string): boolean {
-    let url: URL;
-    try {
-        url = new URL(uri);
-    } catch {
-        return false;
-    }
-
-    if (url.protocol === 'http:') {
-        return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
-    }
-
-    if (url.protocol === 'https:') {
-        return false;
-    }
-
-    // Custom (non-http/https) schemes are used by native apps.
-    return true;
-}
-
-/**
  * Performs OAuth 2.0 Dynamic Client Registration according to
  * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
  *

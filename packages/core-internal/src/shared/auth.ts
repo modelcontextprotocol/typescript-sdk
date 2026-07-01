@@ -205,15 +205,6 @@ export const OAuthClientMetadataSchema = z
         token_endpoint_auth_method: z.string().optional(),
         grant_types: z.array(z.string()).optional(),
         response_types: z.array(z.string()).optional(),
-        /**
-         * OIDC Dynamic Client Registration `application_type`. MCP clients MUST set
-         * this to `'native'` or `'web'` when registering (SEP-837); the SDK defaults
-         * it from `redirect_uris` when omitted. Typed as `string` (not an enum) so
-         * that parsing an authorization server's registration response — which under
-         * RFC 7591 may echo extension values — never rejects the document on this
-         * field alone.
-         */
-        application_type: z.string().optional(),
         client_name: z.string().optional(),
         client_uri: SafeUrlSchema.optional(),
         logo_uri: OptionalSafeUrlSchema,
