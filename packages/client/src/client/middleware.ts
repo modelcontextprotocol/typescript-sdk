@@ -63,7 +63,7 @@ export const withOAuth =
                     // Use provided baseUrl or extract from request URL
                     const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
                     const unionScope = computeScopeUnion(lastTokenScope, scope);
-                    const forceReauthorization = isStrictScopeSuperset(unionScope, lastTokenScope);
+                    const forceReauthorization = lastTokenScope !== undefined && isStrictScopeSuperset(unionScope, lastTokenScope);
 
                     const result = await auth(provider, {
                         serverUrl,
