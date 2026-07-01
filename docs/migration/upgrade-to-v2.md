@@ -64,8 +64,8 @@ The codemod ([`@modelcontextprotocol/codemod`](https://github.com/modelcontextpr
 mechanically applies every rename whose mapping is fixed. The mappings are the
 **source of truth** — they live in the codemod package and are not reproduced here:
 
-| Mapping                                                                                   | Source file                                                                                                       |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Mapping                                                                                   | Source file                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@modelcontextprotocol/sdk/...` import paths → v2 packages                                | [`mappings/importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)                   |
 | Symbol renames (`McpError` → `ProtocolError`, `JSONRPCError` → `JSONRPCErrorResponse`, …) | [`mappings/symbolMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts)                   |
 | `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
@@ -1446,17 +1446,27 @@ declaring a different `$schema` are rejected with `Error("…unsupported dialect
 
 `CallToolResult.structuredContent` is widened from `{ [k: string]: unknown }` to
 `unknown` (SEP-2106 lifts the `type:"object"` root restriction). The presence check is
-`!== undefined`, not falsy (`null` / `0` / `false` / `""` are legal values now). External
-`$ref` is not dereferenced (unchanged from v1; Ajv throws `MissingRefError` at compile,
-surfaced per-tool on `callTool`).
+`!== undefined`, not falsy (`null` / `0` / `false` / `""` are legal values now). Server
+handlers registered with an `outputSchema` are now typed against that schema: their
+returned `structuredContent` must be statically assignable to the inferred output type
+(or the result must be an error result with literal `isError: true`).
 
-| v1 pattern                                                         | Mechanical fix                                                                                                                                                                                         |
-| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `result.structuredContent.<key>` / `result.structuredContent?.<k>` | narrow first: `const sc = result.structuredContent; if (typeof sc === 'object' && sc !== null && '<k>' in sc) { sc.<k> }`                                                                              |
-| `if (!result.structuredContent)`                                   | `if (result.structuredContent === undefined)`                                                                                                                                                          |
-| relying on default `Ajv` being draft-07                            | `new AjvJsonSchemaValidator(new Ajv({ strict: false, validateFormats: true, validateSchema: false, allErrors: true }))` (import `Ajv`, `addFormats`, `AjvJsonSchemaValidator` from `…/validators/ajv`) |
-| draft-07 idioms via `fromJsonSchema(schema)`                       | `fromJsonSchema(schema, new AjvJsonSchemaValidator(ajv))` — the `McpServer`/`Client` `jsonSchemaValidator` option does **not** reach `fromJsonSchema`-authored schemas                                 |
-| `outputSchema` / `inputSchema` with absolute-URI `$ref`            | inline under `$defs` and reference with `#/$defs/Name`                                                                                                                                                 |
+External `$ref` / `$dynamicRef` is rejected by the SDK safety guard instead of being
+dereferenced by the built-in validators; the same guard now applies to both the AJV and
+Cloudflare Workers defaults. It also rejects schemas deeper than 64 subschema levels or
+with more than 10,000 subschemas. To opt into external references, pre-resolve them with
+`resolveExternalSchemaRefs(schema, { allowlist })`; to own a different safety/dialect policy,
+pass a custom `jsonSchemaValidator` (or construct `AjvJsonSchemaValidator` with your own AJV
+engine, which bypasses the SDK guard).
+
+| v1 pattern                                                                                                                                                                        | Mechanical fix                                                                                                                                                                                         |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `result.structuredContent.<key>` / `result.structuredContent?.<k>`                                                                                                                | narrow first: `const sc = result.structuredContent; if (typeof sc === 'object' && sc !== null && '<k>' in sc) { sc.<k> }`                                                                              |
+| `if (!result.structuredContent)`                                                                                                                                                  | `if (result.structuredContent === undefined)`                                                                                                                                                          |
+| `registerTool(..., { outputSchema }, async () => ({ structuredContent: value }))` where `value` is `unknown` / `Record<string, unknown>` / otherwise wider than the schema output | narrow or annotate `value` to the schema output type before returning it; for failures return an error result with literal `isError: true`                                                             |
+| relying on default `Ajv` being draft-07                                                                                                                                           | `new AjvJsonSchemaValidator(new Ajv({ strict: false, validateFormats: true, validateSchema: false, allErrors: true }))` (import `Ajv`, `addFormats`, `AjvJsonSchemaValidator` from `…/validators/ajv`) |
+| draft-07 idioms via `fromJsonSchema(schema)`                                                                                                                                      | `fromJsonSchema(schema, new AjvJsonSchemaValidator(ajv))` — the `McpServer`/`Client` `jsonSchemaValidator` option does **not** reach `fromJsonSchema`-authored schemas                                 |
+| `outputSchema` / `inputSchema` with absolute-URI `$ref`                                                                                                                           | inline under `$defs` and reference with `#/$defs/Name`, or pre-resolve with `resolveExternalSchemaRefs(schema, { allowlist })`                                                                         |
 
 A tool may now register an `outputSchema` whose root is `type:"array"`, `type:"string"`,
 etc.; toward 2025-era clients the codec wraps it in a `{result:…}` envelope, and toward

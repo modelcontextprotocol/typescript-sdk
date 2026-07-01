@@ -313,7 +313,35 @@ describe('resolveExternalSchemaRefs', () => {
         });
 
         const defs = (resolved as Record<string, unknown>).$defs as Record<string, unknown>;
-        expect(defs.__externalRef_0).toEqual({ $ref: '#/$defs/__externalRef_1' });
+        expect(defs.__externalRef_0).toEqual({ type: 'string' });
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ a: 'one', b: 'two', c: 'three' }).valid).toBe(true);
+        expect(validate({ a: 'one', b: 2, c: 'three' }).valid).toBe(false);
+    });
+
+    it('keeps fragment refs valid when a preallocated slot dedupes to a canonical $id', async () => {
+        const schema: JsonSchemaType = {
+            type: 'object',
+            properties: {
+                a: { $ref: 'https://mirror.example.com/x.json#/$defs/Foo' },
+                b: { $ref: 'https://mirror.example.com/x.json#/$defs/Foo' },
+                c: { $ref: 'https://schemas.example.com/x.json#/$defs/Foo' }
+            }
+        };
+        const fetched = { $defs: { Foo: { type: 'string' } } };
+        const fetchImpl = fetchStub({
+            'https://mirror.example.com/x.json': { $id: 'https://schemas.example.com/x.json', ...fetched },
+            'https://schemas.example.com/x.json': fetched
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, {
+            allowlist: ['mirror.example.com', 'schemas.example.com'],
+            fetch: fetchImpl
+        });
+
+        const defs = (resolved as Record<string, unknown>).$defs as Record<string, { $defs?: unknown }>;
+        expect(defs.__externalRef_0?.$defs).toEqual({ Foo: { type: 'string' } });
         expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
         const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
         expect(validate({ a: 'one', b: 'two', c: 'three' }).valid).toBe(true);

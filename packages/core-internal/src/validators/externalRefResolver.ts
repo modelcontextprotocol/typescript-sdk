@@ -351,7 +351,11 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         const canonicalExisting = slotByBase.get(documentBase);
         if (canonicalExisting && canonicalExisting !== slot) {
             slotByBase.set(base, canonicalExisting);
-            bundle[slot] = { $ref: `#/$defs/${canonicalExisting}` };
+            // Sibling refs can already have been rewritten to this pre-dedupe slot, including
+            // fragment refs like `#/$defs/<slot>/$defs/Foo`. Keep that structural path valid.
+            void _schema;
+            const flattened = await rewrite(rest, `/$defs/${slot}`, documentBase);
+            bundle[slot] = flattened as Record<string, unknown>;
             return canonicalExisting;
         }
         slotByBase.set(documentBase, slot);
