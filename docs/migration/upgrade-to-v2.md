@@ -1217,9 +1217,11 @@ TLS; there is no opt-out. Storage confidentiality of `refresh_token` remains you
 
 `StreamableHTTPClientTransport` accepts `onInsufficientScope: 'reauthorize' | 'throw'`
 (default `'reauthorize'`). On `'reauthorize'` the transport re-authorizes with the
-**union** of the previously-requested and challenged scope (`computeScopeUnion`); when
-that union strictly exceeds the current token's granted scope (`isStrictScopeSuperset`),
-the SDK bypasses the refresh-token branch and forces a fresh authorization request. On
+**union** of the current token's granted scope, the previously-requested scope, protected
+resource metadata `scopes_supported`, the provider-configured default scope, and the
+newly challenged scope (`computeScopeUnion`); when that union strictly exceeds the current
+token's granted scope (`isStrictScopeSuperset`), the SDK bypasses the refresh-token branch
+and forces a fresh authorization request. On
 `'throw'` the transport raises `InsufficientScopeError` and does not re-authorize — set
 this for `client_credentials` / m2m clients where re-authorization can't widen scope, or
 to gate the consent prompt behind UX. Step-up retries are hard-capped per send
