@@ -394,3 +394,58 @@ describe('variable-hop guard rails (B6 review)', () => {
         expect(result.diagnostics.some(d => d.message.includes('Custom method handler'))).toBe(true);
     });
 });
+
+describe('stale registration-schema references (analysis: mcp-servers/memory)', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = handlerRegistrationTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('flags a request schema used as a setRequestHandler-mock assertion arg with the method string', () => {
+        const code = [
+            `import { SubscribeRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const schemas = inner.setRequestHandler.mock.calls.map((c) => c[0]);`,
+            `expect(schemas).toContain(SubscribeRequestSchema);`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        const diag = result.diagnostics.find(
+            d => d.message.includes('SubscribeRequestSchema') && d.message.includes("'resources/subscribe'")
+        );
+        expect(diag).toBeDefined();
+    });
+
+    it('flags a schema passed to a registration-lookup helper', () => {
+        const code = [
+            `import { UnsubscribeRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const c = inner.setRequestHandler.mock.calls.find((x) => x[0] === s);`,
+            `handlerFor(inner, UnsubscribeRequestSchema);`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes("'resources/unsubscribe'"))).toBe(true);
+    });
+
+    it('does NOT flag a request schema used as a schema (.parse) — property-access base', () => {
+        const code = [
+            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
+            `const parsed = CallToolRequestSchema.parse(x);`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes('no longer the setRequestHandler'))).toBe(false);
+    });
+
+    it('does NOT flag in a file that performs no handler registration', () => {
+        const code = [
+            `import { SubscribeRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `someValidator(SubscribeRequestSchema);`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes('no longer the setRequestHandler'))).toBe(false);
+    });
+});

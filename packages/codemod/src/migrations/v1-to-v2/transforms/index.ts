@@ -1,5 +1,4 @@
 import type { Transform } from '../../../types';
-import { commonjsInteropTransform } from './commonjsInterop';
 import { completableNestingTransform } from './completableNesting';
 import { contextTypesTransform } from './contextTypes';
 import { handlerRegistrationTransform } from './handlerRegistration';
@@ -34,15 +33,8 @@ import { symbolRenamesTransform } from './symbolRenames';
 // 6. completableNesting runs after importPaths (it matches the rewritten
 //    completable import) and is independent of the rest.
 //
-// 7. mockPaths handles test mocks and dynamic imports, independent of the
-//    other transforms. It used to run last but no longer does (see item 8).
-//
-// 8. commonjsInterop MUST run last: it inspects the FINAL v2 package
-//    specifiers that importPaths (and every later specifier-rewriting
-//    transform) produce, then decides whether ESM-only value imports under
-//    CommonJS can be converted to dynamic import() or must be diagnosed.
-//    Running it after all other transforms ensures it sees the settled
-//    import shape rather than intermediate v1/partially-rewritten specifiers.
+// 7. mockPaths runs last: handles test mocks and dynamic imports,
+//    independent of the other transforms.
 export const v1ToV2Transforms: Transform[] = [
     importPathsTransform,
     symbolRenamesTransform,
@@ -52,6 +44,5 @@ export const v1ToV2Transforms: Transform[] = [
     schemaParamRemovalTransform,
     contextTypesTransform,
     completableNestingTransform,
-    mockPathsTransform,
-    commonjsInteropTransform
+    mockPathsTransform
 ];

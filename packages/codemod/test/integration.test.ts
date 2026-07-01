@@ -1,14 +1,12 @@
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Project } from 'ts-morph';
 import { describe, it, expect, afterEach } from 'vitest';
 
 import { getMigration } from '../src/migrations/index';
-import { v1ToV2Transforms } from '../src/migrations/v1-to-v2/transforms/index';
 import { run } from '../src/runner';
 import { DiagnosticLevel } from '../src/types';
-import type { Migration, Transform, TransformContext } from '../src/types';
+import type { Migration, Transform } from '../src/types';
 
 const migration = getMigration('v1-to-v2')!;
 
@@ -714,8 +712,7 @@ describe('integration', () => {
         expect(ids.indexOf('imports')).toBeLessThan(ids.indexOf('symbols'));
         expect(ids.indexOf('symbols')).toBeLessThan(ids.indexOf('removed-apis'));
         expect(ids.indexOf('mcpserver-api')).toBeLessThan(ids.indexOf('context'));
-        expect(ids.indexOf('mock-paths')).toBeLessThan(ids.indexOf('commonjs-interop'));
-        expect(ids.at(-1)).toBe('commonjs-interop');
+        expect(ids.at(-1)).toBe('mock-paths');
     });
 
     it('processes .mts files', () => {
@@ -772,31 +769,5 @@ describe('integration', () => {
 
         const v2Gaps = result.diagnostics.filter(d => d.category === 'v2-gap');
         expect(v2Gaps.length).toBe(0);
-    });
-});
-
-describe('commonjs interop — full pipeline', () => {
-    it('migrates v1 server usage in async context to dynamic import() under CommonJS', () => {
-        const project = new Project({ useInMemoryFileSystem: true });
-        const sf = project.createSourceFile(
-            'svc.ts',
-            [
-                `import { CallToolResultSchema } from "@modelcontextprotocol/sdk/types.js";`,
-                `export async function check(body: unknown) {`,
-                `  return CallToolResultSchema.parse(body);`,
-                `}`,
-                ''
-            ].join('\n')
-        );
-        const ctx: TransformContext = { projectType: 'server', moduleSystem: 'commonjs' };
-        for (const t of v1ToV2Transforms) t.apply(sf, ctx);
-        const out = sf.getFullText();
-        expect(out).not.toContain('@modelcontextprotocol/sdk');
-        expect(out).toContain('new Function("s", "return import(s)")');
-        // Converted package referenced via a runtime-erased import DECLARATION the runner detects, and a
-        // `typeof <typeId>` promise (not the inline `typeof import("…")` that the runner missed).
-        expect(out).toMatch(/import type \* as \w+ from ["']@modelcontextprotocol\/core["']/);
-        expect(out).toMatch(/_mcpDynImport<typeof _Mcp\w+>\(["']@modelcontextprotocol\/core["']\)/);
-        expect(out).toContain('const { CallToolResultSchema } = await');
     });
 });

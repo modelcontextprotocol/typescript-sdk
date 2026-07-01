@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
 import { contextTypesTransform } from '../../../src/migrations/v1-to-v2/transforms/contextTypes';
-import type { TransformContext } from '../../../src/types';
+import type { Diagnostic, TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
@@ -635,5 +635,68 @@ describe('fallback handler and annotated context params (B5, #152)', () => {
         const diag = result.diagnostics.find(d => d.message.includes('forwarded to hasScope'));
         expect(diag).toBeDefined();
         expect(diag?.advisoryOnly).toBe(true);
+    });
+});
+
+describe('v1 mock context literals in tests (test doubles)', () => {
+    function apply(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMPORT = `import { McpServer } from '@modelcontextprotocol/server';\n`;
+    const findMockDiag = (diags: Diagnostic[]) => diags.find(d => d.message.includes('v1 handler-context mock'));
+
+    it('advises (without rewriting) on a v1 context mock passed inline as a call argument', () => {
+        const code = IMPORT + [`const r = await handler({}, { sendRequest: mockSendRequest });`, ''].join('\n');
+        const { text, result } = apply(code);
+        // Advisory only — the literal is left untouched.
+        expect(text).toContain('{ sendRequest: mockSendRequest }');
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+        expect(diag?.message).toContain('sendRequest → mcpReq.send');
+    });
+
+    it('advises on a v1 context mock bound to a variable, and notes sessionId stays top-level', () => {
+        const code = IMPORT + [`const extra = { sessionId: 'session-1', sendRequest: fn };`, `await handler(args, extra);`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+        expect(diag?.message).toContain('sessionId stays top-level');
+    });
+
+    it('advises on the _meta/requestId progress-notification mock shape', () => {
+        const code = IMPORT + [`await handler({ duration: 1 }, { _meta: {}, requestId: 'test-123' });`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('requestId → mcpReq.id');
+    });
+
+    it('advises when two generic context keys appear together (no distinctive key)', () => {
+        const code = IMPORT + [`await handler(args, { signal: ac.signal, sessionId: 's' });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeDefined();
+    });
+
+    it('does not advise on an already-migrated v2 context mock', () => {
+        const code = IMPORT + [`await handler({}, { mcpReq: { send: fn } });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a non-context object literal', () => {
+        const code = IMPORT + [`const config = { title: 'x', description: 'y' };`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a lone generic key (needs a distinctive key or >=2 context keys)', () => {
+        const code = IMPORT + [`doThing({ signal: ac.signal });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
     });
 });

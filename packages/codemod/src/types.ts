@@ -34,7 +34,6 @@ export interface Transform {
 
 export interface TransformContext {
     projectType: 'client' | 'server' | 'both' | 'unknown';
-    moduleSystem?: 'esm' | 'commonjs' | 'unknown';
 }
 
 export interface Migration {

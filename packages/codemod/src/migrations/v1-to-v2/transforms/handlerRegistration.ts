@@ -173,6 +173,46 @@ export const handlerRegistrationTransform: Transform = {
             removeUnusedImport(sourceFile, schemaName, true);
         }
 
+        // Flag surviving registration-schema references. A method-mapped *RequestSchema/*NotificationSchema
+        // whose import survived the conversion above, used as a VALUE in a handler-registration context
+        // (a call argument or an `===`/`!==` operand) in a file that performs handler registration, is almost
+        // always a stale v1 registration assertion/lookup — in v2 the registration key is the method string,
+        // not the schema. Advisory, not rewritten: the same constant is still valid for `.parse()` etc., so we
+        // flag rather than risk breaking a legitimate schema use. (A converted source drops the import, so only
+        // files that still reference the schema — typically registration tests — are flagged.)
+        const usesRegistration = sourceFile
+            .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
+            .some(pa => pa.getName() === 'setRequestHandler' || pa.getName() === 'setNotificationHandler');
+        if (usesRegistration) {
+            const flagged = new Set<string>();
+            for (const id of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+                const local = id.getText();
+                if (flagged.has(local)) continue;
+                const original = resolveOriginalImportName(sourceFile, local) ?? local;
+                const method = ALL_SCHEMA_TO_METHOD[original];
+                if (method === undefined || !isImportedFromMcp(sourceFile, local)) continue;
+                const parent = id.getParent();
+                if (parent === undefined) continue;
+                const isCallArg = Node.isCallExpression(parent) && parent.getArguments().some(a => a === id);
+                const isComparand =
+                    Node.isBinaryExpression(parent) &&
+                    ['===', '!==', '==', '!='].includes(parent.getOperatorToken().getText()) &&
+                    (parent.getLeft() === id || parent.getRight() === id);
+                if (!isCallArg && !isComparand) continue;
+                flagged.add(local);
+                diagnostics.push({
+                    ...actionRequired(
+                        sourceFile.getFilePath(),
+                        id,
+                        `${local} is no longer the setRequestHandler/setNotificationHandler key in v2 — handlers ` +
+                            `register by the method string '${method}'. Update registration assertions/lookups ` +
+                            `(e.g. against a setRequestHandler mock) to compare against '${method}'.`
+                    ),
+                    advisoryOnly: true
+                });
+            }
+        }
+
         return { changesCount, diagnostics };
     }
 };

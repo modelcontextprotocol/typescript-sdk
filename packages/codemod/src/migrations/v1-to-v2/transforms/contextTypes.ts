@@ -9,6 +9,24 @@ import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappi
 
 const CONTEXT_LIKE_KEYS = new Set(CONTEXT_PROPERTY_MAP.map(mapping => mapping.from.slice(1)));
 
+/**
+ * v1 context keys distinctive enough that a single one on an object literal is a strong
+ * signal it's a hand-built handler-context mock (vs. generic keys like `signal`/`sessionId`
+ * that appear on unrelated objects and only count in aggregate).
+ */
+const DISTINCTIVE_CONTEXT_KEYS = new Set([
+    'sendRequest',
+    'sendNotification',
+    'requestId',
+    'requestInfo',
+    'authInfo',
+    'closeSSEStream',
+    'closeStandaloneSSEStream'
+]);
+
+/** A literal already carrying one of these is in the v2 nested shape — not a stale v1 mock. */
+const V2_SHAPE_KEYS = new Set(['mcpReq', 'http', 'task']);
+
 const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler']);
 
 const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'tool', 'prompt', 'resource']);
@@ -303,6 +321,7 @@ export const contextTypesTransform: Transform = {
 
         changesCount += processFallbackHandlerAssignments(sourceFile, diagnostics);
         changesCount += remapAnnotatedContextParams(sourceFile, diagnostics);
+        flagV1MockContextLiterals(sourceFile, diagnostics);
 
         return { changesCount, diagnostics };
     }
@@ -327,6 +346,65 @@ function processFallbackHandlerAssignments(sourceFile: SourceFile, diagnostics: 
         if (result > 0) changes += result;
     }
     return changes;
+}
+
+/**
+ * Render a v1 context key as a reshape hint, e.g. `sendRequest` → `mcpReq.send`. Returns
+ * undefined for `sessionId` (a no-op — it stays top-level in v2) and for non-context keys.
+ */
+function contextKeyReshapeHint(key: string): string | undefined {
+    const mapping = CONTEXT_PROPERTY_MAP.find(m => m.from === '.' + key);
+    if (mapping === undefined || mapping.from === mapping.to) return undefined;
+    // Render the target as a plain object path: '.http?.authInfo' → 'http.authInfo'.
+    return `${key} → ${mapping.to.replace(/^\./, '').replaceAll('?', '')}`;
+}
+
+/**
+ * Flag hand-built mocks of the handler context (common in tests). The call-site scan above
+ * only reshapes `extra.X` inside handler definitions it can anchor on (registerTool,
+ * setRequestHandler, fallback handlers, annotated params). A test hands its mock to a bare
+ * `handler(args, mockCtx)` invocation, so the object literal is never reached and keeps the
+ * flat v1 shape — at runtime the migrated handler reads `ctx.mcpReq.send` / `.id` / … against
+ * it and throws "Cannot read properties of undefined (reading 'send')". Advisory only: an
+ * untyped literal that merely shares a key name might not be a context mock, so never rewrite.
+ */
+function flagV1MockContextLiterals(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    for (const obj of sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
+        // Only literals in a mock-context position: a call argument or a variable initializer.
+        // Covers both `handler({}, { sendRequest: fn })` and `const extra = { … }; handler(a, extra)`.
+        const parent = obj.getParent();
+        const isCallArg = parent !== undefined && Node.isCallExpression(parent) && parent.getArguments().includes(obj);
+        const isVarInit = parent !== undefined && Node.isVariableDeclaration(parent) && parent.getInitializer() === obj;
+        if (!isCallArg && !isVarInit) continue;
+
+        // Collect named property keys (skip spreads and computed names).
+        const keys: string[] = [];
+        for (const prop of obj.getProperties()) {
+            if (!Node.isPropertyAssignment(prop) && !Node.isShorthandPropertyAssignment(prop) && !Node.isMethodDeclaration(prop)) continue;
+            const nameNode = prop.getNameNode();
+            if (Node.isIdentifier(nameNode)) keys.push(nameNode.getText());
+            else if (Node.isStringLiteral(nameNode)) keys.push(nameNode.getLiteralText());
+        }
+        if (keys.some(key => V2_SHAPE_KEYS.has(key))) continue; // already v2-shaped
+
+        const contextKeys = keys.filter(key => CONTEXT_LIKE_KEYS.has(key));
+        const hasDistinctive = contextKeys.some(key => DISTINCTIVE_CONTEXT_KEYS.has(key));
+        if (!hasDistinctive && contextKeys.length < 2) continue;
+
+        const reshapes = contextKeys.map(key => contextKeyReshapeHint(key)).filter((hint): hint is string => hint !== undefined);
+        const sessionNote = contextKeys.includes('sessionId') ? '; sessionId stays top-level' : '';
+        diagnostics.push({
+            ...actionRequired(
+                sourceFile.getFilePath(),
+                obj,
+                `This object looks like a v1 handler-context mock (${contextKeys.join(', ')}). v2 nests the context — ` +
+                    `reshape it (${reshapes.join('; ')}${sessionNote}), e.g. { sendRequest: fn } → { mcpReq: { send: fn } }. ` +
+                    `Passed as-is to a migrated handler that reads ctx.mcpReq.*, the v1 shape throws ` +
+                    `"Cannot read properties of undefined".`
+            ),
+            advisoryOnly: true
+        });
+    }
 }
 
 const CONTEXT_TYPE_NAMES = new Set(['RequestHandlerExtra', 'ServerContext', 'ClientContext']);
