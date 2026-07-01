@@ -1248,9 +1248,11 @@ add an optional `issuer?: string` field on top of the wire types.
 
 `OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are
 `@deprecated`: `auth()` still writes `saveAuthorizationServerUrl()` for back-compat and
-may read `authorizationServerUrl()` only as a legacy fallback when no `discoveryState()`
-is available and fresh discovery did not validate an AS through protected resource
-metadata. The bundled `ClientCredentialsProvider`, `PrivateKeyJwtProvider`,
+may read `authorizationServerUrl()` as a previously recorded AS identity for SEP-2352
+change detection; when fresh protected-resource-metadata discovery validates a different
+AS, that value can trigger token/client invalidation. It may also be used as a legacy
+fallback when no persisted `discoveryState()` is available and discovery is unvalidated.
+The bundled `ClientCredentialsProvider`, `PrivateKeyJwtProvider`,
 `StaticPrivateKeyJwtProvider`, and `CrossAppAccessProvider` gain `expectedIssuer?: string`
 and no longer define `saveClientInformation()`. Implement `discoveryState()` /
 `saveDiscoveryState()` so the callback leg can verify it is exchanging the code at the

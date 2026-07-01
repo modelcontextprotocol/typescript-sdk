@@ -395,17 +395,18 @@ export interface OAuthClientProvider {
 
     /**
      * Saves the resolved authorization-server URL/issuer identity for legacy providers.
-     * Called after discovery and callback-leg authorization-server binding succeed, before
-     * client credentials or tokens are read or written.
+     * Called after discovery, SEP-2352 authorization-server change detection, any resulting
+     * credential invalidation, and callback-leg authorization-server binding succeed.
      *
      * @deprecated Superseded by {@linkcode saveDiscoveryState} and by the `issuer` stamp on
      * stored tokens / client credentials (SEP-2352). {@linkcode auth} still **writes** this
      * for back-compat with providers that read it internally (e.g. Cross-App Access), and
-     * may read {@linkcode authorizationServerUrl} only as a legacy fallback when no
-     * `discoveryState()` is available and fresh discovery did not validate an AS through
-     * protected resource metadata. Prefer {@linkcode discoveryState} plus the `issuer` field
-     * on the value passed to {@linkcode saveTokens} / {@linkcode saveClientInformation}, or
-     * the `ctx.issuer` argument.
+     * may read {@linkcode authorizationServerUrl} as a previously recorded AS identity for
+     * SEP-2352 change detection; when fresh protected-resource-metadata discovery validates a
+     * different AS, that value can trigger token/client invalidation. It may also be used as a
+     * legacy fallback when no `discoveryState()` is available and discovery is unvalidated.
+     * Prefer {@linkcode discoveryState} plus the `issuer` field on the value passed to
+     * {@linkcode saveTokens} / {@linkcode saveClientInformation}, or the `ctx.issuer` argument.
      */
     saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
 
@@ -413,10 +414,12 @@ export interface OAuthClientProvider {
      * Returns the previously saved authorization server URL, if available.
      *
      * @deprecated Superseded by {@linkcode discoveryState} and by the `issuer` stamp on
-     * stored tokens / client credentials (SEP-2352). {@linkcode auth} may read this only as a
-     * legacy fallback when no persisted `discoveryState()` is available and fresh discovery did
-     * not validate an AS through protected resource metadata. New providers should implement
-     * {@linkcode discoveryState} / {@linkcode saveDiscoveryState} instead.
+     * stored tokens / client credentials (SEP-2352). {@linkcode auth} may read this as a
+     * previously recorded AS identity for SEP-2352 change detection; when fresh
+     * protected-resource-metadata discovery validates a different AS, that value can trigger
+     * token/client invalidation. It may also be used as a legacy fallback when no persisted
+     * `discoveryState()` is available and discovery is unvalidated. New providers should
+     * implement {@linkcode discoveryState} / {@linkcode saveDiscoveryState} instead.
      */
     authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
 
