@@ -5232,6 +5232,69 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('treats unstamped legacy credentials as stale after an AS migration without an invalidation hook', async () => {
+        let clientInformation: { client_id: string; client_secret?: string; issuer?: string } | undefined = {
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        };
+        let tokens: StoredOAuthTokens | undefined = {
+            access_token: 'old-access-token',
+            refresh_token: 'old-refresh-token',
+            token_type: 'Bearer'
+        };
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const saveTokens = vi.fn(async (nextTokens: StoredOAuthTokens) => {
+            tokens = nextTokens;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn(async () => tokens),
+            saveTokens,
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl)
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'refreshed-token', token_type: 'Bearer' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(1);
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(0);
+        expect(saveTokens).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
     it('keeps the re-registered client while exchanging the authorization code after an AS migration', async () => {
         const { provider, invalidateCredentials, saveClientInformation, saveTokens, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',

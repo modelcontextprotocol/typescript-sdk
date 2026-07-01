@@ -1277,9 +1277,16 @@ async function authInternal(
     // stamp names a different authorization server reads back as `undefined`, so the flow
     // re-registers exactly as if nothing were stored.
     const rawClientInfo = await Promise.resolve(provider.clientInformation(infoCtx));
-    let clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
-        canPersistStamp: provider.saveClientInformation !== undefined
-    });
+    const discardUnstampedClientInfoAfterAsChange =
+        authorizationServerChanged &&
+        rawClientInfo !== undefined &&
+        rawClientInfo.issuer === undefined &&
+        !isHttpsUrl(rawClientInfo.client_id);
+    let clientInformation = discardUnstampedClientInfoAfterAsChange
+        ? undefined
+        : discardIfIssuerMismatch(rawClientInfo, issuer, {
+              canPersistStamp: provider.saveClientInformation !== undefined
+          });
     if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
         // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
         // AS — surface the typed error with both issuers rather than the generic
@@ -1363,7 +1370,8 @@ async function authInternal(
 
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
-    let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
+    const rawTokens = await provider.tokens(infoCtx);
+    let tokens = authorizationServerChanged && rawTokens?.issuer === undefined ? undefined : discardIfIssuerMismatch(rawTokens, issuer);
     if (tokens && tokens.issuer === undefined) {
         // SEP-2352 back-stamp: bind a legacy unstamped token set to the first-resolved AS
         // so the stamp check is effective from the next call onward.
