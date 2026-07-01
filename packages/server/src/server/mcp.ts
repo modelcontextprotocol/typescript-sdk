@@ -1215,6 +1215,10 @@ export type ZodRawShape = Record<string, z.ZodType>;
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
+/**
+ * A {@link CallToolResult} whose `structuredContent` is typed to a known output shape.
+ * Used when a tool's declared `outputSchema` lets callers know the structured result type.
+ */
 export type CallToolResultWithStructuredContent<T> = CallToolResult & { structuredContent: T };
 
 /**

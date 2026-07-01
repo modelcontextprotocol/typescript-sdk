@@ -179,6 +179,40 @@ describe('resolveExternalSchemaRefs', () => {
         expect(validate({ address: {} }).valid).toBe(false);
     });
 
+    it('resolves relative refs inside fetched documents against the declared canonical $id', async () => {
+        const schema: JsonSchemaType = { $ref: 'https://mirror.example.com/v2/person.json' };
+        const fetchImpl = fetchStub({
+            'https://mirror.example.com/v2/person.json': {
+                $id: 'https://schemas.example.com/person.json',
+                type: 'object',
+                properties: {
+                    address: { $ref: 'address.json#/$defs/address' }
+                },
+                required: ['address']
+            },
+            'https://schemas.example.com/address.json': {
+                $defs: {
+                    address: {
+                        type: 'object',
+                        properties: { city: { type: 'string' } },
+                        required: ['city']
+                    }
+                }
+            }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, {
+            allowlist: ['mirror.example.com', 'schemas.example.com'],
+            fetch: fetchImpl
+        });
+
+        expect(fetchImpl).toHaveBeenCalledWith('https://schemas.example.com/address.json', expect.anything());
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ address: { city: 'Paris' } }).valid).toBe(true);
+        expect(validate({ address: {} }).valid).toBe(false);
+    });
+
     it('does not dereference $ref-shaped data inside data-valued JSON Schema keywords', async () => {
         const schema: JsonSchemaType = {
             type: 'object',
@@ -243,6 +277,16 @@ describe('resolveExternalSchemaRefs', () => {
         it('allows public DNS hosts that start with IPv6 private-range prefixes', async () => {
             const fetchImpl = fetchStub({ 'https://fcc.gov/schema.json': { type: 'string' } });
             const resolved = await resolveExternalSchemaRefs({ $ref: 'https://fcc.gov/schema.json' } as JsonSchemaType, {
+                fetch: fetchImpl
+            });
+
+            expect(resolved).toEqual({ $ref: '#/$defs/__externalRef_0', $defs: { __externalRef_0: { type: 'string' } } });
+        });
+
+        it('matches IPv6 literal allowlist entries without URL brackets', async () => {
+            const fetchImpl = fetchStub({ 'https://[2001:db8::1]/schema.json': { type: 'string' } });
+            const resolved = await resolveExternalSchemaRefs({ $ref: 'https://[2001:db8::1]/schema.json' } as JsonSchemaType, {
+                allowlist: ['2001:db8::1'],
                 fetch: fetchImpl
             });
 

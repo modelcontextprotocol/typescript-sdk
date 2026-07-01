@@ -112,7 +112,10 @@ function resolveExternalBase(base: string, containingDocumentUri: string | undef
 }
 
 function ipv6LiteralFromHost(host: string): string | undefined {
-    return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : undefined;
+    if (host.startsWith('[') && host.endsWith(']')) {
+        return host.slice(1, -1);
+    }
+    return host.includes(':') ? host : undefined;
 }
 
 function stripTrailingDnsRootDots(host: string): string {
@@ -125,7 +128,7 @@ function stripTrailingDnsRootDots(host: string): string {
 }
 
 function normalizeHostForPolicy(host: string): string {
-    return ipv6LiteralFromHost(host) === undefined ? stripTrailingDnsRootDots(host) : host;
+    return ipv6LiteralFromHost(host) ?? stripTrailingDnsRootDots(host);
 }
 
 function isBlockedIPv6Literal(host: string): boolean {
@@ -269,9 +272,10 @@ async function fetchDocument(uri: string, options: ResolvedOptions): Promise<Rec
  * This is the **opt-in** external-reference mode described by SEP-2106 (R-2106-10): it is never
  * invoked during normal validation and must be called explicitly. Each distinct external document is
  * fetched once (subject to the allowlist, protocol, timeout, size, and document-count limits) and
- * bundled under a generated `$defs` slot that preserves the document's canonical `$id`; every
- * external reference to that document is rewritten to a local JSON Pointer into the slot. References
- * the resolver cannot satisfy cause rejection (fail-closed) rather than a silent pass.
+ * bundled under a generated `$defs` slot. When a fetched document declares a top-level `$id`, that
+ * canonical identity is used as the base for relative references and for deduping; every external
+ * reference to that document is rewritten to a local JSON Pointer into the slot. References the
+ * resolver cannot satisfy cause rejection (fail-closed) rather than a silent pass.
  *
  * @param schema - the schema to resolve. Not mutated; a new object is returned.
  * @param options - allowlist and bounds. Supplying an `allowlist` is strongly recommended.
@@ -301,6 +305,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
             ? new Set(Object.keys(schema.$defs as Record<string, unknown>))
             : new Set<string>();
     let nextSlotIndex = 0;
+    let fetchedDocumentCount = 0;
 
     const allocateSlot = (): string => {
         let slot: string;
@@ -315,20 +320,28 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         if (existing) {
             return existing;
         }
-        if (slotByBase.size >= resolved.maxDocuments) {
+        if (fetchedDocumentCount >= resolved.maxDocuments) {
             throw new Error(`Refusing to resolve more than ${resolved.maxDocuments} external schema documents.`);
         }
         const slot = allocateSlot();
         slotByBase.set(base, slot);
+        fetchedDocumentCount++;
 
         const doc = await fetchDocument(base, resolved);
+        const { $id, $schema: _schema, ...rest } = doc;
+        const documentBase = typeof $id === 'string' ? resolveExternalBase($id, base, $id) : base;
+        const canonicalExisting = slotByBase.get(documentBase);
+        if (canonicalExisting && canonicalExisting !== slot) {
+            slotByBase.set(base, canonicalExisting);
+            fetchedDocumentCount--;
+            return canonicalExisting;
+        }
+        slotByBase.set(documentBase, slot);
         // Flatten the document into the root's $defs under `slot`. Its own identity/dialect keywords
         // are dropped (it no longer is a standalone document), and its internal references are
         // rewritten to root-relative pointers that target this slot.
-        const { $id: _id, $schema: _schema, ...rest } = doc;
-        void _id;
         void _schema;
-        const flattened = await rewrite(rest, `/$defs/${slot}`, base);
+        const flattened = await rewrite(rest, `/$defs/${slot}`, documentBase);
         bundle[slot] = flattened as Record<string, unknown>;
         return slot;
     };
@@ -402,7 +415,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
 
     const rewrittenRoot = (await rewrite(schema, '')) as Record<string, unknown>;
 
-    if (slotByBase.size === 0) {
+    if (fetchedDocumentCount === 0) {
         // No external references; return the (structurally identical) schema unchanged.
         return rewrittenRoot as JsonSchemaType;
     }
