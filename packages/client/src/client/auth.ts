@@ -394,23 +394,29 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
-     * Saves the resolved authorization-server **issuer**. Called after a successful
-     * token exchange (timing changed in v2: was post-discovery, now post-`saveTokens`).
+     * Saves the resolved authorization-server URL/issuer identity for legacy providers.
+     * Called after discovery and callback-leg authorization-server binding succeed, before
+     * client credentials or tokens are read or written.
      *
-     * @deprecated Superseded by the `issuer` stamp on stored tokens / client credentials
-     * (SEP-2352). {@linkcode auth} still **writes** this for back-compat with providers
-     * that read it (e.g. Cross-App Access), but the SDK never reads it. Prefer reading
-     * the `issuer` field on the value passed to {@linkcode saveTokens} /
-     * {@linkcode saveClientInformation}, or the `ctx.issuer` argument.
+     * @deprecated Superseded by {@linkcode saveDiscoveryState} and by the `issuer` stamp on
+     * stored tokens / client credentials (SEP-2352). {@linkcode auth} still **writes** this
+     * for back-compat with providers that read it internally (e.g. Cross-App Access), and
+     * may read {@linkcode authorizationServerUrl} only as a legacy fallback when no
+     * `discoveryState()` is available and fresh discovery did not validate an AS through
+     * protected resource metadata. Prefer {@linkcode discoveryState} plus the `issuer` field
+     * on the value passed to {@linkcode saveTokens} / {@linkcode saveClientInformation}, or
+     * the `ctx.issuer` argument.
      */
     saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
 
     /**
      * Returns the previously saved authorization server URL, if available.
      *
-     * @deprecated Superseded by the `issuer` stamp on stored tokens / client credentials
-     * (SEP-2352). The SDK never reads this method; it remains for provider implementations
-     * that consume the value internally (e.g. Cross-App Access).
+     * @deprecated Superseded by {@linkcode discoveryState} and by the `issuer` stamp on
+     * stored tokens / client credentials (SEP-2352). {@linkcode auth} may read this only as a
+     * legacy fallback when no persisted `discoveryState()` is available and fresh discovery did
+     * not validate an AS through protected resource metadata. New providers should implement
+     * {@linkcode discoveryState} / {@linkcode saveDiscoveryState} instead.
      */
     authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
 
