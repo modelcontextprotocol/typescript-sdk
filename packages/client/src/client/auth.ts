@@ -492,27 +492,6 @@ export class UnauthorizedError extends Error {
 }
 
 /**
- * Validates the `iss` parameter from an authorization response against the
- * issuer recorded from the authorization server's validated metadata, per
- * RFC 9207 §2.4 and the MCP specification's four-row decision table.
- *
- * | `issParameterSupported` | `iss`   | Action                                           |
- * | ----------------------- | ------- | ------------------------------------------------ |
- * | `true`                  | present | compare; throw {@linkcode IssuerMismatchError} on mismatch |
- * | `true`                  | absent  | throw {@linkcode IssuerMismatchError}            |
- * | `false`                 | present | compare; throw {@linkcode IssuerMismatchError} on mismatch |
- * | `false`                 | absent  | proceed (no-op)                                  |
- *
- * Comparison is **simple string equality** (RFC 3986 §6.2.1). Scheme/host case
- * folding, default-port elision, trailing-slash, and percent-encoding
- * normalization are explicitly **not** applied — any difference is a mismatch.
- *
- * When `expectedIssuer` is `undefined` (no validated metadata document exists),
- * the check has no authentic baseline and degenerates to a no-op.
- *
- * @throws {IssuerMismatchError} with `kind: 'authorization_response'`
- */
-/**
  * Reads RFC 9207's `authorization_response_iss_parameter_supported` from
  * authorization-server metadata. Only a literal `true` counts as advertised;
  * absent, `false`, or a non-boolean wire value (coerced to `undefined` by the
@@ -523,7 +502,11 @@ function isIssParameterSupported(metadata: AuthorizationServerMetadata | undefin
 }
 
 export type AuthorizationResponseIssuerValidation = {
-    /** The form-urldecoded `iss` query parameter from the authorization callback, or `undefined` if absent. */
+    /**
+     * The form-urldecoded `iss` query parameter from the authorization callback; `null` when
+     * the callback was inspected and carried no `iss`; `undefined` only when the caller never
+     * received callback parameters, which skips RFC 9207 validation.
+     */
     iss: string | null | undefined;
     /** The `issuer` value from the authorization server's validated metadata document. */
     expectedIssuer: string | undefined;
@@ -542,6 +525,23 @@ function isAuthorizationResponseIssuerValidation(
     return value !== undefined && 'expectedIssuer' in value;
 }
 
+/**
+ * Validates the `iss` parameter from an authorization response against the
+ * issuer recorded from the authorization server's validated metadata, per
+ * RFC 9207 Section 2.4 and the MCP specification's decision table.
+ *
+ * - A string `iss` is compared with simple string equality; any mismatch throws.
+ * - `null` means the callback was inspected and no `iss` was present; it throws only
+ *   when metadata advertised `authorization_response_iss_parameter_supported: true`.
+ * - `undefined` means legacy callers did not provide callback parameters at all, so
+ *   validation is skipped.
+ * - A present `iss` with no recorded `expectedIssuer` throws fail-closed.
+ *
+ * Scheme/host case folding, default-port elision, trailing-slash, and percent-encoding
+ * normalization are explicitly **not** applied — any difference is a mismatch.
+ *
+ * @throws {IssuerMismatchError} with `kind: 'authorization_response'`
+ */
 export function validateAuthorizationResponseIssuer(args: AuthorizationResponseIssuerValidation): void;
 export function validateAuthorizationResponseIssuer(
     metadata: AuthorizationResponseIssuerMetadata | undefined,

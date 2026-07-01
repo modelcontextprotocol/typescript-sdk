@@ -9,6 +9,8 @@
 export type {
     AddClientAuthentication,
     AuthOptions,
+    AuthorizationResponseIssuerMetadata,
+    AuthorizationResponseIssuerValidation,
     AuthProvider,
     AuthResult,
     ClientAuthMethod,

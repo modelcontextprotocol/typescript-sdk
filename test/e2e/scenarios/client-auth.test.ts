@@ -813,7 +813,7 @@ verifies('client-auth:iss:positional-omitted-skips', async (_args: TestArgs) => 
 verifies('client-auth:iss:unadvertised-proceed', async (_args: TestArgs) => {
     // Row 4: not advertised + iss absent → the exchange proceeds. Also covers row 3 (not advertised
     // + iss present → still compared) by additionally asserting the same scenario rejects a wrong iss.
-    const proceed = await runFinishAuthScenario({}, undefined);
+    const proceed = await runFinishAuthScenario({}, new URLSearchParams({ code: 'granted-code' }));
     expect(proceed.thrown).toBeUndefined();
     expect(proceed.tokenCalls).toHaveLength(1);
 
