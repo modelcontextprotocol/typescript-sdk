@@ -1,0 +1,28 @@
+# Cloudflare Workers deployment of the todos reference server.
+# Deploys to <name>.<account-subdomain>.workers.dev; no custom domain is
+# configured here — attaching a real hostname is a deliberate, separate step.
+name = "todos-demo-ts"
+main = "worker.ts"
+compatibility_date = "2026-06-18"
+tsconfig = "tsconfig.worker.json"
+
+# The landing page ships inside the bundle as a text module.
+[[rules]]
+type = "Text"
+globs = ["**/*.html"]
+fallthrough = true
+
+# One Durable Object per visitor: holds that visitor's board (memory, hydrated
+# from storage on wake) so requests are coherent regardless of which edge
+# isolate they land on.
+[[durable_objects.bindings]]
+name = "BOARDS"
+class_name = "TodosBoard"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["TodosBoard"]
+
+# REQUEST_STATE_SECRET is a deployment secret (wrangler secret put), never in
+# this file: it must be stable across isolates so multi-round input_required
+# flows survive landing on different instances.

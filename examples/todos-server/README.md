@@ -62,7 +62,7 @@ Any other `mcpServers`-style host can spawn it too:
 
 The two protocol eras differ in how interactive conversations travel: on 2025-era connections the wire carries _pushed_ `elicitation/create` / `sampling/createMessage` requests; on 2026-07-28 the server returns `input_required` results and the client retries the call with the answers. The interactive tools (`brainstorm_tasks`, `clear_done`, `prioritize`) are written **once** in the `input_required` style — on 2025-era connections the SDK's default-on legacy shim performs the push-style round trips for them, so there is no era branch in any handler. (For a side-by-side of the two wire styles written by hand, see `examples/elicitation`.)
 
-One serving-mode caveat: over **HTTP with a 2025-era client**, `createMcpHandler`'s default stateless posture has no return path for push-style server→client requests, so the sampling/elicitation tools refuse cleanly on that leg (stdio is unaffected; 2026-07-28 HTTP is unaffected).
+One serving-mode caveat: over **HTTP with a 2025-era client**, `createMcpHandler`'s default stateless posture has no return path for push-style server→client requests, so the sampling/elicitation tools refuse cleanly on that leg (stdio is unaffected; 2026-07-28 HTTP is unaffected). The **Workers entry lifts this**: `worker.ts` answers a 2025-era `initialize` with a real session — a per-session `WebStandardStreamableHTTPServerTransport` connected to a server pinned to that session — so the interactive tools work over HTTP for legacy clients too. Sessions are in-memory (each has its own transport); if the object recycles, the client gets the spec's 404 and re-initializes, and the board itself stays durable.
 
 ## Configuration
 
@@ -74,8 +74,36 @@ One serving-mode caveat: over **HTTP with a 2025-era client**, `createMcpHandler
 ## Layout
 
 ```text
-server.ts   transport entry: serveStdio by default, createMcpHandler + node adapter behind --http
-todos.ts    the application: state, tools, resources, prompts, subscriptions — every feature above
+server.ts    transport entry (Node): serveStdio by default, createMcpHandler + node adapter behind --http
+worker.ts    transport entry (Cloudflare Workers): the hosted demo — createMcpHandler's web-standard
+             fetch behind a per-visitor Durable Object, plus the landing page (index.html) at /
+todos.ts     the application: state, tools, resources, prompts, subscriptions — every feature above.
+             createTodosApp() gives a host its own board: a buildServer factory, snapshot/restore for
+             persistence, and forwardServerEvent for hosts that pin long-lived instances to a bus
 ```
 
-This package is intentionally **server-only**; its end-to-end coverage comes from the [`cli-client`](../cli-client/README.md) scripted e2e, which drives it across stdio + HTTP on both protocol eras in CI.
+## Deploy it (Cloudflare Workers)
+
+`worker.ts` + `wrangler.toml` deploy this server as a public demo: `/` serves the landing page,
+`/mcp` serves MCP, and every visitor gets an isolated, capped board (keyed by connecting
+address, or by an `X-Todos-Board` header when the client sends one) that expires after ~2 h idle.
+
+```bash
+# from this directory
+npx wrangler dev                                  # local: http://127.0.0.1:8787/mcp
+npx wrangler deploy                               # deploys to <name>.<account>.workers.dev
+openssl rand -base64 48 | npx wrangler secret put REQUEST_STATE_SECRET
+```
+
+The secret is optional and the default is usually better here: each board mints a key of its
+own and keeps it in durable storage, so multi-round `input_required` flows survive isolate
+recycling, and a leaked key compromises one board instead of every board. Set the deployment-wide
+secret only when rounds must verify across boards. Boards are
+capped (200 tasks; `MAX_TASKS` var to change). Treat anything on a public board as untrusted
+content: boards are shared with whoever shares the visitor key.
+
+The worker bundles the **built** packages (`dist/`, resolved through each package's exports map so
+the `workerd` shims win — see `tsconfig.worker.json`); after editing `packages/*` sources, run
+`pnpm build:all` before `wrangler dev`, or you'll be serving stale code.
+
+This package is intentionally **server-only**; the Node entry's end-to-end coverage comes from the [`cli-client`](../cli-client/README.md) scripted e2e, which drives `server.ts` across stdio + HTTP on both protocol eras in CI. `worker.ts` is a deploy target, not a CI leg — exercise it with `npx wrangler dev` and the same cli-client pointed at the local URL.

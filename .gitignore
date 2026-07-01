@@ -63,3 +63,6 @@ results/
 
 # Ignore local lefthook configuration
 lefthook-local.yml
+
+# Wrangler local dev cache (examples/todos-server worker entry)
+.wrangler/

@@ -1,0 +1,107 @@
+<!doctype html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>todos — MCP TypeScript SDK reference server</title>
+        <style>
+            body {
+                font-family: system-ui;
+                max-width: 46em;
+                margin: 3em auto;
+                line-height: 1.55;
+                padding: 0 1em;
+            }
+            code,
+            pre {
+                background: #f3f4f6;
+                border-radius: 4px;
+            }
+            code {
+                padding: 0.1em 0.3em;
+            }
+            pre {
+                padding: 0.8em;
+                overflow-x: auto;
+            }
+            h1 {
+                margin-bottom: 0.2em;
+            }
+            h2 {
+                margin-top: 1.6em;
+            }
+            .muted {
+                color: #6b7280;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>todos</h1>
+        <p class="muted">
+            A live deployment of the MCP TypeScript SDK's reference server,
+            <a href="https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/todos-server">examples/todos-server</a>
+            — a small todo board where every server-side MCP feature has a real job: tools, resources, prompts, sampling, elicitation,
+            progress, logging, and subscriptions.
+        </p>
+
+        <h2>Connect</h2>
+        <p>
+            The MCP endpoint is <code>__HOST__/mcp</code> (Streamable HTTP). It serves <strong>both protocol revisions at once</strong> —
+            2026-07-28 and 2025-11-25 are negotiated per connection, so both current hosts and 2.0 SDK clients connect to the same URL. In
+            an <code>mcpServers</code>-style host config:
+        </p>
+        <pre>{ "mcpServers": { "todos": { "url": "__HOST__/mcp" } } }</pre>
+        <p>Or raw, in the 2026-07-28 wire format (there is no <code>initialize</code> — try <code>server/discover</code>):</p>
+        <pre>
+curl -X POST __HOST__/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -H 'mcp-protocol-version: 2026-07-28' \
+  -H 'mcp-method: server/discover' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{
+    "io.modelcontextprotocol/protocolVersion":"2026-07-28",
+    "io.modelcontextprotocol/clientInfo":{"name":"my-client","version":"1.0"},
+    "io.modelcontextprotocol/clientCapabilities":{}}}}'</pre
+        >
+
+        <h2>What to try</h2>
+        <ul>
+            <li>
+                <code>add_task</code>, <code>list_tasks</code>, <code>complete_task</code> — plain CRUD; <code>add_task</code> returns
+                <code>structuredContent</code> against an output schema.
+            </li>
+            <li>
+                <code>brainstorm_tasks</code> — multi-round <code>input_required</code>: a form, an optional follow-up round, then a
+                sampling round that borrows <em>your</em> model.
+            </li>
+            <li><code>clear_done</code> — elicitation: the server asks you to confirm via a schema-driven form.</li>
+            <li><code>work_through_tasks</code> — paced progress notifications; cancel mid-run and watch it stop early.</li>
+            <li><code>todos://board</code> — a subscribable resource; every mutation announces itself.</li>
+            <li><code>plan-my-day</code> — a prompt with completable arguments.</li>
+        </ul>
+        <p class="muted">
+            All of it works on both revisions: 2026-07-28 clients run the interactive tools as stateless
+            <code>input_required</code> round trips, while 2025-era clients get a real session at <code>initialize</code>
+            (<code>Mcp-Session-Id</code>) with push-style elicitation/sampling over its streams. Sessions are in-memory — if the server
+            recycles, a conformant client just re-initializes; your board is durable either way. Session-less 2025-era requests are still
+            answered statelessly — one-shot calls work, but the interactive tools need the session, so a client that connected before
+            sessions existed here should simply reconnect.
+        </p>
+
+        <h2>Boards</h2>
+        <p>
+            Every visitor gets their own board, keyed by connecting address — or send an
+            <code>X-Todos-Board: any-name</code> header to use a board of your own naming (recommended if your network egress rotates IPs,
+            e.g. CGNAT — otherwise consecutive requests may land on different boards). Boards are capped at 200 tasks and expire about two
+            hours after the last change. <strong>Treat board content as untrusted:</strong> it was written by whoever shares your visitor
+            key. Don't give an agent connected here unattended write authority elsewhere, and don't store anything sensitive.
+        </p>
+
+        <p class="muted">
+            No availability promises — this exists so you can kick the tires of a real 2026-07-28 server without running one. Source:
+            <a href="https://github.com/modelcontextprotocol/typescript-sdk">typescript-sdk</a> ·
+            <a href="https://ts.sdk.modelcontextprotocol.io">SDK docs</a> ·
+            <a href="https://modelcontextprotocol.io">MCP spec</a>
+        </p>
+    </body>
+</html>

@@ -4,7 +4,10 @@
     "type": "module",
     "scripts": {
         "start": "tsx server.ts",
-        "start:http": "tsx server.ts --http"
+        "start:http": "tsx server.ts --http",
+        "dev:worker": "npx --yes wrangler@4.100.0 dev",
+        "deploy:worker": "npx --yes wrangler@4.100.0 deploy",
+        "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit"
     },
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
@@ -17,7 +20,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "excluded": "server-only package — exercised end-to-end by the examples/cli-client e2e legs",
+        "excluded": "server-only package — the Node entry (server.ts) is exercised end-to-end by the examples/cli-client e2e legs; worker.ts is the Cloudflare deploy entry, driven manually via wrangler dev",
         "shapeExempt": "Reference server, not a single-feature story: no client.ts of its own; the paired host lives in examples/cli-client."
     }
 }

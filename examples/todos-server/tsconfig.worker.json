@@ -1,0 +1,12 @@
+{
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        // Used only by wrangler's bundler (see wrangler.toml). The examples tsconfig maps the
+        // SDK packages to their Node-flavoured sources (src/shimsNode.ts) for in-repo DX; the
+        // Worker bundle must instead resolve through each package's exports map so the
+        // `workerd` condition picks the Workers shims. Clearing `paths` restores that.
+        "paths": {},
+        "noEmit": true
+    },
+    "include": ["worker.ts", "todos.ts", "workerEnv.d.ts"]
+}

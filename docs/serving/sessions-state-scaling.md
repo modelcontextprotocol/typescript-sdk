@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # Sessions, state, and scaling
 
 `createMcpHandler` builds a fresh server instance from your factory for every HTTP request and holds nothing between requests, so a v2 server is stateless and scales horizontally by default — [Serve over HTTP](./http.md) is the whole setup. Read on if you run a sessionful 2025-era deployment, need a dropped stream to resume, or push change notifications across nodes.
@@ -89,6 +90,8 @@ When the connection drops, the client reconnects with the last event id it recei
 The stateless default is the scaling story: every node builds a fresh instance from the same factory and holds nothing between requests, so put the nodes behind any load balancer — no session affinity, nothing to share, nothing to configure.
 
 Sessionful 2025-era nodes hold their sessions in process memory, so they scale two ways. **Persistent storage**: keep `sessionIdGenerator` and point every node at the same `eventStore`, so a dropped stream is resumable from any node that shares the store. **Local state with message routing**: keep per-node sessions and send each session's traffic to the node that owns it — load-balancer affinity, or pub/sub routing between nodes.
+
+A serverless deployment keeps local state with an object per client instead of a node per client. [`todos-server/worker.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/todos-server/worker.ts) pins each visitor's board and sessions in one Cloudflare Durable Object and embeds the object's own id in the session ids it mints, so whichever edge isolate receives a request forwards it to the object that owns the session.
 
 One thing still crosses nodes on a stateless deployment: `subscriptions/listen`. Its streams deliver the change events published on the handler's **`ServerEventBus`** ([Notifications](../servers/notifications.md)), and the default bus is in-process — `handler.notify.toolsChanged()` on node A never reaches a subscriber whose stream node B holds. Implement `ServerEventBus` over your pub/sub (`publish(event)` forwards to the broker; `subscribe(listener)` registers for events arriving from it) and hand one to every node's `createMcpHandler`.
 

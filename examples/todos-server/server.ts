@@ -5,28 +5,30 @@
  */
 import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { createMcpHonoApp } from '@modelcontextprotocol/hono';
-import { createMcpHandler } from '@modelcontextprotocol/server';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, InMemoryServerEventBus } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-import { buildServer, onBoardChanged, onBoardUpdated } from './todos';
+import { createTodosApp } from './todos';
 
 const { transport, port } = parseExampleArgs();
 
+// One process, one board. The key comes from the environment for real deployments and falls
+// back to a per-process random one for the zero-setup demo (fine: one process serves every
+// round of a multi-round flow).
 if (transport === 'stdio') {
-    void serveStdio(buildServer);
+    // Single connection, no bus: the app announces on the pinned instance and the entry
+    // routes that onto its open subscriptions/listen streams.
+    const app = createTodosApp({ requestStateKey: process.env.REQUEST_STATE_SECRET });
+    void serveStdio(app.buildServer);
     console.error('[todos] serving over stdio');
 } else {
-    const handler = createMcpHandler(buildServer);
-    // Per-request serving has no connection to push notifications down — cross-request
-    // events (the board changing) are published through the handler's notifier instead.
-    onBoardChanged(() => handler.notify.resourcesChanged());
-    onBoardUpdated(uri => handler.notify.resourceUpdated(uri));
-    // `createMcpHonoApp()` binds the endpoint behind localhost host/origin
-    // validation by default, matching the framework factories' defaults.
-    const app = createMcpHonoApp();
-    app.all('/mcp', c => handler.fetch(c.req.raw));
-    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
+    // Per-request serving has no connection to push notifications down — the app announces
+    // on the bus and the handler routes the events onto its subscriptions/listen streams.
+    const bus = new InMemoryServerEventBus();
+    const app = createTodosApp({ requestStateKey: process.env.REQUEST_STATE_SECRET, bus });
+    const handler = createMcpHandler(app.buildServer, { bus });
+    createServer(toNodeHandler(handler)).listen(port, () => {
         console.error(`[todos] listening on http://127.0.0.1:${port}/mcp`);
     });
 }
