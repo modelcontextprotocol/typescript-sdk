@@ -739,6 +739,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     this.onerror?.(new Error('Invalid Request: Only one initialization request is allowed'));
                     return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Only one initialization request is allowed');
                 }
+                // When the MCP-Protocol-Version header is present on initialize, it must agree
+                // with the body's params.protocolVersion. The spec does not require this check,
+                // but a silent header/body mismatch lets middleware misconfiguration through
+                // (the body wins) and routes responses to a version the client never asked for.
+                // See issue #2108.
+                const headerProtocolVersion = req.headers.get('mcp-protocol-version');
+                if (headerProtocolVersion !== null) {
+                    const initRequest = messages.find(element => isInitializeRequest(element));
+                    const bodyProtocolVersion = initRequest?.params.protocolVersion;
+                    if (bodyProtocolVersion !== undefined && headerProtocolVersion !== bodyProtocolVersion) {
+                        const error = `Bad Request: MCP-Protocol-Version header (${headerProtocolVersion}) does not match initialize body protocolVersion (${bodyProtocolVersion})`;
+                        this.onerror?.(new Error(error));
+                        return this.createJsonErrorResponse(400, -32_600, error);
+                    }
+                }
                 this.sessionId = this.sessionIdGenerator?.();
                 this._initialized = true;
 
