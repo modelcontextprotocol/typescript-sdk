@@ -5341,6 +5341,141 @@ describe('SEP-2352: authorization server binding', () => {
         expect(tokenCalls[0]![0].toString()).toBe('https://new-auth.example.com/token');
     });
 
+    it('keeps an issuer-stripped re-registered client while exchanging the authorization code after an AS migration', async () => {
+        let clientInformation: { client_id: string; client_secret?: string } | undefined = {
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        };
+        const invalidateCredentials = vi.fn(async (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+            if (scope === 'all' || scope === 'client') {
+                clientInformation = undefined;
+            }
+        });
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = { client_id: info.client_id, client_secret: info.client_secret };
+        });
+        const saveTokens = vi.fn();
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens,
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        const redirectResult = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(redirectResult).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        invalidateCredentials.mockClear();
+        saveClientInformation.mockClear();
+        mockFetch.mockClear();
+
+        const exchangeResult = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code'
+        });
+
+        expect(exchangeResult).toBe('AUTHORIZED');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        expect(redirectToAuthorization).toHaveBeenCalledTimes(1);
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(tokenCalls[0]![0].toString()).toBe('https://new-auth.example.com/token');
+    });
+
+    it('preserves and restamps URL-based client IDs after an AS migration', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        let clientInformation: StoredOAuthClientInformation | undefined = {
+            client_id: clientMetadataUrl,
+            issuer: oldAuthServerUrl
+        };
+        const invalidateCredentials = vi.fn();
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            { client_id: clientMetadataUrl, issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe(clientMetadataUrl);
+    });
+
     it('refreshes cached discovery from an explicit resource metadata challenge before comparing authorization servers', async () => {
         const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',

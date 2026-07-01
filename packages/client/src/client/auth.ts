@@ -1279,14 +1279,25 @@ async function authInternal(
     const rawClientInfo = await Promise.resolve(provider.clientInformation(infoCtx));
     const discardUnstampedClientInfoAfterAsChange =
         authorizationServerChanged &&
+        authorizationCode === undefined &&
         rawClientInfo !== undefined &&
         rawClientInfo.issuer === undefined &&
         !isHttpsUrl(rawClientInfo.client_id);
-    let clientInformation = discardUnstampedClientInfoAfterAsChange
-        ? undefined
-        : discardIfIssuerMismatch(rawClientInfo, issuer, {
-              canPersistStamp: provider.saveClientInformation !== undefined
-          });
+    const restampPortableClientInfo =
+        rawClientInfo !== undefined &&
+        isHttpsUrl(rawClientInfo.client_id) &&
+        (rawClientInfo.issuer === undefined || !issuersMatch(rawClientInfo.issuer, issuer));
+    let clientInformation: StoredOAuthClientInformation | undefined;
+    if (restampPortableClientInfo) {
+        clientInformation = { ...rawClientInfo, issuer };
+    } else if (!discardUnstampedClientInfoAfterAsChange) {
+        clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
+            canPersistStamp: provider.saveClientInformation !== undefined
+        });
+    }
+    if (restampPortableClientInfo && clientInformation) {
+        await provider.saveClientInformation?.(clientInformation, infoCtx);
+    }
     if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
         // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
         // AS — surface the typed error with both issuers rather than the generic
