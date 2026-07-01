@@ -1,5 +1,6 @@
 ---
 shape: how-to
+description: 'Authenticate a client with no user present: client credentials, private-key JWT, and cross-app access.'
 ---
 # Authenticate without a user
 

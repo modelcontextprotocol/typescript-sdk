@@ -202,7 +202,7 @@ per-member declarations; per-member is recommended, since the v2 package split m
 actual needs explicit. To answer "which packages does this member need" directly, run
 the codemod against that member's directory with `--dry-run`: the manifest summary is
 computed from that member's own imports. (The authoritative import-path routing lives
-in the codemod's [mapping file](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
+in the codemod's [mapping file](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
