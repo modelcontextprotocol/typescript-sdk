@@ -82,6 +82,12 @@ function isRedundantFormatPattern(original: Record<string, unknown>, parsed: Rec
     return ZOD_REDUNDANT_FORMAT_PATTERNS.get(parsed.format)?.has(original.pattern) === true;
 }
 
+const ANNOTATION_ONLY_JSON_SCHEMA_KEYWORDS = new Set(['$comment', 'deprecated', 'examples', 'readOnly', 'writeOnly']);
+
+function isAnnotationOnlyJsonSchemaKeyword(key: string): boolean {
+    return ANNOTATION_ONLY_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-');
+}
+
 function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = ''): string[] {
     if (Array.isArray(original) && Array.isArray(parsed)) {
         return original.flatMap((item, index) => findStrippedJsonSchemaPaths(item, parsed[index], `${path}[${index}]`));
@@ -94,7 +100,7 @@ function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = 
     return Object.entries(original).flatMap(([key, value]) => {
         const childPath = path ? `${path}.${key}` : key;
         if (!Object.prototype.hasOwnProperty.call(parsed, key)) {
-            if (isRedundantFormatPattern(original, parsed, key)) {
+            if (isRedundantFormatPattern(original, parsed, key) || isAnnotationOnlyJsonSchemaKeyword(key)) {
                 return [];
             }
             return [childPath];
