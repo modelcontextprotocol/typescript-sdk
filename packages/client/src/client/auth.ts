@@ -1042,7 +1042,10 @@ async function authInternal(
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
-    let freshDiscoveryState: OAuthDiscoveryState | undefined;
+    let discoveryStateToSave: OAuthDiscoveryState | undefined;
+    let authorizationServerSource: OAuthServerInfo['authorizationServerSource'];
+    let reusedSavedAuthorizationServerAfterUnvalidatedDiscovery = false;
+    let currentAuthorizationServerWasPrmValidated = false;
 
     // If resourceMetadataUrl is not provided, try to load it from cached state.
     // This handles browser redirects where the URL was saved before navigation.
@@ -1099,33 +1102,97 @@ async function authInternal(
             fetchFn,
             skipIssuerMetadataValidation
         });
-        authorizationServerUrl = serverInfo.authorizationServerUrl;
-        metadata = serverInfo.authorizationServerMetadata;
-        resourceMetadata = serverInfo.resourceMetadata;
+        const discoveryWasUnvalidated = serverInfo.authorizationServerSource !== 'protected-resource-metadata';
+        const fallbackAuthorizationServerUrl = cachedState?.authorizationServerUrl ?? savedAuthorizationServerUrl;
 
-        // Captured now, persisted only after the SEP-2352 callback-leg gate below — so a
-        // gate throw cannot leave a freshly resolved (potentially PRM-poisoned) AS recorded
-        // for the retry to read back as `recordedIssuer`.
-        // TODO: resourceMetadataUrl is only populated when explicitly provided via options
-        // or loaded from cached state. The URL derived internally by
-        // discoverOAuthProtectedResourceMetadata() is not captured back here.
-        freshDiscoveryState = {
-            authorizationServerUrl: String(authorizationServerUrl),
-            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
-            resourceMetadata,
-            authorizationServerMetadata: metadata
-        };
+        if (discoveryWasUnvalidated && fallbackAuthorizationServerUrl) {
+            authorizationServerUrl = fallbackAuthorizationServerUrl;
+            resourceMetadata = serverInfo.resourceMetadata ?? cachedState?.resourceMetadata;
+            authorizationServerSource = cachedState?.authorizationServerSource;
+            reusedSavedAuthorizationServerAfterUnvalidatedDiscovery = cachedState?.authorizationServerUrl === undefined;
+            const fallbackMatchesDiscoveredAuthorizationServer =
+                normalizeAuthorizationServerIdentity(String(fallbackAuthorizationServerUrl)) ===
+                normalizeAuthorizationServerIdentity(String(serverInfo.authorizationServerUrl));
+            metadata =
+                cachedState?.authorizationServerMetadata ??
+                (fallbackMatchesDiscoveredAuthorizationServer ? serverInfo.authorizationServerMetadata : undefined) ??
+                (await discoverAuthorizationServerMetadata(fallbackAuthorizationServerUrl, {
+                    fetchFn,
+                    skipIssuerValidation: skipIssuerMetadataValidation
+                }));
+
+            if (
+                cachedState?.authorizationServerUrl &&
+                (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata)
+            ) {
+                discoveryStateToSave = {
+                    authorizationServerUrl: String(authorizationServerUrl),
+                    authorizationServerSource,
+                    resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                };
+            }
+        } else {
+            authorizationServerUrl = serverInfo.authorizationServerUrl;
+            const discoveredAuthorizationServerMatchesCached =
+                cachedState?.authorizationServerUrl !== undefined &&
+                normalizeAuthorizationServerIdentity(String(serverInfo.authorizationServerUrl)) ===
+                    normalizeAuthorizationServerIdentity(cachedState.authorizationServerUrl);
+            metadata =
+                serverInfo.authorizationServerMetadata ??
+                (discoveredAuthorizationServerMatchesCached ? cachedState?.authorizationServerMetadata : undefined);
+            resourceMetadata = serverInfo.resourceMetadata;
+            authorizationServerSource = serverInfo.authorizationServerSource;
+            currentAuthorizationServerWasPrmValidated = authorizationServerSource === 'protected-resource-metadata';
+
+            // Persist discovery state for future use.
+            // TODO: resourceMetadataUrl is only populated when explicitly provided via options
+            // or loaded from cached state. The URL derived internally by
+            // discoverOAuthProtectedResourceMetadata() is not captured back here.
+            if (authorizationServerSource === 'protected-resource-metadata' || !fallbackAuthorizationServerUrl) {
+                discoveryStateToSave = {
+                    authorizationServerUrl: String(authorizationServerUrl),
+                    authorizationServerSource,
+                    resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                };
+            }
+        }
     }
+
+    // SEP-2352: Authorization server binding. Client credentials are bound to the
+    // authorization server that issued them; when discovery shows the authorization
+    // server has changed (e.g., via updated protected resource metadata), stale client
+    // credentials and tokens MUST NOT be reused and the client MUST re-register.
+    //
+    // Canonical comparison key: the validated authorization server metadata `issuer`
+    // (the identifier SEP-2352 specifies). The authorization server URL is only
+    // comparable when it came from protected resource metadata. Legacy fallback to
+    // the MCP server origin is not authoritative enough to invalidate credentials.
+    const previousAuthServerIdentities = [
+        cachedState?.authorizationServerMetadata?.issuer,
+        cachedState?.authorizationServerUrl,
+        savedAuthorizationServerUrl
+    ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const currentAuthServerIdentities = (
+        currentAuthorizationServerWasPrmValidated ? [metadata?.issuer, String(authorizationServerUrl)] : []
+    )
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const authorizationServerChanged =
+        previousAuthServerIdentities.length > 0 &&
+        currentAuthServerIdentities.length > 0 &&
+        !currentAuthServerIdentities.some(identity => previousAuthServerIdentities.includes(identity));
 
     // SEP-2352: the canonical authorization-server identity for this flow. `metadata.issuer`
     // is RFC 8414 §3.3-validated to equal the discovery URL; when no metadata document was
     // found (legacy fallback) the discovery URL itself is the only identifier available.
     const issuer = metadata?.issuer ?? String(authorizationServerUrl);
     const infoCtx: OAuthClientInformationContext = { issuer };
-
-    // Deprecated write-only hook, kept for providers (e.g. Cross-App Access) that read it
-    // internally. The SDK never reads `authorizationServerUrl()`.
-    await provider.saveAuthorizationServerUrl?.(issuer);
 
     // SEP-2352 callback-leg gate. Stored credentials are protected structurally by the
     // issuer stamp, but the in-flight `authorization_code` + PKCE `code_verifier` are not
@@ -1155,8 +1222,31 @@ async function authInternal(
         }
     }
 
-    if (freshDiscoveryState) {
-        await provider.saveDiscoveryState?.(freshDiscoveryState);
+    if (authorizationServerChanged) {
+        await provider.invalidateCredentials?.('tokens');
+
+        const staleClientInformation = await Promise.resolve(provider.clientInformation());
+        // CIMD (URL-based) client IDs are portable across authorization servers
+        // (SEP-991/SEP-2352) — no client invalidation or re-registration is needed.
+        // During code exchange, keep the client registered by the redirect flow
+        // that produced this authorization code.
+        if (staleClientInformation && !isHttpsUrl(staleClientInformation.client_id) && authorizationCode === undefined) {
+            await provider.invalidateCredentials?.('client');
+        }
+    }
+
+    if (discoveryStateToSave) {
+        await provider.saveDiscoveryState?.(discoveryStateToSave);
+    }
+
+    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider).
+    // Do not replace an existing AS with legacy fallback; fallback is not authoritative
+    // enough to overwrite a URL discovered from protected resource metadata.
+    if (
+        !reusedSavedAuthorizationServerAfterUnvalidatedDiscovery &&
+        (authorizationServerSource !== 'legacy-fallback' || previousAuthServerIdentities.length === 0)
+    ) {
+        await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);

@@ -5221,7 +5221,10 @@ describe('SEP-2352: authorization server binding', () => {
         const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
         expect(registrationCalls).toHaveLength(1);
         expect(registrationCalls[0]![0].toString()).toBe('https://new-auth.example.com/register');
-        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
 
         // The authorization redirect uses the newly registered client, not the stale one
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
@@ -5246,7 +5249,10 @@ describe('SEP-2352: authorization server binding', () => {
 
         expect(redirectResult).toBe('REDIRECT');
         expect(invalidateCredentials).toHaveBeenCalledWith('client');
-        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
 
         invalidateCredentials.mockClear();
         mockFetch.mockClear();
@@ -5259,7 +5265,10 @@ describe('SEP-2352: authorization server binding', () => {
         expect(exchangeResult).toBe('AUTHORIZED');
         expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
         expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
-        expect(saveTokens).toHaveBeenCalledWith({ access_token: 'new-access-token', token_type: 'Bearer' });
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
         expect(redirectToAuthorization).toHaveBeenCalledTimes(1);
 
         const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
@@ -5310,7 +5319,10 @@ describe('SEP-2352: authorization server binding', () => {
         );
         expect(invalidateCredentials).toHaveBeenCalledWith('client');
         expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
-        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
 
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://new-auth.example.com');
@@ -5384,7 +5396,10 @@ describe('SEP-2352: authorization server binding', () => {
                 authorizationServerMetadata: undefined
             })
         );
-        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
 
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://new-auth.example.com');
