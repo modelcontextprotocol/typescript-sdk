@@ -18,6 +18,28 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+/**
+ * Constant-time string comparison to prevent timing side-channel attacks.
+ * Uses a portable XOR-based comparison that works across all Web Standards
+ * runtimes (Node.js, Cloudflare Workers, Deno, Bun).
+ */
+function timingSafeCompare(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    const encoder = new TextEncoder();
+    const bufA = encoder.encode(a);
+    const bufB = encoder.encode(b);
+    if (bufA.length !== bufB.length) {
+        return false;
+    }
+    let result = 0;
+    for (const [index, byte] of bufA.entries()) {
+        result |= byte ^ bufB[index]!;
+    }
+    return result === 0;
+}
+
 export type StreamId = string;
 export type EventId = string;
 
@@ -934,7 +956,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return this.createJsonErrorResponse(400, -32_000, 'Bad Request: Mcp-Session-Id header is required');
         }
 
-        if (sessionId !== this.sessionId) {
+        if (!timingSafeCompare(sessionId, this.sessionId!)) {
             // Reject requests with invalid session ID with 404 Not Found
             this.onerror?.(new Error('Session not found'));
             return this.createJsonErrorResponse(404, -32_001, 'Session not found');
