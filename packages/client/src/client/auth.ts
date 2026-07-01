@@ -182,10 +182,11 @@ export async function handleOAuthUnauthorized(
     extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
 ): Promise<void> {
     const challenge = extractWWWAuthenticateParams(ctx.response);
+    const tokens = await provider.tokens();
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl: challenge.resourceMetadataUrl ?? ctx.resourceMetadataUrl,
-        scope: computeScopeUnion(ctx.scope, challenge.scope),
+        scope: computeScopeUnion(tokens?.scope, ctx.scope, challenge.scope),
         fetchFn: ctx.fetchFn,
         ...extraAuthOptions
     });

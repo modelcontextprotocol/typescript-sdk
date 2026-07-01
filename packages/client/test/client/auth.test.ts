@@ -217,7 +217,7 @@ describe('OAuth Authorization', () => {
     });
 
     describe('handleOAuthUnauthorized', () => {
-        it('uses accumulated context scope and resource metadata when reauthorizing', async () => {
+        it('uses stored token scope, accumulated context scope, and resource metadata when reauthorizing', async () => {
             const resourceMetadataUrl = new URL('https://resource.example.com/custom-prm');
             const provider: OAuthClientProvider = {
                 get redirectUrl() {
@@ -230,7 +230,7 @@ describe('OAuth Authorization', () => {
                     };
                 },
                 clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
-                tokens: vi.fn().mockResolvedValue(undefined),
+                tokens: vi.fn().mockResolvedValue({ access_token: 'old-token', token_type: 'Bearer', scope: 'openid read' }),
                 saveTokens: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn(),
@@ -277,7 +277,7 @@ describe('OAuth Authorization', () => {
 
             expect(mockFetch.mock.calls[0]?.[0].toString()).toBe(resourceMetadataUrl.toString());
             const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
-            expect(authorizationUrl.searchParams.get('scope')).toBe('read write');
+            expect(authorizationUrl.searchParams.get('scope')).toBe('openid read write');
         });
     });
 
