@@ -2039,7 +2039,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client-auth:stepup:scope-union': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
         behavior:
-            'On 403 insufficient_scope the transport re-authorizes with the union of its previously-requested scope and the challenged scope (computeScopeUnion); the union is a plain string-set dedup with no hierarchical collapse.',
+            'On 403 insufficient_scope the transport re-authorizes with the union of its stored token scope, previously-requested scope, protected resource metadata scopes, provider default scope, and challenged scope (computeScopeUnion); the union is a plain string-set dedup with no hierarchical collapse.',
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },

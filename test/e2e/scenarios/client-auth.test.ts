@@ -475,8 +475,8 @@ verifies('client-auth:stepup:scope-union', async (_args: TestArgs) => {
     expect(computeScopeUnion('files:read openid', 'files:write')).toBe('files:read openid files:write');
     expect(computeScopeUnion('admin', 'read')).toBe('admin read'); // no hierarchical collapse
 
-    // The transport requests the union of its previously-requested scope and the
-    // newly-challenged scope on step-up.
+    // The transport requests the same set-union used by step-up: current token
+    // scope, previous request scope, PRM scopes, provider default, and challenge.
     const PREVIOUS_SCOPE = 'files:read openid';
     const CHALLENGED_SCOPE = 'files:write';
     const as = createMockAuthorizationServer();
