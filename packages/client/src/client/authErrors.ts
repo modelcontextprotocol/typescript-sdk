@@ -53,9 +53,29 @@ export class IssuerMismatchError extends OAuthClientFlowError {
     readonly received: string | undefined;
 
     constructor(kind: 'metadata' | 'authorization_response', expected: string | undefined, received: string | undefined) {
-        const where = kind === 'metadata' ? 'authorization server metadata (RFC 8414 §3.3)' : 'authorization response (RFC 9207)';
         // JSON-stringify embedded values so attacker-supplied control characters cannot forge log lines.
-        super(`Issuer mismatch in ${where}: expected ${JSON.stringify(expected)}, received ${JSON.stringify(received)}`);
+        let message: string;
+        if (kind === 'authorization_response') {
+            if (received === undefined) {
+                message =
+                    'Authorization server metadata advertises authorization_response_iss_parameter_supported, ' +
+                    'but the authorization response did not include an iss parameter (RFC 9207)';
+            } else if (expected === undefined) {
+                message =
+                    'Authorization response included an iss parameter, but no authorization server metadata was recorded ' +
+                    'to validate it against (RFC 9207)';
+            } else {
+                message =
+                    'Authorization response iss parameter does not match the expected issuer: ' +
+                    `expected ${JSON.stringify(expected)}, got ${JSON.stringify(received)} (RFC 9207). ` +
+                    'The authorization response must not be processed.';
+            }
+        } else {
+            message = `Issuer mismatch in authorization server metadata (RFC 8414 §3.3): expected ${JSON.stringify(
+                expected
+            )}, received ${JSON.stringify(received)}`;
+        }
+        super(message);
         this.kind = kind;
         this.expected = expected;
         this.received = received;

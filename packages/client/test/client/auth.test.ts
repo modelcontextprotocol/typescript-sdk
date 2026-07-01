@@ -1239,7 +1239,7 @@ describe('OAuth Authorization', () => {
         it.each([
             { label: 'row 1: supported + present + match → proceed', supported: true, iss: expectedIssuer, throws: false },
             { label: 'row 1: supported + present + mismatch → reject', supported: true, iss: 'https://attacker.example', throws: true },
-            { label: 'row 2: supported + absent → reject', supported: true, iss: undefined, throws: true },
+            { label: 'row 2: supported + inspected absent → reject', supported: true, iss: null, throws: true },
             { label: 'row 3: not advertised + present + match → proceed', supported: false, iss: expectedIssuer, throws: false },
             {
                 label: 'row 3: not advertised + present + mismatch → reject',
@@ -1247,7 +1247,7 @@ describe('OAuth Authorization', () => {
                 iss: 'https://attacker.example',
                 throws: true
             },
-            { label: 'row 4: not advertised + absent → proceed', supported: false, iss: undefined, throws: false }
+            { label: 'row 4: not advertised + inspected absent → proceed', supported: false, iss: null, throws: false }
         ])('$label', ({ supported, iss, throws }) => {
             const run = () => validateAuthorizationResponseIssuer({ iss, expectedIssuer, issParameterSupported: supported });
             if (throws) {
@@ -1276,13 +1276,16 @@ describe('OAuth Authorization', () => {
             );
         });
 
-        it('no-ops when there is no recorded issuer (no validated metadata)', () => {
-            expect(() =>
-                validateAuthorizationResponseIssuer({ iss: 'https://anything', expectedIssuer: undefined, issParameterSupported: true })
-            ).not.toThrow();
+        it('skips when no authorization-response parameters were supplied', () => {
             expect(() =>
                 validateAuthorizationResponseIssuer({ iss: undefined, expectedIssuer: undefined, issParameterSupported: true })
             ).not.toThrow();
+        });
+
+        it('rejects a present iss when there is no recorded issuer (no validated metadata)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ iss: 'https://anything', expectedIssuer: undefined, issParameterSupported: true })
+            ).toThrow(IssuerMismatchError);
         });
 
         it('IssuerMismatchError JSON-encodes received value (log-injection guard)', () => {
@@ -1406,6 +1409,79 @@ describe('OAuth Authorization', () => {
             expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
             expect(result.resourceMetadata).toBeUndefined();
             expect(result.authorizationServerMetadata).toBeDefined();
+        });
+
+        it('uses legacy fallback metadata issuer when it differs from the MCP origin', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'https://auth.example.com/oauth',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token'
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com/oauth');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toEqual(legacyAuthMetadata);
+            expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('keeps the legacy fallback MCP origin when unvalidated metadata has an invalid issuer', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'auth.example.com',
+                authorization_endpoint: 'https://resource.example.com/authorize',
+                token_endpoint: 'https://resource.example.com/token'
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toEqual(legacyAuthMetadata);
         });
 
         it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
@@ -1643,6 +1719,80 @@ describe('OAuth Authorization', () => {
                     resourceMetadata: validResourceMetadata
                 })
             );
+        });
+
+        it('rediscovers stale legacy fallback state whose cached URL differs from the metadata issuer', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'https://idp.example.com/oauth',
+                authorization_endpoint: 'https://idp.example.com/oauth/authorize',
+                token_endpoint: 'https://idp.example.com/oauth/token'
+            };
+            const invalidateCredentials = vi.fn();
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    authorizationServerMetadata: legacyAuthMetadata
+                }),
+                invalidateCredentials,
+                saveDiscoveryState,
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404,
+                        text: async () => ''
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                if (urlString === legacyAuthMetadata.token_endpoint) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(invalidateCredentials).toHaveBeenCalledWith('discovery');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: legacyAuthMetadata.issuer,
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: legacyAuthMetadata
+                })
+            );
+
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString() === legacyAuthMetadata.token_endpoint);
+            expect(tokenCall).toBeDefined();
         });
 
         it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
@@ -2769,6 +2919,162 @@ describe('OAuth Authorization', () => {
 
             // Second call should be to oauth metadata at the root path
             expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('saves the metadata issuer as the AS URL for legacy no-PRM fallback', async () => {
+            const saveDiscoveryState = vi.fn();
+            const saveAuthorizationServerUrl = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                clientInformation: vi.fn().mockResolvedValue(undefined),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveClientInformation: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveDiscoveryState,
+                saveAuthorizationServerUrl
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com/oauth',
+                            authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                            token_endpoint: 'https://auth.example.com/oauth/token',
+                            registration_endpoint: 'https://auth.example.com/oauth/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString === 'https://auth.example.com/oauth/register') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('REDIRECT');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com/oauth',
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: expect.objectContaining({
+                        issuer: 'https://auth.example.com/oauth'
+                    })
+                })
+            );
+            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://auth.example.com/oauth');
+
+            const redirectCall = (provider.redirectToAuthorization as Mock).mock.calls[0]!;
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/oauth/authorize');
+        });
+
+        it('keeps the fallback MCP origin when legacy no-PRM auth metadata has an invalid issuer', async () => {
+            const saveDiscoveryState = vi.fn();
+            const saveAuthorizationServerUrl = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                clientInformation: vi.fn().mockResolvedValue(undefined),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveClientInformation: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveDiscoveryState,
+                saveAuthorizationServerUrl
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                            token_endpoint: 'https://auth.example.com/oauth/token',
+                            registration_endpoint: 'https://auth.example.com/oauth/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString === 'https://auth.example.com/oauth/register') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('REDIRECT');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: expect.objectContaining({
+                        issuer: 'auth.example.com'
+                    })
+                })
+            );
+            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://resource.example.com/');
+
+            const redirectCall = (provider.redirectToAuthorization as Mock).mock.calls[0]!;
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/oauth/authorize');
         });
 
         it('uses base URL (with root path) as authorization server when protected-resource-metadata discovery fails', async () => {
@@ -5052,6 +5358,320 @@ describe('OAuth Authorization', () => {
             srv.switchTo(AS_ONE);
             const ok = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's', expectedIssuer: AS_ONE });
             expect(await auth(ok, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+        });
+    });
+});
+
+describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
+    const issuer = 'https://auth.example.com';
+
+    describe('validateAuthorizationResponseIssuer', () => {
+        // RFC 9207 Section 2.4, row 1: advertised but absent -> reject. The caller signals
+        // "I inspected the authorization response and it had no iss" by passing null.
+        it('rejects when the AS advertises iss support but the inspected response lacks iss (null)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, null)
+            ).toThrow(/did not include an iss parameter/);
+        });
+
+        // undefined means the caller never had access to the authorization response
+        // parameters, so the SDK cannot fail closed on the caller's behalf.
+        it('skips validation entirely when the caller provides no response parameters (undefined)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, undefined)
+            ).not.toThrow();
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, undefined)).not.toThrow();
+            expect(() => validateAuthorizationResponseIssuer(undefined, undefined)).not.toThrow();
+        });
+
+        // RFC 9207 Section 2.4, row 2: present (advertised) -> exact match required
+        it('accepts an exactly matching iss when support is advertised', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, issuer)
+            ).not.toThrow();
+        });
+
+        // RFC 9207 Section 2.4, row 2: present even without advertisement -> still compared
+        it('accepts an exactly matching iss even when support is not advertised', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, issuer)).not.toThrow();
+        });
+
+        it('rejects a mismatched iss regardless of advertisement', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, 'https://attacker.example.com')).toThrow(
+                /does not match the expected issuer/
+            );
+            expect(() =>
+                validateAuthorizationResponseIssuer(
+                    { issuer, authorization_response_iss_parameter_supported: true },
+                    'https://attacker.example.com'
+                )
+            ).toThrow(/does not match the expected issuer/);
+        });
+
+        it('uses exact string comparison with no normalization', () => {
+            // Trailing slash and case differences are equivalent URLs but MUST be rejected
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, `${issuer}/`)).toThrow(/does not match the expected issuer/);
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, 'https://AUTH.example.com')).toThrow(
+                /does not match the expected issuer/
+            );
+        });
+
+        // RFC 9207 Section 2.4, row 3: neither advertised nor present -> proceed
+        it('proceeds when iss support is not advertised and the inspected response has no iss', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, null)).not.toThrow();
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: false }, null)
+            ).not.toThrow();
+        });
+
+        it('proceeds when no metadata is recorded and the inspected response has no iss', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, null)).not.toThrow();
+        });
+
+        it('rejects when an iss is present but no metadata was recorded to validate against', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, issuer)).toThrow(/no authorization server metadata was recorded/);
+        });
+
+        it('uses the metadata overload when loose metadata includes an expectedIssuer extension key', () => {
+            const metadata = {
+                issuer,
+                authorization_response_iss_parameter_supported: true,
+                expectedIssuer: 'https://extension.example.com'
+            };
+
+            expect(() => validateAuthorizationResponseIssuer(metadata, 'https://attacker.example.com')).toThrow(IssuerMismatchError);
+            expect(() => validateAuthorizationResponseIssuer(metadata, null)).toThrow(/did not include an iss parameter/);
+        });
+    });
+
+    describe('auth() with an authorization code', () => {
+        const resourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: [issuer]
+        };
+
+        const authServerMetadata: AuthorizationServerMetadata = {
+            issuer,
+            authorization_endpoint: `${issuer}/authorize`,
+            token_endpoint: `${issuer}/token`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            authorization_response_iss_parameter_supported: true
+        };
+
+        function createMockProvider(metadata: AuthorizationServerMetadata = authServerMetadata): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockResolvedValue('test-verifier'),
+                // Discovery state recorded before the redirect, including the validated issuer
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: issuer,
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                })
+            };
+        }
+
+        beforeEach(() => {
+            mockFetch.mockReset();
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'access123',
+                            token_type: 'Bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+        });
+
+        function tokenEndpointCalls(): unknown[][] {
+            return mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        }
+
+        it('exchanges the code when the response iss matches the recorded issuer', async () => {
+            const provider = createMockProvider();
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123',
+                iss: issuer
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
+            expect(provider.saveTokens).toHaveBeenCalled();
+        });
+
+        it('rejects a mismatched iss before the code reaches any token endpoint', async () => {
+            const provider = createMockProvider();
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123',
+                    iss: 'https://attacker.example.com'
+                })
+            ).rejects.toThrow(/does not match the expected issuer/);
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+            expect(provider.saveTokens).not.toHaveBeenCalled();
+        });
+
+        it('rejects cached AS metadata with a mismatched issuer before code exchange', async () => {
+            const provider = createMockProvider({
+                ...authServerMetadata,
+                issuer: 'https://attacker.example.com'
+            });
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123',
+                    iss: 'https://attacker.example.com'
+                })
+            ).rejects.toMatchObject({ name: 'IssuerMismatchError', kind: 'metadata' });
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+            expect(provider.saveTokens).not.toHaveBeenCalled();
+        });
+
+        it('uses cached legacy no-PRM fallback metadata with an invalid issuer during code exchange', async () => {
+            const legacyAuthMetadata: AuthorizationServerMetadata = {
+                ...authServerMetadata,
+                issuer: 'auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token'
+            };
+            const invalidateCredentials = vi.fn();
+            const clientInformation = vi.fn(async (ctx?: { issuer?: string }) =>
+                ctx?.issuer === 'https://resource.example.com/'
+                    ? {
+                          client_id: 'test-client-id',
+                          client_secret: 'test-client-secret'
+                      }
+                    : undefined
+            );
+            const provider: OAuthClientProvider = {
+                ...createMockProvider(legacyAuthMetadata),
+                clientInformation,
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    authorizationServerMetadata: legacyAuthMetadata
+                }),
+                invalidateCredentials
+            };
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(invalidateCredentials).not.toHaveBeenCalled();
+            expect(tokenEndpointCalls()).toHaveLength(1);
+            expect(tokenEndpointCalls()[0]?.[0]?.toString()).toBe(legacyAuthMetadata.token_endpoint);
+            expect(clientInformation).not.toHaveBeenCalledWith({ issuer: legacyAuthMetadata.issuer });
+            expect(provider.saveTokens).toHaveBeenCalled();
+        });
+
+        it('rejects when the AS advertises iss support and the caller reports a response without iss (null)', async () => {
+            const provider = createMockProvider();
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123',
+                    iss: null
+                })
+            ).rejects.toThrow(/did not include an iss parameter/);
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+        });
+
+        it('proceeds when iss is omitted entirely, even when the AS advertises support', async () => {
+            // Callers that never had access to the authorization response (legacy
+            // finishAuth(code) plumbing) must not be failed closed on their behalf.
+            const provider = createMockProvider();
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
+        });
+
+        it('proceeds without an iss when the AS does not advertise support', async () => {
+            const provider = createMockProvider({
+                ...authServerMetadata,
+                authorization_response_iss_parameter_supported: undefined
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
+        });
+
+        it('does not surface error content from a mismatched-issuer error response', async () => {
+            // RFC 9207: on issuer mismatch the client MUST NOT process the rest of the
+            // authorization response — including error/error_description parameters.
+            // Simulate a forged callback carrying both a mismatched iss and attacker-
+            // controlled error content alongside the code.
+            const forgedAuthorizationResponse = {
+                code: 'code123',
+                iss: 'https://attacker.example.com',
+                error: 'access_denied',
+                error_description: 'ATTACKER CONTROLLED MESSAGE'
+            };
+
+            const provider = createMockProvider();
+
+            const error = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: forgedAuthorizationResponse.code,
+                iss: forgedAuthorizationResponse.iss
+            }).then(
+                () => {
+                    throw new Error('expected auth() to reject');
+                },
+                (e: unknown) => e as Error
+            );
+
+            // Rejected for the issuer mismatch, without echoing the forged error params
+            expect(error.message).toMatch(/does not match the expected issuer/);
+            expect(error.message).not.toContain(forgedAuthorizationResponse.error_description);
+            expect(error.message).not.toContain('access_denied');
+
+            // And the code was never sent to a token endpoint
+            expect(tokenEndpointCalls()).toHaveLength(0);
         });
     });
 });

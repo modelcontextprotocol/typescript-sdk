@@ -847,12 +847,16 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * @param authorizationCode - The `code` query parameter from the authorization callback URL.
      * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
-     *   present. Validated per RFC 9207 against the recorded issuer before the code is redeemed.
-     *   When the authorization server advertises `authorization_response_iss_parameter_supported: true`,
-     *   omitting this causes the exchange to be **rejected** with {@linkcode IssuerMismatchError}.
+     *   present. Pass `null` to assert that the callback was inspected and carried no `iss`;
+     *   when the authorization server advertises `authorization_response_iss_parameter_supported:
+     *   true`, that observed absence is rejected with `IssuerMismatchError`. Omit this
+     *   argument, or pass `undefined`, only when the caller does not have the full callback
+     *   parameters; that preserves the legacy `finishAuth(code)` behavior and skips RFC 9207
+     *   authorization-response validation. Non-null values are validated against the recorded
+     *   issuer before the code is redeemed.
      */
-    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
-    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
+    async finishAuth(authorizationCode: string, iss?: string | null | { iss?: string | null }): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string | null | { iss?: string | null }): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }

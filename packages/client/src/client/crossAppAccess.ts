@@ -205,8 +205,8 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
 export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequestJwtAuthGrantOptions): Promise<JwtAuthGrantResult> {
     const { idpUrl, fetchFn = fetch, ...restOptions } = options;
 
-    // Discover IdP's authorization server metadata
-    const metadata = await discoverAuthorizationServerMetadata(String(idpUrl), { fetchFn });
+    // Enterprise IdP URLs are caller-configured and may be aliases for a canonical issuer.
+    const metadata = await discoverAuthorizationServerMetadata(String(idpUrl), { fetchFn, validateIssuer: false });
 
     if (!metadata?.token_endpoint) {
         throw new Error(`Failed to discover token endpoint for IdP: ${idpUrl}`);

@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # Authenticate a user with OAuth
 
 Protecting a server you run → [Require authorization](../serving/authorization.md). Signing a user in from a client → this page. No user present → [Authenticate without a user](./machine-auth.md).
@@ -117,7 +118,7 @@ await client.connect(new StreamableHTTPClientTransport(url, { authProvider: prov
 `finishAuth(params)` extracts `code`, validates the RFC 9207 `iss` parameter, exchanges the code at the authorization server discovery resolved before the redirect, and saves the tokens through your provider. The second `connect()` finds those tokens and completes without another redirect.
 
 ::: tip
-`finishAuth` also takes a positional form, `finishAuth(code, iss)`. Pass the `URLSearchParams` instead: the SDK reads both values from it, and a positional call that drops `iss` is rejected when the authorization server advertises RFC 9207 support.
+`finishAuth` also takes a positional form, `finishAuth(code, iss)`. Pass the `URLSearchParams` when you have the callback URL: the SDK reads both `code` and `iss` from it, and a missing `iss` is treated as an inspected absence. A positional `finishAuth(code)` call omits callback parameters entirely and skips RFC 9207 authorization-response validation for backwards compatibility.
 :::
 
 ## Handle issuer mismatch

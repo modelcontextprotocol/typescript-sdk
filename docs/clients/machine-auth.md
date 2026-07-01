@@ -86,6 +86,7 @@ const transport = new StreamableHTTPClientTransport(new URL('https://api.example
 ```
 
 The SDK discovers the MCP server's authorization server and resource URL (RFC 9728) before it calls `assertion`, then hands them in on `ctx` together with the negotiated `scope` and the transport's `fetchFn`. Pass them through so the IdP issues a grant bound to the right audience and resource.
+For the enterprise IdP leg, `discoverAndRequestJwtAuthGrant()` intentionally accepts configured IdP alias URLs whose metadata names a canonical issuer; it skips the RFC 8414 issuer-echo check before using the discovered token endpoint.
 
 ## Drop to the token-exchange utilities
 

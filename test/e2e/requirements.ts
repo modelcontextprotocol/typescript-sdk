@@ -2239,6 +2239,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:iss:positional-omitted-skips': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'For legacy callers that invoke finishAuth(code) without the full callback parameters, omitted iss remains an explicit compatibility opt-out from RFC 9207 authorization-response validation.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:iss:unadvertised-proceed': {
         addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',

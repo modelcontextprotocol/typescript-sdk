@@ -740,12 +740,15 @@ verifies('client-auth:as-metadata-discovery:issuer-validation', async (_args: Te
 
 /**
  * Runs the redirect leg of the OAuth flow against a mock AS configured with `asMetadata`, then
- * calls `transport.finishAuth(...)`. When `callback` is a string (or undefined) it is passed as
- * `finishAuth('granted-code', iss)`; when it is a `URLSearchParams` it is passed verbatim to the
- * overload. Returns the thrown error (or undefined on success) and the recorded token-endpoint
+ * calls `transport.finishAuth(...)`. When `callback` is a string, null, or undefined it is passed
+ * as `finishAuth('granted-code', iss)`; when it is a `URLSearchParams` it is passed verbatim to
+ * the overload. Returns the thrown error (or undefined on success) and the recorded token-endpoint
  * calls so the caller can assert whether the code went on the wire.
  */
-async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMetadata>, callback: string | undefined | URLSearchParams) {
+async function runFinishAuthScenario(
+    asMetadata: Partial<AuthorizationServerMetadata>,
+    callback: string | null | undefined | URLSearchParams
+) {
     const as = createMockAuthorizationServer({ asMetadata, tokenResponses: [{ access_token: 'iss-flow-token', token_type: 'Bearer' }] });
     const provider = new RecordingOAuthClientProvider();
     const mcpHost = createAuthenticatedHost('iss-flow-token');
@@ -792,16 +795,25 @@ verifies('client-auth:iss:mismatch-reject', async (_args: TestArgs) => {
 });
 
 verifies('client-auth:iss:supported-missing-reject', async (_args: TestArgs) => {
-    const { thrown, tokenCalls } = await runFinishAuthScenario({ authorization_response_iss_parameter_supported: true }, undefined);
+    const { thrown, tokenCalls } = await runFinishAuthScenario(
+        { authorization_response_iss_parameter_supported: true },
+        new URLSearchParams({ code: 'granted-code' })
+    );
     expect(thrown).toBeInstanceOf(IssuerMismatchError);
     expect((thrown as IssuerMismatchError).received).toBeUndefined();
     expect(tokenCalls).toHaveLength(0);
 });
 
+verifies('client-auth:iss:positional-omitted-skips', async (_args: TestArgs) => {
+    const { thrown, tokenCalls } = await runFinishAuthScenario({ authorization_response_iss_parameter_supported: true }, undefined);
+    expect(thrown).toBeUndefined();
+    expect(tokenCalls).toHaveLength(1);
+});
+
 verifies('client-auth:iss:unadvertised-proceed', async (_args: TestArgs) => {
     // Row 4: not advertised + iss absent → the exchange proceeds. Also covers row 3 (not advertised
     // + iss present → still compared) by additionally asserting the same scenario rejects a wrong iss.
-    const proceed = await runFinishAuthScenario({}, undefined);
+    const proceed = await runFinishAuthScenario({}, new URLSearchParams({ code: 'granted-code' }));
     expect(proceed.thrown).toBeUndefined();
     expect(proceed.tokenCalls).toHaveLength(1);
 

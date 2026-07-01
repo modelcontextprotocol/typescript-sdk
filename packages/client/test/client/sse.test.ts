@@ -42,6 +42,7 @@ describe('SSEClientTransport', () => {
 
         authServer = createServer((req, res) => {
             if (req.url === '/.well-known/oauth-authorization-server') {
+                const issuer = authBaseUrl.origin;
                 res.writeHead(200, {
                     'Content-Type': 'application/json'
                 });
@@ -1253,7 +1254,8 @@ describe('SSEClientTransport', () => {
                             token_endpoint: `http://127.0.0.1:${(authServer.address() as AddressInfo).port}/token`,
                             registration_endpoint: `http://127.0.0.1:${(authServer.address() as AddressInfo).port}/register`,
                             response_types_supported: ['code'],
-                            code_challenge_methods_supported: ['S256']
+                            code_challenge_methods_supported: ['S256'],
+                            authorization_response_iss_parameter_supported: true
                         })
                     );
                     return;
@@ -1545,6 +1547,26 @@ describe('SSEClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
+        });
+
+        it('rejects a mismatched finishAuth iss before token exchange', async () => {
+            const authProviderWithCode = createMockAuthProvider({
+                clientRegistered: true,
+                authorizationCode: 'test-auth-code'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: authProviderWithCode,
+                fetch: customFetch
+            });
+
+            await expect(transport.finishAuth('test-auth-code', { iss: 'https://attacker.example.com' })).rejects.toThrow(
+                /does not match the expected issuer/
+            );
+
+            const tokenCalls = customFetch.mock.calls.filter(([url]) => url.toString().includes('/token'));
+            expect(tokenCalls).toHaveLength(0);
+            expect(authProviderWithCode.saveTokens).not.toHaveBeenCalled();
         });
     });
 
