@@ -6,7 +6,8 @@ type SchemaArg = Parameters<typeof standardSchemaToJsonSchema>[0];
 
 describe('standardSchemaToJsonSchema — zod fallback paths', () => {
     it('falls back to z.toJSONSchema for zod 4.0–4.1 (vendor=zod, no ~standard.jsonSchema, has _zod)', () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const real = z.object({ a: z.string() });
         // Simulate zod 4.0–4.1: shadow `~standard` on the real instance with `jsonSchema` removed.
         // Keeps the rest of the zod 4 object (including `_zod`) intact so z.toJSONSchema can introspect it.
@@ -14,12 +15,13 @@ describe('standardSchemaToJsonSchema — zod fallback paths', () => {
         void _drop;
         Object.defineProperty(real, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
 
-        const result = standardSchemaToJsonSchema(real as unknown as SchemaArg);
+        const result = standardSchemaToJsonSchema(real as unknown as SchemaArg, 'input', { warn });
         expect(result.type).toBe('object');
         expect((result.properties as unknown as Record<string, unknown>)?.a).toBeDefined();
         expect(warn).toHaveBeenCalledOnce();
         expect(warn.mock.calls[0]?.[0]).toContain('zod 4.2.0');
-        warn.mockRestore();
+        expect(consoleWarn).not.toHaveBeenCalled();
+        consoleWarn.mockRestore();
     });
 
     it('throws a clear error for zod 3 (vendor=zod, no ~standard.jsonSchema, no _zod)', () => {

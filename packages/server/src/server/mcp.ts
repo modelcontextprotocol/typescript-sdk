@@ -19,6 +19,7 @@ import type {
     Resource,
     ResourceTemplateReference,
     Result,
+    SdkLogger,
     ServerContext,
     StandardSchemaWithJSON,
     Tool,
@@ -75,6 +76,8 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private readonly _logger: SdkLogger;
+
     /**
      * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
      * registration-time scan and the pre-dispatch validation step share one
@@ -106,7 +109,7 @@ export class McpServer {
         // A successful re-derive is memoized so the per-request-factory
         // `createMcpHandler` model does not re-convert on every call.
         try {
-            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input', this._logger);
             this._toolInputSchemaJson[name] = json;
             return json;
         } catch {
@@ -115,6 +118,7 @@ export class McpServer {
     }
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
+        this._logger = options?.logger ?? console;
         this.server = new Server(serverInfo, options);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
@@ -186,7 +190,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input', this._logger) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -199,7 +203,11 @@ export class McpServer {
                             // `{type:'object',properties:{result:<natural>},required:['result']}` toward
                             // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
                             // — this handler is era-blind and emits the natural converted schema.
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
+                            toolDefinition.outputSchema = standardSchemaToJsonSchema(
+                                tool.outputSchema,
+                                'output',
+                                this._logger
+                            ) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -533,7 +541,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema, this._logger) : undefined,
                             icons: prompt.icons,
                             _meta: prompt._meta
                         };
@@ -807,7 +815,7 @@ export class McpServer {
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
-        validateAndWarnToolName(name);
+        validateAndWarnToolName(name, this._logger);
 
         // SEP-2243 registration-time declaration-validity check (additive: warn,
         // never throw — clients enforce by exclusion, servers by header
@@ -820,11 +828,11 @@ export class McpServer {
         // the "warn, never throw" contract.
         if (inputSchema !== undefined) {
             try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
+                const json = standardSchemaToJsonSchema(inputSchema, 'input', this._logger);
                 this._toolInputSchemaJson[name] = json;
                 const scan = scanXMcpHeaderDeclarations(json);
                 if (!scan.valid) {
-                    console.warn(
+                    this._logger.warn?.(
                         `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
                             `conforming Streamable HTTP clients: ${scan.reason}`
                     );
@@ -844,7 +852,7 @@ export class McpServer {
             description,
             inputSchema,
             outputSchema,
-            outputSchemaJson: convertOutputSchemaJson(outputSchema),
+            outputSchemaJson: convertOutputSchemaJson(outputSchema, this._logger),
             annotations,
             icons,
             execution,
@@ -862,7 +870,7 @@ export class McpServer {
                 // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
-                        validateAndWarnToolName(updates.name);
+                        validateAndWarnToolName(updates.name, this._logger);
                     }
                     delete this._registeredTools[name];
                     delete this._toolInputSchemaJson[name];
@@ -899,7 +907,7 @@ export class McpServer {
 
                 if (updates.outputSchema !== undefined) {
                     registeredTool.outputSchema = updates.outputSchema;
-                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema, this._logger);
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
@@ -1324,10 +1332,10 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
  * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
  * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
  */
-function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined, logger: SdkLogger): Record<string, unknown> | undefined {
     if (outputSchema === undefined) return undefined;
     try {
-        return standardSchemaToJsonSchema(outputSchema, 'output');
+        return standardSchemaToJsonSchema(outputSchema, 'output', logger);
     } catch {
         return undefined;
     }
