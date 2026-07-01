@@ -260,6 +260,8 @@ export interface OAuthClientProvider {
      * @param ctx - Carries the resolved authorization-server `issuer`. Providers
      *   that persist credentials per authorization server should return the entry
      *   keyed by `ctx.issuer`. Providers with a single credential set may ignore it.
+     *   `ctx` is omitted only for legacy/single-slot compatibility; issuer-keyed
+     *   providers may return `undefined` when no `ctx` is supplied.
      */
     clientInformation(
         ctx?: OAuthClientInformationContext
@@ -394,23 +396,32 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
-     * Saves the resolved authorization-server **issuer**. Called after a successful
-     * token exchange (timing changed in v2: was post-discovery, now post-`saveTokens`).
+     * Saves the resolved authorization-server URL/issuer identity for legacy providers.
+     * Called after discovery, SEP-2352 authorization-server change detection, any resulting
+     * credential invalidation, and callback-leg authorization-server binding succeed.
      *
-     * @deprecated Superseded by the `issuer` stamp on stored tokens / client credentials
-     * (SEP-2352). {@linkcode auth} still **writes** this for back-compat with providers
-     * that read it (e.g. Cross-App Access), but the SDK never reads it. Prefer reading
-     * the `issuer` field on the value passed to {@linkcode saveTokens} /
-     * {@linkcode saveClientInformation}, or the `ctx.issuer` argument.
+     * @deprecated Superseded by {@linkcode saveDiscoveryState} and by the `issuer` stamp on
+     * stored tokens / client credentials (SEP-2352). {@linkcode auth} still **writes** this
+     * for back-compat with providers that read it internally (e.g. Cross-App Access), and
+     * may read {@linkcode authorizationServerUrl} as a previously recorded AS identity for
+     * SEP-2352 change detection; when fresh protected-resource-metadata discovery validates a
+     * different AS, that value can trigger token/client invalidation. It may also be used as a
+     * legacy fallback when no `discoveryState()` is available and discovery is unvalidated.
+     * Prefer {@linkcode discoveryState} plus the `issuer` field on the value passed to
+     * {@linkcode saveTokens} / {@linkcode saveClientInformation}, or the `ctx.issuer` argument.
      */
     saveAuthorizationServerUrl?(authorizationServerUrl: string): void | Promise<void>;
 
     /**
      * Returns the previously saved authorization server URL, if available.
      *
-     * @deprecated Superseded by the `issuer` stamp on stored tokens / client credentials
-     * (SEP-2352). The SDK never reads this method; it remains for provider implementations
-     * that consume the value internally (e.g. Cross-App Access).
+     * @deprecated Superseded by {@linkcode discoveryState} and by the `issuer` stamp on
+     * stored tokens / client credentials (SEP-2352). {@linkcode auth} may read this as a
+     * previously recorded AS identity for SEP-2352 change detection; when fresh
+     * protected-resource-metadata discovery validates a different AS, that value can trigger
+     * token/client invalidation. It may also be used as a legacy fallback when no persisted
+     * `discoveryState()` is available and discovery is unvalidated. New providers should
+     * implement {@linkcode discoveryState} / {@linkcode saveDiscoveryState} instead.
      */
     authorizationServerUrl?(): string | undefined | Promise<string | undefined>;
 
@@ -438,13 +449,16 @@ export interface OAuthClientProvider {
 
     /**
      * Saves the OAuth discovery state after RFC 9728 and authorization server metadata
-     * discovery. Providers can persist this state to avoid redundant discovery requests
-     * on subsequent {@linkcode auth} calls.
+     * discovery. Providers can persist this state so ordinary subsequent
+     * {@linkcode auth} calls can reuse discovery results without repeating the
+     * RFC 9728 / AS metadata probes.
      *
      * This state can also be provided out-of-band (e.g., from a previous session or
      * external configuration) to bootstrap the OAuth flow without discovery.
      *
-     * Called by {@linkcode auth} after successful discovery.
+     * Called by {@linkcode auth} after successful discovery, including when a fresh
+     * `WWW-Authenticate: Bearer ... resource_metadata="..."` challenge causes cached
+     * discovery to be refreshed.
      *
      * MUST persist with the same durability as `codeVerifier` (survives the redirect
      * round-trip).
@@ -454,13 +468,17 @@ export interface OAuthClientProvider {
     /**
      * Returns previously saved discovery state, or `undefined` if none is cached.
      *
-     * When available, {@linkcode auth} restores the discovery state (authorization server
-     * URL, resource metadata, etc.) instead of performing RFC 9728 discovery, reducing
-     * latency on subsequent calls.
+     * When available, {@linkcode auth} normally restores the discovery state
+     * (authorization server URL, resource metadata, etc.) instead of performing
+     * RFC 9728 discovery, reducing latency on subsequent calls.
      *
-     * Hosts should call {@linkcode invalidateCredentials} with scope `'discovery'`
-     * on repeated 401s so a changed `authorization_servers` list is picked up; the
-     * SDK does not invoke that scope itself.
+     * A non-code-exchange {@linkcode auth} call that carries a fresh
+     * `WWW-Authenticate` `resource_metadata` challenge may refresh cached discovery
+     * before selecting the authorization server. If that refreshed metadata names a
+     * different authorization server, the SDK invalidates the stale tokens/client
+     * credentials it owns and re-registers as needed. Hosts may still call
+     * {@linkcode invalidateCredentials} with scope `'discovery'` when they know the
+     * persisted discovery document itself should be discarded.
      *
      * MUST persist with the same durability as `codeVerifier` (survives the redirect
      * round-trip).
@@ -472,8 +490,10 @@ export interface OAuthClientProvider {
  * Discovery state that can be persisted across sessions by an {@linkcode OAuthClientProvider}.
  *
  * Contains the results of RFC 9728 protected resource metadata discovery and
- * authorization server metadata discovery. Persisting this state avoids
- * redundant discovery HTTP requests on subsequent {@linkcode auth} calls.
+ * authorization server metadata discovery. Persisting this state lets ordinary
+ * subsequent {@linkcode auth} calls avoid redundant discovery HTTP requests; fresh
+ * `WWW-Authenticate` resource metadata challenges can still ask {@linkcode auth} to
+ * refresh the state before comparing authorization servers.
  */
 // TODO: Consider adding `authorizationServerMetadataUrl` to capture the exact well-known URL
 // at which authorization server metadata was discovered. This would require
@@ -923,6 +943,15 @@ export interface AuthOptions {
     scope?: string;
     /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
     resourceMetadataUrl?: URL;
+    /**
+     * Whether a provided {@linkcode resourceMetadataUrl} is a fresh challenge signal
+     * that should refresh cached discovery before authorization-server comparison.
+     *
+     * Defaults to `true` when `resourceMetadataUrl` is provided. Transports that are
+     * merely carrying a previously observed resource metadata URL, rather than one
+     * from the current response, set this to `false` so cached discovery can be reused.
+     */
+    refreshCachedDiscovery?: boolean;
     /** Custom `fetch` implementation. */
     fetchFn?: FetchLike;
     /**
@@ -1026,6 +1055,7 @@ async function authInternal(
         iss,
         scope,
         resourceMetadataUrl,
+        refreshCachedDiscovery,
         fetchFn,
         skipIssuerMetadataValidation,
         forceReauthorization
@@ -1037,23 +1067,33 @@ async function authInternal(
 
     // Check if the provider has cached discovery state to skip discovery
     const cachedState = await provider.discoveryState?.();
+    const savedAuthorizationServerUrl = await provider.authorizationServerUrl?.();
 
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
     let metadata: AuthorizationServerMetadata | undefined;
-    let freshDiscoveryState: OAuthDiscoveryState | undefined;
+    let discoveryStateToSave: OAuthDiscoveryState | undefined;
+    let authorizationServerSource: OAuthServerInfo['authorizationServerSource'];
+    let reusedSavedAuthorizationServerAfterUnvalidatedDiscovery = false;
+    let currentAuthorizationServerWasPrmValidated = false;
 
-    // If resourceMetadataUrl is not provided, try to load it from cached state
-    // This handles browser redirects where the URL was saved before navigation
+    // If resourceMetadataUrl is not provided, try to load it from cached state.
+    // This handles browser redirects where the URL was saved before navigation.
     let effectiveResourceMetadataUrl = resourceMetadataUrl;
     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
+    const shouldRefreshCachedDiscovery =
+        authorizationCode === undefined &&
+        cachedState?.authorizationServerUrl !== undefined &&
+        resourceMetadataUrl !== undefined &&
+        refreshCachedDiscovery !== false;
 
-    if (cachedState?.authorizationServerUrl) {
+    if (cachedState?.authorizationServerUrl && !shouldRefreshCachedDiscovery) {
         // Restore discovery state from cache
         authorizationServerUrl = cachedState.authorizationServerUrl;
         resourceMetadata = cachedState.resourceMetadata;
+        authorizationServerSource = cachedState.authorizationServerSource;
         metadata =
             cachedState.authorizationServerMetadata ??
             (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
@@ -1081,12 +1121,13 @@ async function authInternal(
 
         // Re-save if we enriched the cached state with missing metadata
         if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
-            await provider.saveDiscoveryState?.({
+            discoveryStateToSave = {
                 authorizationServerUrl: String(authorizationServerUrl),
+                authorizationServerSource,
                 resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
                 resourceMetadata,
                 authorizationServerMetadata: metadata
-            });
+            };
         }
     } else {
         // Full discovery via RFC 9728
@@ -1095,33 +1136,100 @@ async function authInternal(
             fetchFn,
             skipIssuerMetadataValidation
         });
-        authorizationServerUrl = serverInfo.authorizationServerUrl;
-        metadata = serverInfo.authorizationServerMetadata;
-        resourceMetadata = serverInfo.resourceMetadata;
+        const discoveryWasUnvalidated = serverInfo.authorizationServerSource !== 'protected-resource-metadata';
+        const fallbackAuthorizationServerUrl = cachedState?.authorizationServerUrl ?? savedAuthorizationServerUrl;
 
-        // Captured now, persisted only after the SEP-2352 callback-leg gate below — so a
-        // gate throw cannot leave a freshly resolved (potentially PRM-poisoned) AS recorded
-        // for the retry to read back as `recordedIssuer`.
-        // TODO: resourceMetadataUrl is only populated when explicitly provided via options
-        // or loaded from cached state. The URL derived internally by
-        // discoverOAuthProtectedResourceMetadata() is not captured back here.
-        freshDiscoveryState = {
-            authorizationServerUrl: String(authorizationServerUrl),
-            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
-            resourceMetadata,
-            authorizationServerMetadata: metadata
-        };
+        if (discoveryWasUnvalidated && fallbackAuthorizationServerUrl) {
+            authorizationServerUrl = fallbackAuthorizationServerUrl;
+            resourceMetadata = serverInfo.resourceMetadata ?? cachedState?.resourceMetadata;
+            authorizationServerSource = cachedState?.authorizationServerSource;
+            reusedSavedAuthorizationServerAfterUnvalidatedDiscovery = cachedState?.authorizationServerUrl === undefined;
+            const fallbackMatchesDiscoveredAuthorizationServer =
+                normalizeAuthorizationServerIdentity(String(fallbackAuthorizationServerUrl)) ===
+                normalizeAuthorizationServerIdentity(String(serverInfo.authorizationServerUrl));
+            metadata =
+                cachedState?.authorizationServerMetadata ??
+                (fallbackMatchesDiscoveredAuthorizationServer ? serverInfo.authorizationServerMetadata : undefined) ??
+                (await discoverAuthorizationServerMetadata(fallbackAuthorizationServerUrl, {
+                    fetchFn,
+                    skipIssuerValidation: skipIssuerMetadataValidation
+                }));
+
+            if (
+                cachedState?.authorizationServerUrl &&
+                (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata)
+            ) {
+                discoveryStateToSave = {
+                    authorizationServerUrl: String(authorizationServerUrl),
+                    authorizationServerSource,
+                    resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                };
+            }
+        } else {
+            authorizationServerUrl = serverInfo.authorizationServerUrl;
+            const discoveredAuthorizationServerMatchesCached =
+                cachedState?.authorizationServerUrl !== undefined &&
+                normalizeAuthorizationServerIdentity(String(serverInfo.authorizationServerUrl)) ===
+                    normalizeAuthorizationServerIdentity(cachedState.authorizationServerUrl);
+            metadata =
+                serverInfo.authorizationServerMetadata ??
+                (discoveredAuthorizationServerMatchesCached ? cachedState?.authorizationServerMetadata : undefined);
+            resourceMetadata = serverInfo.resourceMetadata;
+            authorizationServerSource = serverInfo.authorizationServerSource;
+            currentAuthorizationServerWasPrmValidated = authorizationServerSource === 'protected-resource-metadata';
+
+            // Persist discovery state for future use.
+            // TODO: resourceMetadataUrl is only populated when explicitly provided via options
+            // or loaded from cached state. The URL derived internally by
+            // discoverOAuthProtectedResourceMetadata() is not captured back here.
+            if (authorizationServerSource === 'protected-resource-metadata' || !fallbackAuthorizationServerUrl) {
+                discoveryStateToSave = {
+                    authorizationServerUrl: String(authorizationServerUrl),
+                    authorizationServerSource,
+                    resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                };
+            }
+        }
     }
+
+    // SEP-2352: Authorization server binding. Client credentials are bound to the
+    // authorization server that issued them; when discovery shows the authorization
+    // server has changed (e.g., via updated protected resource metadata), stale client
+    // credentials and tokens MUST NOT be reused and the client MUST re-register.
+    //
+    // Canonical comparison key: the validated authorization server metadata `issuer`
+    // (the identifier SEP-2352 specifies). The authorization server URL is only
+    // comparable when it came from protected resource metadata. Legacy fallback to
+    // the MCP server origin is not authoritative enough to invalidate credentials.
+    const previousAuthorizationServerIssuer =
+        cachedState?.authorizationServerMetadata?.issuer ?? cachedState?.authorizationServerUrl ?? savedAuthorizationServerUrl;
+    const previousAuthServerIdentities = [
+        cachedState?.authorizationServerMetadata?.issuer,
+        cachedState?.authorizationServerUrl,
+        savedAuthorizationServerUrl
+    ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const currentAuthServerIdentities = (
+        currentAuthorizationServerWasPrmValidated ? [metadata?.issuer, String(authorizationServerUrl)] : []
+    )
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const authorizationServerChanged =
+        previousAuthServerIdentities.length > 0 &&
+        currentAuthServerIdentities.length > 0 &&
+        !currentAuthServerIdentities.some(identity => previousAuthServerIdentities.includes(identity));
 
     // SEP-2352: the canonical authorization-server identity for this flow. `metadata.issuer`
     // is RFC 8414 §3.3-validated to equal the discovery URL; when no metadata document was
     // found (legacy fallback) the discovery URL itself is the only identifier available.
     const issuer = metadata?.issuer ?? String(authorizationServerUrl);
     const infoCtx: OAuthClientInformationContext = { issuer };
-
-    // Deprecated write-only hook, kept for providers (e.g. Cross-App Access) that read it
-    // internally. The SDK never reads `authorizationServerUrl()`.
-    await provider.saveAuthorizationServerUrl?.(issuer);
+    const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
 
     // SEP-2352 callback-leg gate. Stored credentials are protected structurally by the
     // issuer stamp, but the in-flight `authorization_code` + PKCE `code_verifier` are not
@@ -1151,8 +1259,35 @@ async function authInternal(
         }
     }
 
-    if (freshDiscoveryState) {
-        await provider.saveDiscoveryState?.(freshDiscoveryState);
+    if (authorizationServerChanged) {
+        await provider.invalidateCredentials?.('tokens');
+
+        const staleClientInformation = await Promise.resolve(
+            provider.clientInformation(previousAuthorizationServerIssuer ? { issuer: previousAuthorizationServerIssuer } : undefined)
+        );
+        const staleClientIsPortableAtCurrentAs =
+            staleClientInformation !== undefined && isHttpsUrl(staleClientInformation.client_id) && supportsUrlBasedClientId;
+        // CIMD (URL-based) client IDs are portable across authorization servers
+        // (SEP-991/SEP-2352) — no client invalidation or re-registration is needed.
+        // During code exchange, keep the client registered by the redirect flow
+        // that produced this authorization code.
+        if (staleClientInformation && !staleClientIsPortableAtCurrentAs && authorizationCode === undefined) {
+            await provider.invalidateCredentials?.('client');
+        }
+    }
+
+    if (discoveryStateToSave) {
+        await provider.saveDiscoveryState?.(discoveryStateToSave);
+    }
+
+    // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider).
+    // Do not replace an existing AS with legacy fallback; fallback is not authoritative
+    // enough to overwrite a URL discovered from protected resource metadata.
+    if (
+        !reusedSavedAuthorizationServerAfterUnvalidatedDiscovery &&
+        (authorizationServerSource !== 'legacy-fallback' || previousAuthServerIdentities.length === 0)
+    ) {
+        await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
     }
 
     const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
@@ -1174,9 +1309,29 @@ async function authInternal(
     // stamp names a different authorization server reads back as `undefined`, so the flow
     // re-registers exactly as if nothing were stored.
     const rawClientInfo = await Promise.resolve(provider.clientInformation(infoCtx));
-    let clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
-        canPersistStamp: provider.saveClientInformation !== undefined
-    });
+    const discardUnstampedClientInfoAfterAsChange =
+        authorizationServerChanged &&
+        authorizationCode === undefined &&
+        rawClientInfo !== undefined &&
+        rawClientInfo.issuer === undefined &&
+        !isHttpsUrl(rawClientInfo.client_id);
+    const restampPortableClientInfo =
+        authorizationCode === undefined &&
+        supportsUrlBasedClientId &&
+        rawClientInfo !== undefined &&
+        isHttpsUrl(rawClientInfo.client_id) &&
+        (rawClientInfo.issuer === undefined || !issuersMatch(rawClientInfo.issuer, issuer));
+    let clientInformation: StoredOAuthClientInformation | undefined;
+    if (restampPortableClientInfo) {
+        clientInformation = { ...rawClientInfo, issuer };
+    } else if (!discardUnstampedClientInfoAfterAsChange) {
+        clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
+            canPersistStamp: provider.saveClientInformation !== undefined
+        });
+    }
+    if (restampPortableClientInfo && clientInformation) {
+        await provider.saveClientInformation?.(clientInformation, infoCtx);
+    }
     if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
         // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
         // AS — surface the typed error with both issuers rather than the generic
@@ -1195,7 +1350,6 @@ async function authInternal(
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
         }
 
-        const supportsUrlBasedClientId = metadata?.client_id_metadata_document_supported === true;
         const clientMetadataUrl = provider.clientMetadataUrl;
 
         if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
@@ -1260,7 +1414,8 @@ async function authInternal(
 
     // SEP-2352: a refresh_token stamped for a different authorization server reads back
     // as `undefined`, so it is never POSTed to this AS's token endpoint.
-    let tokens = discardIfIssuerMismatch(await provider.tokens(infoCtx), issuer);
+    const rawTokens = await provider.tokens(infoCtx);
+    let tokens = authorizationServerChanged && rawTokens?.issuer === undefined ? undefined : discardIfIssuerMismatch(rawTokens, issuer);
     if (tokens && tokens.issuer === undefined) {
         // SEP-2352 back-stamp: bind a legacy unstamped token set to the first-resolved AS
         // so the stamp check is effective from the next call onward.
@@ -1353,6 +1508,24 @@ export function isHttpsUrl(value?: string): boolean {
         return url.protocol === 'https:' && url.pathname !== '/';
     } catch {
         return false;
+    }
+}
+
+/**
+ * SEP-2352: Normalizes an authorization server identity (issuer identifier or
+ * authorization server URL) for comparison, so that textual variations of the
+ * same URL (e.g. a missing trailing slash on an issuer URL) do not
+ * register as an authorization server change.
+ */
+function normalizeAuthorizationServerIdentity(value: string): string {
+    try {
+        const url = new URL(value);
+        if (url.pathname !== '/') {
+            url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+        }
+        return url.href;
+    } catch {
+        return value;
     }
 }
 
@@ -1846,6 +2019,12 @@ export interface OAuthServerInfo {
      * or `undefined` if the server does not support it.
      */
     resourceMetadata?: OAuthProtectedResourceMetadata;
+
+    /**
+     * Where the authorization server URL came from. Discovery calls set this
+     * field; it is optional so older persisted discovery state remains valid.
+     */
+    authorizationServerSource?: 'protected-resource-metadata' | 'legacy-fallback';
 }
 
 /**
@@ -1882,6 +2061,7 @@ export async function discoverOAuthServerInfo(
 ): Promise<OAuthServerInfo> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | undefined;
+    let authorizationServerSource: OAuthServerInfo['authorizationServerSource'];
 
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
@@ -1891,6 +2071,7 @@ export async function discoverOAuthServerInfo(
         );
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
+            authorizationServerSource = 'protected-resource-metadata';
         }
     } catch (error) {
         // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
@@ -1906,6 +2087,7 @@ export async function discoverOAuthServerInfo(
     // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
     if (!authorizationServerUrl) {
         authorizationServerUrl = String(new URL('/', serverUrl));
+        authorizationServerSource = 'legacy-fallback';
     }
 
     const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
@@ -1915,6 +2097,7 @@ export async function discoverOAuthServerInfo(
 
     return {
         authorizationServerUrl,
+        authorizationServerSource,
         authorizationServerMetadata,
         resourceMetadata
     };

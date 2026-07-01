@@ -1247,13 +1247,17 @@ no `ctx`). New TypeScript-only aliases `StoredOAuthTokens` / `StoredOAuthClientI
 add an optional `issuer?: string` field on top of the wire types.
 
 `OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are
-`@deprecated` (still written for back-compat, never read by the SDK). The bundled
-`ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, and
-`CrossAppAccessProvider` gain `expectedIssuer?: string` and no longer define
-`saveClientInformation()`. Implement `discoveryState()` / `saveDiscoveryState()` so the
-callback leg can verify it is exchanging the code at the same AS the redirect targeted;
-without it the SDK `console.warn`s once per callback (`discoveryState` must persist with
-the same durability as `codeVerifier`). Both methods are optional on
+`@deprecated`: `auth()` still writes `saveAuthorizationServerUrl()` for back-compat and
+may read `authorizationServerUrl()` as a previously recorded AS identity for SEP-2352
+change detection; when fresh protected-resource-metadata discovery validates a different
+AS, that value can trigger token/client invalidation. It may also be used as a legacy
+fallback when no persisted `discoveryState()` is available and discovery is unvalidated.
+The bundled `ClientCredentialsProvider`, `PrivateKeyJwtProvider`,
+`StaticPrivateKeyJwtProvider`, and `CrossAppAccessProvider` gain `expectedIssuer?: string`
+and no longer define `saveClientInformation()`. Implement `discoveryState()` /
+`saveDiscoveryState()` so the callback leg can verify it is exchanging the code at the
+same AS the redirect targeted; without it the SDK `console.warn`s once per callback
+(`discoveryState` must persist with the same durability as `codeVerifier`). Both methods are optional on
 `OAuthClientProvider` and may be sync or async; `OAuthDiscoveryState` (exported from
 `@modelcontextprotocol/client`) extends `OAuthServerInfo` with the optional
 `resourceMetadataUrl` the protected-resource metadata was found at:

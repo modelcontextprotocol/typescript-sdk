@@ -411,6 +411,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return auth(this._oauthProvider, {
             serverUrl: this._url,
             resourceMetadataUrl: this._resourceMetadataUrl,
+            refreshCachedDiscovery: challenge.resourceMetadataUrl !== undefined,
             scope: unionScope,
             forceReauthorization,
             fetchFn: this._fetchWithInit,
