@@ -418,10 +418,12 @@ describe('HTTP status mapping for ladder-originated errors (origin-keyed)', () =
         expect(httpStatusForErrorCode(-32_602, 'in-band')).toBe(200);
     });
 
-    test('handler-originated errors stay in-band on HTTP 200, whatever their code', () => {
+    test('handler-originated errors stay in-band on HTTP 200 — every code except the spec-mandated -32021', () => {
         for (const code of [-32_603, -32_602, -32_601, -32_022, -32_002, -32_000, 1234]) {
             expect(httpStatusForErrorCode(code, 'in-band')).toBe(200);
         }
+        // The one per-error spec MUST: -32021 is 400 wherever it arises.
+        expect(httpStatusForErrorCode(-32_021, 'in-band')).toBe(400);
     });
 
     test('ladder-originated codes map to their HTTP statuses', () => {

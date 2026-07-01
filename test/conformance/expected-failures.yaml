@@ -2,7 +2,7 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.7). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.9). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
 #
@@ -24,7 +24,7 @@ client: []
 
 server:
     # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
-    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.7 referee
+    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.9 referee
     # has no server-side `--suite extensions`). The active/draft/2026 legs never select
     # them, so they cannot flag these entries as stale. `tasks-status-notifications` is
     # intentionally absent: the referee SKIPs it unconditionally (harness rewrite pending
