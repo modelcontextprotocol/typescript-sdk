@@ -448,4 +448,18 @@ describe('stale registration-schema references (analysis: mcp-servers/memory)', 
         const { result } = applyWithDiagnostics(code);
         expect(result.diagnostics.some(d => d.message.includes('no longer the setRequestHandler'))).toBe(false);
     });
+
+    it('does NOT flag a schema consumed by a validator when setRequestHandler is only a real registration', () => {
+        // The file registers a handler for real (a call the pass rewrites); an unrelated schema-consuming
+        // call like validateSchema(S) / zodToJsonSchema(S) is not a stale registration key — only a
+        // setRequestHandler MOCK/lookup reference signals that surviving schema refs are stale.
+        const code = [
+            `import { CallToolRequestSchema, SubscribeRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
+            `validateSchema(SubscribeRequestSchema);`,
+            ''
+        ].join('\n');
+        const { result } = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes('no longer the setRequestHandler'))).toBe(false);
+    });
 });

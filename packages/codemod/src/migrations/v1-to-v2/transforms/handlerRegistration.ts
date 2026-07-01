@@ -174,16 +174,24 @@ export const handlerRegistrationTransform: Transform = {
         }
 
         // Flag surviving registration-schema references. A method-mapped *RequestSchema/*NotificationSchema
-        // whose import survived the conversion above, used as a VALUE in a handler-registration context
-        // (a call argument or an `===`/`!==` operand) in a file that performs handler registration, is almost
-        // always a stale v1 registration assertion/lookup — in v2 the registration key is the method string,
-        // not the schema. Advisory, not rewritten: the same constant is still valid for `.parse()` etc., so we
-        // flag rather than risk breaking a legitimate schema use. (A converted source drops the import, so only
-        // files that still reference the schema — typically registration tests — are flagged.)
-        const usesRegistration = sourceFile
-            .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
-            .some(pa => pa.getName() === 'setRequestHandler' || pa.getName() === 'setNotificationHandler');
-        if (usesRegistration) {
+        // whose import survived the conversion above, used as a VALUE (a call argument or an `===`/`!==`
+        // operand), is almost always a stale v1 registration assertion/lookup — in v2 the registration key is
+        // the method string, not the schema. Advisory, not rewritten: the same constant is still valid for
+        // `.parse()` etc., so we flag rather than risk breaking a legitimate schema use.
+        //
+        // Gate on a registration MOCK/lookup, not on any setRequestHandler access. A file that only *calls*
+        // setRequestHandler/setNotificationHandler (real registrations, which the pass above rewrites) tells us
+        // nothing about its other schema references — those may be plain schema uses (`validateSchema(S)`,
+        // `zodToJsonSchema(S)`, `ajv.compile(S)`). Only a NON-call reference — `inner.setRequestHandler.mock`,
+        // `expect(x.setRequestHandler)…`, a comparison operand — signals the file makes registration
+        // assertions, where a surviving schema key is likely stale.
+        const usesRegistrationMock = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).some(pa => {
+            if (pa.getName() !== 'setRequestHandler' && pa.getName() !== 'setNotificationHandler') return false;
+            const paParent = pa.getParent();
+            // Exclude real registration calls `x.setRequestHandler(…)`, where pa is the callee.
+            return !(Node.isCallExpression(paParent) && paParent.getExpression() === pa);
+        });
+        if (usesRegistrationMock) {
             const flagged = new Set<string>();
             for (const id of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
                 const local = id.getText();

@@ -699,4 +699,59 @@ describe('v1 mock context literals in tests (test doubles)', () => {
         const { result } = apply(code);
         expect(findMockDiag(result.diagnostics)).toBeUndefined();
     });
+
+    it('does not advise on a lone requestId (a bare correlation-ID literal, not a context mock)', () => {
+        const code = IMPORT + [`logger.info('handling lookup', { requestId: args.id });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('advises on a cast-wrapped inline mock (`{ … } as unknown as RequestHandlerExtra`)', () => {
+        const code = IMPORT + [`await handler(args, { sendRequest: fn } as unknown as RequestHandlerExtra);`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+
+    it('advises on a cast-wrapped variable mock (`const ctx = { … } as any`)', () => {
+        const code = IMPORT + [`const mockCtx = { requestId: 1, sendRequest: fn } as any;`, `await handler(args, mockCtx);`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeDefined();
+    });
+
+    it('does not advise on already-v2 values (an options object reading ctx.mcpReq / ctx.sessionId)', () => {
+        const code = IMPORT + [`doThing({ signal: ctx.mcpReq.signal, sessionId: ctx.sessionId });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it("does not re-flag the codemod's own migrated handler output", () => {
+        const code =
+            IMPORT +
+            [
+                `server.setRequestHandler('x', async (req, extra) => {`,
+                `    await loadData(req.uri, { signal: extra.signal, sessionId: extra.sessionId });`,
+                `    return {};`,
+                `});`,
+                ''
+            ].join('\n');
+        const { text, result } = apply(code);
+        // sanity: the handler body WAS migrated to the v2 nested shape …
+        expect(text).toContain('ctx.mcpReq.signal');
+        // … and the resulting options object is not mistaken for a stale v1 mock.
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a flat MessageExtraInfo literal passed to onmessage', () => {
+        const code = IMPORT + [`transport.onmessage(msg, { requestInfo: req, authInfo });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a flat MessageExtraInfo literal passed to handleMessage', () => {
+        const code = IMPORT + [`await transport.handleMessage(msg, { authInfo, closeSSEStream: fn });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
 });

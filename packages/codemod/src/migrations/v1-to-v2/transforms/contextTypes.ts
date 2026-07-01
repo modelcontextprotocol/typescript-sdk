@@ -1,4 +1,4 @@
-import type { SourceFile } from 'ts-morph';
+import type { ObjectLiteralExpression, SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
@@ -11,13 +11,13 @@ const CONTEXT_LIKE_KEYS = new Set(CONTEXT_PROPERTY_MAP.map(mapping => mapping.fr
 
 /**
  * v1 context keys distinctive enough that a single one on an object literal is a strong
- * signal it's a hand-built handler-context mock (vs. generic keys like `signal`/`sessionId`
- * that appear on unrelated objects and only count in aggregate).
+ * signal it's a hand-built handler-context mock (vs. generic keys like `signal`/`sessionId`/
+ * `requestId` — a bare correlation-ID literal such as `logger.info(msg, { requestId })` is
+ * not a context mock — which appear on unrelated objects and only count in aggregate).
  */
 const DISTINCTIVE_CONTEXT_KEYS = new Set([
     'sendRequest',
     'sendNotification',
-    'requestId',
     'requestInfo',
     'authInfo',
     'closeSSEStream',
@@ -28,6 +28,13 @@ const DISTINCTIVE_CONTEXT_KEYS = new Set([
 const V2_SHAPE_KEYS = new Set(['mcpReq', 'http', 'task']);
 
 const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler']);
+
+/**
+ * Transport ingestion methods whose second argument is a flat `MessageExtraInfo`
+ * (authInfo/request/closeSSEStream/… stay top-level in v2), NOT a handler context —
+ * so a literal handed to them must never get handler-context reshape guidance.
+ */
+const TRANSPORT_MESSAGE_METHODS = new Set(['onmessage', 'handleMessage']);
 
 const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'tool', 'prompt', 'resource']);
 
@@ -372,10 +379,35 @@ function flagV1MockContextLiterals(sourceFile: SourceFile, diagnostics: Diagnost
     for (const obj of sourceFile.getDescendantsOfKind(SyntaxKind.ObjectLiteralExpression)) {
         // Only literals in a mock-context position: a call argument or a variable initializer.
         // Covers both `handler({}, { sendRequest: fn })` and `const extra = { … }; handler(a, extra)`.
-        const parent = obj.getParent();
-        const isCallArg = parent !== undefined && Node.isCallExpression(parent) && parent.getArguments().includes(obj);
-        const isVarInit = parent !== undefined && Node.isVariableDeclaration(parent) && parent.getInitializer() === obj;
+        // Unwrap casts/parens first so typed mocks — `{ … } as unknown as RequestHandlerExtra`,
+        // `({ … })`, `{ … } satisfies X` — are anchored by what encloses the cast, not the
+        // AsExpression that directly wraps the literal.
+        let expr: Node = obj;
+        let parent = expr.getParent();
+        while (
+            parent !== undefined &&
+            (Node.isAsExpression(parent) || Node.isSatisfiesExpression(parent) || Node.isParenthesizedExpression(parent))
+        ) {
+            expr = parent;
+            parent = parent.getParent();
+        }
+        const isCallArg = parent !== undefined && Node.isCallExpression(parent) && parent.getArguments().includes(expr);
+        const isVarInit = parent !== undefined && Node.isVariableDeclaration(parent) && parent.getInitializer() === expr;
         if (!isCallArg && !isVarInit) continue;
+
+        // A literal handed to a transport ingestion method (`transport.onmessage(msg, { … })`,
+        // `transport.handleMessage(msg, { … })`) is a flat MessageExtraInfo, not a handler-context
+        // mock — reshaping its authInfo/request/closeSSEStream/… under http/mcpReq would be wrong.
+        if (isCallArg && Node.isCallExpression(parent)) {
+            const callee = parent.getExpression();
+            if (Node.isPropertyAccessExpression(callee) && TRANSPORT_MESSAGE_METHODS.has(callee.getName())) continue;
+        }
+
+        // The codemod's OWN output: an options object inside a just-rewritten handler whose values
+        // now read `ctx.mcpReq.*` / `ctx.http.*`. The keys keep their v1 names — so V2_SHAPE_KEYS
+        // below, which only inspects key names, won't catch it — but the values are already v2, not
+        // a stale mock. Flagging it would insert a comment above code the codemod itself produced.
+        if (readsFromMigratedContext(obj)) continue;
 
         // Collect named property keys (skip spreads and computed names).
         const keys: string[] = [];
@@ -405,6 +437,24 @@ function flagV1MockContextLiterals(sourceFile: SourceFile, diagnostics: Diagnost
             advisoryOnly: true
         });
     }
+}
+
+/**
+ * True when any property value already reads from the v2-nested context — a `.mcpReq` or `.http`
+ * property access (e.g. `ctx.mcpReq.signal`, `ctx.http?.authInfo`). Such a literal is migrated
+ * output, not a hand-built v1 mock: a real v1 mock supplies raw values (`fn`, `ac.signal`, a
+ * literal), never the nested v2 shape the codemod itself just wrote.
+ */
+function readsFromMigratedContext(obj: ObjectLiteralExpression): boolean {
+    for (const prop of obj.getProperties()) {
+        if (!Node.isPropertyAssignment(prop)) continue;
+        const init = prop.getInitializer();
+        if (init === undefined) continue;
+        const accesses = init.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
+        if (Node.isPropertyAccessExpression(init)) accesses.push(init);
+        if (accesses.some(access => access.getName() === 'mcpReq' || access.getName() === 'http')) return true;
+    }
+    return false;
 }
 
 const CONTEXT_TYPE_NAMES = new Set(['RequestHandlerExtra', 'ServerContext', 'ClientContext']);
