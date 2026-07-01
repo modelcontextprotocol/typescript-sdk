@@ -5626,6 +5626,57 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('uses cached discovery on authorization-code exchange even when the original PRM URL is present', async () => {
+        const { provider, saveTokens } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadataUrl: resourceMetadataUrl.toString(),
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.reject(new TypeError('network temporarily unavailable'));
+            }
+
+            if (urlString === `${oldAuthServerUrl}/token` && init?.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ access_token: 'new-access-token', token_type: 'Bearer' })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('AUTHORIZED');
+        const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString() === resourceMetadataUrl.toString());
+        expect(prmCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: oldAuthServerUrl },
+            expect.objectContaining({ issuer: oldAuthServerUrl })
+        );
+    });
+
     it('invalidates when challenged PRM names a new authorization server without AS metadata', async () => {
         const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',

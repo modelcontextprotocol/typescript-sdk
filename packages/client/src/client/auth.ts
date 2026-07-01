@@ -1062,7 +1062,8 @@ async function authInternal(
     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
-    const shouldRefreshCachedDiscovery = cachedState?.authorizationServerUrl !== undefined && resourceMetadataUrl !== undefined;
+    const shouldRefreshCachedDiscovery =
+        authorizationCode === undefined && cachedState?.authorizationServerUrl !== undefined && resourceMetadataUrl !== undefined;
 
     if (cachedState?.authorizationServerUrl && !shouldRefreshCachedDiscovery) {
         // Restore discovery state from cache
