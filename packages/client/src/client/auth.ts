@@ -249,7 +249,8 @@ export interface OAuthClientProvider {
      * appropriate `application_type` when registering dynamically: `'native'` for
      * desktop/CLI apps using loopback or custom-scheme redirect URIs, `'web'` for
      * remote browser-based apps. If `application_type` is omitted, {@linkcode registerClient}
-     * infers it from `redirect_uris`.
+     * infers `'native'` when any `redirect_uris` entry uses a loopback host or custom
+     * URI scheme; otherwise it infers `'web'`.
      */
     get clientMetadata(): OAuthClientMetadata;
 
@@ -824,9 +825,9 @@ export function assertSecureTokenEndpoint(tokenEndpoint: string | URL): URL {
 
 /**
  * Derives an OIDC `application_type` from a client's registered redirect URIs
- * when the consumer has not set one explicitly (SEP-837). Loopback hosts and
- * non-`http(s)` custom URI schemes indicate a native application (RFC 8252);
- * everything else is treated as a web application. The result is a heuristic
+ * when the consumer has not set one explicitly (SEP-837). Any loopback host or
+ * non-`http(s)` custom URI scheme indicates a native application (RFC 8252);
+ * otherwise the client is treated as a web application. The result is a heuristic
  * default — callers that know better should set `clientMetadata.application_type`
  * themselves, which {@linkcode resolveClientMetadata} never overwrites.
  *
@@ -861,8 +862,8 @@ function deriveApplicationType(redirectUris: readonly string[] | undefined): 'na
  *   `redirectUrl`) get no `grant_types` default. This default applies to the
  *   Dynamic Client Registration body only — it does **not** drive
  *   {@linkcode determineScope}'s `offline_access` augmentation.
- * - `application_type` defaults from `redirect_uris`: loopback redirect hosts
- *   and custom URI schemes → `'native'`, otherwise `'web'` (SEP-837 / RFC 8252).
+ * - `application_type` defaults from `redirect_uris`: any loopback redirect host
+ *   or custom URI scheme → `'native'`, otherwise `'web'` (SEP-837 / RFC 8252).
  *
  * A field the consumer set explicitly is **never** overwritten. {@linkcode auth}
  * calls this once at the top of the flow; direct callers of
