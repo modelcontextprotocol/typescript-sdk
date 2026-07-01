@@ -2813,7 +2813,7 @@ describe('Zod v4', () => {
             ).rejects.toMatchObject({
                 code: ProtocolErrorCode.InvalidParams,
                 message: expect.stringContaining('invalid'),
-                data: { uri: requestedUri }
+                data: { uri: requestedUri, reason: 'invalid_uri' }
             });
         });
 

@@ -481,7 +481,8 @@ export class McpServer {
                 uri = new URL(request.params.uri);
             } catch {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource URI ${request.params.uri} is invalid`, {
-                    uri: request.params.uri
+                    uri: request.params.uri,
+                    reason: 'invalid_uri'
                 });
             }
 
