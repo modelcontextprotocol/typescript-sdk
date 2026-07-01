@@ -40,6 +40,7 @@ async function getFreePort() {
 interface TestServerConfig {
     sessionIdGenerator: (() => string) | undefined;
     enableJsonResponse?: boolean;
+    supportedProtocolVersions?: string[];
     customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
     eventStore?: EventStore;
     onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
@@ -159,7 +160,13 @@ describe('Zod v4', () => {
         baseUrl: URL;
     }> {
         config ??= { sessionIdGenerator: () => randomUUID() };
-        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+        const mcpServer = new McpServer(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: { logging: {} },
+                ...(config.supportedProtocolVersions ? { supportedProtocolVersions: config.supportedProtocolVersions } : {})
+            }
+        );
 
         mcpServer.registerTool(
             'greet',
@@ -999,6 +1006,50 @@ describe('Zod v4', () => {
 
                 // Request should still succeed
                 expect(response.status).toBe(200);
+            });
+
+            it('should accept protocol versions configured on the connected server', async () => {
+                const customVersion = '2026-07-28';
+                const {
+                    server: customServer,
+                    transport: customTransport,
+                    baseUrl: customBaseUrl
+                } = await createTestServer({
+                    sessionIdGenerator: () => randomUUID(),
+                    supportedProtocolVersions: [customVersion, '2025-11-25']
+                });
+
+                try {
+                    const initResponse = await sendPostRequest(customBaseUrl, {
+                        jsonrpc: '2.0',
+                        method: 'initialize',
+                        params: {
+                            clientInfo: { name: 'test-client', version: '1.0' },
+                            protocolVersion: customVersion,
+                            capabilities: {}
+                        },
+                        id: 'init-custom-version'
+                    } as JSONRPCMessage);
+
+                    expect(initResponse.status).toBe(200);
+                    const customSessionId = initResponse.headers.get('mcp-session-id');
+                    expect(customSessionId).toBeDefined();
+
+                    const response = await fetch(customBaseUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            Accept: 'application/json, text/event-stream',
+                            'mcp-session-id': customSessionId!,
+                            'mcp-protocol-version': customVersion
+                        },
+                        body: JSON.stringify(TEST_MESSAGES.toolsList)
+                    });
+
+                    expect(response.status).toBe(200);
+                } finally {
+                    await stopTestServer({ server: customServer, transport: customTransport });
+                }
             });
 
             it('should reject unsupported protocol version on GET requests', async () => {

@@ -476,7 +476,15 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/read', async (request, ctx) => {
-            const uri = new URL(request.params.uri);
+            let uri: URL;
+            try {
+                uri = new URL(request.params.uri);
+            } catch {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource URI ${request.params.uri} is invalid`, {
+                    uri: request.params.uri,
+                    reason: 'invalid_uri'
+                });
+            }
 
             // First check for exact resource match
             const resource = this._registeredResources[uri.toString()];
