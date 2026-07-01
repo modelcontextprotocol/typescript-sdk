@@ -559,6 +559,30 @@ describe('Zod v4', () => {
                 id: 'call-1'
             });
         });
+
+        it('should accept application/json-only Accept header in JSON response mode (regression for #1944)', async () => {
+            // The strict Accept check used to require text/event-stream even when
+            // enableJsonResponse: true (i.e. the transport will never open an SSE stream).
+            // After the fix, application/json alone is sufficient.
+            sessionId = await initializeServer();
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                accept: 'application/json'
+            });
+            const response = await transport.handleRequest(request);
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+        });
+
+        it('should still reject Accept that does not include application/json (JSON response mode)', async () => {
+            sessionId = await initializeServer();
+            const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                sessionId,
+                accept: 'text/plain'
+            });
+            const response = await transport.handleRequest(request);
+            expect(response.status).toBe(406);
+        });
     });
 
     describe('HTTPServerTransport - Session Callbacks', () => {
