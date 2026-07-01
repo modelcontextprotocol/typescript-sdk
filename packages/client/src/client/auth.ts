@@ -2075,8 +2075,11 @@ export async function discoverOAuthServerInfo(
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
         /**
-         * Forwarded to {@linkcode discoverAuthorizationServerMetadata} as
-         * `skipIssuerValidation`. **Security-weakening** — see {@linkcode AuthOptions.skipIssuerMetadataValidation}.
+         * When the authorization server URL comes from protected resource metadata, disables
+         * the RFC 8414 Section 3.3 issuer check by forwarding `validateIssuer: false` to
+         * {@linkcode discoverAuthorizationServerMetadata}. For the legacy no-PRM fallback,
+         * issuer validation is already disabled regardless of this flag.
+         * **Security-weakening** — see {@linkcode AuthOptions.skipIssuerMetadataValidation}.
          */
         skipIssuerMetadataValidation?: boolean;
     }

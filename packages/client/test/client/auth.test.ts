@@ -977,14 +977,6 @@ describe('OAuth Authorization', () => {
             code_challenge_methods_supported: ['S256']
         };
 
-        const validOpenIdTenantMetadata = {
-            ...validOpenIdMetadata,
-            issuer: 'https://auth.example.com/tenant1',
-            authorization_endpoint: 'https://auth.example.com/tenant1/authorize',
-            token_endpoint: 'https://auth.example.com/tenant1/token',
-            jwks_uri: 'https://auth.example.com/tenant1/jwks'
-        };
-
         it('tries URLs in order and returns first successful metadata', async () => {
             const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
             // First OAuth URL (path before well-known) fails with 404

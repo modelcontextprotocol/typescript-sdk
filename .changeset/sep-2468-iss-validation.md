@@ -11,3 +11,5 @@ Discovery also now validates authorization-server metadata issuer values per RFC
 throws on mismatches or invalid issuer identifiers unless called with `{ validateIssuer: false }` for intentional alias discovery. Cached discovery state is also validated; stale legacy no-PRM fallback state that saved the MCP server origin before learning a distinct metadata
 issuer is ignored and refreshed. For legacy servers without protected resource metadata, metadata is still discovered at the MCP server origin; when that metadata names a distinct issuer, the SDK now treats the metadata `issuer` as the authorization server URL for persisted
 discovery state and fallback endpoint construction.
+
+Cross-App Access IdP discovery (`discoverAndRequestJwtAuthGrant()` / `CrossAppAccessProvider`) intentionally skips the RFC 8414 issuer-echo check, so configured IdP alias URLs whose metadata names a canonical issuer keep working.
