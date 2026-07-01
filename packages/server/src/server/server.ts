@@ -55,6 +55,7 @@ import {
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
     modernProtocolVersions,
+    normalizeElicitInputFormParams,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -66,7 +67,6 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
-import { normalizeElicitInputFormParams } from './elicitation';
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
 
 /**

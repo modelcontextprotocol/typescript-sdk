@@ -1,11 +1,11 @@
-import type { ElicitInputFormParams, ElicitRequestFormParams, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
-import {
-    ElicitRequestFormParamsSchema,
-    parseSchema,
-    ProtocolError,
-    ProtocolErrorCode,
-    standardSchemaToJsonSchema
-} from '@modelcontextprotocol/core-internal';
+import { ProtocolErrorCode } from '../types/enums';
+import { ProtocolError } from '../types/errors';
+import { ElicitRequestFormParamsSchema } from '../types/schemas';
+import type { ElicitRequestFormParams } from '../types/types';
+import { parseSchema } from '../util/schema';
+import type { StandardSchemaWithJSON } from '../util/standardSchema';
+import { standardSchemaToJsonSchema } from '../util/standardSchema';
+import type { ElicitInputFormParams } from './protocol';
 
 export type NormalizedElicitInputFormParams = {
     params: ElicitRequestFormParams;
@@ -109,6 +109,18 @@ function isElicitInputSchema(
     return typeof schema === 'object' && schema !== null && '~standard' in schema;
 }
 
+function convertStandardElicitationSchema(standardSchema: StandardSchemaWithJSON): Record<string, unknown> {
+    try {
+        return standardSchemaToJsonSchema(standardSchema, 'input');
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        throw new ProtocolError(
+            ProtocolErrorCode.InvalidParams,
+            `Elicitation requestedSchema must describe an object with flat primitive properties: ${detail}`
+        );
+    }
+}
+
 export function normalizeElicitInputFormParams(
     params: ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
 ): NormalizedElicitInputFormParams {
@@ -119,7 +131,7 @@ export function normalizeElicitInputFormParams(
         const standardSchema = formParams.requestedSchema;
         const normalizedParams = {
             ...formParams,
-            requestedSchema: standardSchemaToJsonSchema(standardSchema, 'input')
+            requestedSchema: convertStandardElicitationSchema(standardSchema)
         };
         const parsedParams = parseSchema(ElicitRequestFormParamsSchema, normalizedParams);
         if (!parsedParams.success) {
