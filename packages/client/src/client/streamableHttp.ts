@@ -400,7 +400,15 @@ export class StreamableHTTPClientTransport implements Transport {
         // Spec step-up: union of previously-requested scope and challenged scope,
         // so previously-granted permissions are not lost on re-authorization.
         const tokens = await this._oauthProvider.tokens();
-        const unionScope = computeScopeUnion(this._scope, tokens?.scope, challenge.scope);
+        const discoveryState = await this._oauthProvider.discoveryState?.();
+        const resourceScope = discoveryState?.resourceMetadata?.scopes_supported?.join(' ');
+        const unionScope = computeScopeUnion(
+            tokens?.scope,
+            this._scope,
+            resourceScope,
+            this._oauthProvider.clientMetadata.scope,
+            challenge.scope
+        );
         this._scope = unionScope;
 
         // Superset-gated refresh bypass: refresh cannot widen scope (RFC 6749 §6),
@@ -534,7 +542,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                         // Preserve any union accumulated by `_stepUpAuthorize` so a 401
                         // mid-chain does not narrow `_scope` back to the challenge value.
                         this._scope = computeScopeUnion(this._scope, scope);
@@ -985,7 +993,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                         // Preserve any union accumulated by `_stepUpAuthorize` so a 401
                         // mid-chain does not narrow `_scope` back to the challenge value.
                         this._scope = computeScopeUnion(this._scope, scope);

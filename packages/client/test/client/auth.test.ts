@@ -26,6 +26,7 @@ import {
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     InsecureTokenEndpointError,
+    unionScopes,
     isHttpsUrl,
     isStrictScopeSuperset,
     IssuerMismatchError,

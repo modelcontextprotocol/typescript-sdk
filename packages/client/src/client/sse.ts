@@ -14,6 +14,7 @@ import type { AuthProvider, OAuthClientProvider } from './auth';
 import {
     adaptOAuthProvider,
     auth,
+    computeScopeUnion,
     extractWWWAuthenticateParams,
     isOAuthClientProvider,
     resolveAuthorizationCallbackParams,
@@ -165,7 +166,7 @@ export class SSEClientTransport implements Transport {
                         if (response.headers.has('www-authenticate')) {
                             const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                             this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
-                            this._scope = unionScopes(this._scope, scope);
+                            this._scope = computeScopeUnion(this._scope, scope);
                         }
                     }
 
@@ -337,7 +338,7 @@ export class SSEClientTransport implements Transport {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
-                        this._scope = unionScopes(this._scope, scope);
+                        this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
