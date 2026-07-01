@@ -34,7 +34,8 @@ import {
     McpServer,
     ProtocolError,
     ProtocolErrorCode,
-    ResourceTemplate
+    ResourceTemplate,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
