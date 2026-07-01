@@ -213,6 +213,113 @@ describe('resolveExternalSchemaRefs', () => {
         expect(validate({ address: {} }).valid).toBe(false);
     });
 
+    it('resolves relative refs in the root schema against the root $id', async () => {
+        const schema: JsonSchemaType = {
+            $id: 'https://schemas.example.com/models/person.json',
+            type: 'object',
+            properties: {
+                address: { $ref: '../common/address.json#/$defs/address' }
+            },
+            required: ['address']
+        };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/common/address.json': {
+                $defs: {
+                    address: {
+                        type: 'object',
+                        properties: { city: { type: 'string' } },
+                        required: ['city']
+                    }
+                }
+            }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl });
+
+        expect(fetchImpl).toHaveBeenCalledWith('https://schemas.example.com/common/address.json', expect.anything());
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ address: { city: 'Paris' } }).valid).toBe(true);
+        expect(validate({ address: {} }).valid).toBe(false);
+    });
+
+    it('rewrites fetched document refs back to the in-memory root $id', async () => {
+        const schema: JsonSchemaType = {
+            $id: 'https://schemas.example.com/root.json',
+            type: 'object',
+            $defs: {
+                localName: { type: 'string' }
+            },
+            properties: {
+                child: { $ref: 'https://schemas.example.com/child.json' }
+            },
+            required: ['child']
+        };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/child.json': {
+                type: 'object',
+                properties: {
+                    name: { $ref: 'https://schemas.example.com/root.json#/$defs/localName' }
+                },
+                required: ['name']
+            }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl });
+
+        expect(fetchImpl).toHaveBeenCalledTimes(1);
+        expect(fetchImpl).toHaveBeenCalledWith('https://schemas.example.com/child.json', expect.anything());
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ child: { name: 'Ada' } }).valid).toBe(true);
+        expect(validate({ child: { name: 1 } }).valid).toBe(false);
+    });
+
+    it('counts fetched canonical-$id duplicates against the document budget', async () => {
+        const schema = {
+            x1: { $ref: 'https://schemas.example.com/a.json' },
+            x2: { $ref: 'https://schemas.example.com/b.json' },
+            x3: { $ref: 'https://schemas.example.com/c.json' }
+        } as unknown as JsonSchemaType;
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/a.json': { $id: 'https://schemas.example.com/canonical.json', type: 'string' },
+            'https://schemas.example.com/b.json': { $id: 'https://schemas.example.com/canonical.json', type: 'string' },
+            'https://schemas.example.com/c.json': { $id: 'https://schemas.example.com/canonical.json', type: 'string' }
+        });
+
+        await expect(
+            resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl, maxDocuments: 2 })
+        ).rejects.toThrow(/more than 2 external schema documents/i);
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps preallocated slots valid when a fetched document dedupes to a canonical $id', async () => {
+        const schema: JsonSchemaType = {
+            type: 'object',
+            properties: {
+                a: { $ref: 'https://mirror.example.com/x.json' },
+                b: { $ref: 'https://mirror.example.com/x.json' },
+                c: { $ref: 'https://schemas.example.com/x.json' }
+            }
+        };
+        const fetchImpl = fetchStub({
+            'https://mirror.example.com/x.json': { $id: 'https://schemas.example.com/x.json', type: 'string' },
+            'https://schemas.example.com/x.json': { type: 'string' }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, {
+            allowlist: ['mirror.example.com', 'schemas.example.com'],
+            fetch: fetchImpl
+        });
+
+        const defs = (resolved as Record<string, unknown>).$defs as Record<string, unknown>;
+        expect(defs.__externalRef_0).toEqual({ $ref: '#/$defs/__externalRef_1' });
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ a: 'one', b: 'two', c: 'three' }).valid).toBe(true);
+        expect(validate({ a: 'one', b: 2, c: 'three' }).valid).toBe(false);
+    });
+
     it('does not dereference $ref-shaped data inside data-valued JSON Schema keywords', async () => {
         const schema: JsonSchemaType = {
             type: 'object',

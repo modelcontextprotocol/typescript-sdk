@@ -455,6 +455,47 @@ describe('JSON Schema Validators', () => {
                 expect(validator({ pair: ['a', 1], first: 'ok' }).valid).toBe(true);
                 expect(validator({ pair: ['a', 1], first: 1 }).valid).toBe(false);
             });
+
+            it('rewrites local refs through nested draft-07 tuple items arrays', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        pair: {
+                            type: 'array',
+                            items: [
+                                { type: 'string' },
+                                {
+                                    type: 'array',
+                                    items: [{ type: 'boolean' }]
+                                }
+                            ]
+                        },
+                        nested: { $ref: '#/properties/pair/items/1/items/0' }
+                    }
+                } as unknown as JsonSchemaType;
+                const validator = provider.getValidator(schema);
+
+                expect(validator({ pair: ['a', [true]], nested: false }).valid).toBe(true);
+                expect(validator({ pair: ['a', [true]], nested: 'no' }).valid).toBe(false);
+            });
+
+            it('rewrites local refs to draft-07 additionalItems schemas', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        tuple: {
+                            type: 'array',
+                            items: [{ type: 'string' }],
+                            additionalItems: { type: 'number' }
+                        },
+                        extra: { $ref: '#/properties/tuple/additionalItems' }
+                    }
+                } as unknown as JsonSchemaType;
+                const validator = provider.getValidator(schema);
+
+                expect(validator({ tuple: ['a', 1], extra: 2 }).valid).toBe(true);
+                expect(validator({ tuple: ['a', 1], extra: 'no' }).valid).toBe(false);
+            });
         });
 
         describe('Complex real-world schemas', () => {

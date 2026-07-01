@@ -24,49 +24,77 @@ function escapeJsonPointerSegment(segment: string): string {
     return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 
-function childPointer(path: string, segment: string | number): string {
-    return `${path}/${escapeJsonPointerSegment(String(segment))}`;
+function unescapeJsonPointerSegment(segment: string): string {
+    return segment.replaceAll('~1', '/').replaceAll('~0', '~');
 }
 
-function rewriteLocalJsonPointerRef(ref: string, refRewrites: Map<string, string>): string {
+function arrayIndex(segment: string): number | undefined {
+    if (!/^(0|[1-9]\d*)$/.test(segment)) {
+        return undefined;
+    }
+
+    const index = Number(segment);
+    return Number.isSafeInteger(index) ? index : undefined;
+}
+
+function childAtJsonPointerSegment(node: unknown, segment: string): unknown {
+    if (Array.isArray(node)) {
+        const index = arrayIndex(segment);
+        return index === undefined ? undefined : node[index];
+    }
+
+    return isJsonObject(node) ? node[segment] : undefined;
+}
+
+function rewriteLocalJsonPointerRef(ref: string, rootSchema: unknown): string {
     if (!ref.startsWith('#/')) {
         return ref;
     }
 
-    const pointer = ref.slice(1);
-    for (const [from, to] of refRewrites) {
-        if (pointer === from) {
-            return `#${to}`;
+    const segments = ref
+        .slice(2)
+        .split('/')
+        .map(segment => unescapeJsonPointerSegment(segment));
+    const rewritten: string[] = [];
+    let node: unknown = rootSchema;
+
+    for (let i = 0; i < segments.length; i++) {
+        const segment = segments[i];
+        if (segment === undefined) {
+            continue;
         }
-        if (pointer.startsWith(`${from}/`)) {
-            return `#${to}${pointer.slice(from.length)}`;
-        }
-    }
 
-    return ref;
-}
+        if (isJsonObject(node) && Array.isArray(node.items)) {
+            const tupleItems = node.items;
+            if (segment === 'items') {
+                rewritten.push('prefixItems');
+                node = tupleItems;
 
-function collectTupleRefRewrites(schema: unknown, path: string, refRewrites: Map<string, string>): void {
-    if (schema === true || schema === false || !isJsonObject(schema)) {
-        return;
-    }
-
-    if (Array.isArray(schema.items)) {
-        refRewrites.set(childPointer(path, 'items'), childPointer(path, 'prefixItems'));
-    }
-
-    for (const [key, value] of Object.entries(schema)) {
-        if (Array.isArray(value)) {
-            for (const [index, child] of value.entries()) {
-                collectTupleRefRewrites(child, childPointer(childPointer(path, key), index), refRewrites);
+                const nextSegment = segments[i + 1];
+                const nextIndex = nextSegment === undefined ? undefined : arrayIndex(nextSegment);
+                if (nextSegment !== undefined && nextIndex !== undefined) {
+                    rewritten.push(nextSegment);
+                    node = tupleItems[nextIndex];
+                    i++;
+                }
+                continue;
             }
-        } else {
-            collectTupleRefRewrites(value, childPointer(path, key), refRewrites);
+
+            if (segment === 'additionalItems') {
+                rewritten.push('items');
+                node = node.additionalItems;
+                continue;
+            }
         }
+
+        rewritten.push(segment);
+        node = childAtJsonPointerSegment(node, segment);
     }
+
+    return `#/${rewritten.map(segment => escapeJsonPointerSegment(segment)).join('/')}`;
 }
 
-function normalizeSchemaObject(schema: Record<string, unknown>, path: string, refRewrites: Map<string, string>): Record<string, unknown> {
+function normalizeSchemaObject(schema: Record<string, unknown>, rootSchema: unknown): Record<string, unknown> {
     const tupleItems = Array.isArray(schema.items) ? schema.items : undefined;
     const normalized: Record<string, unknown> = {};
 
@@ -76,22 +104,17 @@ function normalizeSchemaObject(schema: Record<string, unknown>, path: string, re
         }
 
         if ((key === '$ref' || key === '$dynamicRef') && typeof value === 'string') {
-            normalized[key] = rewriteLocalJsonPointerRef(value, refRewrites);
+            normalized[key] = rewriteLocalJsonPointerRef(value, rootSchema);
         } else if (DATA_VALUE_KEYWORDS.has(key)) {
             normalized[key] = value;
         } else if (SCHEMA_MAP_KEYWORDS.has(key) && isJsonObject(value)) {
             normalized[key] = Object.fromEntries(
-                Object.entries(value).map(([childKey, childValue]) => [
-                    childKey,
-                    normalizeSchema(childValue, childPointer(childPointer(path, key), childKey), refRewrites)
-                ])
+                Object.entries(value).map(([childKey, childValue]) => [childKey, normalizeSchema(childValue, rootSchema)])
             );
         } else if (SCHEMA_ARRAY_KEYWORDS.has(key) && Array.isArray(value)) {
-            normalized[key] = value.map((child, index) =>
-                normalizeSchema(child, childPointer(childPointer(path, key), index), refRewrites)
-            );
+            normalized[key] = value.map(child => normalizeSchema(child, rootSchema));
         } else if (SCHEMA_VALUE_KEYWORDS.has(key)) {
-            normalized[key] = normalizeSchema(value, childPointer(path, key), refRewrites);
+            normalized[key] = normalizeSchema(value, rootSchema);
         } else {
             normalized[key] = value;
         }
@@ -99,33 +122,31 @@ function normalizeSchemaObject(schema: Record<string, unknown>, path: string, re
 
     if (tupleItems !== undefined) {
         if (!('prefixItems' in normalized)) {
-            normalized.prefixItems = tupleItems.map((item, index) =>
-                normalizeSchema(item, childPointer(childPointer(path, 'prefixItems'), index), refRewrites)
-            );
+            normalized.prefixItems = tupleItems.map(item => normalizeSchema(item, rootSchema));
         }
 
         if ('additionalItems' in schema && schema.additionalItems !== true) {
-            normalized.items = normalizeSchema(schema.additionalItems, childPointer(path, 'items'), refRewrites);
+            normalized.items = normalizeSchema(schema.additionalItems, rootSchema);
         }
     }
 
     return normalized;
 }
 
-function normalizeSchema(schema: unknown, path: string, refRewrites: Map<string, string>): unknown {
+function normalizeSchema(schema: unknown, rootSchema: unknown): unknown {
     if (schema === true || schema === false) {
         return schema;
     }
 
     if (Array.isArray(schema)) {
-        return schema.map((item, index) => normalizeSchema(item, childPointer(path, index), refRewrites));
+        return schema.map(item => normalizeSchema(item, rootSchema));
     }
 
     if (!isJsonObject(schema)) {
         return schema;
     }
 
-    return normalizeSchemaObject(schema, path, refRewrites);
+    return normalizeSchemaObject(schema, rootSchema);
 }
 
 /**
@@ -135,7 +156,5 @@ function normalizeSchema(schema: unknown, path: string, refRewrites: Map<string,
  * tool schemas remain callable.
  */
 export function normalizeLegacyTupleSchema(schema: JsonSchemaType): JsonSchemaType {
-    const refRewrites = new Map<string, string>();
-    collectTupleRefRewrites(schema, '', refRewrites);
-    return normalizeSchema(schema, '', refRewrites) as JsonSchemaType;
+    return normalizeSchema(schema, schema) as JsonSchemaType;
 }

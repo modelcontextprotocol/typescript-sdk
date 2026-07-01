@@ -100,6 +100,23 @@ function isExternalRef(ref: string): boolean {
     return ref.length > 0 && !ref.startsWith('#');
 }
 
+function rootDocumentBase(schema: JsonSchemaType): string | undefined {
+    if (schema === null || typeof schema !== 'object' || Array.isArray(schema) || typeof schema.$id !== 'string') {
+        return undefined;
+    }
+
+    const { base, fragment } = splitRef(schema.$id);
+    if (fragment !== '') {
+        return undefined;
+    }
+
+    try {
+        return new URL(base).href;
+    } catch {
+        return undefined;
+    }
+}
+
 const DATA_VALUE_KEYWORDS = new Set(['const', 'default', 'enum', 'examples']);
 const SCHEMA_MAP_KEYWORDS = new Set(['$defs', 'definitions', 'dependentSchemas', 'patternProperties', 'properties']);
 
@@ -300,6 +317,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
     // Map of base URI -> generated $defs slot key, and the collected bundle of fetched documents.
     const slotByBase = new Map<string, string>();
     const bundle: Record<string, Record<string, unknown>> = {};
+    const rootBase = rootDocumentBase(schema);
     const rootDefs =
         schema !== null && typeof schema === 'object' && !Array.isArray(schema) && schema.$defs !== null && typeof schema.$defs === 'object'
             ? new Set(Object.keys(schema.$defs as Record<string, unknown>))
@@ -333,7 +351,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         const canonicalExisting = slotByBase.get(documentBase);
         if (canonicalExisting && canonicalExisting !== slot) {
             slotByBase.set(base, canonicalExisting);
-            fetchedDocumentCount--;
+            bundle[slot] = { $ref: `#/$defs/${canonicalExisting}` };
             return canonicalExisting;
         }
         slotByBase.set(documentBase, slot);
@@ -373,8 +391,13 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
                                 `Use a JSON Pointer fragment (e.g. "#/$defs/Foo") or restructure the schema.`
                         );
                     }
-                    const slot = await ensureDocument(resolveExternalBase(base, containingDocumentUri, value));
-                    out[key] = `#/$defs/${slot}${fragment}`;
+                    const resolvedBase = resolveExternalBase(base, containingDocumentUri, value);
+                    if (rootBase !== undefined && resolvedBase === rootBase) {
+                        out[key] = `#${fragment}`;
+                    } else {
+                        const slot = await ensureDocument(resolvedBase);
+                        out[key] = `#/$defs/${slot}${fragment}`;
+                    }
                 } else if (slotPrefix === '') {
                     out[key] = value;
                 } else {
@@ -413,7 +436,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         return out;
     }
 
-    const rewrittenRoot = (await rewrite(schema, '')) as Record<string, unknown>;
+    const rewrittenRoot = (await rewrite(schema, '', rootBase)) as Record<string, unknown>;
 
     if (fetchedDocumentCount === 0) {
         // No external references; return the (structurally identical) schema unchanged.
