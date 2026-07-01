@@ -11,7 +11,8 @@ export default defineConfig({
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts'
     ],
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true,
     sourcemap: true,

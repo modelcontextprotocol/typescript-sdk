@@ -21,40 +21,89 @@
     ],
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": {
+                "types": "./dist/index.d.mts",
+                "default": "./dist/index.mjs"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
         },
         "./stdio": {
-            "types": "./dist/stdio.d.mts",
-            "import": "./dist/stdio.mjs"
+            "import": {
+                "types": "./dist/stdio.d.mts",
+                "default": "./dist/stdio.mjs"
+            },
+            "require": {
+                "types": "./dist/stdio.d.cts",
+                "default": "./dist/stdio.cjs"
+            }
         },
         "./validators/ajv": {
-            "types": "./dist/validators/ajv.d.mts",
-            "import": "./dist/validators/ajv.mjs"
+            "import": {
+                "types": "./dist/validators/ajv.d.mts",
+                "default": "./dist/validators/ajv.mjs"
+            },
+            "require": {
+                "types": "./dist/validators/ajv.d.cts",
+                "default": "./dist/validators/ajv.cjs"
+            }
         },
         "./validators/cf-worker": {
-            "types": "./dist/validators/cfWorker.d.mts",
-            "import": "./dist/validators/cfWorker.mjs"
+            "import": {
+                "types": "./dist/validators/cfWorker.d.mts",
+                "default": "./dist/validators/cfWorker.mjs"
+            },
+            "require": {
+                "types": "./dist/validators/cfWorker.d.cts",
+                "default": "./dist/validators/cfWorker.cjs"
+            }
         },
         "./_shims": {
             "workerd": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "import": {
+                    "types": "./dist/shimsWorkerd.d.mts",
+                    "default": "./dist/shimsWorkerd.mjs"
+                },
+                "require": {
+                    "types": "./dist/shimsWorkerd.d.cts",
+                    "default": "./dist/shimsWorkerd.cjs"
+                }
             },
             "browser": {
-                "types": "./dist/shimsWorkerd.d.mts",
-                "import": "./dist/shimsWorkerd.mjs"
+                "import": {
+                    "types": "./dist/shimsWorkerd.d.mts",
+                    "default": "./dist/shimsWorkerd.mjs"
+                },
+                "require": {
+                    "types": "./dist/shimsWorkerd.d.cts",
+                    "default": "./dist/shimsWorkerd.cjs"
+                }
             },
             "node": {
-                "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
+                "import": {
+                    "types": "./dist/shimsNode.d.mts",
+                    "default": "./dist/shimsNode.mjs"
+                },
+                "require": {
+                    "types": "./dist/shimsNode.d.cts",
+                    "default": "./dist/shimsNode.cjs"
+                }
             },
             "default": {
-                "types": "./dist/shimsNode.d.mts",
-                "import": "./dist/shimsNode.mjs"
+                "import": {
+                    "types": "./dist/shimsNode.d.mts",
+                    "default": "./dist/shimsNode.mjs"
+                },
+                "require": {
+                    "types": "./dist/shimsNode.d.cts",
+                    "default": "./dist/shimsNode.cjs"
+                }
             }
         }
     },
+    "main": "./dist/index.cjs",
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
