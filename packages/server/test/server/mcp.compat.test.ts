@@ -1,8 +1,8 @@
-import type { CallToolResultWithStructuredContent, JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index';
+import { type CallToolResultWithStructuredContent, McpServer } from '../../src/index';
 import type { InferRawShape } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
@@ -179,14 +179,10 @@ describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () 
             content: [],
             structuredContent: [n, n + 1] satisfies number[]
         }));
-        // NOTE (SEP-2106 PR-B verification item): the OutputArgs generic on registerTool is
-        // captured but does NOT currently flow into the callback's return type — ToolCallback's
-        // SendResultT is `CallToolResult | InputRequiredResult` (structuredContent: unknown), so
-        // a wrong-typed structuredContent ALSO compiles. Runtime validation (validateToolOutput)
-        // is the guard. Tightening the generic is out of this commit's scope.
-        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, async () => ({
+        // @ts-expect-error structuredContent must match the declared outputSchema.
+        server.registerTool('arr-strict', { outputSchema: z.array(z.number()) }, async () => ({
             content: [],
-            structuredContent: 'not-an-array' // compiles: structuredContent is `unknown`
+            structuredContent: 'not-an-array'
         }));
         expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
     });

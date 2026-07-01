@@ -94,8 +94,11 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
         }
 
         const draft = this.draft ?? '2020-12';
+        assertSchemaSafeToCompile(schema);
+        const normalizedSchema = draft === MCP_DEFAULT_SCHEMA_DIALECT ? normalizeLegacyTupleSchema(schema) : schema;
+
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
-        const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+        const validator = new Validator(normalizedSchema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);

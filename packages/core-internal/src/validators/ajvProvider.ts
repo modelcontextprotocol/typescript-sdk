@@ -82,6 +82,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private readonly _ajv: AjvLike;
     /** True iff the constructor received a caller-supplied engine; the `$schema` check is skipped. */
     private readonly _userAjv: boolean;
+    private readonly _normalizeLegacyTuples: boolean;
 
     /**
      * @param ajv - Optional pre-configured AJV-compatible instance. When supplied, this instance is
@@ -113,6 +114,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
                     `Ajv instance to AjvJsonSchemaValidator(ajv) to validate other dialects.`
             );
         }
+
+        assertSchemaSafeToCompile(schema);
+        const normalizedSchema = this._normalizeLegacyTuples ? normalizeLegacyTupleSchema(schema) : schema;
 
         const ajvValidator =
             '$id' in normalizedSchema && typeof normalizedSchema.$id === 'string'

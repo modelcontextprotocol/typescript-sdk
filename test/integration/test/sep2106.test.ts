@@ -12,18 +12,24 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, setNegotiatedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 describe('SEP-2106: JSON Schema 2020-12 tool output', () => {
+    const MODERN_PROTOCOL_VERSION = '2026-07-28';
+    const SUPPORTED_WITH_MODERN = [MODERN_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS];
     let mcpServer: McpServer;
     let client: Client;
 
     beforeEach(() => {
-        mcpServer = new McpServer({ name: 'sep2106 server', version: '1.0' });
-        client = new Client({ name: 'sep2106 client', version: '1.0' });
+        mcpServer = new McpServer({ name: 'sep2106 server', version: '1.0' }, { supportedProtocolVersions: SUPPORTED_WITH_MODERN });
+        setNegotiatedProtocolVersion(mcpServer.server, MODERN_PROTOCOL_VERSION);
+        client = new Client(
+            { name: 'sep2106 client', version: '1.0' },
+            { supportedProtocolVersions: SUPPORTED_WITH_MODERN, versionNegotiation: { mode: 'auto' } }
+        );
     });
 
     async function connect() {

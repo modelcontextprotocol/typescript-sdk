@@ -2,7 +2,6 @@ import type {
     BaseMetadata,
     CacheHint,
     CallToolResult,
-    CallToolResultWithStructuredContent,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
@@ -984,7 +983,9 @@ export class McpServer {
             icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
+        cb:
+            | ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON | ZodRawShape | undefined>
+            | LegacyToolCallback<ZodRawShape, StandardSchemaWithJSON | ZodRawShape | undefined>
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -1002,7 +1003,7 @@ export class McpServer {
             icons,
             undefined,
             _meta,
-            cb as ToolCallback<StandardSchemaWithJSON | undefined>
+            cb as ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON | ZodRawShape | undefined>
         );
     }
 
@@ -1214,6 +1215,8 @@ export type ZodRawShape = Record<string, z.ZodType>;
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
+export type CallToolResultWithStructuredContent<T> = CallToolResult & { structuredContent: T };
+
 /**
  * Maps a tool's declared `outputSchema` to the precise {@link CallToolResult} its handler returns.
  *
@@ -1231,12 +1234,15 @@ export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | 
       : CallToolResult;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
-export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+export type LegacyToolCallback<
+    Args extends ZodRawShape | undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = Args extends ZodRawShape
     ? (
           args: InferRawShape<Args>,
           ctx: ServerContext
-      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
-    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
+      ) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>
+    : (ctx: ServerContext) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
@@ -1260,11 +1266,10 @@ export type BaseToolCallback<
  * When the tool declares an `outputSchema`, pass it as `Output` so the handler's returned
  * `structuredContent` is checked against the schema's inferred output type at compile time.
  */
-export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult | InputRequiredResult,
-    ServerContext,
-    Args
->;
+export type ToolCallback<
+    Args extends StandardSchemaWithJSON | undefined = undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = BaseToolCallback<ToolResultFor<Output> | InputRequiredResult, ServerContext, Args>;
 
 /**
  * Tool handler callback type.
@@ -1314,39 +1319,6 @@ export type RegisteredTool = {
     }): void;
     remove(): void;
 };
-
-/**
- * Returns a {@link CallToolResult} with a backward-compatibility text block added when required by
- * SEP-2106, without mutating the input.
- *
- * Servers that return array or primitive `structuredContent` MUST also include a {@link TextContent}
- * block with the serialized JSON, so pre-SEP clients that only understand object-typed
- * `structuredContent` can fall back to the text content. The original result is returned unchanged
- * (same reference) when no fallback is needed:
- *
- * - no `structuredContent` present, or
- * - `structuredContent` is a plain object (the only shape pre-SEP clients accept), or
- * - the result already carries a text block — the handler is assumed to have provided its own
- *   representation.
- *
- * Otherwise a new result is returned with a serialized text block appended; the input is left
- * untouched so the request handler stays a side-effect-free pipeline.
- */
-function withStructuredContentTextFallback(result: CallToolResult): CallToolResult {
-    const structuredContent = result.structuredContent;
-    if (structuredContent === undefined) {
-        return result;
-    }
-    const isPlainObject = structuredContent !== null && typeof structuredContent === 'object' && !Array.isArray(structuredContent);
-    if (isPlainObject) {
-        return result;
-    }
-    const content = Array.isArray(result.content) ? result.content : [];
-    if (content.some(block => block.type === 'text')) {
-        return result;
-    }
-    return { ...result, content: [...content, { type: 'text', text: JSON.stringify(structuredContent) }] };
-}
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.

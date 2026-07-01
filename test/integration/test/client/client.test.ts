@@ -2186,10 +2186,14 @@ describe('outputSchema validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // listTools() must NOT reject just because one tool's schema is uncompilable.
-        const firstPage = await client.listTools();
-        expect(firstPage.tools.map(t => t.name).toSorted()).toEqual(['bad-tool', 'validated-tool']);
-        const secondPage = await client.listTools({ cursor: firstPage.nextCursor });
-        expect(secondPage.tools.map(t => t.name).toSorted()).toEqual(['last-page-bad-tool', 'last-page-tool']);
+        const listedTools = await client.listTools();
+        expect(listedTools.nextCursor).toBeUndefined();
+        expect(listedTools.tools.map(t => t.name).toSorted()).toEqual([
+            'bad-tool',
+            'last-page-bad-tool',
+            'last-page-tool',
+            'validated-tool'
+        ]);
 
         // The final page's tool is fully usable.
         const lastPage = await client.callTool({ name: 'last-page-tool' });
@@ -2199,10 +2203,14 @@ describe('outputSchema validation', () => {
         await expect(client.callTool({ name: 'validated-tool' })).rejects.toThrow(/Structured content does not match/);
 
         // An earlier-page schema compile error also survives pagination and is scoped to that tool.
-        await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+        await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
 
         // A final-page schema compile error also survives pagination and is scoped to that tool.
-        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
         expect(lastPageBadToolCalled).toBe(false);
 
         listRequests.length = 0;
@@ -2222,7 +2230,9 @@ describe('outputSchema validation', () => {
 
         await expect(client.callTool({ name: 'last-page-tool' })).rejects.toThrow(/Structured content does not match/);
         lastPageBadToolCalled = false;
-        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
         expect(lastPageBadToolCalled).toBe(false);
     });
 
