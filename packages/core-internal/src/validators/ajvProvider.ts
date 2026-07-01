@@ -46,6 +46,14 @@ function createDefaultAjvInstance(): AjvLike {
     return ajv;
 }
 
+function isAjv2020Engine(ajv: AjvLike): boolean {
+    // Consumers can pass an Ajv2020 instance from their own ajv installation,
+    // which will not share the SDK-bundled prototype. The constructor name is
+    // stable across Ajv's published ESM/CJS entrypoints and keeps the legacy
+    // tuple shim active for bring-your-own Ajv2020 engines.
+    return ajv instanceof Ajv2020 || ajv.constructor?.name === 'Ajv2020';
+}
+
 /**
  * AJV-backed JSON Schema validator. See `@modelcontextprotocol/{client,server}/validators/ajv`
  * for the customisation entry point (re-exports `Ajv2020`, `Ajv`, and `addFormats` from the bundled copy).
@@ -93,7 +101,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     constructor(ajv?: AjvLike) {
         this._userAjv = ajv !== undefined;
         this._ajv = ajv ?? createDefaultAjvInstance();
-        this._normalizeLegacyTuples = ajv === undefined || ajv instanceof Ajv2020;
+        this._normalizeLegacyTuples = ajv === undefined || isAjv2020Engine(ajv);
     }
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
@@ -113,7 +121,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
             );
         }
 
-        assertSchemaSafeToCompile(schema);
+        if (!this._userAjv) {
+            assertSchemaSafeToCompile(schema);
+        }
         const normalizedSchema = this._normalizeLegacyTuples ? normalizeLegacyTupleSchema(schema) : schema;
 
         const ajvValidator =

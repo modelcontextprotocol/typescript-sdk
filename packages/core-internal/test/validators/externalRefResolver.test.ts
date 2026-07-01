@@ -60,6 +60,26 @@ describe('resolveExternalSchemaRefs', () => {
         expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
     });
 
+    it('allocates external $defs slots without overwriting existing root definitions', async () => {
+        const schema: JsonSchemaType = {
+            $ref: 'https://schemas.example.com/forecast.json',
+            $defs: { __externalRef_0: { type: 'number' } }
+        };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/forecast.json': { type: 'string' }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl });
+
+        expect(resolved).toEqual({
+            $ref: '#/$defs/__externalRef_1',
+            $defs: {
+                __externalRef_0: { type: 'number' },
+                __externalRef_1: { type: 'string' }
+            }
+        });
+    });
+
     it('matches allowlist hosts case-insensitively', async () => {
         const schema: JsonSchemaType = { $ref: 'https://Schemas.Example.com/forecast.json' };
         const fetchImpl = fetchStub({

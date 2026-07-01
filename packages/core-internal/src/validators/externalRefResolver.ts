@@ -296,6 +296,19 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
     // Map of base URI -> generated $defs slot key, and the collected bundle of fetched documents.
     const slotByBase = new Map<string, string>();
     const bundle: Record<string, Record<string, unknown>> = {};
+    const rootDefs =
+        schema !== null && typeof schema === 'object' && !Array.isArray(schema) && schema.$defs !== null && typeof schema.$defs === 'object'
+            ? new Set(Object.keys(schema.$defs as Record<string, unknown>))
+            : new Set<string>();
+    let nextSlotIndex = 0;
+
+    const allocateSlot = (): string => {
+        let slot: string;
+        do {
+            slot = `__externalRef_${nextSlotIndex++}`;
+        } while (rootDefs.has(slot) || Object.prototype.hasOwnProperty.call(bundle, slot));
+        return slot;
+    };
 
     const ensureDocument = async (base: string): Promise<string> => {
         const existing = slotByBase.get(base);
@@ -305,7 +318,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         if (slotByBase.size >= resolved.maxDocuments) {
             throw new Error(`Refusing to resolve more than ${resolved.maxDocuments} external schema documents.`);
         }
-        const slot = `__externalRef_${slotByBase.size}`;
+        const slot = allocateSlot();
         slotByBase.set(base, slot);
 
         const doc = await fetchDocument(base, resolved);

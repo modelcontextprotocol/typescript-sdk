@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { vi } from 'vitest';
 
-import { Ajv, AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
+import { Ajv, Ajv2020 as BundledAjv2020, AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
 import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
 import type { JsonSchemaType } from '../../src/validators/types';
 
@@ -438,6 +438,23 @@ describe('JSON Schema Validators', () => {
                 expect(validator([1, 'a']).valid).toBe(false);
                 expect(validator(['a', 1, true]).valid).toBe(false);
             });
+
+            it('rewrites local refs that pointed into draft-07 tuple items arrays', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        pair: {
+                            type: 'array',
+                            items: [{ type: 'string' }, { type: 'number' }]
+                        },
+                        first: { $ref: '#/properties/pair/items/0' }
+                    }
+                } as unknown as JsonSchemaType;
+                const validator = provider.getValidator(schema);
+
+                expect(validator({ pair: ['a', 1], first: 'ok' }).valid).toBe(true);
+                expect(validator({ pair: ['a', 1], first: 1 }).valid).toBe(false);
+            });
         });
 
         describe('Complex real-world schemas', () => {
@@ -742,6 +759,46 @@ describe('SEP-1613 $schema dialect handling (2020-12 only)', () => {
         const custom = new AjvJsonSchemaValidator(draft07);
         const v = custom.getValidator(prefixItemsSchema(DRAFT_07_URI));
         expect(v(PREFIX_ITEMS_BAD).valid).toBe(true);
+    });
+
+    it('AJV: custom Ajv-compatible engines bypass the SDK safety guard (caller owns safety)', () => {
+        const validate = Object.assign(
+            vi.fn(() => true),
+            { errors: undefined }
+        );
+        const custom = new AjvJsonSchemaValidator({
+            compile: vi.fn(() => validate),
+            getSchema: vi.fn(() => undefined),
+            errorsText: vi.fn(() => '')
+        });
+
+        expect(() => custom.getValidator({ $ref: 'https://schemas.example.com/external.json' } as JsonSchemaType)).not.toThrow();
+    });
+
+    it('AJV: custom Ajv2020-like engines still receive legacy tuple normalization', () => {
+        const ForeignAjv2020 = class Ajv2020 {
+            private readonly _inner = new BundledAjv2020({ strict: false, validateSchema: false, allErrors: true });
+
+            compile(schema: unknown) {
+                return this._inner.compile(schema as Parameters<BundledAjv2020['compile']>[0]);
+            }
+
+            getSchema(keyRef: string) {
+                return this._inner.getSchema(keyRef);
+            }
+
+            errorsText(errors?: unknown) {
+                return this._inner.errorsText(errors as Parameters<BundledAjv2020['errorsText']>[0]);
+            }
+        };
+        const custom = new AjvJsonSchemaValidator(new ForeignAjv2020());
+        const validator = custom.getValidator({
+            type: 'array',
+            items: [{ type: 'string' }, { type: 'number' }]
+        } as unknown as JsonSchemaType);
+
+        expect(validator(['a', 1]).valid).toBe(true);
+        expect(validator([1, 'a']).valid).toBe(false);
     });
 
     it('CfWorker: explicit {draft} bypasses the $schema check (caller owns dialect)', () => {
