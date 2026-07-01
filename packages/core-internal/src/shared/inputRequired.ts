@@ -30,7 +30,9 @@ import type {
     InputResponses,
     Root
 } from '../types/types';
-import type { StandardSchemaV1 } from '../util/standardSchema';
+import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema';
+import { normalizeElicitInputFormParams } from './elicitation';
+import type { ElicitInputFormParams } from './protocol';
 
 /** The shape accepted by {@linkcode inputRequired}. */
 export interface InputRequiredSpec {
@@ -56,6 +58,9 @@ interface InputRequiredBuilder {
      * that fails verification. The SDK does not do this for you.
      */
     (spec: InputRequiredSpec): InputRequiredResult;
+
+    /** Builds an embedded form-mode elicitation request (`elicitation/create`). */
+    elicit<Schema extends StandardSchemaWithJSON>(params: Omit<ElicitInputFormParams<Schema>, 'mode'> & { mode?: 'form' }): InputRequest;
 
     /** Builds an embedded form-mode elicitation request (`elicitation/create`). */
     elicit(params: Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' }): InputRequest;
@@ -118,8 +123,15 @@ function buildInputRequired(spec: InputRequiredSpec): InputRequiredResult {
  * ```
  */
 export const inputRequired: InputRequiredBuilder = Object.assign(buildInputRequired, {
-    elicit(params: Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' }): InputRequest {
-        return { method: 'elicitation/create', params: { ...params, mode: 'form' } };
+    elicit(
+        params:
+            | (Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' })
+            | (Omit<ElicitInputFormParams<StandardSchemaWithJSON>, 'mode'> & { mode?: 'form' })
+    ): InputRequest {
+        const { params: normalizedParams } = normalizeElicitInputFormParams(
+            params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
+        );
+        return { method: 'elicitation/create', params: normalizedParams };
     },
     elicitUrl(params: Omit<ElicitRequestURLParams, 'mode' | 'elicitationId'>): InputRequest {
         // The neutral ElicitRequestURLParams keeps `elicitationId` (it is required on the
