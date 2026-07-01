@@ -1,7 +1,7 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
 
 import type { OAuthClientProvider } from './auth';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
+import { auth, computeScopeUnion, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -39,11 +39,13 @@ export const withOAuth =
     (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
     next => {
         return async (input, init) => {
+            let lastTokenScope: string | undefined;
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
 
                 // Add authorization header if tokens are available
                 const tokens = await provider.tokens();
+                lastTokenScope = tokens?.scope;
                 if (tokens) {
                     headers.set('Authorization', `Bearer ${tokens.access_token}`);
                 }
@@ -64,7 +66,7 @@ export const withOAuth =
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
-                        scope,
+                        scope: computeScopeUnion(lastTokenScope, scope),
                         fetchFn: next
                     });
 
