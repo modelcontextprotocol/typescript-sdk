@@ -25,8 +25,8 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    handleOAuthUnauthorized,
     InsecureTokenEndpointError,
-    unionScopes,
     isHttpsUrl,
     isStrictScopeSuperset,
     IssuerMismatchError,
@@ -213,6 +213,71 @@ describe('OAuth Authorization', () => {
             // The spec explicitly does not require clients to deduplicate
             // hierarchically; the AS normalizes redundancy.
             expect(computeScopeUnion('admin', 'read')).toBe('admin read');
+        });
+    });
+
+    describe('handleOAuthUnauthorized', () => {
+        it('uses accumulated context scope and resource metadata when reauthorizing', async () => {
+            const resourceMetadataUrl = new URL('https://resource.example.com/custom-prm');
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn()
+            };
+            const response = new Response(null, {
+                status: 401,
+                headers: { 'WWW-Authenticate': 'Bearer scope="write"' }
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString === resourceMetadataUrl.toString()) {
+                    return Promise.resolve(
+                        Response.json({
+                            resource: 'https://api.example.com/mcp',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    );
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve(
+                        Response.json({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    );
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await expect(
+                handleOAuthUnauthorized(provider, {
+                    response,
+                    serverUrl: new URL('https://api.example.com/mcp'),
+                    fetchFn: mockFetch,
+                    resourceMetadataUrl,
+                    scope: 'read'
+                })
+            ).rejects.toBeInstanceOf(UnauthorizedError);
+
+            expect(mockFetch.mock.calls[0]?.[0].toString()).toBe(resourceMetadataUrl.toString());
+            const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
+            expect(authorizationUrl.searchParams.get('scope')).toBe('read write');
         });
     });
 
@@ -5054,45 +5119,5 @@ describe('OAuth Authorization', () => {
             const ok = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's', expectedIssuer: AS_ONE });
             expect(await auth(ok, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
         });
-    });
-});
-
-describe('unionScopes (SEP-2350)', () => {
-    it('returns undefined when called with no arguments', () => {
-        expect(unionScopes()).toBeUndefined();
-    });
-
-    it('returns undefined when all inputs are undefined or empty', () => {
-        expect(unionScopes(undefined, undefined)).toBeUndefined();
-        expect(unionScopes('', undefined, '')).toBeUndefined();
-        expect(unionScopes('   ')).toBeUndefined();
-    });
-
-    it('returns a single scope string unchanged', () => {
-        expect(unionScopes('read')).toBe('read');
-        expect(unionScopes('read write')).toBe('read write');
-    });
-
-    it('unions multiple scope strings preserving first-seen order', () => {
-        expect(unionScopes('read write', 'admin')).toBe('read write admin');
-        expect(unionScopes('admin', 'read write')).toBe('admin read write');
-    });
-
-    it('deduplicates repeated scopes across inputs', () => {
-        expect(unionScopes('read write', 'write admin')).toBe('read write admin');
-        expect(unionScopes('read', 'read', 'read')).toBe('read');
-    });
-
-    it('skips undefined and empty entries between scope strings', () => {
-        expect(unionScopes(undefined, 'read', undefined, 'write')).toBe('read write');
-        expect(unionScopes('', 'admin')).toBe('admin');
-    });
-
-    it('normalizes extra whitespace between scopes', () => {
-        expect(unionScopes('read   write', ' admin ')).toBe('read write admin');
-    });
-
-    it('does not perform hierarchy-aware deduplication (scopes are opaque strings)', () => {
-        expect(unionScopes('repo', 'repo:read')).toBe('repo repo:read');
     });
 });
