@@ -168,11 +168,13 @@ export function installCommand(pm: string, opts: { hasOwnPnpmWorkspace: boolean;
         // (ERR_PNPM_CATALOG_ENTRY_NOT_FOUND_FOR_SPEC; unresolved workspace: links → repo skipped). We don't
         // need it: the SDK workspace excludes the clones (`!packages/codemod/batch-test/**`) and pnpm uses
         // the clone's own pnpm-workspace.yaml as the nearest root. Scope the install to the target packages
-        // and their dependencies (`<dir>...`) so a monorepo target installs only what the checks need (e.g.
-        // 2 of mastra's 161 projects) instead of the whole tree.
+        // and their dependencies (`{./<dir>}...`) so a monorepo target installs only what the checks need
+        // (e.g. 2 of mastra's 161 projects) instead of the whole tree. The braces are load-bearing: pnpm
+        // silently ignores the trailing `...` on a bare `./<dir>...` path selector (installing the package
+        // without its workspace deps); the `{./<dir>}...` form honors it.
         const filters = opts.packageDirs
             .filter(dir => dir !== '.')
-            .map(dir => `--filter ${JSON.stringify(`./${dir}...`)}`)
+            .map(dir => `--filter ${JSON.stringify(`{./${dir}}...`)}`)
             .join(' ');
         return `pnpm install --ignore-scripts --no-frozen-lockfile${filters ? ` ${filters}` : ''}`;
     }
