@@ -1247,7 +1247,7 @@ describe('OAuth Authorization', () => {
         it.each([
             { label: 'row 1: supported + present + match → proceed', supported: true, iss: expectedIssuer, throws: false },
             { label: 'row 1: supported + present + mismatch → reject', supported: true, iss: 'https://attacker.example', throws: true },
-            { label: 'row 2: supported + absent → reject', supported: true, iss: undefined, throws: true },
+            { label: 'row 2: supported + inspected absent → reject', supported: true, iss: null, throws: true },
             { label: 'row 3: not advertised + present + match → proceed', supported: false, iss: expectedIssuer, throws: false },
             {
                 label: 'row 3: not advertised + present + mismatch → reject',
@@ -1255,7 +1255,7 @@ describe('OAuth Authorization', () => {
                 iss: 'https://attacker.example',
                 throws: true
             },
-            { label: 'row 4: not advertised + absent → proceed', supported: false, iss: undefined, throws: false }
+            { label: 'row 4: not advertised + inspected absent → proceed', supported: false, iss: null, throws: false }
         ])('$label', ({ supported, iss, throws }) => {
             const run = () => validateAuthorizationResponseIssuer({ iss, expectedIssuer, issParameterSupported: supported });
             if (throws) {
@@ -1284,13 +1284,16 @@ describe('OAuth Authorization', () => {
             );
         });
 
-        it('no-ops when there is no recorded issuer (no validated metadata)', () => {
-            expect(() =>
-                validateAuthorizationResponseIssuer({ iss: 'https://anything', expectedIssuer: undefined, issParameterSupported: true })
-            ).not.toThrow();
+        it('skips when no authorization-response parameters were supplied', () => {
             expect(() =>
                 validateAuthorizationResponseIssuer({ iss: undefined, expectedIssuer: undefined, issParameterSupported: true })
             ).not.toThrow();
+        });
+
+        it('rejects a present iss when there is no recorded issuer (no validated metadata)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ iss: 'https://anything', expectedIssuer: undefined, issParameterSupported: true })
+            ).toThrow(IssuerMismatchError);
         });
 
         it('IssuerMismatchError JSON-encodes received value (log-injection guard)', () => {

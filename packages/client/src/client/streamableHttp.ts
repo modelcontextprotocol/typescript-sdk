@@ -851,8 +851,8 @@ export class StreamableHTTPClientTransport implements Transport {
      *   When the authorization server advertises `authorization_response_iss_parameter_supported: true`,
      *   omitting this causes the exchange to be **rejected** with {@linkcode IssuerMismatchError}.
      */
-    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
-    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
+    async finishAuth(authorizationCode: string, iss?: string | null | { iss?: string | null }): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string | null | { iss?: string | null }): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }

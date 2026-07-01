@@ -2259,12 +2259,16 @@ describe('StreamableHTTPClientTransport', () => {
                 ([url, options]) => url.toString().includes('/token') && options?.method === 'POST'
             );
             expect(tokenCalls).toHaveLength(1);
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                {
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token',
+                    issuer
+                },
+                { issuer }
+            );
         });
 
         it('rejects a mismatched iss before the code reaches the token endpoint', async () => {

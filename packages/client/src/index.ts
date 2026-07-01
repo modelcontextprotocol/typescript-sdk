@@ -12,6 +12,7 @@ export type {
     AuthProvider,
     AuthResult,
     ClientAuthMethod,
+    DiscoverAuthorizationServerMetadataOptions,
     OAuthClientInformationContext,
     OAuthClientProvider,
     OAuthDiscoveryState,

@@ -269,8 +269,8 @@ export class SSEClientTransport implements Transport {
      * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
      *   present. Validated per RFC 9207 against the recorded issuer before the code is redeemed.
      */
-    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
-    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
+    async finishAuth(authorizationCode: string, iss?: string | null | { iss?: string | null }): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string | null | { iss?: string | null }): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }

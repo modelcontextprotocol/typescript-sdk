@@ -522,31 +522,62 @@ function isIssParameterSupported(metadata: AuthorizationServerMetadata | undefin
     return metadata?.authorization_response_iss_parameter_supported === true;
 }
 
-export function validateAuthorizationResponseIssuer({
-    iss,
-    expectedIssuer,
-    issParameterSupported
-}: {
+type AuthorizationResponseIssuerValidation = {
     /** The form-urldecoded `iss` query parameter from the authorization callback, or `undefined` if absent. */
-    iss: string | undefined;
+    iss: string | null | undefined;
     /** The `issuer` value from the authorization server's validated metadata document. */
     expectedIssuer: string | undefined;
     /** Whether the metadata advertised `authorization_response_iss_parameter_supported: true`. */
     issParameterSupported: boolean;
-}): void {
-    if (expectedIssuer === undefined) {
-        // No validated metadata document → no recorded issuer → no comparison (table row 4).
+};
+
+type AuthorizationResponseIssuerMetadata = {
+    issuer: string;
+    authorization_response_iss_parameter_supported?: boolean;
+};
+
+function isAuthorizationResponseIssuerValidation(
+    value: AuthorizationResponseIssuerValidation | AuthorizationResponseIssuerMetadata | undefined
+): value is AuthorizationResponseIssuerValidation {
+    return value !== undefined && 'expectedIssuer' in value;
+}
+
+export function validateAuthorizationResponseIssuer(args: AuthorizationResponseIssuerValidation): void;
+export function validateAuthorizationResponseIssuer(
+    metadata: AuthorizationResponseIssuerMetadata | undefined,
+    iss: string | null | undefined
+): void;
+export function validateAuthorizationResponseIssuer(
+    argsOrMetadata: AuthorizationResponseIssuerValidation | AuthorizationResponseIssuerMetadata | undefined,
+    explicitIss?: string | null
+): void {
+    const { iss, expectedIssuer, issParameterSupported } = isAuthorizationResponseIssuerValidation(argsOrMetadata)
+        ? argsOrMetadata
+        : {
+              iss: explicitIss,
+              expectedIssuer: argsOrMetadata?.issuer,
+              issParameterSupported: argsOrMetadata?.authorization_response_iss_parameter_supported === true
+          };
+
+    if (iss === undefined) {
+        // Legacy callers did not provide authorization-response parameters at all.
         return;
     }
-    if (iss === undefined) {
+
+    if (iss === null) {
         if (issParameterSupported) {
-            // Row 2: AS advertised that it always sends `iss`; absence is a stripped-parameter attack indicator.
+            // AS advertised that it always sends `iss`; explicit absence is a stripped-parameter attack indicator.
             throw new IssuerMismatchError('authorization_response', expectedIssuer, undefined);
         }
-        // Row 4: not advertised, not present → proceed.
+        // Not advertised and explicitly absent: validation is not possible; proceed.
         return;
     }
-    // Rows 1 & 3: present → compare with simple string comparison only.
+
+    if (expectedIssuer === undefined) {
+        throw new IssuerMismatchError('authorization_response', undefined, iss);
+    }
+
+    // Present → compare with simple string comparison only.
     if (iss !== expectedIssuer) {
         throw new IssuerMismatchError('authorization_response', expectedIssuer, iss);
     }
@@ -626,15 +657,15 @@ export function isStrictScopeSuperset(union: string | undefined, current: string
  */
 export async function resolveAuthorizationCallbackParams(
     codeOrParams: string | URLSearchParams,
-    iss: string | undefined,
+    iss: string | null | { iss?: string | null } | undefined,
     provider: OAuthClientProvider,
     serverUrl: string | URL,
     opts?: { fetchFn?: FetchLike; resourceMetadataUrl?: URL }
-): Promise<{ authorizationCode: string; iss: string | undefined }> {
+): Promise<{ authorizationCode: string; iss: string | null | undefined }> {
     if (typeof codeOrParams === 'string') {
-        return { authorizationCode: codeOrParams, iss };
+        return { authorizationCode: codeOrParams, iss: typeof iss === 'object' && iss !== null ? iss.iss : iss };
     }
-    const issParam = codeOrParams.get('iss') ?? undefined;
+    const issParam = codeOrParams.has('iss') ? codeOrParams.get('iss') : null;
     const code = codeOrParams.get('code');
     if (code) {
         return { authorizationCode: code, iss: issParam };
@@ -911,14 +942,12 @@ export interface AuthOptions {
      */
     authorizationCode?: string;
     /**
-     * The form-urldecoded `iss` query parameter from the authorization callback,
-     * if present. Passed through to RFC 9207 §2.4 issuer validation alongside
-     * `authorizationCode`. Validated against the recorded issuer per RFC 9207
-     * §2.4 before the code is redeemed — see
-     * {@linkcode validateAuthorizationResponseIssuer} and the migration guide's
-     * *Authorization-server mix-up defense* section.
+     * The form-urldecoded `iss` query parameter from the authorization callback.
+     * Pass a string when the response contained `iss`, `null` when the callback
+     * was inspected and `iss` was absent, and leave it `undefined` only for
+     * legacy callers that did not receive callback parameters.
      */
-    iss?: string;
+    iss?: string | null;
     /** Scope to request; computed by Scope Selection Strategy when omitted. */
     scope?: string;
     /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
@@ -1023,6 +1052,26 @@ function isStaleLegacyFallbackDiscoveryState(
     } catch {
         return false;
     }
+}
+
+/**
+ * Options for {@linkcode discoverAuthorizationServerMetadata}.
+ */
+export interface DiscoverAuthorizationServerMetadataOptions {
+    /** Optional fetch function for making HTTP requests, defaults to global fetch. */
+    fetchFn?: FetchLike;
+    /** MCP protocol version sent during metadata discovery. */
+    protocolVersion?: string;
+    /**
+     * Whether to validate discovered metadata's issuer against the discovery URL.
+     * Defaults to true. Set to false only when discovery intentionally starts from
+     * an alias URL whose metadata may name a canonical issuer.
+     */
+    validateIssuer?: boolean;
+    /**
+     * @deprecated Use `validateIssuer: false` instead.
+     */
+    skipIssuerValidation?: boolean;
 }
 
 /**
@@ -1131,11 +1180,22 @@ async function authInternal(
             cachedState.authorizationServerMetadata ??
             (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
                 fetchFn,
-                skipIssuerValidation: skipIssuerMetadataValidation
+                validateIssuer: false
             }));
+        if (!skipIssuerMetadataValidation) {
+            try {
+                validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
+            } catch (error) {
+                const canUseMalformedLegacyFallbackState =
+                    isLegacyFallbackDiscoveryState(cachedState, serverUrl) && hasMalformedAuthorizationServerMetadataIssuer(metadata);
+                if (!canUseMalformedLegacyFallbackState) {
+                    if (!isStaleLegacyFallbackDiscoveryState(cachedState, metadata, serverUrl)) {
+                        throw error;
+                    }
 
-                await provider.invalidateCredentials?.('discovery');
-                useCachedDiscoveryState = false;
+                    await provider.invalidateCredentials?.('discovery');
+                    useCachedDiscoveryState = false;
+                }
             }
         }
     }
@@ -1179,27 +1239,29 @@ async function authInternal(
         });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
-        try {
-            validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
-        } catch (error) {
-            if (serverInfo.resourceMetadata?.authorization_servers?.length) {
-                throw error;
-            }
-            if (!metadata) {
-                throw error;
-            }
-
-            let legacyIssuerIsMalformed = false;
+        if (!skipIssuerMetadataValidation) {
             try {
-                normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
-            } catch {
-                // Legacy no-PRM discovery intentionally disables issuer validation. Keep the
-                // fallback MCP origin when legacy metadata has an unparseable issuer value.
-                legacyIssuerIsMalformed = true;
-            }
+                validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
+            } catch (error) {
+                if (serverInfo.resourceMetadata?.authorization_servers?.length) {
+                    throw error;
+                }
+                if (!metadata) {
+                    throw error;
+                }
 
-            if (!legacyIssuerIsMalformed) {
-                throw error;
+                let legacyIssuerIsMalformed = false;
+                try {
+                    normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
+                } catch {
+                    // Legacy no-PRM discovery intentionally disables issuer validation. Keep the
+                    // fallback MCP origin when legacy metadata has an unparseable issuer value.
+                    legacyIssuerIsMalformed = true;
+                }
+
+                if (!legacyIssuerIsMalformed) {
+                    throw error;
+                }
             }
         }
         resourceMetadata = serverInfo.resourceMetadata;
@@ -1218,10 +1280,21 @@ async function authInternal(
         };
     }
 
+    if (authorizationServerUrl === undefined) {
+        throw new Error('OAuth authorization server discovery did not resolve an authorization server');
+    }
+
     // SEP-2352: the canonical authorization-server identity for this flow. `metadata.issuer`
     // is RFC 8414 §3.3-validated to equal the discovery URL; when no metadata document was
     // found (legacy fallback) the discovery URL itself is the only identifier available.
-    const issuer = metadata?.issuer ?? String(authorizationServerUrl);
+    let issuer = metadata?.issuer ?? String(authorizationServerUrl);
+    if (metadata && !skipIssuerMetadataValidation) {
+        try {
+            validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
+        } catch {
+            issuer = String(authorizationServerUrl);
+        }
+    }
     const infoCtx: OAuthClientInformationContext = { issuer };
 
     // Deprecated write-only hook, kept for providers (e.g. Cross-App Access) that read it
@@ -1238,7 +1311,14 @@ async function authInternal(
     // multi-AS provider here. Providers that do not implement saveDiscoveryState at all keep
     // the (legacy) warn-and-proceed behavior.
     if (authorizationCode !== undefined) {
-        const recordedIssuer = cachedState?.authorizationServerMetadata?.issuer ?? cachedState?.authorizationServerUrl;
+        let recordedIssuer = cachedState?.authorizationServerMetadata?.issuer ?? cachedState?.authorizationServerUrl;
+        if (cachedState?.authorizationServerMetadata && cachedState.authorizationServerUrl && !skipIssuerMetadataValidation) {
+            try {
+                validateAuthorizationServerMetadataIssuer(cachedState.authorizationServerMetadata, cachedState.authorizationServerUrl);
+            } catch {
+                recordedIssuer = cachedState.authorizationServerUrl;
+            }
+        }
         if (recordedIssuer === undefined) {
             if (provider.saveDiscoveryState !== undefined) {
                 throw new AuthorizationServerMismatchError(
@@ -1849,13 +1929,13 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  * The returned metadata's `issuer` is validated against `authorizationServerUrl`
  * per RFC 8414 §3.3 (and OIDC Discovery §4.3): if they differ the metadata is
  * **rejected** with {@linkcode IssuerMismatchError} and not returned. Set
- * `skipIssuerValidation: true` to suppress this check — **security-weakening**,
- * intended only for known-misconfigured authorization servers.
+ * `validateIssuer: false` to suppress this check — **security-weakening**,
+ * intended only for intentional alias discovery.
  *
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
- * @param options.skipIssuerValidation - Skip the RFC 8414 §3.3 `issuer` echo check. **Security-weakening.**
+ * @param options.validateIssuer - Validate the RFC 8414 §3.3 `issuer` echo check, defaults to true.
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  * @throws {IssuerMismatchError} when the metadata's `issuer` does not match `authorizationServerUrl`
  */
@@ -1864,13 +1944,11 @@ export async function discoverAuthorizationServerMetadata(
     {
         fetchFn = fetch,
         protocolVersion = LATEST_PROTOCOL_VERSION,
-        skipIssuerValidation = false
-    }: {
-        fetchFn?: FetchLike;
-        protocolVersion?: string;
-        skipIssuerValidation?: boolean;
-    } = {}
+        validateIssuer,
+        skipIssuerValidation
+    }: DiscoverAuthorizationServerMetadataOptions = {}
 ): Promise<AuthorizationServerMetadata | undefined> {
+    const shouldValidateIssuer = validateIssuer ?? !skipIssuerValidation;
     const headers = {
         'MCP-Protocol-Version': protocolVersion,
         Accept: 'application/json'
@@ -1907,7 +1985,7 @@ export async function discoverAuthorizationServerMetadata(
                 ? OAuthMetadataSchema.parse(await response.json())
                 : OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
 
-        if (!skipIssuerValidation) {
+        if (shouldValidateIssuer) {
             // RFC 8414 §3.3 / OIDC Discovery §4.3: the `issuer` value in the document MUST be
             // identical to the issuer identifier used to construct the well-known URL. Compare
             // against the raw input string — callers pass the exact issuer string the AS published.
@@ -1928,35 +2006,6 @@ export async function discoverAuthorizationServerMetadata(
     }
 
     return undefined;
-}
-
-/**
- * Discovers authorization server metadata with support for
- * {@link https://datatracker.ietf.org/doc/html/rfc8414 | RFC 8414} OAuth 2.0
- * Authorization Server Metadata and
- * {@link https://openid.net/specs/openid-connect-discovery-1_0.html | OpenID Connect Discovery 1.0}
- * specifications.
- *
- * This function implements a fallback strategy for authorization server discovery:
- * 1. Attempts RFC 8414 OAuth metadata discovery first
- * 2. If OAuth discovery fails, falls back to OpenID Connect Discovery
- *
- * @param authorizationServerUrl - The authorization server URL obtained from the MCP Server's
- *                                 protected resource metadata, or the MCP server's URL if the
- *                                 metadata was not found.
- * @param options - Configuration options
- * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
- * @param options.validateIssuer - Whether to validate metadata's issuer against the discovery URL, defaults to true
- * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
- * @throws {Error} If discovered metadata has an invalid issuer or the issuer does not match
- *                 the discovery URL while issuer validation is enabled
- */
-export async function discoverAuthorizationServerMetadata(
-    authorizationServerUrl: string | URL,
-    options: DiscoverAuthorizationServerMetadataOptions = {}
-): Promise<AuthorizationServerMetadata | undefined> {
-    return discoverAuthorizationServerMetadataInternal(authorizationServerUrl, options);
 }
 
 /**
@@ -2046,8 +2095,24 @@ export async function discoverOAuthServerInfo(
 
     const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
         fetchFn: opts?.fetchFn,
-        skipIssuerValidation: opts?.skipIssuerMetadataValidation
+        validateIssuer: !opts?.skipIssuerMetadataValidation && authorizationServerUrlFromResourceMetadata
     });
+
+    if (!authorizationServerUrlFromResourceMetadata && authorizationServerMetadata) {
+        try {
+            const fallbackIssuer = normalizeDiscoveredIssuerIdentifier(authorizationServerUrl, 'Authorization server URL');
+            const metadataIssuer = normalizeDiscoveredIssuerIdentifier(
+                authorizationServerMetadata.issuer,
+                'Authorization server metadata issuer'
+            );
+            if (metadataIssuer !== fallbackIssuer) {
+                authorizationServerUrl = authorizationServerMetadata.issuer;
+            }
+        } catch {
+            // Legacy no-PRM discovery intentionally disables issuer validation. Keep the
+            // fallback MCP origin when legacy metadata has an unparseable issuer value.
+        }
+    }
 
     return {
         authorizationServerUrl,
@@ -2250,7 +2315,7 @@ export async function exchangeAuthorization(
          * Validated per RFC 9207 §2.4 against `metadata.issuer` before the code is
          * redeemed; see {@linkcode validateAuthorizationResponseIssuer}.
          */
-        iss?: string;
+        iss?: string | null;
         codeVerifier: string;
         redirectUri: string | URL;
         resource?: URL;
@@ -2371,7 +2436,7 @@ export async function fetchToken(
          * Validated per RFC 9207 §2.4 when `authorizationCode` is present;
          * see {@linkcode validateAuthorizationResponseIssuer}.
          */
-        iss?: string;
+        iss?: string | null;
         /** Optional scope parameter from auth() options */
         scope?: string;
         fetchFn?: FetchLike;
