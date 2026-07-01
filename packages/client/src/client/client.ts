@@ -2191,6 +2191,9 @@ export class Client extends Protocol<ClientContext> {
      * console.log(result.content);
      * ```
      *
+     * Per SEP-2106 `structuredContent` may be any JSON value (object, array, string, number,
+     * boolean, or null). Narrow it at runtime before reading object properties:
+     *
      * @example Structured output
      * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
      * const result = await client.callTool({

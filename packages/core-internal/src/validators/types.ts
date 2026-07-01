@@ -14,6 +14,17 @@ import type { JSONSchema } from 'json-schema-typed';
 export type JsonSchemaType = JSONSchema.Interface;
 
 /**
+ * The JSON Schema dialect MCP tool `inputSchema`/`outputSchema` default to when no explicit
+ * `$schema` is declared (SEP-2106).
+ *
+ * Both built-in validators are configured to this dialect — `AjvJsonSchemaValidator` via `Ajv2020`
+ * and `CfWorkerJsonSchemaValidator` via its `draft: '2020-12'` default — so the answer to "what
+ * dialect does MCP assume?" lives in exactly one place rather than being an implicit per-provider
+ * default. Custom `jsonSchemaValidator` implementations SHOULD also default to this dialect.
+ */
+export const MCP_DEFAULT_SCHEMA_DIALECT = '2020-12' as const;
+
+/**
  * Result of a JSON Schema validation operation
  */
 export type JsonSchemaValidatorResult<T> =

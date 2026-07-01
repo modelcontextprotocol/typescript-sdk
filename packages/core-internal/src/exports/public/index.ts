@@ -135,6 +135,9 @@ export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } f
 // `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
 export type { AjvJsonSchemaValidator } from '../../validators/ajvProvider';
 export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider';
+export type { ResolveExternalRefsOptions } from '../../validators/externalRefResolver';
+export { resolveExternalSchemaRefs } from '../../validators/externalRefResolver';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types';
+export { MCP_DEFAULT_SCHEMA_DIALECT } from '../../validators/types';

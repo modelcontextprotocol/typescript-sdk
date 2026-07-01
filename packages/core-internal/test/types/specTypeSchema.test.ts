@@ -2,6 +2,11 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth';
 import * as schemas from '../../src/types/schemas';
+import type {
+    CallToolResult as GeneratedCallToolResult,
+    Tool as GeneratedTool,
+    ToolResultContent as GeneratedToolResultContent
+} from '../../src/types/spec.types.2026-07-28';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema';
 import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema';
 import type {
@@ -12,7 +17,8 @@ import type {
     JSONRPCRequest,
     JSONValue,
     ResourceTemplateType,
-    Tool
+    Tool,
+    ToolResultContent
 } from '../../src/types/types';
 
 describe('specTypeSchemas', () => {
@@ -159,6 +165,38 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         // server package's ResourceTemplate class), so this is the one entry where the key and
         // the public type name differ.
         expectTypeOf<SpecTypes['ResourceTemplate']>().toEqualTypeOf<ResourceTemplateType>();
+    });
+});
+
+// SEP-2106 / R-2106-6/7/8: the generated spec interfaces in spec.types.ts and the runtime Zod
+// schemas in schemas.ts must describe the same shape. These field-level checks make the mirror an
+// explicit, enforced invariant: a future change that widens one file's
+// `inputSchema`/`outputSchema`/`structuredContent` without mirroring the other fails *here*,
+// pointing straight at the offending field.
+describe('SEP-2106 spec.types ↔ schemas mirror (type-level)', () => {
+    it('Tool.inputSchema keeps a required root type:"object" but is otherwise open', () => {
+        expectTypeOf<SpecTypes['Tool']['inputSchema']>().toEqualTypeOf<GeneratedTool['inputSchema']>();
+        expectTypeOf<GeneratedTool['inputSchema']['type']>().toEqualTypeOf<'object'>();
+        // Open-ended: arbitrary 2020-12 keywords are accepted alongside `type`.
+        expectTypeOf<GeneratedTool['inputSchema']['oneOf']>().toEqualTypeOf<unknown>();
+        expectTypeOf<GeneratedTool['inputSchema']['$schema']>().toEqualTypeOf<string | undefined>();
+    });
+
+    it('Tool.outputSchema drops the root type:"object" requirement', () => {
+        expectTypeOf<SpecTypes['Tool']['outputSchema']>().toEqualTypeOf<GeneratedTool['outputSchema']>();
+        // No required `type` member: indexing `type` resolves through the `[key: string]: unknown`
+        // index signature, not a `'object'` literal.
+        expectTypeOf<NonNullable<GeneratedTool['outputSchema']>['type']>().toEqualTypeOf<unknown>();
+        expectTypeOf<NonNullable<GeneratedTool['outputSchema']>['$schema']>().toEqualTypeOf<string | undefined>();
+    });
+
+    it('CallToolResult.structuredContent and ToolResultContent.structuredContent are any JSON value (unknown)', () => {
+        expectTypeOf<SpecTypes['CallToolResult']['structuredContent']>().toEqualTypeOf<GeneratedCallToolResult['structuredContent']>();
+        expectTypeOf<SpecTypes['ToolResultContent']['structuredContent']>().toEqualTypeOf<
+            GeneratedToolResultContent['structuredContent']
+        >();
+        expectTypeOf<GeneratedCallToolResult['structuredContent']>().toEqualTypeOf<unknown>();
+        expectTypeOf<GeneratedToolResultContent['structuredContent']>().toEqualTypeOf<unknown>();
     });
 });
 

@@ -2,7 +2,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index';
+import { type CallToolResultWithStructuredContent, McpServer } from '../../src/index';
 import type { InferRawShape } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
@@ -119,6 +119,50 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
 
         await server.close();
     });
+
+    it('adds text fallback for structuredContent when an untyped handler omits content', async () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const untypedHandler = (async () => ({ structuredContent: [1, 2, 3] })) as unknown as () => Promise<
+            CallToolResultWithStructuredContent<number[]>
+        >;
+
+        server.registerTool('forecast', { outputSchema: z.array(z.number()) }, untypedHandler);
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        await server.connect(srv);
+        await client.start();
+
+        const responses: JSONRPCMessage[] = [];
+        client.onmessage = m => responses.push(m);
+
+        await client.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'c', version: '1.0.0' }
+            }
+        } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+        await client.send({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/call',
+            params: { name: 'forecast', arguments: {} }
+        } as JSONRPCMessage);
+
+        await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 2)).toBe(true));
+
+        const response = responses.find(r => 'id' in r && r.id === 2) as {
+            result?: { content?: Array<{ type: string; text?: string }>; structuredContent?: unknown };
+        };
+        expect(response.result?.structuredContent).toEqual({ result: [1, 2, 3] });
+        expect(response.result?.content).toEqual([{ type: 'text', text: '[1,2,3]' }]);
+
+        await server.close();
+    });
 });
 
 describe('InferRawShape', () => {
@@ -135,14 +179,10 @@ describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () 
             content: [],
             structuredContent: [n, n + 1] satisfies number[]
         }));
-        // NOTE (SEP-2106 PR-B verification item): the OutputArgs generic on registerTool is
-        // captured but does NOT currently flow into the callback's return type — ToolCallback's
-        // SendResultT is `CallToolResult | InputRequiredResult` (structuredContent: unknown), so
-        // a wrong-typed structuredContent ALSO compiles. Runtime validation (validateToolOutput)
-        // is the guard. Tightening the generic is out of this commit's scope.
-        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, async () => ({
+        // @ts-expect-error structuredContent must match the declared outputSchema.
+        server.registerTool('arr-strict', { outputSchema: z.array(z.number()) }, async () => ({
             content: [],
-            structuredContent: 'not-an-array' // compiles: structuredContent is `unknown`
+            structuredContent: 'not-an-array'
         }));
         expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
     });

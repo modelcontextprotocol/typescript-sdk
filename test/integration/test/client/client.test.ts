@@ -1470,6 +1470,94 @@ test('should handle resource list changed notification with auto refresh', async
     expect(notifications[0]![1]?.[1]!.name).toBe('test-resource');
 });
 
+test('should auto-refresh all paginated prompts after prompt list changed notification', async () => {
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { prompts: { listChanged: true } } });
+    const listRequests: Array<string | undefined> = [];
+    const notifications: [Error | null, Prompt[] | null][] = [];
+    let resolveNotification: () => void = () => {};
+    const notification = new Promise<void>(resolve => {
+        resolveNotification = resolve;
+    });
+
+    server.setRequestHandler('prompts/list', async request => {
+        listRequests.push(request.params?.cursor);
+        if (request.params?.cursor === 'page-2') {
+            return { prompts: [{ name: 'prompt-2', description: 'second page' }] };
+        }
+        return { prompts: [{ name: 'prompt-1', description: 'first page' }], nextCursor: 'page-2' };
+    });
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                prompts: {
+                    debounceMs: 0,
+                    onChanged: (error, prompts) => {
+                        notifications.push([error, prompts]);
+                        resolveNotification();
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/prompts/list_changed' });
+    await notification;
+
+    expect(listRequests).toEqual([undefined, 'page-2']);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]?.map(prompt => prompt.name)).toEqual(['prompt-1', 'prompt-2']);
+});
+
+test('should auto-refresh all paginated resources after resource list changed notification', async () => {
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+    const listRequests: Array<string | undefined> = [];
+    const notifications: [Error | null, Resource[] | null][] = [];
+    let resolveNotification: () => void = () => {};
+    const notification = new Promise<void>(resolve => {
+        resolveNotification = resolve;
+    });
+
+    server.setRequestHandler('resources/list', async request => {
+        listRequests.push(request.params?.cursor);
+        if (request.params?.cursor === 'page-2') {
+            return { resources: [{ name: 'resource-2', uri: 'file:///resource-2.txt' }] };
+        }
+        return { resources: [{ name: 'resource-1', uri: 'file:///resource-1.txt' }], nextCursor: 'page-2' };
+    });
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                resources: {
+                    debounceMs: 0,
+                    onChanged: (error, resources) => {
+                        notifications.push([error, resources]);
+                        resolveNotification();
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/resources/list_changed' });
+    await notification;
+
+    expect(listRequests).toEqual([undefined, 'page-2']);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]?.map(resource => resource.name)).toEqual(['resource-1', 'resource-2']);
+});
+
 /***
  * Test: Handle Multiple List Changed Handlers
  */
@@ -2001,6 +2089,151 @@ describe('outputSchema validation', () => {
         await expect(client.callTool({ name: 'test-tool' })).rejects.toThrow(
             /Tool test-tool has an output schema but did not return structured content/
         );
+    });
+
+    /***
+     * Test: A single tool with an uncompilable outputSchema does not break listTools()
+     * or the use of other tools (SEP-2106 safety-guard isolation).
+     */
+    test('preserves outputSchema validation metadata across paginated tool listings', async () => {
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+        const listRequests: Array<string | undefined> = [];
+        const listChangedNotifications: Array<[Error | null, Tool[] | null]> = [];
+        let resolveListChangedNotification: () => void = () => {};
+        const listChangedNotification = new Promise<void>(resolve => {
+            resolveListChangedNotification = resolve;
+        });
+        let lastPageToolReturnsInvalid = false;
+        let lastPageBadToolCalled = false;
+
+        server.setRequestHandler('initialize', async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: { tools: { listChanged: true } },
+            serverInfo: { name: 'test-server', version: '1.0.0' }
+        }));
+
+        server.setRequestHandler('tools/list', async request => {
+            listRequests.push(request.params?.cursor);
+
+            if (request.params?.cursor === 'page-2') {
+                return {
+                    tools: [
+                        {
+                            name: 'last-page-tool',
+                            description: 'a tool on the final page',
+                            inputSchema: { type: 'object', properties: {} },
+                            outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                        },
+                        {
+                            name: 'last-page-bad-tool',
+                            description: 'a final-page tool with an outputSchema the SEP-2106 guard rejects',
+                            inputSchema: { type: 'object', properties: {} },
+                            outputSchema: { $ref: 'https://evil.example/final-page-schema.json' }
+                        }
+                    ]
+                };
+            }
+
+            return {
+                tools: [
+                    {
+                        name: 'bad-tool',
+                        description: 'advertises a non-local $ref the SEP-2106 guard rejects',
+                        inputSchema: { type: 'object', properties: {} },
+                        // Non-same-document $ref: assertSchemaSafeToCompile throws when this is compiled.
+                        outputSchema: { $ref: 'https://evil.example/schema.json' }
+                    },
+                    {
+                        name: 'validated-tool',
+                        description: 'a normal earlier-page tool that must keep client-side validation',
+                        inputSchema: { type: 'object', properties: {} },
+                        outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                    }
+                ],
+                nextCursor: 'page-2'
+            };
+        });
+
+        server.setRequestHandler('tools/call', async request => {
+            if (request.params.name === 'last-page-tool') {
+                return { content: [], structuredContent: { ok: lastPageToolReturnsInvalid ? 'not-a-boolean' : true } };
+            }
+            if (request.params.name === 'last-page-bad-tool') {
+                lastPageBadToolCalled = true;
+                return { content: [], structuredContent: { irrelevant: true } };
+            }
+            if (request.params.name === 'validated-tool') {
+                return { content: [], structuredContent: { ok: 'not-a-boolean' } };
+            }
+            return { content: [], structuredContent: { irrelevant: true } };
+        });
+
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            {
+                listChanged: {
+                    tools: {
+                        debounceMs: 0,
+                        onChanged: (error, tools) => {
+                            listChangedNotifications.push([error, tools]);
+                            resolveListChangedNotification();
+                        }
+                    }
+                }
+            }
+        );
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // listTools() must NOT reject just because one tool's schema is uncompilable.
+        const listedTools = await client.listTools();
+        expect(listedTools.nextCursor).toBeUndefined();
+        expect(listedTools.tools.map(t => t.name).toSorted()).toEqual([
+            'bad-tool',
+            'last-page-bad-tool',
+            'last-page-tool',
+            'validated-tool'
+        ]);
+
+        // The final page's tool is fully usable.
+        const lastPage = await client.callTool({ name: 'last-page-tool' });
+        expect(lastPage.structuredContent).toEqual({ ok: true });
+
+        // A valid outputSchema from an earlier page still validates structuredContent after pagination.
+        await expect(client.callTool({ name: 'validated-tool' })).rejects.toThrow(/Structured content does not match/);
+
+        // An earlier-page schema compile error also survives pagination and is scoped to that tool.
+        await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
+
+        // A final-page schema compile error also survives pagination and is scoped to that tool.
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
+        expect(lastPageBadToolCalled).toBe(false);
+
+        listRequests.length = 0;
+        lastPageToolReturnsInvalid = true;
+        await server.notification({ method: 'notifications/tools/list_changed' });
+        await listChangedNotification;
+
+        expect(listRequests).toEqual([undefined, 'page-2']);
+        expect(listChangedNotifications).toHaveLength(1);
+        expect(listChangedNotifications[0]![0]).toBeNull();
+        expect(listChangedNotifications[0]![1]?.map(t => t.name).toSorted()).toEqual([
+            'bad-tool',
+            'last-page-bad-tool',
+            'last-page-tool',
+            'validated-tool'
+        ]);
+
+        await expect(client.callTool({ name: 'last-page-tool' })).rejects.toThrow(/Structured content does not match/);
+        lastPageBadToolCalled = false;
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(
+            /invalid outputSchema|output schema that could not be compiled/i
+        );
+        expect(lastPageBadToolCalled).toBe(false);
     });
 
     /***

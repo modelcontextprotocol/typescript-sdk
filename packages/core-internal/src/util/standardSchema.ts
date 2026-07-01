@@ -205,28 +205,31 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
         );
     }
-    if (io === 'output') {
-        // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
-        // not) is returned as-is. A typeless root only gets `type:'object'` defaulted when it is
-        // PROVABLY object-shaped — either it carries object keywords at the root, or every
-        // member of a root `oneOf`/`anyOf`/`allOf` is itself `type:'object'` (the
-        // `z.discriminatedUnion(...)`, `z.union([z.object(...), ...])`, `z.intersection(...)`
-        // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
-        // so the stamp is kept where it is provably safe. A typeless root that is NOT provably
-        // object-shaped (e.g. `z.union([z.string(), z.number()])` → `{anyOf:[…]}`) is returned
-        // as-is — stamping there would be self-contradictory. Anything that does not end up
-        // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
-        // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
-        if (result.type !== undefined) return result;
-        return isProvablyObjectShapedRoot(result) ? { type: 'object', ...result } : result;
+    if (io === 'input') {
+        // MCP requires tool inputSchema (and prompt argument schemas) to describe an object: tool
+        // arguments are always passed as a JSON object.
+        if (result.type !== undefined && result.type !== 'object') {
+            throw new Error(
+                `MCP tool input and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
+                    `Wrap your schema in z.object({...}) or equivalent.`
+            );
+        }
+        return { type: 'object', ...result };
     }
-    if (result.type !== undefined && result.type !== 'object') {
-        throw new Error(
-            `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
-                `Wrap your schema in z.object({...}) or equivalent.`
-        );
-    }
-    return { type: 'object', ...result };
+
+    // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
+    // not) is returned as-is. A typeless root only gets `type:'object'` defaulted when it is
+    // PROVABLY object-shaped — either it carries object keywords at the root, or every
+    // member of a root `oneOf`/`anyOf`/`allOf` is itself `type:'object'` (the
+    // `z.discriminatedUnion(...)`, `z.union([z.object(...), ...])`, `z.intersection(...)`
+    // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
+    // so the stamp is kept where it is provably safe. A typeless root that is NOT provably
+    // object-shaped (e.g. `z.union([z.string(), z.number()])` → `{anyOf:[…]}`) is returned
+    // as-is — stamping there would be self-contradictory. Anything that does not end up
+    // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
+    // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
+    if (result.type !== undefined) return result;
+    return isProvablyObjectShapedRoot(result) ? { type: 'object', ...result } : result;
 }
 
 /**

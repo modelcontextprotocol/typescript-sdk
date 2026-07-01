@@ -20,6 +20,16 @@ import { tapWire, wire } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
+/** Shape of the `structuredContent` returned by the `sampling-passthrough` test tool. */
+type SamplingPassthroughResult = { ok: boolean; code?: number; message?: string };
+
+function asSamplingPassthroughResult(value: unknown): SamplingPassthroughResult {
+    if (typeof value !== 'object' || value === null || Array.isArray(value) || typeof (value as { ok?: unknown }).ok !== 'boolean') {
+        throw new Error('Expected sampling-passthrough structuredContent');
+    }
+    return value as SamplingPassthroughResult;
+}
+
 const newClient = (capabilities?: ClientCapabilities) =>
     new Client({ name: 'c', version: '0' }, { capabilities: capabilities ?? { sampling: {} } });
 
@@ -199,10 +209,14 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
 
     await using _ = await wire(transport, passthroughServer, client);
 
-    const r = await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
+    const r = await client.callTool({
+        name: 'sampling-passthrough',
+        arguments: { messages: [], maxTokens: 10 }
+    });
+    const structuredContent = asSamplingPassthroughResult(r.structuredContent);
 
-    expect(r.structuredContent).toMatchObject({ ok: false, code: -1 });
-    expect((r.structuredContent as { message?: unknown }).message).toMatch(/User rejected sampling request/);
+    expect(structuredContent).toMatchObject({ ok: false, code: -1 });
+    expect(structuredContent.message).toMatch(/User rejected sampling request/);
 });
 
 verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
@@ -338,9 +352,10 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
             maxTokens: 10
         }
     });
+    const structuredContent = asSamplingPassthroughResult(r.structuredContent);
 
-    expect(r.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
-    expect((r.structuredContent as { message?: unknown }).message).toMatch(/tool.?result/i);
+    expect(structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
+    expect(structuredContent.message).toMatch(/tool.?result/i);
 });
 
 verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
@@ -423,27 +438,30 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, tools: [{ name: 'n', inputSchema: { type: 'object' as const } }] }
     });
+    const withToolsContent = asSamplingPassthroughResult(withTools.structuredContent);
 
-    expect(withTools.structuredContent).toMatchObject({ ok: false });
-    expect((withTools.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(withToolsContent).toMatchObject({ ok: false });
+    expect(withToolsContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const withChoice = await client.callTool({
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, toolChoice: { mode: 'auto' } }
     });
+    const withChoiceContent = asSamplingPassthroughResult(withChoice.structuredContent);
 
-    expect(withChoice.structuredContent).toMatchObject({ ok: false });
-    expect((withChoice.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(withChoiceContent).toMatchObject({ ok: false });
+    expect(withChoiceContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const empty = await client.callTool({
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, tools: [], toolChoice: { mode: 'required' } }
     });
+    const emptyContent = asSamplingPassthroughResult(empty.structuredContent);
 
-    expect(empty.structuredContent).toMatchObject({ ok: false });
-    expect((empty.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
+    expect(emptyContent).toMatchObject({ ok: false });
+    expect(emptyContent.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 });
 
