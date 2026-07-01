@@ -1469,7 +1469,7 @@ function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJ
     const json = standardSchemaToJsonSchema(inputSchema, 'input', logger);
     const scan = scanXMcpHeaderDeclarations(json);
     if (!scan.valid) {
-        logger.warn(
+        logger.warn?.(
             `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
                 `conforming Streamable HTTP clients: ${scan.reason}`
         );
@@ -1483,10 +1483,7 @@ function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJ
  * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
  * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
  */
-function convertOutputSchemaJson(
-    outputSchema: StandardSchemaWithJSON | undefined,
-    logger: SdkLogger
-): Record<string, unknown> | undefined {
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined, logger: SdkLogger): Record<string, unknown> | undefined {
     if (outputSchema === undefined) return undefined;
     try {
         return standardSchemaToJsonSchema(outputSchema, 'output', logger);
