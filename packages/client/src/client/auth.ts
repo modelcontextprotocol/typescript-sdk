@@ -1559,10 +1559,9 @@ function buildWellKnownPath(
     pathname: string = '',
     options: { prependPathname?: boolean } = {}
 ): string {
-    // Strip trailing slash from pathname to avoid double slashes
-    if (pathname.endsWith('/')) {
-        pathname = pathname.slice(0, -1);
-    }
+    // Strip trailing slashes from pathname to avoid malformed discovery paths like
+    // "/foo//.well-known/oauth-authorization-server".
+    pathname = pathname.replace(/\/+$/, '');
 
     return options.prependPathname ? `${pathname}/.well-known/${wellKnownPrefix}` : `/.well-known/${wellKnownPrefix}${pathname}`;
 }
@@ -1697,11 +1696,8 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
         return urlsToTry;
     }
 
-    // Strip trailing slash from pathname to avoid double slashes
-    let pathname = url.pathname;
-    if (pathname.endsWith('/')) {
-        pathname = pathname.slice(0, -1);
-    }
+    // Strip trailing slashes from pathname to avoid malformed discovery paths.
+    let pathname = url.pathname.replace(/\/+$/, '');
 
     urlsToTry.push(
         // 1. OAuth metadata at the given URL

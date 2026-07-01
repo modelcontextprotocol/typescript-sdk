@@ -360,6 +360,21 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
         });
 
+        it('normalizes duplicate trailing slashes in path before metadata discovery', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name//');
+            expect(metadata).toEqual(validMetadata);
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1);
+            const [url] = calls[0]!;
+            expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
+        });
+
         it('preserves query parameters in path-aware discovery', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -945,6 +960,17 @@ describe('OAuth Authorization', () => {
                     url: 'https://auth.example.com/tenant1/.well-known/openid-configuration',
                     type: 'oidc'
                 }
+            ]);
+        });
+
+        it('normalizes trailing slashes in server URLs before discovery', () => {
+            const urls = buildDiscoveryUrls('https://auth.example.com/tenant1//');
+
+            expect(urls).toHaveLength(3);
+            expect(urls.map(u => u.url.toString())).toEqual([
+                'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
+                'https://auth.example.com/.well-known/openid-configuration/tenant1',
+                'https://auth.example.com/tenant1/.well-known/openid-configuration'
             ]);
         });
 
