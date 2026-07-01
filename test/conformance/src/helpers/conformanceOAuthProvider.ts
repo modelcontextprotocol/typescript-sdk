@@ -15,7 +15,7 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
     private _authCode?: string;
-    private _iss?: string;
+    private _iss?: string | null;
     private _discoveryState?: OAuthDiscoveryState;
 
     constructor(
@@ -79,7 +79,7 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
                 const redirectUrl = new URL(location);
                 const code = redirectUrl.searchParams.get('code');
                 // RFC 9207: capture `iss` alongside `code` for validation before token exchange.
-                this._iss = redirectUrl.searchParams.get('iss') ?? undefined;
+                this._iss = redirectUrl.searchParams.has('iss') ? redirectUrl.searchParams.get('iss') : null;
                 if (code) {
                     this._authCode = code;
                     return;
@@ -102,8 +102,8 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
         throw new Error('No authorization code');
     }
 
-    /** The `iss` parameter captured from the authorization callback (RFC 9207), or `undefined` if absent. */
-    getIss(): string | undefined {
+    /** The `iss` parameter captured from the authorization callback (RFC 9207), or `null` if the callback omitted it. */
+    getIss(): string | null | undefined {
         return this._iss;
     }
 
