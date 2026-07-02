@@ -34,7 +34,7 @@
     "dependencies": {
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
-        "better-auth": "^1.4.17",
+        "better-auth": "^1.6.2",
         "better-sqlite3": "^12.6.2",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly"
