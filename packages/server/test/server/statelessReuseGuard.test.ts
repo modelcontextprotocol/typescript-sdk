@@ -10,6 +10,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -88,7 +89,13 @@ describe('stateless transport reuse guard', () => {
         const first = await transport.handleRequest(postRequest(initializeMessage));
         expect(first.status).toBe(200);
 
-        await expect(transport.handleRequest(postRequest(toolsListMessage))).rejects.toThrow(REUSE_ERROR);
+        const rejection = await transport.handleRequest(postRequest(toolsListMessage)).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.StatelessTransportReuse);
+        expect((rejection as SdkError).message).toMatch(REUSE_ERROR);
     });
 
     it('throws on a GET after a handled request', async () => {

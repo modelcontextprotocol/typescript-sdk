@@ -18,7 +18,7 @@ import type {
     Transport,
     WebStandardStreamableHTTPServerTransportOptions
 } from '@modelcontextprotocol/server';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { SdkErrorCode, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**
  * Configuration options for {@linkcode NodeStreamableHTTPServerTransport}
@@ -228,8 +228,10 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // throw. Re-raise it so the documented behavior (reusing a stateless
         // transport across requests throws at the call site) holds for the
         // Node adapter too. Other dispatch errors keep the existing
-        // 500-response behavior.
-        if (dispatchError instanceof Error && dispatchError.message.includes('Stateless transport cannot be reused across requests')) {
+        // 500-response behavior. Matched by code, not `instanceof`, so the
+        // check also holds if bundling ever yields two copies of the error
+        // class.
+        if (dispatchError instanceof Error && (dispatchError as { code?: unknown }).code === SdkErrorCode.StatelessTransportReuse) {
             throw dispatchError;
         }
     }

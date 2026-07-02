@@ -94,7 +94,13 @@ describe('Protocol.connect() reuse guard', () => {
 
         await protocol.connect(transportA);
 
-        await expect(protocol.connect(transportB)).rejects.toThrow(
+        const rejection = await protocol.connect(transportB).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.AlreadyConnected);
+        expect((rejection as SdkError).message).toBe(
             'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
         );
 

@@ -1685,6 +1685,7 @@ describe('Zod v4', () => {
                 await sendPostRequest(sharedUrl, TEST_MESSAGES.toolsList);
                 expect(callSiteErrors).toHaveLength(1);
                 expect(callSiteErrors[0]!.message).toContain('Stateless transport cannot be reused across requests');
+                expect((callSiteErrors[0] as { code?: unknown }).code).toBe('STATELESS_TRANSPORT_REUSE');
             } finally {
                 sharedServer.close();
             }

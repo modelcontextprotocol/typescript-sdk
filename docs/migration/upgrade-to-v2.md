@@ -1623,28 +1623,30 @@ The following v1 transport lifecycle invariants (in effect since sdk@1.26.0) app
 - **A stateless `WebStandardStreamableHTTPServerTransport` serves exactly one request.**
   With `sessionIdGenerator: undefined`, the second `handleRequest()` call throws
   `"Stateless transport cannot be reused across requests. Create a new transport per
-  request."` — matching v1 behavior since 1.26.0. Stateful transports
+request."` (an `SdkError` with code `StatelessTransportReuse`) — matching v1
+  message behavior since 1.26.0. Stateful transports
   (`sessionIdGenerator` set) accept multiple requests as before;
   `NodeStreamableHTTPServerTransport` inherits the behavior. Migrate shared-transport
   hosting to the per-request pattern:
 
-  ```typescript
-  app.all('/mcp', async c => {
-      // Fresh transport + server pair per request.
-      const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-      const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-      await server.connect(transport);
-      return transport.handleRequest(c.req.raw);
-  });
-  ```
+    ```typescript
+    app.all('/mcp', async c => {
+        // Fresh transport + server pair per request.
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        await server.connect(transport);
+        return transport.handleRequest(c.req.raw);
+    });
+    ```
 
-  Or use `createMcpHandler`, which constructs the per-request pair for you (its
-  `legacy: 'stateless'` fallback and the modern per-request transport are both
-  one-exchange by construction).
+    Or use `createMcpHandler`, which constructs the per-request pair for you (its
+    `legacy: 'stateless'` fallback and the modern per-request transport are both
+    one-exchange by construction).
 
-- **`Protocol.connect()` throws when already connected** (`"Already connected to a
-  transport. Call close() before connecting to a new transport, or use a separate
-  Protocol instance per connection."`) instead of silently rebinding `this._transport`.
+- **`Protocol.connect()` throws when already connected** (an `SdkError` with code
+  `AlreadyConnected`: `"Already connected to a transport. Call close() before connecting
+to a new transport, or use a separate Protocol instance per connection."`) instead of
+  silently rebinding `this._transport`.
   Sequential `close()` then `connect()` keeps working. `Client.connect()` performs the
   same check up front, before any per-connection state is reset.
 

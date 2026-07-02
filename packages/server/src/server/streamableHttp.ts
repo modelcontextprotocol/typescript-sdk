@@ -16,6 +16,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
@@ -377,7 +379,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
         // Reusing a stateless transport causes message ID collisions between clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
-            throw new Error('Stateless transport cannot be reused across requests. Create a new transport per request.');
+            throw new SdkError(
+                SdkErrorCode.StatelessTransportReuse,
+                'Stateless transport cannot be reused across requests. Create a new transport per request.'
+            );
         }
         this._hasHandledRequest = true;
 

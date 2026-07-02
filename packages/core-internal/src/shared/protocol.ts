@@ -782,7 +782,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     protected assertNotConnected(): void {
         if (this._transport) {
-            throw new Error(
+            throw new SdkError(
+                SdkErrorCode.AlreadyConnected,
                 'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
             );
         }

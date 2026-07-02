@@ -14,6 +14,8 @@ export enum SdkErrorCode {
     NotConnected = 'NOT_CONNECTED',
     /** Transport is already connected */
     AlreadyConnected = 'ALREADY_CONNECTED',
+    /** A stateless (sessionless) transport was asked to handle a second request exchange */
+    StatelessTransportReuse = 'STATELESS_TRANSPORT_REUSE',
     /** Protocol is not initialized */
     NotInitialized = 'NOT_INITIALIZED',
 
