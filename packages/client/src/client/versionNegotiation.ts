@@ -25,6 +25,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { UnauthorizedError } from './auth';
 import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier';
 import { classifyProbeOutcome } from './probeClassifier';
 
@@ -293,9 +294,17 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                 const text = (error.data as { text?: unknown } | undefined)?.text;
                 return { kind: 'http-error', status: error.data.status, body: typeof text === 'string' ? text : undefined };
             }
-            if (error instanceof Error && error.name === 'UnauthorizedError') {
+            const isUnauthorized =
+                error instanceof UnauthorizedError ||
+                // Name fallback for auth errors the brand cannot reach: an
+                // UnauthorizedError from a differently bundled SDK copy at a
+                // skewed version, or an auth middleware's own class.
+                (error instanceof Error && error.name === 'UnauthorizedError');
+            if (isUnauthorized) {
                 // Auth-gated server: not era evidence — the conservative legacy
                 // fallback re-runs the auth flow through the plain connect path.
+                // (The pre-branding name-string check alone could never fire
+                // for the SDK's own class — it did not set `.name`.)
                 return { kind: 'http-error', status: 401 };
             }
             return { kind: 'network-error', error };

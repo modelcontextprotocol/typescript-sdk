@@ -21,10 +21,19 @@
  * `instanceof UserSubclass`.
  *
  * Contract notes:
+ * - Participation criterion: **every error class exported from a public package that
+ *   callers are documented to `instanceof` must be branded.** The per-package
+ *   errorBrandConformance tests walk the export surfaces and fail naming any
+ *   exported Error subclass that has not opted in.
  * - Brands assert **identity, not shape**: brand strings are version-less, so an
  *   instance from one SDK version matches the class of another. Members added to a
  *   branded class in a later version may be absent on a matched instance — read
- *   fields defensively, and treat branded classes as additive-only.
+ *   fields defensively, and treat branded classes as additive-only. The escape
+ *   hatch when a release must break a branded class's read contract: change that
+ *   class's brand string in the same release, which cleanly severs cross-version
+ *   matching for that class. The per-package brand pins make the rename
+ *   deliberate: errorSurfacePins.test.ts owns the core-internal brands, and each
+ *   package's errorBrandConformance test pins its package-local ones.
  * - Cross-bundle matching requires **both** copies to be at or after the release
  *   that introduced branding; against an older copy, behavior degrades to plain
  *   prototype `instanceof` in both directions.
@@ -63,6 +72,9 @@ export function stampErrorBrands(instance: object, ctor: unknown): void {
         current = Object.getPrototypeOf(current);
     }
     if (brands.size === 0) return;
+    // configurable so userland instrumentation that clones/replaces error objects
+    // (e.g. wrapping via Object.defineProperties) is not broken by a frozen stamp;
+    // deleting the stamp merely degrades that instance to prototype `instanceof`.
     Object.defineProperty(instance, BRANDS, { value: brands, enumerable: false, configurable: true });
 }
 

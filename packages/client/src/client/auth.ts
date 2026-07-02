@@ -13,7 +13,9 @@ import type {
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
 import {
+    brandedHasInstance,
     checkResourceAllowed,
+    stampErrorBrands,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -486,8 +488,18 @@ export interface OAuthDiscoveryState extends OAuthServerInfo {
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
 
 export class UnauthorizedError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UnauthorizedError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
     constructor(message?: string) {
         super(message ?? 'Unauthorized');
+        this.name = 'UnauthorizedError';
+        stampErrorBrands(this, new.target);
     }
 }
 

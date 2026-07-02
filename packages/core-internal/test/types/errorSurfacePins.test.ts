@@ -91,6 +91,29 @@ describe('SdkErrorCode', () => {
     });
 });
 
+describe('cross-bundle brand strings', () => {
+    test('pins every core error brand (renaming one severs cross-version matching — must be deliberate)', async () => {
+        const { OAuthError } = await import('../../src/auth/errors');
+        const { SdkError, SdkHttpError } = await import('../../src/errors/sdkErrors');
+        const {
+            MissingRequiredClientCapabilityError,
+            ProtocolError: PE,
+            ResourceNotFoundError,
+            UnsupportedProtocolVersionError,
+            UrlElicitationRequiredError
+        } = await import('../../src/types/errors');
+        const brand = (cls: unknown): unknown => (cls as { mcpBrand?: string }).mcpBrand;
+        expect(brand(PE)).toBe('mcp.ProtocolError');
+        expect(brand(ResourceNotFoundError)).toBe('mcp.ResourceNotFoundError');
+        expect(brand(UrlElicitationRequiredError)).toBe('mcp.UrlElicitationRequiredError');
+        expect(brand(UnsupportedProtocolVersionError)).toBe('mcp.UnsupportedProtocolVersionError');
+        expect(brand(MissingRequiredClientCapabilityError)).toBe('mcp.MissingRequiredClientCapabilityError');
+        expect(brand(SdkError)).toBe('mcp.SdkError');
+        expect(brand(SdkHttpError)).toBe('mcp.SdkHttpError');
+        expect(brand(OAuthError)).toBe('mcp.OAuthError');
+    });
+});
+
 describe('ProtocolError', () => {
     test('sets error.name, carries code/data, and leaves the message verbatim', () => {
         // Consumers classify errors via err.name (`instanceof` brand-matches

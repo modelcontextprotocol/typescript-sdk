@@ -18,6 +18,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
+import { UnauthorizedError } from '../../src/client/auth';
 import { Client } from '../../src/client/client';
 import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
 import type { StdioServerParameters } from '../../src/client/stdio';
@@ -704,5 +705,64 @@ describe('era scope discipline', () => {
         type NotAKeyOf<T, K extends string> = K extends keyof T ? false : true;
         const noCachedEra: NotAKeyOf<NonNullable<ConstructorParameters<typeof Client>[1]>, 'cachedEra'> = true;
         expect(noCachedEra).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Probe send-error classification: auth-gated servers take the legacy
+ * fallback; other send failures stay typed negotiation errors.
+ * ------------------------------------------------------------------------- */
+
+describe('probe send-error classification', () => {
+    /** Rejects the probe send with `probeError`, then serves legacy initialize. */
+    class AuthGatedTransport extends ScriptedTransport {
+        constructor(private readonly probeError: Error) {
+            super(legacyServerScript);
+        }
+
+        override async send(message: JSONRPCMessage): Promise<void> {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                throw this.probeError;
+            }
+            await super.send(message);
+        }
+    }
+
+    test('UnauthorizedError from the probe send is an auth-gated server — legacy fallback on the same connection', async () => {
+        const transport = new AuthGatedTransport(new UnauthorizedError());
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    });
+
+    test("a foreign auth error matching only by name === 'UnauthorizedError' also takes the legacy fallback", async () => {
+        class ForeignUnauthorizedError extends Error {
+            override readonly name = 'UnauthorizedError';
+        }
+        const transport = new AuthGatedTransport(new ForeignUnauthorizedError('401 from middleware'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+    });
+
+    test('a plain send failure stays a typed negotiation error — no fallback runs', async () => {
+        const transport = new AuthGatedTransport(new Error('connection refused'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 });
