@@ -112,7 +112,9 @@ describe('cross-bundle error instanceof (branded)', () => {
 
     it('does not leak the brand through enumeration or serialization', () => {
         const err = new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'nope', { status: 403 });
-        expect(Object.keys(err)).not.toContain(expect.stringContaining('mcp'));
+        expect(Object.keys(err).some(k => k.includes('mcp'))).toBe(false);
+        const brandKey = Symbol.for('mcp.sdk.errorBrands');
+        expect(Object.prototype.propertyIsEnumerable.call(err, brandKey)).toBe(false);
         const json = JSON.stringify({ ...err });
         expect(json).not.toContain('mcp.Sdk');
     });

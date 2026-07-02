@@ -2,8 +2,9 @@
  * The `-32021` MissingRequiredClientCapability typed error.
  *
  * Recognition is data-parse based: a peer (or another bundled copy of the SDK)
- * is recognized by the error code plus the `data.requiredCapabilities` shape,
- * never by `instanceof` across bundles.
+ * is recognized by the error code plus the `data.requiredCapabilities` shape —
+ * the version-agnostic path that also covers plain wire shapes and pre-brand
+ * SDK copies (branded `instanceof` needs both copies brand-aware).
  */
 import { describe, expect, test } from 'vitest';
 

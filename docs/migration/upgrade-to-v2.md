@@ -984,7 +984,8 @@ peers as `-32602` — a server can no longer emit `-32002` on the wire.
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as
 receive-tolerated vocabulary — accept both `-32602` and `-32002` from peers.
 `ProtocolError.fromError(code, message, data)` reconstructs the typed subclass from
-code + data alone, so it works across bundle boundaries where `instanceof` doesn't.
+code + data alone — the version-agnostic path: it also works on plain wire shapes and
+against SDK copies that predate brand-matched `instanceof`.
 The default message text changed alongside: v1's unknown-resource error read
 `Resource <uri> not found`; v2's `ResourceNotFoundError` default is
 `Resource not found: <uri>` (the code is unchanged). Tests pinning the exact string
