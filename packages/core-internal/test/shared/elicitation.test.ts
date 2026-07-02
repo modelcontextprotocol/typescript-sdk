@@ -19,6 +19,51 @@ function schemaFromJson(jsonSchema: Record<string, unknown>): StandardSchemaWith
     } satisfies StandardSchemaWithJSON;
 }
 
+describe('normalizeElicitInputFormParams schema detection', () => {
+    test('converts function-typed Standard Schemas (ArkType-style)', () => {
+        const jsonSchema = {
+            type: 'object',
+            properties: { name: { type: 'string' } },
+            required: ['name']
+        };
+        const functionSchema = Object.assign(() => {}, {
+            '~standard': {
+                version: 1 as const,
+                vendor: 'test',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: {
+                    input: () => jsonSchema,
+                    output: () => ({})
+                }
+            }
+        });
+
+        const { params, standardSchema } = normalizeElicitInputFormParams({
+            message: 'Name?',
+            requestedSchema: functionSchema as unknown as StandardSchemaWithJSON
+        });
+
+        expect(standardSchema).toBe(functionSchema);
+        expect(params.requestedSchema).toEqual(jsonSchema);
+    });
+
+    test('routes a plain JSON schema containing a literal "~standard" key to the raw branch', () => {
+        const rawSchema = {
+            type: 'object' as const,
+            properties: { name: { type: 'string' as const } },
+            '~standard': 'extension-data'
+        };
+
+        const { params, standardSchema } = normalizeElicitInputFormParams({
+            message: 'Name?',
+            requestedSchema: rawSchema as never
+        });
+
+        expect(standardSchema).toBeUndefined();
+        expect(params.requestedSchema).toBe(rawSchema);
+    });
+});
+
 describe('normalizeElicitInputFormParams root keywords', () => {
     test('keeps the spec-declared root keys including $schema', () => {
         const { params } = normalizeElicitInputFormParams({

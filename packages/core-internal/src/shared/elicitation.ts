@@ -6,7 +6,7 @@ import { ElicitRequestFormParamsSchema } from '../types/schemas';
 import type { ElicitRequestFormParams } from '../types/types';
 import { parseSchema } from '../util/schema';
 import type { StandardSchemaWithJSON } from '../util/standardSchema';
-import { standardSchemaToJsonSchema } from '../util/standardSchema';
+import { isStandardSchema, standardSchemaToJsonSchema } from '../util/standardSchema';
 import type { ElicitInputFormParams } from './protocol';
 
 export type NormalizedElicitInputFormParams = {
@@ -154,7 +154,12 @@ function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = 
 function isElicitInputSchema(
     schema: ElicitRequestFormParams['requestedSchema'] | StandardSchemaWithJSON
 ): schema is StandardSchemaWithJSON {
-    return typeof schema === 'object' && schema !== null && '~standard' in schema;
+    // isStandardSchema, not a plain '~standard' key probe: ArkType schemas are functions
+    // (a typeof-object check routes them, unconverted, to the raw branch), and a plain JSON
+    // schema containing a literal '~standard' key — wire-legal via the catchall — must stay
+    // on the raw branch. Not isStandardSchemaWithJSON: gating on `~standard.jsonSchema` here
+    // would front-run standardSchemaToJsonSchema's zod 4.0/4.1 fallback (see zodCompat.ts).
+    return isStandardSchema(schema);
 }
 
 function convertStandardElicitationSchema(standardSchema: StandardSchemaWithJSON): Record<string, unknown> {
