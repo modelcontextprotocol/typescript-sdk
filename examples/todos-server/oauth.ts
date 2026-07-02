@@ -76,7 +76,7 @@ bound to this authorization. Whoever holds the resulting token holds the board.
 A real deployment would sign you in here instead.</p>
 <p>After approving, open <a href="/board">/board</a> in this browser to watch the
 board update live while your client works.</p>
-<form method="post" action="${escapeHtml(approveAction)}" onsubmit="window.open('/board', '_blank')">
+<form method="post" action="${escapeHtml(approveAction)}" onsubmit="window.open('/board#claim', '_blank')">
 <input type="hidden" name="nonce" value="${escapeHtml(nonce)}">
 <button type="submit" style="font-size: 1.1rem; padding: 0.5rem 1.5rem">Approve &amp; open live board</button>
 </form>

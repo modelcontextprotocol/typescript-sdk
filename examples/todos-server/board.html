@@ -61,6 +61,11 @@
             const empty = document.getElementById('empty');
             const status = document.getElementById('status');
             const namedBoard = new URLSearchParams(location.search).get('b');
+            // Opened from the consent click, this tab races the approval POST: the
+            // viewer cookie for the NEW grant lands with the approve response, which
+            // may arrive after this page. #claim defers the first connection so the
+            // cookie is in place, instead of resolving to a previous grant's board.
+            const claiming = location.hash === '#claim' && !namedBoard;
             let source;
             let retried = false;
 
@@ -111,7 +116,13 @@
                     renderInfo(info);
                 });
             }
-            connect();
+            if (claiming) {
+                status.textContent = 'claiming your board…';
+                identity.textContent = 'finishing authorization…';
+                setTimeout(connect, 1500);
+            } else {
+                connect();
+            }
         </script>
     </body>
 </html>
