@@ -59,23 +59,41 @@
             const list = document.getElementById('tasks');
             const empty = document.getElementById('empty');
             const status = document.getElementById('status');
-            const source = new EventSource('/board/events' + location.search);
-            source.addEventListener('info', event => {
-                const info = JSON.parse(event.data);
-                identity.textContent =
-                    info.mode === 'oauth'
-                        ? `You are OAuthed: this is the private board granted to ${info.label}.`
-                        : info.mode === 'named'
-                          ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
-                          : 'Your address-keyed board (no OAuth grant, no ?b= name).';
-            });
-            source.onopen = () => {
-                status.textContent = 'live';
+            // Opened from consent, the viewer cookie may land a moment after this page:
+            // EventSource reconnects automatically only on error, so nudge one reconnect
+            // if the first resolution was the address fallback.
+            let source = new EventSource('/board/events' + location.search);
+            let retried = false;
+            const attachInfo = () =>
+                source.addEventListener('info', event => {
+                    const info = JSON.parse(event.data);
+                    if (info.mode === 'address' && !retried && !new URLSearchParams(location.search).get('b')) {
+                        retried = true;
+                        setTimeout(() => {
+                            source.close();
+                            source = new EventSource('/board/events' + location.search);
+                            attachInfo();
+                            attachHandlers();
+                        }, 1500);
+                        return;
+                    }
+                    identity.textContent =
+                        info.mode === 'oauth'
+                            ? `You are OAuthed: this is the private board granted to ${info.label}.`
+                            : info.mode === 'named'
+                              ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
+                              : 'Your address-keyed board (no OAuth grant, no ?b= name).';
+                });
+            const attachHandlers = () => {
+                source.onopen = () => {
+                    status.textContent = 'live';
+                };
+                source.onerror = () => {
+                    status.textContent = 'reconnecting…';
+                };
+                source.onmessage = onSnapshot;
             };
-            source.onerror = () => {
-                status.textContent = 'reconnecting…';
-            };
-            source.onmessage = event => {
+            const onSnapshot = event => {
                 const snapshot = JSON.parse(event.data);
                 const tasks = snapshot.tasks ?? [];
                 list.replaceChildren(
@@ -88,6 +106,8 @@
                 );
                 empty.hidden = tasks.length > 0;
             };
+            attachInfo();
+            attachHandlers();
         </script>
     </body>
 </html>
