@@ -133,7 +133,7 @@ export class TodosBoard {
             const requestStateKey = env.REQUEST_STATE_SECRET ?? (await this.loadOrCreateCodecKey());
             const parsedMaxTasks = Number(env.MAX_TASKS);
             const maxTasks = Number.isFinite(parsedMaxTasks) && parsedMaxTasks > 0 ? parsedMaxTasks : DEFAULT_MAX_TASKS;
-            this.app = createTodosApp({ requestStateKey, maxTasks, bus: this.bus });
+            this.app = createTodosApp({ requestStateKey, maxTasks, bus: this.bus, boardViewPath: '/board' });
             this.handler = createMcpHandler(this.app.buildServer, { bus: this.bus });
             // The durable copy of the board follows the same announcements every client does.
             this.bus.subscribe(event => {

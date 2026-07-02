@@ -59,9 +59,12 @@
             accounts; boards still expire after ~2 hours idle.
         </p>
         <pre>{ "mcpServers": { "todos": { "url": "__HOST__/oauth/mcp" } } }</pre>
+        <h2>Watch it live</h2>
         <p>
-            Watch a board update live at <code>__HOST__/board?b=&lt;name&gt;</code> while a client connected with
-            <code>X-Todos-Board: &lt;name&gt;</code> works on it.
+            <code>__HOST__/board</code> is a read-only live view: tasks appear and complete in real time as connected agents work. Anonymous
+            boards: open <code>__HOST__/board?b=&lt;name&gt;</code> and connect your client with <code>X-Todos-Board: &lt;name&gt;</code>.
+            OAuth boards: after approving consent, open <code>__HOST__/board</code> in the same browser — it shows your grant's board (no
+            token or board id in any URL).
         </p>
         <p>Or raw, in the 2026-07-28 wire format (there is no <code>initialize</code> — try <code>server/discover</code>):</p>
         <pre>
