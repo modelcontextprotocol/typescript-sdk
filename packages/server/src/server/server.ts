@@ -400,8 +400,23 @@ export class Server extends Protocol<ServerContext> {
                     // session-wide stream to deliver it on.
                     return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                 },
-                elicitInput: (params, options) => this.elicitInput(params, options),
-                requestSampling: (params, options) => this.createMessage(params, options)
+                // Same abort gate as `ctx.mcpReq.send`: once this request's
+                // handler has been aborted (connection closed or request
+                // cancelled), its per-request senders must not reach the
+                // transport, which is read live at send time and may belong
+                // to a later connection.
+                elicitInput: (params, options) => {
+                    if (ctx.mcpReq.signal.aborted) {
+                        return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+                    }
+                    return this.elicitInput(params, options);
+                },
+                requestSampling: (params, options) => {
+                    if (ctx.mcpReq.signal.aborted) {
+                        return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+                    }
+                    return this.createMessage(params, options);
+                }
             },
             http: hasHttpInfo
                 ? {

@@ -1652,8 +1652,9 @@ to a new transport, or use a separate Protocol instance per connection."`) inste
 
 - **Aborted request handlers cannot write to a replacement transport.** After the
   handler's `ctx.mcpReq.signal` aborts (connection closed or request cancelled),
-  `ctx.mcpReq.notify()` resolves as a no-op and `ctx.mcpReq.send()` rejects with
-  `SdkError(ConnectionClosed)`.
+  `ctx.mcpReq.notify()` (and `ctx.mcpReq.log()`) resolves as a no-op, and
+  `ctx.mcpReq.send()`, `ctx.mcpReq.elicitInput()`, and `ctx.mcpReq.requestSampling()`
+  reject with `SdkError(ConnectionClosed)`.
 
 #### Server (deprecated accessors and app-factory Origin validation)
 
