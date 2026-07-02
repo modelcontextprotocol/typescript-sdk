@@ -25,6 +25,9 @@
     "@modelcontextprotocol/test-integration": "2.0.0-alpha.1"
   },
   "changesets": [
-    "beta-release"
+    "beta-release",
+    "cjs-support-v2-packages",
+    "codemod-iterations-5",
+    "post-dispatch-32021-http-400"
   ]
 }
