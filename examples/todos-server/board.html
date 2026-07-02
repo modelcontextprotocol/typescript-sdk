@@ -53,7 +53,8 @@
         <p id="status">connecting…</p>
         <script>
             const params = new URLSearchParams(location.search);
-            document.getElementById('board-name').textContent = params.get('b') ?? 'your address-keyed board';
+            document.getElementById('board-name').textContent =
+                params.get('b') ?? 'your board (OAuth grant if you just approved one, else address-keyed)';
             const list = document.getElementById('tasks');
             const empty = document.getElementById('empty');
             const status = document.getElementById('status');

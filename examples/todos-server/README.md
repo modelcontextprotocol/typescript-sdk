@@ -87,8 +87,9 @@ todos.ts     the application: state, tools, resources, prompts, subscriptions �
 `/board?b=<name>` is a read-only live view of a named anonymous board: the page holds an
 SSE stream (`/board/events`) that the board's Durable Object feeds from the same
 `ServerEventBus` every other consumer uses, so tasks appear and complete in real time as
-connected agents work. Without `?b=` it shows your own address-keyed board. OAuth boards
-are not viewable this way — their identity lives only inside the grant.
+connected agents work. Without `?b=` it shows your grant's board if you approved an OAuth
+consent in this browser (approval sets an opaque, KV-backed viewer cookie — no token or
+board id ever appears in a URL), falling back to your address-keyed board.
 
 ## OAuth (Cloudflare Workers deployment)
 

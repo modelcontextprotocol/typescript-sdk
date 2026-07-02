@@ -39,6 +39,12 @@ export function propsToAuthInfo(props: TodosGrantProps, request: Request): AuthI
     };
 }
 
+/** Minimal structural slice of the KV namespace the viewer sessions use. */
+export interface ViewerSessionStore {
+    put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
+    get(key: string): Promise<string | null>;
+}
+
 /** The provider helpers the worker uses (subset of OAuthHelpers we touch). */
 export interface OAuthHelpers {
     parseAuthRequest(request: Request): Promise<{ clientId: string; scope: string[]; state: string; redirectUri: string }>;
@@ -68,6 +74,8 @@ function consentPage(clientName: string, scopes: string[], approveAction: string
 <p>This demo has no accounts: approving creates a <strong>fresh private todo board</strong>
 bound to this authorization. Whoever holds the resulting token holds the board.
 A real deployment would sign you in here instead.</p>
+<p>After approving, open <a href="/board">/board</a> in this browser to watch the
+board update live while your client works.</p>
 <form method="post" action="${escapeHtml(approveAction)}">
 <input type="hidden" name="nonce" value="${escapeHtml(nonce)}">
 <button type="submit" style="font-size: 1.1rem; padding: 0.5rem 1.5rem">Approve</button>
@@ -86,7 +94,12 @@ A real deployment would sign you in here instead.</p>
  * by a double-submit nonce (HttpOnly cookie + hidden field), so a bare POST
  * can never mint a grant.
  */
-export async function handleAuthorize(request: Request, provider: OAuthHelpers, autoConsent: boolean): Promise<Response> {
+export async function handleAuthorize(
+    request: Request,
+    provider: OAuthHelpers,
+    autoConsent: boolean,
+    viewerSessions: ViewerSessionStore
+): Promise<Response> {
     const url = new URL(request.url);
     // Routine client mistakes (unknown client_id, mismatched redirect_uri, disabled
     // flows) must answer 400, not surface as worker exceptions.
@@ -113,7 +126,18 @@ export async function handleAuthorize(request: Request, provider: OAuthHelpers, 
             scope: scopes,
             props: { boardId, clientId: oauthRequest.clientId, scopes }
         });
-        return Response.redirect(redirectTo, 302);
+        // The one moment the human is in the browser: claiming the live view rides
+        // the approval. The cookie is an opaque KV-backed session (no token, no board
+        // id in any URL); /board with no ?b= resolves it to this grant's board.
+        const viewerId = crypto.randomUUID();
+        await viewerSessions.put(`viewer:${viewerId}`, JSON.stringify({ boardId }), { expirationTtl: 7200 });
+        return new Response(null, {
+            status: 302,
+            headers: {
+                location: redirectTo,
+                'set-cookie': `todos_viewer=${viewerId}; Path=/board; Max-Age=7200; HttpOnly; Secure; SameSite=Lax`
+            }
+        });
     };
 
     // Approval happens ONLY on the dedicated approve action, bound to the consent

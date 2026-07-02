@@ -38,7 +38,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 
 import boardHtml from './board.html';
 import indexHtml from './index.html';
-import type { OAuthHelpers, TodosGrantProps } from './oauth';
+import type { OAuthHelpers, TodosGrantProps, ViewerSessionStore } from './oauth';
 import { handleAuthorize, propsToAuthInfo } from './oauth';
 import type { BoardSnapshot, TodosApp } from './todos';
 import { createTodosApp } from './todos';
@@ -94,8 +94,8 @@ interface Env {
     REQUEST_STATE_SECRET?: string;
     /** Optional override for the per-board task cap (a number as a string; wrangler [vars]). */
     MAX_TASKS?: string;
-    /** Grant/token storage for the OAuth provider (wrangler kv namespace). */
-    OAUTH_KV: unknown;
+    /** Grant/token storage for the OAuth provider; also holds live-view viewer sessions. */
+    OAUTH_KV: ViewerSessionStore;
     /** Injected by the provider: parseAuthRequest/lookupClient/completeAuthorization. */
     OAUTH_PROVIDER: OAuthHelpers;
     /** Set to '1' to auto-approve consent — used by the scripted end-to-end dance. */
@@ -443,7 +443,7 @@ const defaultHandler = {
             }
 
             if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
-                return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1');
+                return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1', env.OAUTH_KV);
             }
 
             if (url.pathname === '/board') {
@@ -453,15 +453,27 @@ const defaultHandler = {
             }
 
             if (url.pathname === '/board/events') {
-                // Read-only live view of anonymous boards: ?b=<name> for a named board,
-                // otherwise the viewer's own address-keyed board. OAuth boards are not
-                // reachable here — their id lives only inside the grant.
+                // Read-only live view. ?b=<name> names an anonymous board; without it,
+                // a viewer cookie claimed at OAuth consent resolves to that grant's own
+                // board, falling back to the viewer's address-keyed board. Board ids
+                // and tokens never appear in URLs — the cookie is an opaque KV-backed
+                // session claimed while the human was provably in the consent flow.
                 if (request.method !== 'GET') return new Response(null, { status: 405 });
                 const named = url.searchParams.get('b');
-                const viewer = named ? `named:${named.slice(0, 128)}` : `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
+                let boardName: string | undefined;
+                if (named) {
+                    boardName = `named:${named.slice(0, 128)}`;
+                } else {
+                    const viewerId = /(?:^|;\s*)todos_viewer=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1];
+                    if (viewerId) {
+                        const record = await env.OAUTH_KV.get(`viewer:${viewerId}`);
+                        if (record !== null) boardName = `auth:${(JSON.parse(record) as { boardId: string }).boardId}`;
+                    }
+                }
+                boardName ??= `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
                 const headers = new Headers(request.headers);
                 headers.delete(AUTH_RELAY_HEADER);
-                return serveBoard(new Request(request, { headers }), env, viewer);
+                return serveBoard(new Request(request, { headers }), env, boardName);
             }
 
             if (url.pathname === '/') {
