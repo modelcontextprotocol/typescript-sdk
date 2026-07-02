@@ -30,5 +30,8 @@ client: []
 
 server: []
     # --- Carried-forward scenarios (also run by the 2025 legs) ---
-    # (empty: json-schema-2020-12 burned by SEP-2106 fixture; sep-2164-resource-not-found
-    # burned by the spec#2907 error-code renumber + alpha.5 referee.)
+    # (empty: json-schema-2020-12 burned by the SEP-2106 fixture;
+    # sep-2164-resource-not-found burned by the spec#2907 error-code renumber +
+    # alpha.5 referee; server-stateless burned by conformance#376 at alpha.9 —
+    # the referee's `requiredCapabilities` assertion now matches the schema's
+    # `ClientCapabilities` object, which is what this SDK emits.)
