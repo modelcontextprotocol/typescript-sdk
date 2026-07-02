@@ -10,7 +10,8 @@ import type {
     Prompt,
     Resource,
     ResourceTemplateType,
-    Tool
+    Tool,
+    VersionNegotiationOptions
 } from '@modelcontextprotocol/client';
 import {
     Client,
@@ -18,6 +19,7 @@ import {
     ProtocolError,
     SdkError,
     StreamableHTTPClientTransport,
+    SUPPORTED_PROTOCOL_VERSIONS,
     UnauthorizedError
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -61,8 +63,41 @@ export interface McpHostOptions {
     roots?: string[];
     /** Use the 2025 `initialize` handshake instead of probing for 2026-07-28. */
     legacy?: boolean;
+    /**
+     * Negotiate exactly this protocol revision: a known 2025-era value runs the legacy
+     * handshake offering only that revision; anything else is pinned via the modern
+     * handshake, which fails loudly unless the server offers it.
+     */
+    protocolVersion?: string;
     /** Fixed loopback port for the OAuth callback (default: an OS-assigned free port). Useful over SSH port-forwarding. */
     oauthCallbackPort?: number;
+}
+
+/** The version-negotiation slice of the SDK client options every connection this host makes shares. */
+export interface VersionOptions {
+    versionNegotiation: VersionNegotiationOptions;
+    supportedProtocolVersions?: string[];
+}
+
+/**
+ * Map the era toggle and optional pinned revision onto the SDK's negotiation options.
+ * A known 2025-era revision runs the legacy handshake offering exactly that revision
+ * (the client rejects a server that answers with any other version); everything else
+ * becomes a modern pin, and the SDK's own typed error covers strings that are neither.
+ */
+export function resolveVersionOptions(legacy: boolean, protocolVersion?: string): VersionOptions {
+    if (protocolVersion === undefined) {
+        return { versionNegotiation: { mode: legacy ? 'legacy' : 'auto' } };
+    }
+    if (SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
+        return { versionNegotiation: { mode: 'legacy' }, supportedProtocolVersions: [protocolVersion] };
+    }
+    if (legacy) {
+        throw new Error(
+            `--legacy conflicts with --protocol-version ${protocolVersion}: the 2025 handshake can only negotiate ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')}`
+        );
+    }
+    return { versionNegotiation: { mode: { pin: protocolVersion } } };
 }
 
 function unwrapUnauthorized(error: unknown): UnauthorizedError | undefined {
@@ -94,7 +129,7 @@ function samplingContentToParts(content: CreateMessageRequest['params']['message
 export class McpHost {
     private readonly ui: HostUI;
     private readonly provider: LLMProvider;
-    private readonly legacy: boolean;
+    private readonly versionOptions: VersionOptions;
     private roots: string[];
     private readonly watches: McpSubscription[] = [];
     private readonly oauthCallbackPort?: number;
@@ -103,7 +138,7 @@ export class McpHost {
     constructor(options: McpHostOptions) {
         this.ui = options.ui;
         this.provider = options.provider;
-        this.legacy = options.legacy ?? false;
+        this.versionOptions = resolveVersionOptions(options.legacy ?? false, options.protocolVersion);
         this.oauthCallbackPort = options.oauthCallbackPort;
         this.roots = (options.roots ?? [process.cwd()]).map(root => path.resolve(root));
     }
@@ -309,7 +344,7 @@ export class McpHost {
 
     private buildClient(name: string): Client {
         const client = new Client(CLIENT_INFO, {
-            versionNegotiation: { mode: this.legacy ? 'legacy' : 'auto' },
+            ...this.versionOptions,
             capabilities: {
                 // Both elicitation modes are declared because the handler below implements both.
                 elicitation: { form: {}, url: {} },

@@ -24,14 +24,15 @@ import type { LLMProvider } from './providers/provider';
 import { ScriptedProvider } from './providers/scripted';
 
 const USAGE = `usage: tsx cli.ts [options]
-  --server <target>    connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
-  --config <path>      mcpServers config file (default: ./config.json, falling back to spawning the sibling todos-server)
-  --provider <name>    scripted | anthropic | openai | gemini (default: first one with an API key in the env, else scripted)
-  --model <id>         pin a model id (default: the provider's latest mid-tier model)
-  --root <path>        workspace root exposed to servers via roots/list (repeatable; default: cwd)
-  --callback-port <n>  fixed loopback port for the OAuth callback (default: a free port; set this when port-forwarding over SSH)
-  --legacy             use the 2025 initialize handshake instead of probing for 2026-07-28
-  --help               this help`;
+  --server <target>       connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
+  --config <path>         mcpServers config file (default: ./config.json, falling back to spawning the sibling todos-server)
+  --provider <name>       scripted | anthropic | openai | gemini (default: first one with an API key in the env, else scripted)
+  --model <id>            pin a model id (default: the provider's latest mid-tier model)
+  --root <path>           workspace root exposed to servers via roots/list (repeatable; default: cwd)
+  --callback-port <n>     fixed loopback port for the OAuth callback (default: a free port; set this when port-forwarding over SSH)
+  --legacy                use the 2025 initialize handshake instead of probing for 2026-07-28
+  --protocol-version <v>  negotiate exactly this revision: 2025-era values (e.g. 2025-06-18) via the legacy handshake, 2026-07-28+ via a modern pin
+  --help                  this help`;
 
 function pickProvider(name: string | undefined, model: string | undefined): LLMProvider {
     const chosen =
@@ -73,6 +74,7 @@ const { values } = parseArgs({
         root: { type: 'string', multiple: true },
         'callback-port': { type: 'string' },
         legacy: { type: 'boolean' },
+        'protocol-version': { type: 'string' },
         help: { type: 'boolean', short: 'h' }
     }
 });
@@ -111,15 +113,17 @@ for (const [serverName, entry] of Object.entries(config.mcpServers)) {
     ui.status(`  ${serverName} → ${'url' in entry ? entry.url : [entry.command, ...(entry.args ?? [])].join(' ')}`);
 }
 
-const host = new McpHost({
-    ui,
-    provider,
-    roots: values.root ?? [process.cwd()],
-    legacy: values.legacy ?? false,
-    oauthCallbackPort: values['callback-port'] ? Number.parseInt(values['callback-port'], 10) : undefined
-});
-hostRef.current = host;
+let host: McpHost;
 try {
+    host = new McpHost({
+        ui,
+        provider,
+        roots: values.root ?? [process.cwd()],
+        legacy: values.legacy ?? false,
+        protocolVersion: values['protocol-version'],
+        oauthCallbackPort: values['callback-port'] ? Number.parseInt(values['callback-port'], 10) : undefined
+    });
+    hostRef.current = host;
     await host.connect(config);
 } catch (error) {
     ui.print(error instanceof Error ? error.message : String(error));
