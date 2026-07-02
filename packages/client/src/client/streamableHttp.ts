@@ -496,115 +496,105 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
+    // Errors thrown here are surfaced by the call sites, either through their
+    // own onerror handling or by rejecting the returned promise. Firing
+    // onerror here as well would report the same failure twice.
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
-        // Same guard as `_handleSseStream`: a resurrected listen stream (the
-        // POST-SSE → GET reconnect path threads `requestSignal` through
-        // `StartSSEOptions`) must honour the per-request abort exactly as the
-        // original POST did — both as a fetch signal and as a "do not surface
-        // onerror" gate.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
-        try {
-            // Try to open an initial SSE stream with GET to listen for server messages
-            // This is optional according to the spec - server may not support it
-            const headers = await this._commonHeaders();
-            const userAccept = headers.get('accept');
-            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
-            headers.set('accept', [...new Set(types)].join(', '));
+        // Try to open an initial SSE stream with GET to listen for server messages
+        // This is optional according to the spec - server may not support it
+        const headers = await this._commonHeaders();
+        const userAccept = headers.get('accept');
+        const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+        headers.set('accept', [...new Set(types)].join(', '));
 
-            // Include Last-Event-ID header for resumable streams if provided
-            if (resumptionToken) {
-                headers.set('last-event-id', resumptionToken);
-            }
-
-            const transportSignal = this._abortController?.signal;
-            const signal =
-                requestSignal !== undefined && transportSignal !== undefined
-                    ? anySignal(transportSignal, requestSignal)
-                    : (requestSignal ?? transportSignal);
-            const response = await (this._fetch ?? fetch)(this._url, {
-                ...this._requestInit,
-                method: 'GET',
-                headers,
-                signal
-            });
-
-            if (!response.ok) {
-                if (response.status === 401 && this._authProvider) {
-                    if (response.headers.has('www-authenticate')) {
-                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        // Preserve any union accumulated by `_stepUpAuthorize` so a 401
-                        // mid-chain does not narrow `_scope` back to the challenge value.
-                        this._scope = computeScopeUnion(this._scope, scope);
-                    }
-
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
-                        await response.text?.().catch(() => {});
-                        // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true, stepUpRetries);
-                    }
-                    await response.text?.().catch(() => {});
-                    if (isAuthRetry) {
-                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401,
-                            statusText: response.statusText
-                        });
-                    }
-                    throw new UnauthorizedError();
-                }
-
-                if (response.status === 403) {
-                    const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
-                    if (error === 'insufficient_scope') {
-                        const text = await response.text?.().catch(() => null);
-                        const result = await this._stepUpAuthorize(
-                            { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
-                            stepUpRetries
-                        );
-                        if (result !== 'AUTHORIZED') {
-                            throw new UnauthorizedError();
-                        }
-                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
-                    }
-                }
-
-                await response.text?.().catch(() => {});
-
-                // 405 indicates that the server does not offer an SSE stream at GET endpoint
-                // This is an expected case that should not trigger an error
-                if (response.status === 405) {
-                    // A 405 on the standalone-GET path is benign (the caller
-                    // never had a per-request stream). On the POST→GET resume
-                    // path it is a TERMINAL non-resumable outcome for a
-                    // per-request stream the caller is observing — fire the
-                    // stream-end callback so the caller can settle (otherwise
-                    // a resumed listen subscription dead-ends silently). The
-                    // standalone-GET callers never pass `onRequestStreamEnd`,
-                    // so this is a no-op for them.
-                    options.onRequestStreamEnd?.();
-                    return;
-                }
-
-                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
-            }
-
-            this._handleSseStream(response.body, options, true);
-        } catch (error) {
-            if (!isIntentionalAbort()) {
-                this.onerror?.(error as Error);
-            }
-            throw error;
+        // Include Last-Event-ID header for resumable streams if provided
+        if (resumptionToken) {
+            headers.set('last-event-id', resumptionToken);
         }
+
+        const transportSignal = this._abortController?.signal;
+        const signal =
+            requestSignal !== undefined && transportSignal !== undefined
+                ? anySignal(transportSignal, requestSignal)
+                : (requestSignal ?? transportSignal);
+        const response = await (this._fetch ?? fetch)(this._url, {
+            ...this._requestInit,
+            method: 'GET',
+            headers,
+            signal
+        });
+
+        if (!response.ok) {
+            if (response.status === 401 && this._authProvider) {
+                if (response.headers.has('www-authenticate')) {
+                    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                    this._resourceMetadataUrl = resourceMetadataUrl;
+                    // Preserve any union accumulated by `_stepUpAuthorize` so a 401
+                    // mid-chain does not narrow `_scope` back to the challenge value.
+                    this._scope = computeScopeUnion(this._scope, scope);
+                }
+
+                if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                    await this._authProvider.onUnauthorized({
+                        response,
+                        serverUrl: this._url,
+                        fetchFn: this._fetchWithInit
+                    });
+                    await response.text?.().catch(() => {});
+                    // Purposely _not_ awaited, so we don't call onerror twice
+                    return this._startOrAuthSse(options, true, stepUpRetries);
+                }
+                await response.text?.().catch(() => {});
+                if (isAuthRetry) {
+                    throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                        status: 401,
+                        statusText: response.statusText
+                    });
+                }
+                throw new UnauthorizedError();
+            }
+
+            if (response.status === 403) {
+                const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
+                if (error === 'insufficient_scope') {
+                    const text = await response.text?.().catch(() => null);
+                    const result = await this._stepUpAuthorize(
+                        { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
+                        stepUpRetries
+                    );
+                    if (result !== 'AUTHORIZED') {
+                        throw new UnauthorizedError();
+                    }
+                    return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                }
+            }
+
+            await response.text?.().catch(() => {});
+
+            // 405 indicates that the server does not offer an SSE stream at GET endpoint
+            // This is an expected case that should not trigger an error
+            if (response.status === 405) {
+                // A 405 on the standalone-GET path is benign (the caller
+                // never had a per-request stream). On the POST→GET resume
+                // path it is a TERMINAL non-resumable outcome for a
+                // per-request stream the caller is observing — fire the
+                // stream-end callback so the caller can settle (otherwise
+                // a resumed listen subscription dead-ends silently). The
+                // standalone-GET callers never pass `onRequestStreamEnd`,
+                // so this is a no-op for them.
+                options.onRequestStreamEnd?.();
+                return;
+            }
+
+            throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                status: response.status,
+                statusText: response.statusText
+            });
+        }
+
+        this._handleSseStream(response.body, options, true);
     }
 
     /**
@@ -1199,9 +1189,14 @@ export class StreamableHTTPClientTransport implements Transport {
      * @param options Optional callback to receive new resumption tokens
      */
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
-        await this._startOrAuthSse({
-            resumptionToken: lastEventId,
-            onresumptiontoken: options?.onresumptiontoken
-        });
+        try {
+            await this._startOrAuthSse({
+                resumptionToken: lastEventId,
+                onresumptiontoken: options?.onresumptiontoken
+            });
+        } catch (error) {
+            this.onerror?.(error as Error);
+            throw error;
+        }
     }
 }

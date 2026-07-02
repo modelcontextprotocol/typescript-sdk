@@ -347,6 +347,98 @@ describe('StreamableHTTPClientTransport', () => {
         );
     });
 
+    it('should fire onerror only once when the standalone GET stream fails to open', async () => {
+        const errorSpy = vi.fn();
+        transport.onerror = errorSpy;
+
+        const fetchMock = globalThis.fetch as Mock;
+        // The initialized notification is accepted...
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        // ...and the standalone GET it kicks off fails.
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve(''),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage);
+
+        // Give the fire-and-forget GET time to settle
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: expect.stringContaining('Failed to open SSE stream')
+            })
+        );
+    });
+
+    it('should fire onerror only once when close() aborts an in-flight standalone GET request', async () => {
+        const errorSpy = vi.fn();
+        transport.onerror = errorSpy;
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        // The standalone GET stays in flight until the transport aborts it.
+        fetchMock.mockImplementationOnce(
+            (_url, init: RequestInit) =>
+                new Promise((_resolve, reject) => {
+                    init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+                })
+        );
+
+        await transport.start();
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage);
+
+        // Let the fire-and-forget GET reach the in-flight fetch
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+
+        await transport.close();
+
+        // Give the rejected GET time to settle
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('should fire onerror once and reject when resumeStream fails', async () => {
+        const errorSpy = vi.fn();
+        transport.onerror = errorSpy;
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve(''),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await expect(transport.resumeStream('event-123')).rejects.toThrow('Failed to open SSE stream');
+
+        expect(errorSpy).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                message: expect.stringContaining('Failed to open SSE stream')
+            })
+        );
+    });
+
     it('should handle multiple concurrent SSE streams', async () => {
         // Mock two POST requests that return SSE streams
         const makeStream = (id: string) => {
