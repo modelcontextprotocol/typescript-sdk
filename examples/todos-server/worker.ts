@@ -100,6 +100,8 @@ interface Env {
     OAUTH_PROVIDER: OAuthHelpers;
     /** Set to '1' to auto-approve consent — used by the scripted end-to-end dance. */
     TODOS_AUTO_CONSENT?: string;
+    /** Public origin for user-facing links (wrangler [vars]); unset falls back to a relative path. */
+    PUBLIC_ORIGIN?: string;
 }
 
 /** Internal relay: the API handler forwards verified auth into the board object. */
@@ -135,7 +137,7 @@ export class TodosBoard {
             const requestStateKey = env.REQUEST_STATE_SECRET ?? (await this.loadOrCreateCodecKey());
             const parsedMaxTasks = Number(env.MAX_TASKS);
             const maxTasks = Number.isFinite(parsedMaxTasks) && parsedMaxTasks > 0 ? parsedMaxTasks : DEFAULT_MAX_TASKS;
-            this.app = createTodosApp({ requestStateKey, maxTasks, bus: this.bus, boardViewPath: '/board' });
+            this.app = createTodosApp({ requestStateKey, maxTasks, bus: this.bus, boardViewPath: `${env.PUBLIC_ORIGIN ?? ''}/board` });
             this.handler = createMcpHandler(this.app.buildServer, { bus: this.bus });
             // The durable copy of the board follows the same announcements every client does.
             this.bus.subscribe(event => {

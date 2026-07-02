@@ -162,10 +162,12 @@ export class ReadlineUI implements HostUI {
     }
 
     note(text: string): void {
-        // Things that became part of the conversation but aren't prose (attached resources).
+        // Things that became part of the conversation but aren't prose (attached
+        // resources, server onboarding text). Unlike status chatter these may carry
+        // links the user needs whole, so they soft-wrap instead of clipping.
         this.clearSpinnerLine();
         this.closeAttentionBlock();
-        console.log(paint('36', this.clipToWidth(`  ▍ ${stripAnsi(text)}`)));
+        console.log(paint('36', `  ▍ ${stripAnsi(text)}`));
         this.afterMeta = true;
     }
 

@@ -158,6 +158,13 @@ export class McpHost {
                 this.ui.status(
                     `connected to "${name}" (${server.protocolVersion}, ${server.tools.length} tools, ${server.resources.length + server.resourceTemplates.length} resources, ${server.prompts.length} prompts)`
                 );
+                // Instructions are the server's own onboarding text — surface them so the
+                // human sees links and hints without having to ask the model for them.
+                // note() wraps; status() clips to one line and would swallow long URLs.
+                const instructions = server.client.getInstructions();
+                if (instructions) {
+                    this.ui.note(`"${name}" says: ${instructions.length > 600 ? `${instructions.slice(0, 600)}…` : instructions}`);
+                }
             } catch (error) {
                 this.ui.status(`failed to connect to "${name}": ${error instanceof Error ? error.message : String(error)}`);
             }

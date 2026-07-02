@@ -317,6 +317,9 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
                 capabilities: { logging: {}, resources: { listChanged: true, subscribe: true } },
                 requestState: { verify: stateCodec.verify },
                 instructions:
+                    (options.boardViewPath
+                        ? `LIVE VIEW: the user can watch this board update in real time at ${options.boardViewPath} — with ?b=<name> when connected via the X-Todos-Board header, or as-is in the browser where they approved OAuth consent. Show them this link when you first respond. `
+                        : '') +
                     'todos is a small project todo board (it starts empty). Use list_tasks to see the board, add_task / add_tasks and complete_task to ' +
                     'change it, prioritize to rank the open tasks, brainstorm_tasks to invent themed example tasks, work_through_tasks to finish every ' +
                     'open task with progress updates, and clear_done to remove finished ones (it asks the user for confirmation). The full board is ' +
@@ -325,10 +328,7 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
                     'elicitation — then borrows the host model — sampling), 2) ask to prioritize the open tasks (sampling), 3) run the plan-my-day ' +
                     'prompt, 4) attach the todos://board resource as context and ask about it, 5) say "do all my tasks" and watch the progress and ' +
                     'log notifications, 6) ask to clear completed tasks (an elicitation-confirmed bulk delete). Watching the board resource ' +
-                    '(/watch in cli-client) shows live change notifications along the way.' +
-                    (options.boardViewPath
-                        ? ` There is also a human-viewable live page: tell the user they can WATCH this board update in real time by opening ${options.boardViewPath} on this server's origin — with ?b=<name> when connected with the X-Todos-Board header, or plain (no query) in the browser where they approved OAuth consent.`
-                        : '')
+                    '(/watch in cli-client) shows live change notifications along the way.'
             }
         );
 
@@ -762,8 +762,8 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
                                 : 'Anonymous tier: this board is keyed by your network address or the X-Todos-Board header. Authorize via OAuth for a private board.') +
                             (options.boardViewPath
                                 ? reqCtx.authInfo
-                                    ? ` The user can watch it live at ${options.boardViewPath} on this server's origin, in the browser where they approved consent.`
-                                    : ` The user can watch it live at ${options.boardViewPath}?b=<board-name> on this server's origin (when connected with the X-Todos-Board header).`
+                                    ? ` The user can watch it live at ${options.boardViewPath}, in the browser where they approved consent.`
+                                    : ` The user can watch it live at ${options.boardViewPath}?b=<board-name> (when connected with the X-Todos-Board header).`
                                 : '')
                     }
                 ]
