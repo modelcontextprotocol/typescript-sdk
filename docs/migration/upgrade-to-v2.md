@@ -15,8 +15,8 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
 
 ## TL;DR — quick path
 
-1. **Prerequisites.** Node.js 20+ and ESM (`"type": "module"` or `.mts`). v2 ships ESM
-   only; CommonJS callers must use dynamic `import()`.
+1. **Prerequisites.** Node.js 20+. v2 is ESM-first but ships a CommonJS build too, so
+   both `import` and `require('@modelcontextprotocol/…')` resolve natively.
 2. **Run the codemod.**
     ```bash
     npx @modelcontextprotocol/codemod@beta v1-to-v2 .
@@ -202,7 +202,7 @@ per-member declarations; per-member is recommended, since the v2 package split m
 actual needs explicit. To answer "which packages does this member need" directly, run
 the codemod against that member's directory with `--dry-run`: the manifest summary is
 computed from that member's own imports. (The authoritative import-path routing lives
-in the codemod's [mapping file](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
+in the codemod's [mapping file](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).)
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
@@ -212,8 +212,9 @@ depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion
 does **not** require the `hono` framework — your package manager may emit a harmless
 unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
 
-v2 requires **Node.js 20+** and ships **ESM only**. If your project uses CommonJS
-(`require()`), either migrate to ESM or use dynamic `import()`.
+v2 requires **Node.js 20+**. It is ESM-first but ships a **CommonJS build alongside
+ESM**, so CommonJS projects can `require('@modelcontextprotocol/…')` directly — no
+dynamic `import()` shim required.
 
 Repo-local tooling that encodes the literal v1 package name — dependency-pin lints,
 version allowlists, CI checks, scripts — fails after the manifest swap and is invisible
@@ -225,13 +226,13 @@ directly, and a surviving cast keeps suppressing type checking that would otherw
 catch real errors.
 
 Tooling that pins SDK **dist text** (reading a constant out of a built file with
-`require.resolve` + a regex) breaks in three stacked ways: the v2 exports maps offer
-nothing a CJS `require.resolve` can find; the literal usually lives in a
+`require.resolve` + a regex) breaks in two stacked ways: the literal usually lives in a
 content-hashed sibling chunk (`dist/sse-<hash>.mjs`), not the subpath's entry module,
 so fixed-path reads do not survive a rebuild — scan the package's `dist/` directory
 for the literal instead; and the emitted quote style differs from v1, so a
-quote-anchored pattern misses silently — match either quote. v2 also ships ESM only:
-`/dist/cjs/` ↔ `/dist/esm/` flavor-pair path swaps have no equivalent.
+quote-anchored pattern misses silently — match either quote. The build layout also
+changed: v2 emits `.mjs`/`.cjs` siblings in a flat `dist/`, so v1's `/dist/cjs/` ↔
+`/dist/esm/` flavor-pair path swaps have no equivalent.
 
 #### Registry availability during the beta
 
@@ -250,41 +251,13 @@ window:
   (`pnpm install && pnpm build`, then `pnpm pack` in the package directory) and
   reference it with a committed `file:` dependency.
 
-#### CommonJS test runners (Jest) cannot resolve the v2 packages
+#### CommonJS test runners (Jest)
 
-Every leaf of the v2 packages' `exports` maps carries only the `types` and `import`
-conditions — there is no `require` or `default` leaf — so the packages cannot be
-resolved by CJS resolvers at all. Jest under its default CommonJS resolution (including
-`next/jest` setups) fails with `Cannot find module '@modelcontextprotocol/client'` even
-when a transform that handles ESM is configured: resolution fails before any transform
-runs. Vitest and native Node ESM are unaffected.
-
-The interim recipe — interim because the packaging shape is still under discussion and
-a later alpha may make it unnecessary — maps the bare specifiers straight to the dist
-ESM files and lets the transform convert them (the dists contain no `import.meta`, so
-an ESM→CJS transform such as SWC or Babel handles them cleanly):
-
-```js
-// jest.config.js
-transformIgnorePatterns: [], // or a pattern that still transforms @modelcontextprotocol/*
-moduleNameMapper: {
-    '^@modelcontextprotocol/client$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/index.mjs',
-    '^@modelcontextprotocol/server$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/index.mjs',
-    // `_shims` is the packages' internal runtime-selection self-reference;
-    // pin it to the Node build under jest.
-    '^@modelcontextprotocol/client/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/client/dist/shimsNode.mjs',
-    '^@modelcontextprotocol/server/_shims$': '<rootDir>/node_modules/@modelcontextprotocol/server/dist/shimsNode.mjs',
-},
-```
-
-The entries are exact-anchored — add one per subpath you import (`/stdio` →
-`dist/stdio.mjs`, `/validators/cf-worker` → `dist/validators/cfWorker.mjs`) and one for
-`@modelcontextprotocol/core` (`dist/index.js`) if you import the raw schemas. The
-`_shims` mappings are required whenever the matching root mapping is present: the dist
-entry files import `@modelcontextprotocol/client/_shims` (a package self-reference)
-internally, and that specifier fails CJS resolution the same way. In a hoisted
-monorepo, point the paths at the `node_modules` directory your package manager actually
-installs into.
+v2 ships a CommonJS build, so CJS test runners resolve the packages natively through the
+`require` export condition — Jest (including `next/jest` setups) no longer needs a
+`moduleNameMapper` workaround to import `@modelcontextprotocol/*`. If you carried a
+v1-era mapping that pinned these packages to their `dist/*.mjs` files, remove it. Vitest
+and native Node ESM are unaffected.
 
 #### Bundlers: nested `zod` copies in zod@3-pinned monorepos
 

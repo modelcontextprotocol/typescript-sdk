@@ -173,6 +173,54 @@ export const handlerRegistrationTransform: Transform = {
             removeUnusedImport(sourceFile, schemaName, true);
         }
 
+        // Flag surviving registration-schema references. A method-mapped *RequestSchema/*NotificationSchema
+        // whose import survived the conversion above, used as a VALUE (a call argument or an `===`/`!==`
+        // operand), is almost always a stale v1 registration assertion/lookup — in v2 the registration key is
+        // the method string, not the schema. Advisory, not rewritten: the same constant is still valid for
+        // `.parse()` etc., so we flag rather than risk breaking a legitimate schema use.
+        //
+        // Gate on a registration MOCK/lookup, not on any setRequestHandler access. A file that only *calls*
+        // setRequestHandler/setNotificationHandler (real registrations, which the pass above rewrites) tells us
+        // nothing about its other schema references — those may be plain schema uses (`validateSchema(S)`,
+        // `zodToJsonSchema(S)`, `ajv.compile(S)`). Only a NON-call reference — `inner.setRequestHandler.mock`,
+        // `expect(x.setRequestHandler)…`, a comparison operand — signals the file makes registration
+        // assertions, where a surviving schema key is likely stale.
+        const usesRegistrationMock = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression).some(pa => {
+            if (pa.getName() !== 'setRequestHandler' && pa.getName() !== 'setNotificationHandler') return false;
+            const paParent = pa.getParent();
+            // Exclude real registration calls `x.setRequestHandler(…)`, where pa is the callee.
+            return !(Node.isCallExpression(paParent) && paParent.getExpression() === pa);
+        });
+        if (usesRegistrationMock) {
+            const flagged = new Set<string>();
+            for (const id of sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)) {
+                const local = id.getText();
+                if (flagged.has(local)) continue;
+                const original = resolveOriginalImportName(sourceFile, local) ?? local;
+                const method = ALL_SCHEMA_TO_METHOD[original];
+                if (method === undefined || !isImportedFromMcp(sourceFile, local)) continue;
+                const parent = id.getParent();
+                if (parent === undefined) continue;
+                const isCallArg = Node.isCallExpression(parent) && parent.getArguments().includes(id);
+                const isComparand =
+                    Node.isBinaryExpression(parent) &&
+                    ['===', '!==', '==', '!='].includes(parent.getOperatorToken().getText()) &&
+                    (parent.getLeft() === id || parent.getRight() === id);
+                if (!isCallArg && !isComparand) continue;
+                flagged.add(local);
+                diagnostics.push({
+                    ...actionRequired(
+                        sourceFile.getFilePath(),
+                        id,
+                        `${local} is no longer the setRequestHandler/setNotificationHandler key in v2 — handlers ` +
+                            `register by the method string '${method}'. Update registration assertions/lookups ` +
+                            `(e.g. against a setRequestHandler mock) to compare against '${method}'.`
+                    ),
+                    advisoryOnly: true
+                });
+            }
+        }
+
         return { changesCount, diagnostics };
     }
 };
