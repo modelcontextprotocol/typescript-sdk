@@ -61,10 +61,15 @@ export const withOAuth =
                     // Use provided baseUrl or extract from request URL
                     const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
 
+                    // If the wrapped request already declared a protocol version (an MCP
+                    // transport sets the header after negotiation), discovery advertises it too.
+                    const protocolVersion = new Headers(init?.headers).get('mcp-protocol-version') ?? undefined;
+
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
                         scope,
+                        protocolVersion,
                         fetchFn: next
                     });
 

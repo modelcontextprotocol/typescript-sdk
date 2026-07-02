@@ -793,6 +793,45 @@ describe('StreamableHTTPClientTransport', () => {
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
     });
 
+    it('sends the negotiated protocol version on OAuth discovery requests after a 401', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        // Simulate an established connection: the negotiated version must reach
+        // every discovery request the 401 triggers (via UnauthorizedContext).
+        transport.setProtocolVersion('2025-03-26');
+
+        (globalThis.fetch as Mock)
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers(),
+                text: async () => {
+                    throw 'dont read my body';
+                }
+            })
+            .mockResolvedValue({
+                ok: false,
+                status: 404,
+                text: async () => {
+                    throw 'dont read my body';
+                }
+            });
+
+        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+
+        const discoveryCalls = (globalThis.fetch as Mock).mock.calls.filter(([url]) => url.toString().includes('/.well-known/'));
+        expect(discoveryCalls.length).toBeGreaterThan(0);
+        for (const [, init] of discoveryCalls) {
+            expect(new Headers(init?.headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        }
+    });
+
     it('silently refreshes and retries when a POST returns 401 invalid_token', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',

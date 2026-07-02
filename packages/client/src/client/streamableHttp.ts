@@ -18,7 +18,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
-import type { AuthProvider, OAuthClientProvider } from './auth';
+import type { AuthProvider, OAuthClientProvider, UnauthorizedContext } from './auth';
 import {
     adaptOAuthProvider,
     auth,
@@ -413,9 +413,24 @@ export class StreamableHTTPClientTransport implements Transport {
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: unionScope,
             forceReauthorization,
+            protocolVersion: this._protocolVersion,
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
+    }
+
+    /**
+     * The one place that assembles the 401 context — every `onUnauthorized`
+     * call site goes through here so the negotiated protocol version cannot be
+     * forgotten at an individual site.
+     */
+    private _unauthorizedContext(response: Response): UnauthorizedContext {
+        return {
+            response,
+            serverUrl: this._url,
+            fetchFn: this._fetchWithInit,
+            protocolVersion: this._protocolVersion
+        };
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -541,11 +556,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        await this._authProvider.onUnauthorized(this._unauthorizedContext(response));
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._startOrAuthSse(options, true, stepUpRetries);
@@ -862,7 +873,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl, protocolVersion: this._protocolVersion }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -871,6 +882,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
+            protocolVersion: this._protocolVersion,
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
@@ -990,11 +1002,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        await this._authProvider.onUnauthorized(this._unauthorizedContext(response));
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._send(message, options, true, stepUpRetries);

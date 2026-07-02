@@ -10,7 +10,7 @@ import {
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider, OAuthClientProvider } from './auth';
+import type { AuthProvider, OAuthClientProvider, UnauthorizedContext } from './auth';
 import {
     adaptOAuthProvider,
     auth,
@@ -129,6 +129,20 @@ export class SSEClientTransport implements Transport {
 
     private _last401Response?: Response;
 
+    /**
+     * The one place that assembles the 401 context — every `onUnauthorized`
+     * call site goes through here so the negotiated protocol version cannot be
+     * forgotten at an individual site.
+     */
+    private _unauthorizedContext(response: Response): UnauthorizedContext {
+        return {
+            response,
+            serverUrl: this._url,
+            fetchFn: this._fetchWithInit,
+            protocolVersion: this._protocolVersion
+        };
+    }
+
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
         const token = await this._authProvider?.token();
@@ -180,7 +194,7 @@ export class SSEClientTransport implements Transport {
                         const response = this._last401Response;
                         this._last401Response = undefined;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
+                        this._authProvider.onUnauthorized(this._unauthorizedContext(response)).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
                             // onUnauthorized failed → not yet reported.
@@ -280,7 +294,7 @@ export class SSEClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl, protocolVersion: this._protocolVersion }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -289,6 +303,7 @@ export class SSEClientTransport implements Transport {
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
+            protocolVersion: this._protocolVersion,
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
@@ -333,11 +348,7 @@ export class SSEClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        await this._authProvider.onUnauthorized(this._unauthorizedContext(response));
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._send(message, true);

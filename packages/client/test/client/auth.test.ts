@@ -6,7 +6,7 @@ import type {
     StoredOAuthClientInformation,
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
+import { LATEST_LEGACY_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
@@ -25,6 +25,7 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    handleOAuthUnauthorized,
     InsecureTokenEndpointError,
     isHttpsUrl,
     isStrictScopeSuperset,
@@ -401,14 +402,14 @@ describe('OAuth Authorization', () => {
                 const [firstUrl, firstOptions] = calls[0]!;
                 expect(firstUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
                 expect(firstOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                    'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
                 });
 
                 // Second call should be root fallback
                 const [secondUrl, secondOptions] = calls[1]!;
                 expect(secondUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
                 expect(secondOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                    'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
                 });
             }
         );
@@ -530,7 +531,7 @@ describe('OAuth Authorization', () => {
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
             expect(lastOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -575,7 +576,7 @@ describe('OAuth Authorization', () => {
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
     });
@@ -604,7 +605,7 @@ describe('OAuth Authorization', () => {
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -622,7 +623,7 @@ describe('OAuth Authorization', () => {
             const [url, options] = calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -650,14 +651,14 @@ describe('OAuth Authorization', () => {
             const [firstUrl, firstOptions] = calls[0]!;
             expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
             expect(firstOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
 
             // Second call should be root fallback
             const [secondUrl, secondOptions] = calls[1]!;
             expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(secondOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -743,7 +744,7 @@ describe('OAuth Authorization', () => {
             const [lastUrl, lastOptions] = calls[2]!;
             expect(lastUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(lastOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -906,7 +907,7 @@ describe('OAuth Authorization', () => {
             const [url, options] = customFetch.mock.calls[0]!;
             expect(url.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
             expect(options.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
     });
@@ -2602,6 +2603,93 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
+        describe('protocolVersion threading into discovery', () => {
+            const discoveryHeaders = (): Record<string, string>[] =>
+                mockFetch.mock.calls
+                    .filter(([url]) => url.toString().includes('/.well-known/'))
+                    .map(([, options]) => options?.headers as Record<string, string>);
+
+            const expectDiscoveryVersion = (version: string) => {
+                const headers = discoveryHeaders();
+                expect(headers.length).toBeGreaterThan(0);
+                for (const h of headers) {
+                    expect(h).toMatchObject({ 'MCP-Protocol-Version': version });
+                }
+            };
+
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'client-id' }),
+                tokens: vi.fn().mockResolvedValue(undefined)
+            };
+
+            beforeEach(() => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                resource: 'https://api.example.com/mcp-server',
+                                authorization_servers: ['https://auth.example.com']
+                            })
+                        });
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        });
+                    }
+                    return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+                });
+            });
+
+            it('sends the negotiated protocolVersion on every discovery request', async () => {
+                // The transports thread the connection's negotiated version through
+                // AuthOptions: discovery advertises what the connection actually speaks.
+                const result = await auth(provider, {
+                    serverUrl: 'https://api.example.com/mcp-server',
+                    protocolVersion: '2025-03-26'
+                });
+                expect(result).toBe('REDIRECT');
+                expectDiscoveryVersion('2025-03-26');
+            });
+
+            it('defaults to the latest legacy revision when no version was negotiated', async () => {
+                await auth(provider, { serverUrl: 'https://api.example.com/mcp-server' });
+                expectDiscoveryVersion(LATEST_LEGACY_PROTOCOL_VERSION);
+            });
+
+            it("forwards UnauthorizedContext.protocolVersion on the transports' 401 path", async () => {
+                const challenge = new Response(null, {
+                    status: 401,
+                    headers: {
+                        'WWW-Authenticate': 'Bearer resource_metadata="https://api.example.com/.well-known/oauth-protected-resource"'
+                    }
+                });
+                // REDIRECT surfaces as UnauthorizedError from handleOAuthUnauthorized —
+                // by then every discovery request has already gone out.
+                await expect(
+                    handleOAuthUnauthorized(provider, {
+                        response: challenge,
+                        serverUrl: new URL('https://api.example.com/mcp-server'),
+                        fetchFn: mockFetch,
+                        protocolVersion: '2025-06-18'
+                    })
+                ).rejects.toThrow(UnauthorizedError);
+                expectDiscoveryVersion('2025-06-18');
+            });
+        });
+
         it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
             // Arrange: metadata discovery for PRM and AS
             mockFetch.mockImplementation(url => {
@@ -3897,7 +3985,7 @@ describe('OAuth Authorization', () => {
             expect(options.headers).toMatchObject({
                 'user-agent': 'MyApp/1.0',
                 'x-custom-header': 'test-value',
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 
@@ -3935,7 +4023,7 @@ describe('OAuth Authorization', () => {
             expect(options.headers).toMatchObject({
                 Accept: 'application/json', // Auth-specific value wins
                 'user-agent': 'MyApp/1.0', // Base value preserved
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                'MCP-Protocol-Version': LATEST_LEGACY_PROTOCOL_VERSION
             });
         });
 

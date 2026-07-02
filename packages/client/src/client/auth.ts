@@ -14,7 +14,7 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import {
     checkResourceAllowed,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
     OAuthErrorCode,
@@ -53,6 +53,12 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /**
+     * The protocol version negotiated on the connection, if any — forwarded to
+     * {@linkcode auth} so metadata discovery advertises what the connection
+     * actually speaks. See {@linkcode AuthOptions.protocolVersion}.
+     */
+    protocolVersion?: string;
 }
 
 /**
@@ -182,6 +188,7 @@ export async function handleOAuthUnauthorized(
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,
         scope,
+        protocolVersion: ctx.protocolVersion,
         fetchFn: ctx.fetchFn,
         ...extraAuthOptions
     });
@@ -629,7 +636,7 @@ export async function resolveAuthorizationCallbackParams(
     iss: string | undefined,
     provider: OAuthClientProvider,
     serverUrl: string | URL,
-    opts?: { fetchFn?: FetchLike; resourceMetadataUrl?: URL }
+    opts?: { fetchFn?: FetchLike; resourceMetadataUrl?: URL; protocolVersion?: string }
 ): Promise<{ authorizationCode: string; iss: string | undefined }> {
     if (typeof codeOrParams === 'string') {
         return { authorizationCode: codeOrParams, iss };
@@ -923,6 +930,14 @@ export interface AuthOptions {
     scope?: string;
     /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
     resourceMetadataUrl?: URL;
+    /**
+     * The protocol version negotiated on the connection, sent as the
+     * `MCP-Protocol-Version` header on metadata discovery requests. The SDK
+     * transports pass their negotiated version automatically; when unset (e.g.
+     * auth runs before any handshake), discovery falls back to
+     * {@linkcode LATEST_LEGACY_PROTOCOL_VERSION}.
+     */
+    protocolVersion?: string;
     /** Custom `fetch` implementation. */
     fetchFn?: FetchLike;
     /**
@@ -1026,6 +1041,7 @@ async function authInternal(
         iss,
         scope,
         resourceMetadataUrl,
+        protocolVersion,
         fetchFn,
         skipIssuerMetadataValidation,
         forceReauthorization
@@ -1058,6 +1074,7 @@ async function authInternal(
             cachedState.authorizationServerMetadata ??
             (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
                 fetchFn,
+                protocolVersion,
                 skipIssuerValidation: skipIssuerMetadataValidation
             }));
 
@@ -1066,7 +1083,7 @@ async function authInternal(
             try {
                 resourceMetadata = await discoverOAuthProtectedResourceMetadata(
                     serverUrl,
-                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
+                    { resourceMetadataUrl: effectiveResourceMetadataUrl, protocolVersion },
                     fetchFn
                 );
             } catch (error) {
@@ -1092,6 +1109,7 @@ async function authInternal(
         // Full discovery via RFC 9728
         const serverInfo = await discoverOAuthServerInfo(serverUrl, {
             resourceMetadataUrl: effectiveResourceMetadataUrl,
+            protocolVersion,
             fetchFn,
             skipIssuerMetadataValidation
         });
@@ -1596,7 +1614,7 @@ async function discoverMetadataWithFallback(
     opts?: { protocolVersion?: string; metadataUrl?: string | URL; metadataServerUrl?: string | URL }
 ): Promise<Response | undefined> {
     const issuer = new URL(serverUrl);
-    const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+    const protocolVersion = opts?.protocolVersion ?? LATEST_LEGACY_PROTOCOL_VERSION;
 
     let url: URL;
     if (opts?.metadataUrl) {
@@ -1647,7 +1665,7 @@ export async function discoverOAuthMetadata(
     if (typeof authorizationServerUrl === 'string') {
         authorizationServerUrl = new URL(authorizationServerUrl);
     }
-    protocolVersion ??= LATEST_PROTOCOL_VERSION;
+    protocolVersion ??= LATEST_LEGACY_PROTOCOL_VERSION;
 
     const response = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
         protocolVersion,
@@ -1749,7 +1767,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  *
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
- * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
+ * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_LEGACY_PROTOCOL_VERSION}
  * @param options.skipIssuerValidation - Skip the RFC 8414 §3.3 `issuer` echo check. **Security-weakening.**
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
  * @throws {IssuerMismatchError} when the metadata's `issuer` does not match `authorizationServerUrl`
@@ -1758,7 +1776,7 @@ export async function discoverAuthorizationServerMetadata(
     authorizationServerUrl: string | URL,
     {
         fetchFn = fetch,
-        protocolVersion = LATEST_PROTOCOL_VERSION,
+        protocolVersion = LATEST_LEGACY_PROTOCOL_VERSION,
         skipIssuerValidation = false
     }: {
         fetchFn?: FetchLike;
@@ -1865,6 +1883,7 @@ export interface OAuthServerInfo {
  * @param serverUrl - The MCP resource server URL
  * @param opts - Optional configuration
  * @param opts.resourceMetadataUrl - Override URL for the protected resource metadata endpoint
+ * @param opts.protocolVersion - Negotiated MCP protocol version for the `MCP-Protocol-Version` discovery header
  * @param opts.fetchFn - Custom fetch function for HTTP requests
  * @returns Authorization server URL, metadata, and resource metadata (if available)
  */
@@ -1872,6 +1891,8 @@ export async function discoverOAuthServerInfo(
     serverUrl: string | URL,
     opts?: {
         resourceMetadataUrl?: URL;
+        /** See {@linkcode AuthOptions.protocolVersion}. */
+        protocolVersion?: string;
         fetchFn?: FetchLike;
         /**
          * Forwarded to {@linkcode discoverAuthorizationServerMetadata} as
@@ -1886,7 +1907,7 @@ export async function discoverOAuthServerInfo(
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
             serverUrl,
-            { resourceMetadataUrl: opts?.resourceMetadataUrl },
+            { resourceMetadataUrl: opts?.resourceMetadataUrl, protocolVersion: opts?.protocolVersion },
             opts?.fetchFn
         );
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
@@ -1910,6 +1931,7 @@ export async function discoverOAuthServerInfo(
 
     const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
         fetchFn: opts?.fetchFn,
+        protocolVersion: opts?.protocolVersion,
         skipIssuerValidation: opts?.skipIssuerMetadataValidation
     });
 
