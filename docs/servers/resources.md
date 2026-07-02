@@ -249,11 +249,13 @@ async function setDeployStatus(status: string): Promise<void> {
 
 The `Set` belongs to one server instance, and each connection gets its own instance from your factory — a subscription never leaks across connections. Send `resources/updated` only to connections that subscribed; unsolicited per-resource updates are wrong on 2025-era connections.
 
+The pattern needs a connection that outlives the subscribe call: over stdio (and any sessionful wiring) the instance and its `Set` live as long as the connection. Behind `createMcpHandler`'s stateless legacy fallback each POST gets a fresh instance, so `resources/subscribe` succeeds and the `Set` is discarded with it — no update can ever be delivered on that posture. [Support legacy clients](../serving/legacy-clients.md) covers the serving postures.
+
 ::: info
 On [2026-07-28](../protocol-versions.md) connections the verb does not exist: clients name resource URIs in their `subscriptions/listen` filter, and the entry delivers updates published on the handler's notifier — [Notifications](./notifications.md#publish-a-resource-update-through-the-handler) covers that path.
 :::
 
-The [`resources` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/resources) runs this pattern as a self-verifying pair over stdio and HTTP on both eras.
+The [`resources` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/resources) runs this as a self-verifying pair: delivery is asserted over stdio on both eras and over HTTP on the 2026-07-28 listen path; the stateless legacy HTTP leg asserts only that the subscribe calls succeed.
 
 ## Recap
 

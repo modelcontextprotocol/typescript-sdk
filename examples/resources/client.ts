@@ -61,17 +61,22 @@ if (era === 'legacy') {
 
 const bumped = await client.callTool({ name: 'increment', arguments: {} });
 check.ok(!bumped.isError);
+const bumpedContent = bumped.content[0];
+const bumpedValue = bumpedContent && bumpedContent.type === 'text' ? bumpedContent.text : '';
 
 if (deliverable) {
-    const updatedUri = await Promise.race([
-        updated,
-        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no resources/updated within 8s')), 8000))
-    ]);
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('no resources/updated within 8s')), 8000);
+    });
+    const updatedUri = await Promise.race([updated, timeout]).finally(() => clearTimeout(timer));
     check.equal(updatedUri, 'counter://value');
 
+    // The resource and the tool observe the same state: the re-read matches the
+    // value increment returned (not a literal, so a long-lived server re-runs).
     const counter = await client.readResource({ uri: 'counter://value' });
     const counterContent = counter.contents[0];
-    check.equal(counterContent && 'text' in counterContent ? counterContent.text : '', '1');
+    check.equal(counterContent && 'text' in counterContent ? counterContent.text : '', bumpedValue);
 }
 
 if (subscription) {
