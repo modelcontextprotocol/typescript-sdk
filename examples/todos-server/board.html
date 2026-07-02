@@ -26,6 +26,9 @@
                 color: #888;
                 text-decoration: line-through;
             }
+            #identity {
+                font-weight: 600;
+            }
             #status {
                 color: #888;
                 font-size: 0.85rem;
@@ -42,58 +45,35 @@
         </style>
     </head>
     <body>
-        <h1 id="board-title">Live board</h1>
-        <p id="identity" style="font-weight: 600"></p>
+        <h1>Live board</h1>
+        <p id="identity">resolving whose board this is…</p>
         <p>
-            Updates appear the moment any MCP client changes this board. Point a client at <code>__HOST__/mcp</code> with the
-            <code>X-Todos-Board</code> header set to this board's name (add <code>?b=&lt;name&gt;</code> to this page's URL), then watch
-            tasks land here as the agent works. Boards wipe after ~2 hours idle.
+            Updates appear the moment any MCP client changes this board. Anonymous boards: connect a client to
+            <code>__HOST__/mcp</code> with the <code>X-Todos-Board</code> header and add <code>?b=&lt;name&gt;</code> here. OAuth boards:
+            this page shows your grant's board in the browser where you approved consent. Boards wipe after ~2 hours idle.
         </p>
         <ul id="tasks"></ul>
         <p id="empty" hidden>The board is empty — add a task from a connected client.</p>
         <p id="status">connecting…</p>
         <script>
-            const params = new URLSearchParams(location.search);
-            document.getElementById('board-name').textContent =
-                params.get('b') ?? 'your board (OAuth grant if you just approved one, else address-keyed)';
+            const identity = document.getElementById('identity');
             const list = document.getElementById('tasks');
             const empty = document.getElementById('empty');
             const status = document.getElementById('status');
-            // Opened from consent, the viewer cookie may land a moment after this page:
-            // EventSource reconnects automatically only on error, so nudge one reconnect
-            // if the first resolution was the address fallback.
-            let source = new EventSource('/board/events' + location.search);
+            const namedBoard = new URLSearchParams(location.search).get('b');
+            let source;
             let retried = false;
-            const attachInfo = () =>
-                source.addEventListener('info', event => {
-                    const info = JSON.parse(event.data);
-                    if (info.mode === 'address' && !retried && !new URLSearchParams(location.search).get('b')) {
-                        retried = true;
-                        setTimeout(() => {
-                            source.close();
-                            source = new EventSource('/board/events' + location.search);
-                            attachInfo();
-                            attachHandlers();
-                        }, 1500);
-                        return;
-                    }
-                    identity.textContent =
-                        info.mode === 'oauth'
-                            ? `You are OAuthed: this is the private board granted to ${info.label}.`
-                            : info.mode === 'named'
-                              ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
-                              : 'Your address-keyed board (no OAuth grant, no ?b= name).';
-                });
-            const attachHandlers = () => {
-                source.onopen = () => {
-                    status.textContent = 'live';
-                };
-                source.onerror = () => {
-                    status.textContent = 'reconnecting…';
-                };
-                source.onmessage = onSnapshot;
-            };
-            const onSnapshot = event => {
+
+            function renderInfo(info) {
+                identity.textContent =
+                    info.mode === 'oauth'
+                        ? `You are OAuthed: this is the private board granted to ${info.label}.`
+                        : info.mode === 'named'
+                          ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
+                          : 'Your address-keyed board (no OAuth grant, no ?b= name).';
+            }
+
+            function onSnapshot(event) {
                 const snapshot = JSON.parse(event.data);
                 const tasks = snapshot.tasks ?? [];
                 list.replaceChildren(
@@ -105,9 +85,33 @@
                     })
                 );
                 empty.hidden = tasks.length > 0;
-            };
-            attachInfo();
-            attachHandlers();
+            }
+
+            function connect() {
+                source = new EventSource('/board/events' + location.search);
+                source.onopen = () => {
+                    status.textContent = 'live';
+                };
+                source.onerror = () => {
+                    status.textContent = 'reconnecting…';
+                };
+                source.onmessage = onSnapshot;
+                source.addEventListener('info', event => {
+                    const info = JSON.parse(event.data);
+                    // Opened straight from consent, the viewer cookie can land a moment
+                    // after this page: if we resolved to the address fallback, try once
+                    // more before accepting it.
+                    if (info.mode === 'address' && !namedBoard && !retried) {
+                        retried = true;
+                        status.textContent = 'claiming your board…';
+                        source.close();
+                        setTimeout(connect, 1200);
+                        return;
+                    }
+                    renderInfo(info);
+                });
+            }
+            connect();
         </script>
     </body>
 </html>
