@@ -301,11 +301,11 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                 // skewed version, or an auth middleware's own class.
                 (error instanceof Error && error.name === 'UnauthorizedError');
             if (isUnauthorized) {
-                // Auth-gated server: not era evidence — the conservative legacy
-                // fallback re-runs the auth flow through the plain connect path.
-                // (The pre-branding name-string check alone could never fire
-                // for the SDK's own class — it did not set `.name`.)
-                return { kind: 'http-error', status: 401 };
+                // Auth-gated server. (The pre-branding name-string check alone
+                // could never fire for the SDK's own class — it did not set
+                // `.name` — so these send failures fell through to the generic
+                // network-error wrap.)
+                return { kind: 'auth-required', error: error as Error };
             }
             return { kind: 'network-error', error };
         }

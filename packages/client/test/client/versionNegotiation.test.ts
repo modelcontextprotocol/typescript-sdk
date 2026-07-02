@@ -728,27 +728,42 @@ describe('probe send-error classification', () => {
         }
     }
 
-    test('UnauthorizedError from the probe send is an auth-gated server — legacy fallback on the same connection', async () => {
-        const transport = new AuthGatedTransport(new UnauthorizedError());
+    test('UnauthorizedError from the probe send propagates unchanged — no fallback, no second auth round (finishAuth + reconnect probes again)', async () => {
+        const reason = new UnauthorizedError();
+        const transport = new AuthGatedTransport(reason);
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
 
-        await client.connect(transport);
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
 
-        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
-        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        // The original error, unwrapped: callers dispatch finishAuth() on it.
+        expect(rejection).toBe(reason);
+        // No initialize fallback ran — that would re-trigger the transport's
+        // auth flow (a second authorization prompt) and pin an auth-gated
+        // modern server to the legacy era.
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 
-    test("a foreign auth error matching only by name === 'UnauthorizedError' also takes the legacy fallback", async () => {
+    test("a foreign auth error matching only by name === 'UnauthorizedError' propagates the same way", async () => {
         class ForeignUnauthorizedError extends Error {
             override readonly name = 'UnauthorizedError';
         }
-        const transport = new AuthGatedTransport(new ForeignUnauthorizedError('401 from middleware'));
+        const reason = new ForeignUnauthorizedError('401 from middleware');
+        const transport = new AuthGatedTransport(reason);
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
 
-        await client.connect(transport);
-
-        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
-        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBe(reason);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 
     test('a plain send failure stays a typed negotiation error — no fallback runs', async () => {
