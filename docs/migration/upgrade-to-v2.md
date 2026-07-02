@@ -397,7 +397,9 @@ A few transports need a decision the codemod can't make:
   `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`)
   → `@modelcontextprotocol/express`; the runtime-neutral core (`requireBearerAuth`
   for web-standard `fetch` hosts, `verifyBearerToken`, `bearerAuthChallengeResponse`,
-  `OAuthTokenVerifier`) is also exported from `@modelcontextprotocol/server`. Authorization Server helpers (`mcpAuthRouter`,
+  `OAuthTokenVerifier`, and the discovery serving `oauthMetadataResponse` /
+  `buildOAuthProtectedResourceMetadata` / `getOAuthProtectedResourceMetadataUrl`)
+  is also exported from `@modelcontextprotocol/server`. Authorization Server helpers (`mcpAuthRouter`,
   `OAuthServerProvider`, `ProxyOAuthServerProvider`, `allowedMethods`,
   `authenticateClient`, `metadataHandler`, `createOAuthMetadata`,
   `authorizationHandler` / `tokenHandler` / `revocationHandler` /
