@@ -64,8 +64,8 @@ The codemod ([`@modelcontextprotocol/codemod`](https://github.com/modelcontextpr
 mechanically applies every rename whose mapping is fixed. The mappings are the
 **source of truth** — they live in the codemod package and are not reproduced here:
 
-| Mapping                                                                                   | Source file                                                                                                       |
-| ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Mapping                                                                                   | Source file                                                                                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `@modelcontextprotocol/sdk/...` import paths → v2 packages                                | [`mappings/importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)                   |
 | Symbol renames (`McpError` → `ProtocolError`, `JSONRPCError` → `JSONRPCErrorResponse`, …) | [`mappings/symbolMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts)                   |
 | `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
@@ -395,7 +395,9 @@ A few transports need a decision the codemod can't make:
   import path changes.
 - **Server auth split.** Resource Server helpers (`requireBearerAuth`,
   `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`)
-  → `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`,
+  → `@modelcontextprotocol/express`; the runtime-neutral core (`requireBearerAuth`
+  for web-standard `fetch` hosts, `verifyBearerToken`, `bearerAuthChallengeResponse`,
+  `OAuthTokenVerifier`) is also exported from `@modelcontextprotocol/server`. Authorization Server helpers (`mcpAuthRouter`,
   `OAuthServerProvider`, `ProxyOAuthServerProvider`, `allowedMethods`,
   `authenticateClient`, `metadataHandler`, `createOAuthMetadata`,
   `authorizationHandler` / `tokenHandler` / `revocationHandler` /
@@ -1036,7 +1038,8 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 ```
 
 ⚠ **Token verifiers must throw the v2 `OAuthError`.** `requireBearerAuth` (from
-`@modelcontextprotocol/express`) classifies the error your
+`@modelcontextprotocol/express`, or from `@modelcontextprotocol/server` on
+web-standard hosts) classifies the error your
 `OAuthTokenVerifier.verifyAccessToken()` throws: a v2
 `OAuthError(OAuthErrorCode.InvalidToken)` produces the proper `401` +
 `WWW-Authenticate` challenge, while the legacy `InvalidTokenError` (from

@@ -33,6 +33,10 @@ export type {
     ToolCallback
 } from './server/mcp';
 export { McpServer, ResourceTemplate } from './server/mcp';
+// Runtime-neutral Bearer authentication for web-standard hosts; the Express
+// middleware in @modelcontextprotocol/express adapts the same core.
+export type { BearerAuthOptions, OAuthTokenVerifier } from './server/middleware/bearerAuth';
+export { bearerAuthChallengeResponse, requireBearerAuth, verifyBearerToken } from './server/middleware/bearerAuth';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
 export type { OriginValidationResult } from './server/middleware/originValidation';
