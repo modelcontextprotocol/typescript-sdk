@@ -1,7 +1,10 @@
 /**
  * Cloudflare Workers entry point for the "todos" reference server (the application itself
- * lives in todos.ts; the Node transport entry is ./server.ts). Serves the landing page at `/`
- * and MCP over Streamable HTTP at `/mcp`.
+ * lives in todos.ts; the Node transport entry is ./server.ts; the OAuth glue in ./oauth.ts).
+ * `@cloudflare/workers-oauth-provider` wraps the worker as the Authorization Server: the
+ * landing page and anonymous `/mcp` ride its defaultHandler unchanged, while `/oauth/mcp`
+ * serves token-authorized boards — the provider verifies, `propsToAuthInfo` maps the grant
+ * into the SDK's `AuthInfo`, and the board IS the grant (no user accounts).
  *
  * Boards are per visitor: each visitor key maps to one Durable Object instance, which owns
  * that board's memory (hydrated from durable storage on wake, persisted on every change) and
@@ -23,15 +26,20 @@
  *   if the object is evicted, the next request gets the spec's 404 and a conformant client
  *   re-initializes (the board itself is durable).
  */
-import type { McpHttpHandler } from '@modelcontextprotocol/server';
+import { OAuthProvider } from '@cloudflare/workers-oauth-provider';
+import type { AuthInfo, McpHttpHandler } from '@modelcontextprotocol/server';
 import {
     classifyInboundRequest,
     createMcpHandler,
     InMemoryServerEventBus,
     WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
+import { WorkerEntrypoint } from 'cloudflare:workers';
 
+import boardHtml from './board.html';
 import indexHtml from './index.html';
+import type { OAuthHelpers, TodosGrantProps } from './oauth';
+import { handleAuthorize, propsToAuthInfo } from './oauth';
 import type { BoardSnapshot, TodosApp } from './todos';
 import { createTodosApp } from './todos';
 
@@ -86,11 +94,22 @@ interface Env {
     REQUEST_STATE_SECRET?: string;
     /** Optional override for the per-board task cap (a number as a string; wrangler [vars]). */
     MAX_TASKS?: string;
+    /** Grant/token storage for the OAuth provider (wrangler kv namespace). */
+    OAUTH_KV: unknown;
+    /** Injected by the provider: parseAuthRequest/lookupClient/completeAuthorization. */
+    OAUTH_PROVIDER: OAuthHelpers;
+    /** Set to '1' to auto-approve consent — used by the scripted end-to-end dance. */
+    TODOS_AUTO_CONSENT?: string;
 }
 
-/** A live 2025-era session: its transport, and when its client was last heard from. */
+/** Internal relay: the API handler forwards verified auth into the board object. */
+const AUTH_RELAY_HEADER = 'x-todos-authinfo';
+
+/** A live 2025-era session: its transport, tier, and when its client was last heard from. */
 interface LegacySession {
     transport: WebStandardStreamableHTTPServerTransport;
+    /** Minted through the provider-verified route: every request must arrive the same way. */
+    authed: boolean;
     lastSeenMs: number;
 }
 
@@ -174,7 +193,7 @@ export class TodosBoard {
      * the session's streams, and the bus subscription below delivers board changes made on any
      * other connection to this session's `resources/subscribe` subscribers.
      */
-    private async createSession(request: Request): Promise<Response> {
+    private async createSession(request: Request, authInfo?: AuthInfo): Promise<Response> {
         if (this.sessions.size >= MAX_SESSIONS) {
             // Make room by evicting idle sessions before refusing: an abandoned session
             // (client gone without DELETE) must not wedge the board at the cap forever.
@@ -194,11 +213,11 @@ export class TodosBoard {
             );
         }
         const prefix = this.state.id.toString();
-        const server = this.app.buildServer({ era: 'legacy' });
+        const server = this.app.buildServer({ era: 'legacy', ...(authInfo === undefined ? {} : { authInfo }) });
         const transport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: () => `${prefix}.${crypto.randomUUID()}`,
             onsessioninitialized: sessionId => {
-                this.sessions.set(sessionId, { transport, lastSeenMs: Date.now() });
+                this.sessions.set(sessionId, { transport, authed: authInfo !== undefined, lastSeenMs: Date.now() });
             }
         });
         const unsubscribe = this.app.subscribeInstance(server);
@@ -219,14 +238,70 @@ export class TodosBoard {
         return response;
     }
 
+    /**
+     * A live read-only view of this board: the current snapshot immediately, then a fresh
+     * snapshot on every change, as server-sent events. Just another bus subscriber — the
+     * same seam the durable copy and the pinned sessions use.
+     */
+    private boardEventStream(): Response {
+        const encoder = new TextEncoder();
+        let unsubscribe: (() => void) | undefined;
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
+        const stream = new ReadableStream<Uint8Array>({
+            start: controller => {
+                const send = (): void => {
+                    try {
+                        controller.enqueue(encoder.encode(`data: ${JSON.stringify(this.app.snapshot())}\n\n`));
+                    } catch {
+                        // Stream already closed; the cancel() teardown handles the rest.
+                    }
+                };
+                send();
+                unsubscribe = this.bus.subscribe(event => {
+                    if (event.kind === 'resource_updated') send();
+                });
+                heartbeat = setInterval(() => {
+                    try {
+                        controller.enqueue(encoder.encode(': keepalive\n\n'));
+                    } catch {
+                        /* closed */
+                    }
+                }, 25_000);
+            },
+            cancel: () => {
+                unsubscribe?.();
+                if (heartbeat !== undefined) clearInterval(heartbeat);
+            }
+        });
+        return new Response(stream, {
+            headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' }
+        });
+    }
+
     async fetch(request: Request): Promise<Response> {
-        // Session traffic goes to that session's own transport.
+        if (new URL(request.url).pathname === '/board/events') {
+            return this.boardEventStream();
+        }
+        // Verified auth relayed by the API handler (never trusted from clients: the
+        // anonymous route strips this header before the request reaches any board).
+        const relayed = request.headers.get(AUTH_RELAY_HEADER);
+        const authInfo = relayed === null ? undefined : (JSON.parse(relayed) as AuthInfo);
+        // Session traffic goes to that session's own transport — but never across tiers.
+        // An OAuth-minted session must arrive through the provider-verified route on every
+        // request (so token expiry and revocation cut it off), and an anonymous session id
+        // is worthless on the authed route: a session id alone is never a credential.
         const sessionId = request.headers.get('mcp-session-id');
         if (sessionId !== null) {
             const session = this.sessions.get(sessionId);
             if (!session) {
                 // Evicted or expired: the spec's 404 tells the client to re-initialize.
                 return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 });
+            }
+            if (session.authed !== (authInfo !== undefined)) {
+                return Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found on this endpoint' }, id: null },
+                    { status: session.authed ? 401 : 404 }
+                );
             }
             session.lastSeenMs = Date.now();
             return session.transport.handleRequest(request);
@@ -251,11 +326,11 @@ export class TodosBoard {
                 body
             });
             if (outcome.kind === 'legacy' && outcome.reason === 'initialize') {
-                return this.createSession(request);
+                return this.createSession(request, authInfo);
             }
-            return this.handler.fetch(request, body === undefined ? undefined : { parsedBody: body });
+            return this.handler.fetch(request, { ...(body === undefined ? {} : { parsedBody: body }), authInfo });
         }
-        return this.handler.fetch(request);
+        return this.handler.fetch(request, { authInfo });
     }
 }
 
@@ -287,42 +362,106 @@ function renderLandingPage(origin: string): string {
     return landingPage.html;
 }
 
-export default {
+let boardPage: { origin: string; html: string } | undefined;
+function renderBoardPage(origin: string): string {
+    if (boardPage?.origin !== origin) boardPage = { origin, html: boardHtml.replaceAll('__HOST__', origin) };
+    return boardPage.html;
+}
+
+/**
+ * Route one MCP request to its board. Session ids carry the id of the object that
+ * minted them (opaque, unguessable, validated by idFromString), so a session survives
+ * the client's egress IP rotating; session-less requests route by `fallbackBoardName`.
+ */
+async function serveBoard(request: Request, env: Env, fallbackBoardName: string): Promise<Response> {
+    const sessionId = request.headers.get('mcp-session-id');
+    let id: DurableObjectId | undefined;
+    if (sessionId === null) {
+        id = env.BOARDS.idFromName(fallbackBoardName);
+    } else {
+        try {
+            id = env.BOARDS.idFromString(sessionId.split('.')[0] ?? '');
+        } catch {
+            return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 });
+        }
+    }
+    try {
+        return await env.BOARDS.get(id).fetch(request);
+    } catch (error) {
+        // Details stay server-side; clients get a stable, generic shape.
+        console.error('board fetch failed:', error);
+        return Response.json({ error: 'board unavailable' }, { status: 500 });
+    }
+}
+
+/**
+ * Token-authorized MCP: the provider has already verified the access token and
+ * decrypted the grant's props. The board IS the grant (`auth:<boardId>`), and the
+ * verified identity rides an internal header into the board object, where it
+ * surfaces to tool handlers as `ctx.authInfo`.
+ */
+export class TodosApi extends WorkerEntrypoint<Env> {
+    override async fetch(request: Request): Promise<Response> {
+        const props = (this.ctx as { props?: TodosGrantProps }).props;
+        if (!props?.boardId) {
+            return Response.json({ error: 'invalid grant' }, { status: 403 });
+        }
+        // A presented session id must belong to this grant's own board: the token decides
+        // the board, never the session id (which could otherwise route into another grant).
+        const sessionId = request.headers.get('mcp-session-id');
+        if (sessionId !== null && sessionId.split('.')[0] !== this.env.BOARDS.idFromName(`auth:${props.boardId}`).toString()) {
+            return withCors(
+                request,
+                Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 })
+            );
+        }
+        const headers = new Headers(request.headers);
+        headers.set(AUTH_RELAY_HEADER, JSON.stringify(propsToAuthInfo(props, request)));
+        const relayed = new Request(request, { headers });
+        const response = await serveBoard(relayed, this.env, `auth:${props.boardId}`);
+        return withCors(request, response);
+    }
+}
+
+const defaultHandler = {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
         const response = await (async (): Promise<Response> => {
             if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
             if (url.pathname === '/mcp') {
-                // Board routing. A session id starts with the id of the object that minted it
-                // (opaque, unguessable, validated by idFromString), so a session survives the
-                // client's egress IP rotating. Everything else routes by the connecting
-                // address, or by the X-Todos-Board header for a board of the client's own
-                // naming — the two namespaced so a header value can never collide with (and
-                // read) somebody's address-keyed board.
-                const sessionId = request.headers.get('mcp-session-id');
-                let id: DurableObjectId | undefined;
-                if (sessionId === null) {
-                    const named = request.headers.get('x-todos-board');
-                    const visitor = named ? `named:${named.slice(0, 128)}` : `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
-                    id = env.BOARDS.idFromName(visitor);
-                } else {
-                    try {
-                        id = env.BOARDS.idFromString(sessionId.split('.')[0] ?? '');
-                    } catch {
-                        return Response.json(
-                            { jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null },
-                            { status: 404 }
-                        );
-                    }
-                }
-                try {
-                    return await env.BOARDS.get(id).fetch(request);
-                } catch (error) {
-                    // Details stay server-side; clients get a stable, generic shape.
-                    console.error('board fetch failed:', error);
-                    return Response.json({ error: 'board unavailable' }, { status: 500 });
-                }
+                // Anonymous tier, unchanged: boards keyed by the X-Todos-Board header (a
+                // board of the client's own naming) or the connecting address — namespaced
+                // so a header value can never collide with an address-keyed board. The
+                // internal auth-relay header is stripped: only the provider-verified API
+                // route may assert an identity.
+                const headers = new Headers(request.headers);
+                headers.delete(AUTH_RELAY_HEADER);
+                const named = request.headers.get('x-todos-board');
+                const visitor = named ? `named:${named.slice(0, 128)}` : `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
+                return serveBoard(new Request(request, { headers }), env, visitor);
+            }
+
+            if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
+                return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1');
+            }
+
+            if (url.pathname === '/board') {
+                return new Response(renderBoardPage(url.origin), {
+                    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }
+                });
+            }
+
+            if (url.pathname === '/board/events') {
+                // Read-only live view of anonymous boards: ?b=<name> for a named board,
+                // otherwise the viewer's own address-keyed board. OAuth boards are not
+                // reachable here — their id lives only inside the grant.
+                if (request.method !== 'GET') return new Response(null, { status: 405 });
+                const named = url.searchParams.get('b');
+                const viewer = named ? `named:${named.slice(0, 128)}` : `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
+                const headers = new Headers(request.headers);
+                headers.delete(AUTH_RELAY_HEADER);
+                return serveBoard(new Request(request, { headers }), env, viewer);
             }
 
             if (url.pathname === '/') {
@@ -331,11 +470,47 @@ export default {
                 });
             }
 
-            return new Response('Not found. The MCP endpoint is /mcp; see / for how to connect.\n', {
+            return new Response('Not found. The MCP endpoint is /mcp (anonymous) or /oauth/mcp (OAuth); see / for how to connect.\n', {
                 status: 404,
                 headers: { 'content-type': 'text/plain; charset=utf-8' }
             });
         })();
         return withCors(request, response);
+    }
+};
+
+// The provider owns the OAuth endpoints (authorize/token/register + both discovery
+// documents), verifies tokens on the API route, and passes everything else through
+// to the default handler. CIMD needs the global_fetch_strictly_public compatibility
+// flag (wrangler.toml): the platform itself guarantees metadata fetches only reach
+// public addresses.
+const provider = new OAuthProvider({
+    apiRoute: '/oauth/mcp',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    apiHandler: TodosApi as any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    defaultHandler: defaultHandler as any,
+    authorizeEndpoint: '/authorize',
+    tokenEndpoint: '/oauth/token',
+    clientRegistrationEndpoint: '/oauth/register',
+    scopesSupported: ['todos'],
+    clientIdMetadataDocumentEnabled: true
+});
+
+export default {
+    // Browser-based MCP clients must be able to READ the provider's 401 challenge
+    // (WWW-Authenticate) and discovery documents cross-origin. The provider sets its
+    // own CORS on some routes; ours fills in only what is missing.
+    async fetch(request: Request, env: Env, ctx: unknown): Promise<Response> {
+        const response = await (provider as unknown as { fetch(request: Request, env: Env, ctx: unknown): Promise<Response> }).fetch(
+            request,
+            env,
+            ctx
+        );
+        const headers = new Headers(response.headers);
+        for (const [name, value] of Object.entries(corsHeaders(request))) {
+            if (!headers.has(name)) headers.set(name, value);
+        }
+        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
     }
 };

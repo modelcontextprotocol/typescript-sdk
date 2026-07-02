@@ -28,3 +28,4 @@ packages/codemod/batch-test/results
 # Quickstart examples uses 2-space indent to match ecosystem conventions
 examples/client-quickstart/
 examples/server-quickstart/
+.wrangler/

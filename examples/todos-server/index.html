@@ -51,6 +51,18 @@
             an <code>mcpServers</code>-style host config:
         </p>
         <pre>{ "mcpServers": { "todos": { "url": "__HOST__/mcp" } } }</pre>
+        <p>
+            Boards on <code>/mcp</code> are anonymous: keyed by your network address, or by an <code>X-Todos-Board</code> header you choose.
+            For a <strong>private board</strong>, connect to <code>__HOST__/oauth/mcp</code> instead — your client discovers the OAuth
+            endpoints automatically (RFC 9728), registers itself (dynamic registration or a URL-format client id), and walks the
+            authorization-code flow with PKCE. Approving consent creates a fresh board bound to that grant: the token is the board. No
+            accounts; boards still expire after ~2 hours idle.
+        </p>
+        <pre>{ "mcpServers": { "todos": { "url": "__HOST__/oauth/mcp" } } }</pre>
+        <p>
+            Watch a board update live at <code>__HOST__/board?b=&lt;name&gt;</code> while a client connected with
+            <code>X-Todos-Board: &lt;name&gt;</code> works on it.
+        </p>
         <p>Or raw, in the 2026-07-28 wire format (there is no <code>initialize</code> — try <code>server/discover</code>):</p>
         <pre>
 curl -X POST __HOST__/mcp \

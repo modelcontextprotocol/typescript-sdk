@@ -10,7 +10,7 @@
         "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@cloudflare/workers-oauth-provider": "0.8.0",
         "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/hono": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",

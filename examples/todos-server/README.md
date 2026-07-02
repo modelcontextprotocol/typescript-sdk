@@ -82,6 +82,42 @@ todos.ts     the application: state, tools, resources, prompts, subscriptions �
              persistence, and forwardServerEvent for hosts that pin long-lived instances to a bus
 ```
 
+## Live board view (Cloudflare Workers deployment)
+
+`/board?b=<name>` is a read-only live view of a named anonymous board: the page holds an
+SSE stream (`/board/events`) that the board's Durable Object feeds from the same
+`ServerEventBus` every other consumer uses, so tasks appear and complete in real time as
+connected agents work. Without `?b=` it shows your own address-keyed board. OAuth boards
+are not viewable this way — their identity lives only inside the grant.
+
+## OAuth (Cloudflare Workers deployment)
+
+The worker wraps everything in [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider):
+the provider is the Authorization Server (authorize/token endpoints, RFC 7591 dynamic client
+registration, Client ID Metadata Documents, and both discovery documents), while the MCP
+handler stays a pure Resource Server consumer. `oauth.ts` holds the whole integration:
+
+- `propsToAuthInfo` — the canonical mapping from the provider's grant `props` to the SDK's
+  `AuthInfo`. The provider attaches only `props` after verifying a token, so `clientId` and
+  `scopes` are embedded at grant time; the raw token comes from the request header;
+  `expiresAt` is omitted because the provider verifies the token on every request that
+  reaches the API route, including session traffic — so expiry and revocation take effect
+  immediately without the app tracking timestamps.
+- `handleAuthorize` — the consent step. This demo has no user accounts: the principal is the
+  board, and approving mints a fresh board id into the grant. A real deployment replaces
+  exactly this step with its own sign-in.
+
+Two tiers share the same board machinery: `/mcp` stays anonymous (address- or header-keyed
+boards), `/oauth/mcp` serves token-authorized boards keyed by the grant (`whoami` shows which
+tier a connection is on). Sessions never cross tiers: an OAuth-minted 2025-era session is
+served only through the provider-verified route — every request re-verifies the token, so
+expiry and revocation cut live sessions off — and a session id is never accepted as a
+credential by itself. Requires the `OAUTH_KV` namespace binding (create your own:
+`wrangler kv namespace create OAUTH_KV`, then replace the id in wrangler.toml) and the
+`global_fetch_strictly_public` compatibility flag, which makes the platform itself guarantee
+CIMD metadata fetches only reach public addresses. Setting the `TODOS_AUTO_CONSENT=1` var
+auto-approves consent for scripted end-to-end runs — never set it on a real deployment.
+
 ## Deploy it (Cloudflare Workers)
 
 `worker.ts` + `wrangler.toml` deploy this server as a public demo: `/` serves the landing page,

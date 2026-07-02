@@ -8,7 +8,13 @@ export default [
         // The nested workspace packages (shared, *-quickstart) are linted by their own configs.
         // The one-way "@mcp-examples/shared must not import from stories" rule lives in
         // shared/eslint.config.mjs so it fires under that package's own lint.
-        ignores: ['shared/**', 'server-quickstart/**', 'client-quickstart/**']
+        ignores: ['shared/**', 'server-quickstart/**', 'client-quickstart/**', '**/.wrangler/**']
+    },
+    {
+        // The Workers runtime module exists only inside workerd; wrangler resolves it at
+        // deploy time and workerEnv.d.ts declares it for the typechecker.
+        files: ['todos-server/worker.ts'],
+        rules: { 'import/no-unresolved': ['error', { ignore: ['^cloudflare:'] }] }
     },
     {
         files: ['**/*.{ts,tsx,js,jsx,mts,cts}'],

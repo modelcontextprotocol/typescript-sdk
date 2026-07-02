@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>todos — live board</title>
+        <style>
+            body {
+                font-family: system-ui, sans-serif;
+                max-width: 44rem;
+                margin: 3rem auto;
+                padding: 0 1rem;
+                line-height: 1.5;
+            }
+            h1 {
+                font-size: 1.3rem;
+            }
+            code {
+                background: #eee;
+                padding: 0.1rem 0.3rem;
+            }
+            ul {
+                padding-left: 1.4rem;
+            }
+            li.done {
+                color: #888;
+                text-decoration: line-through;
+            }
+            #status {
+                color: #888;
+                font-size: 0.85rem;
+            }
+            @media (prefers-color-scheme: dark) {
+                body {
+                    background: #111;
+                    color: #ddd;
+                }
+                code {
+                    background: #222;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Live board: <code id="board-name"></code></h1>
+        <p>
+            Updates appear the moment any MCP client changes this board. Point a client at <code>__HOST__/mcp</code> with the
+            <code>X-Todos-Board</code> header set to this board's name (add <code>?b=&lt;name&gt;</code> to this page's URL), then watch
+            tasks land here as the agent works. Boards wipe after ~2 hours idle.
+        </p>
+        <ul id="tasks"></ul>
+        <p id="empty" hidden>The board is empty — add a task from a connected client.</p>
+        <p id="status">connecting…</p>
+        <script>
+            const params = new URLSearchParams(location.search);
+            document.getElementById('board-name').textContent = params.get('b') ?? 'your address-keyed board';
+            const list = document.getElementById('tasks');
+            const empty = document.getElementById('empty');
+            const status = document.getElementById('status');
+            const source = new EventSource('/board/events' + location.search);
+            source.onopen = () => {
+                status.textContent = 'live';
+            };
+            source.onerror = () => {
+                status.textContent = 'reconnecting…';
+            };
+            source.onmessage = event => {
+                const snapshot = JSON.parse(event.data);
+                const tasks = snapshot.tasks ?? [];
+                list.replaceChildren(
+                    ...tasks.map(task => {
+                        const item = document.createElement('li');
+                        item.textContent = `${task.title} (${task.id}, ${task.project}${task.priority ? ', ' + task.priority : ''})`;
+                        if (task.status === 'done') item.classList.add('done');
+                        return item;
+                    })
+                );
+                empty.hidden = tasks.length > 0;
+            };
+        </script>
+    </body>
+</html>

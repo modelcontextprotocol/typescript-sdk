@@ -4,6 +4,9 @@
 name = "todos-demo-ts"
 main = "worker.ts"
 compatibility_date = "2026-06-18"
+# CIMD (URL-formatted client ids): the platform guarantees metadata fetches
+# only ever reach public addresses — SSRF protection at the runtime layer.
+compatibility_flags = ["global_fetch_strictly_public"]
 tsconfig = "tsconfig.worker.json"
 
 # The landing page ships inside the bundle as a text module.
@@ -26,3 +29,9 @@ new_sqlite_classes = ["TodosBoard"]
 # REQUEST_STATE_SECRET is a deployment secret (wrangler secret put), never in
 # this file: it must be stable across isolates so multi-round input_required
 # flows survive landing on different instances.
+
+# Grant/token storage for the OAuth provider. The id below is account-specific:
+# create your own with `wrangler kv namespace create OAUTH_KV` and replace it.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+id = "736937bd5b404370a37eb548ef0311de"

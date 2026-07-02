@@ -741,6 +741,21 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
         );
 
         server.registerTool(
+            'whoami',
+            { description: 'Show the identity this connection serves: the verified OAuth grant, or the anonymous tier.' },
+            async (): Promise<CallToolResult> => ({
+                content: [
+                    {
+                        type: 'text',
+                        text: reqCtx.authInfo
+                            ? `Authenticated via OAuth: client ${reqCtx.authInfo.clientId ?? 'unknown'}, scopes [${(reqCtx.authInfo.scopes ?? []).join(' ')}]. This board belongs to your grant.`
+                            : 'Anonymous tier: this board is keyed by your network address or the X-Todos-Board header. Authorize via OAuth for a private board.'
+                    }
+                ]
+            })
+        );
+
+        server.registerTool(
             'prioritize',
             { description: 'Rank the open tasks by importance using the LLM connected to the host, and update their priorities' },
             async (ctx): Promise<CallToolResult | InputRequiredResult> => {
