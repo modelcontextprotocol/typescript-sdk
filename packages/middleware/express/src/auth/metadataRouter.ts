@@ -51,14 +51,12 @@ export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResource
 }
 
 /**
- * Options for {@link mcpAuthMetadataRouter}. Same shape as the runtime-neutral
- * `AuthMetadataOptions` in `@modelcontextprotocol/server`, except the
- * insecure-issuer escape hatch is controlled here by the
- * `MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL` environment variable instead of
- * an option.
+ * Options for {@link mcpAuthMetadataRouter}: the runtime-neutral
+ * `AuthMetadataOptions` from `@modelcontextprotocol/server`. The
+ * insecure-issuer escape hatch can also be enabled here by the
+ * `MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL` environment variable.
  */
-// eslint-disable-next-line @typescript-eslint/no-empty-object-type
-export interface AuthMetadataOptions extends Omit<NeutralAuthMetadataOptions, 'dangerouslyAllowInsecureIssuerUrl'> {}
+export type { AuthMetadataOptions } from '@modelcontextprotocol/server';
 
 /**
  * Builds an Express router that serves the two OAuth discovery documents an
@@ -79,16 +77,11 @@ export interface AuthMetadataOptions extends Omit<NeutralAuthMetadataOptions, 'd
  * `getOAuthProtectedResourceMetadataUrl` as its `resourceMetadataUrl`
  * so unauthenticated clients can discover the AS from the 401 challenge.
  */
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router {
-    // Explicit fields, not a spread: a wider object cannot smuggle in (or be
-    // clobbered on) the insecure-issuer flag — here it comes only from the env.
+export function mcpAuthMetadataRouter(options: NeutralAuthMetadataOptions): Router {
     const protectedResourceMetadata = buildOAuthProtectedResourceMetadata({
-        oauthMetadata: options.oauthMetadata,
-        resourceServerUrl: options.resourceServerUrl,
-        serviceDocumentationUrl: options.serviceDocumentationUrl,
-        scopesSupported: options.scopesSupported,
-        resourceName: options.resourceName,
-        dangerouslyAllowInsecureIssuerUrl: allowInsecureIssuerUrl
+        ...options,
+        // The env var and the option are both honored; either enables it.
+        dangerouslyAllowInsecureIssuerUrl: allowInsecureIssuerUrl || options.dangerouslyAllowInsecureIssuerUrl
     });
 
     const router = express.Router();
