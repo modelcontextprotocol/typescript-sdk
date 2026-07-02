@@ -709,8 +709,9 @@ describe('era scope discipline', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * Probe send-error classification: auth-gated servers take the legacy
- * fallback; other send failures stay typed negotiation errors.
+ * Probe send-error classification: auth-gated servers propagate the
+ * UnauthorizedError unchanged (finishAuth() + reconnect probes again); other
+ * send failures stay typed negotiation errors.
  * ------------------------------------------------------------------------- */
 
 describe('probe send-error classification', () => {

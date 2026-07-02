@@ -205,5 +205,5 @@ Match these by `code` and `data` shape when peers may run pre-brand SDK copies o
 - A tool handler that throws produces the same `isError: true` result; the exception's `message` becomes the `content` text.
 - A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` escapes.
 - `ProtocolError` and its subclasses, thrown from resource, prompt, and completion callbacks, become JSON-RPC error responses the model never sees.
-- `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data`, not `instanceof`.
+- `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data` — or, on brand-aware releases, by `instanceof`.
 - The table above lists every `ProtocolErrorCode` member.
