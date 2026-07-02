@@ -150,6 +150,14 @@ describe('review-hardened contracts', () => {
         ).toThrow('Issuer URL must be HTTPS');
     });
 
+    it('serves the PRM when the resource URL itself has a trailing slash', () => {
+        const slashOptions = { ...options, resourceServerUrl: new URL('https://api.example.com/mcp/') };
+        for (const path of ['/.well-known/oauth-protected-resource/mcp', '/.well-known/oauth-protected-resource/mcp/']) {
+            const response = oauthMetadataResponse(new Request(`https://api.example.com${path}`), slashOptions);
+            expect(response?.status).toBe(200);
+        }
+    });
+
     it('tolerates a single trailing slash like path-mounted routers', () => {
         const response = oauthMetadataResponse(new Request('https://api.example.com/.well-known/oauth-protected-resource/mcp/'), options);
         expect(response?.status).toBe(200);

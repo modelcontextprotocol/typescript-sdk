@@ -94,8 +94,14 @@ export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
 
 /** The RFC 9728 path-aware well-known path for a resource URL. */
 function protectedResourceMetadataPath(resourceServerUrl: URL): string {
-    const rsPath = resourceServerUrl.pathname;
+    // Normalized like the request path in `oauthMetadataResponse`: a resource
+    // URL with a trailing slash must not make its own PRM route unreachable.
+    const rsPath = stripTrailingSlash(resourceServerUrl.pathname);
     return `/.well-known/oauth-protected-resource${rsPath === '/' ? '' : rsPath}`;
+}
+
+function stripTrailingSlash(path: string): string {
+    return path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path;
 }
 
 const ALLOWED_METHODS = 'GET, HEAD, OPTIONS';
@@ -161,9 +167,8 @@ export function oauthMetadataResponse(request: Request, options: AuthMetadataOpt
     // even when the options are misconfigured — a bad issuer surfaces on the
     // discovery routes (or at startup via buildOAuthProtectedResourceMetadata),
     // never on the host's own traffic.
-    const rawPath = new URL(request.url).pathname;
     // Tolerate a single trailing slash, as path-mounted routers do.
-    const requestPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath;
+    const requestPath = stripTrailingSlash(new URL(request.url).pathname);
     if (requestPath === protectedResourceMetadataPath(options.resourceServerUrl)) {
         return metadataDocumentResponse(request, buildOAuthProtectedResourceMetadata(options));
     }
