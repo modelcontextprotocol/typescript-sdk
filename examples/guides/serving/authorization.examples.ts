@@ -2,7 +2,8 @@
 /**
  * Companion example for `docs/serving/authorization.md`.
  *
- * Every `ts` fence on that page is synced from a `//#region` in this file
+ * Every `ts` fence on that page except the web-standard one (sourced from
+ * `authorization.web.examples.ts`) is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The Express middleware needs a listening
  * HTTP server and a real authorization server to exercise, so this file only
  * typechecks:

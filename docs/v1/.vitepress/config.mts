@@ -24,6 +24,9 @@ export default defineConfig({
     title: 'MCP TypeScript SDK (v1)',
     description: 'Documentation for v1.x of the MCP TypeScript SDK.',
     base: '/',
+    // The favicon is copied into content/public/ by scripts/build-docs-site.sh
+    // (content/ is generated; the committed source is docs/public/favicon.svg).
+    head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }]],
     sitemap: { hostname: 'https://ts.sdk.modelcontextprotocol.io' },
     srcDir: 'content',
     markdown: {

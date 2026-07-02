@@ -30,6 +30,8 @@ export default defineConfig({
     title: 'MCP TypeScript SDK',
     description: 'The TypeScript SDK implementation of the Model Context Protocol specification.',
     base: '/v2/',
+    // VitePress does not base-prefix head hrefs, so /v2/ is spelled out here.
+    head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/v2/favicon.svg' }]],
     srcExclude: ['v1/**', '_meta/**', 'behavior-surface-pins.md'],
     sitemap: { hostname: `${siteUrl}/` },
     markdown: {

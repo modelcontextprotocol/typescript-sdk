@@ -34,8 +34,10 @@ export interface ImportMapping {
 }
 
 /**
- * Resource-server auth helpers whose maintained v2 home is `@modelcontextprotocol/express`;
- * the server-legacy/auth copy they route to by default is a frozen v1 snapshot, so import
+ * Resource-server auth helpers whose maintained v2 home is `@modelcontextprotocol/express`
+ * (with the runtime-neutral core — `requireBearerAuth` for web-standard hosts and
+ * `OAuthTokenVerifier` — also exported from `@modelcontextprotocol/server`); the
+ * server-legacy/auth copy they route to by default is a frozen v1 snapshot, so import
  * and re-export sites get a marker prompting a deliberate re-point.
  */
 export const RS_ONLY_AUTH_SYMBOLS: ReadonlySet<string> = new Set([
@@ -141,7 +143,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/server/auth/provider.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
         status: 'moved',
-        migrationHint: 'Legacy OAuth AS provider. For RS-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
+        migrationHint:
+            'Legacy OAuth AS provider. For RS-only auth, see requireBearerAuth from @modelcontextprotocol/express (or, on web-standard hosts, from @modelcontextprotocol/server).'
     },
     '@modelcontextprotocol/sdk/server/auth/router.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
@@ -151,7 +154,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/server/auth/middleware.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
         status: 'moved',
-        migrationHint: 'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
+        migrationHint:
+            'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/express (or, on web-standard hosts, from @modelcontextprotocol/server).'
     },
     '@modelcontextprotocol/sdk/server/auth/errors.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
