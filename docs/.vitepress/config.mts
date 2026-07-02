@@ -53,6 +53,17 @@ export default defineConfig({
     buildEnd(siteConfig) {
         generateLlmsArtifacts(docsDir, siteConfig.outDir, siteUrl);
     },
+    transformPageData(pageData) {
+        // Every guide page has a markdown rendition next to its HTML (llms.ts);
+        // advertise it to tools via a rel=alternate link. The API reference has none.
+        if (!pageData.relativePath.startsWith('api/')) {
+            pageData.frontmatter.head ??= [];
+            pageData.frontmatter.head.push([
+                'link',
+                { rel: 'alternate', type: 'text/markdown', href: `${siteUrl}/${pageData.relativePath}` }
+            ]);
+        }
+    },
     themeConfig: {
         nav: [
             { text: 'Get started', link: '/get-started/first-server', activeMatch: '^/get-started/' },
