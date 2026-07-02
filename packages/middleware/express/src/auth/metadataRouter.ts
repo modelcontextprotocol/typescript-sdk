@@ -78,6 +78,12 @@ export type { AuthMetadataOptions } from '@modelcontextprotocol/server';
  * so unauthenticated clients can discover the AS from the 401 challenge.
  */
 export function mcpAuthMetadataRouter(options: NeutralAuthMetadataOptions): Router {
+    if (options.dangerouslyAllowInsecureIssuerUrl && !allowInsecureIssuerUrl) {
+        // The env-var path warns at module load; enabling via the option is
+        // equally loud so an insecure issuer can never be allowed silently.
+        // eslint-disable-next-line no-console
+        console.warn('dangerouslyAllowInsecureIssuerUrl is enabled - HTTP issuer URLs are allowed. Do not use in production.');
+    }
     const protectedResourceMetadata = buildOAuthProtectedResourceMetadata({
         ...options,
         // The env var and the option are both honored; either enables it.
