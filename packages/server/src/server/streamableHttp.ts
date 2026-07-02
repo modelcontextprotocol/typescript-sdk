@@ -375,7 +375,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
      * Returns a `Response` object (Web Standard)
      */
-    async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+    /**
+     * Throws when a stateless transport has already handled its single
+     * request exchange. This is the same check `handleRequest()` performs on
+     * entry; exposed so wrapping adapters (e.g. the Node middleware) can fail
+     * fast before committing anything to their own response stream.
+     *
+     * @internal
+     */
+    assertNotReused(): void {
         // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
         // Reusing a stateless transport causes message ID collisions between clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
@@ -384,6 +392,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 'Stateless transport cannot be reused across requests. Create a new transport per request.'
             );
         }
+    }
+
+    async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        this.assertNotReused();
         this._hasHandledRequest = true;
 
         // Validate request headers for DNS rebinding protection

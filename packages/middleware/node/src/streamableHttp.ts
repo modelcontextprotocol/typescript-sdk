@@ -196,6 +196,13 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
+        // Fail fast before delegating: once getRequestListener is invoked, a
+        // rejected dispatch is committed to `res` as an empty 500 before the
+        // rejection can surface, leaving the caller unable to shape its own
+        // error response. Checking up front rejects with nothing written to
+        // `res`. The check lives on the wrapped transport (single source).
+        this._webStandardTransport.assertNotReused();
+
         // Store context for this request to pass through auth and parsedBody
         // We need to intercept the request creation to attach this context
         const authInfo = req.auth;
@@ -223,14 +230,15 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // including proper SSE streaming support
         await handler(req, res);
 
-        // getRequestListener absorbs a rejected dispatch into a generic 500
-        // response, which would swallow the wrapped transport's single-use
-        // throw. Re-raise it so the documented behavior (reusing a stateless
-        // transport across requests throws at the call site) holds for the
-        // Node adapter too. Other dispatch errors keep the existing
-        // 500-response behavior. Matched by code, not `instanceof`, so the
-        // check also holds if bundling ever yields two copies of the error
-        // class.
+        // Backstop for concurrent calls racing the up-front check (the
+        // single-use flag is set inside the wrapped handleRequest, after the
+        // request conversion): getRequestListener absorbs a rejected dispatch
+        // into a generic 500, which would swallow the single-use throw.
+        // Re-raise it so the documented behavior (reusing a stateless
+        // transport across requests throws at the call site) holds on this
+        // path too. Other dispatch errors keep the existing 500-response
+        // behavior. Matched by code, not `instanceof`, so the check also
+        // holds if bundling ever yields two copies of the error class.
         if (dispatchError instanceof Error && (dispatchError as { code?: unknown }).code === SdkErrorCode.StatelessTransportReuse) {
             throw dispatchError;
         }

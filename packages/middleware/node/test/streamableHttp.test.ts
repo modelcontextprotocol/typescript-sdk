@@ -1667,11 +1667,13 @@ describe('Zod v4', () => {
             perRequestServers.push(mcpServer);
 
             const callSiteErrors: Error[] = [];
+            const headersSentAtRejection: boolean[] = [];
             const sharedServer = createServer(async (req, res) => {
                 try {
                     await transport.handleRequest(req, res);
                 } catch (error) {
                     callSiteErrors.push(error as Error);
+                    headersSentAtRejection.push(res.headersSent);
                     if (!res.headersSent) res.writeHead(500);
                     res.end();
                 }
@@ -1686,6 +1688,10 @@ describe('Zod v4', () => {
                 expect(callSiteErrors).toHaveLength(1);
                 expect(callSiteErrors[0]!.message).toContain('Stateless transport cannot be reused across requests');
                 expect((callSiteErrors[0] as { code?: unknown }).code).toBe('STATELESS_TRANSPORT_REUSE');
+                // The rejection reached the caller before anything was
+                // committed to `res` — the caller keeps control of the
+                // response it sends for the rejected request.
+                expect(headersSentAtRejection).toEqual([false]);
             } finally {
                 sharedServer.close();
             }
