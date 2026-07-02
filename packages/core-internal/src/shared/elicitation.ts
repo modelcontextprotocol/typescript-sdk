@@ -1,3 +1,5 @@
+import * as z from 'zod/v4';
+
 import { ProtocolErrorCode } from '../types/enums';
 import { ProtocolError } from '../types/errors';
 import { ElicitRequestFormParamsSchema } from '../types/schemas';
@@ -16,52 +18,66 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-const ZOD_ISO_DATE_PATTERN = String.raw`(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))`;
-const ZOD_ISO_TIME_PREFIX = String.raw`(?:[01]\d|2[0-3]):[0-5]\d`;
-const ZOD_ISO_OFFSET_PATTERN = String.raw`([+-](?:[01]\d|2[0-3]):[0-5]\d)`;
+// A `pattern` emitted beside a supported `format` is redundant — zod realizes every format
+// check as a regex — and is dropped so the wire schema stays within the elicitation subset.
+// The reference patterns are derived from the installed zod at runtime rather than vendored
+// as string literals: zod's format regexes change across in-range releases, so a vendored
+// copy would start rejecting schemas produced by any newer zod while CI (lockfile-pinned)
+// stays green. A pattern the installed zod would not emit for that format — e.g. a
+// customized `z.email({ pattern })` — still rejects, because the wire schema cannot carry it.
+// Residual limitation: if the app resolves a second zod copy whose regexes differ from this
+// package's resolved zod, its emissions won't match the reference and reject (fail closed);
+// zod is a peer dependency precisely so installs dedupe to one copy.
+// Derivation is cheap (a handful of toJSONSchema calls) and only runs when a stripped
+// `pattern` sits beside a matching `format`, so no caching.
 
-const ZOD_REDUNDANT_FORMAT_PATTERNS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
-    ['email', new Set([String.raw`^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$`])],
-    [
-        'date',
-        new Set([
-            String.raw`^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$`
-        ])
-    ]
-]);
-
-const ZOD_DATETIME_ZONE_SUFFIXES = [
-    String.raw`(?:Z)`,
-    String.raw`(?:Z|)`,
-    String.raw`(?:Z|${ZOD_ISO_OFFSET_PATTERN})`,
-    String.raw`(?:Z||${ZOD_ISO_OFFSET_PATTERN})`
-] as const;
-
-function escapeRegExpLiteral(value: string): string {
-    return value.replaceAll(/[.*+?^${}()|[\]\\]/g, match => `\\${match}`);
+function zodEmittedPattern(schema: z.ZodType): string | undefined {
+    // Conversion options must stay in lockstep with standardSchemaToJsonSchema (which
+    // produced the pattern under comparison via `~standard.jsonSchema.input`).
+    const jsonSchema = z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' }) as Record<string, unknown>;
+    return typeof jsonSchema.pattern === 'string' ? jsonSchema.pattern : undefined;
 }
 
-const ZOD_PRECISION_TIME_PATTERN = new RegExp(String.raw`^${escapeRegExpLiteral(String.raw`${ZOD_ISO_TIME_PREFIX}:[0-5]\d\.\d{`)}\d+\}$`);
+const DATETIME_FRACTION_DIGITS = /\\\.\\d\{(\d+)\}/;
 
-function isZodIsoDatetimePattern(pattern: string): boolean {
-    const prefix = `^${ZOD_ISO_DATE_PATTERN}T(?:`;
-    if (!pattern.startsWith(prefix) || !pattern.endsWith(')$')) {
-        return false;
+function datetimeReferenceSchemas(pattern: string): z.ZodType[] {
+    // The emitted pattern depends on the authoring options (offset/local/precision); the
+    // fraction-digit count recovered from the pattern under test keeps the candidate set
+    // finite. Duplicate candidates are fine — the result feeds a Set.
+    const fractionDigits = DATETIME_FRACTION_DIGITS.exec(pattern);
+    const precisions: Array<number | undefined> = [undefined, -1, 0];
+    if (fractionDigits) {
+        precisions.push(Number(fractionDigits[1]));
     }
-
-    const innerPattern = pattern.slice(prefix.length, -2);
-    const zoneSuffix = ZOD_DATETIME_ZONE_SUFFIXES.find(suffix => innerPattern.endsWith(suffix));
-    if (!zoneSuffix) {
-        return false;
-    }
-
-    const timePattern = innerPattern.slice(0, -zoneSuffix.length);
-    return (
-        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}` ||
-        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}:[0-5]\d` ||
-        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}(?::[0-5]\d(?:\.\d+)?)?` ||
-        ZOD_PRECISION_TIME_PATTERN.test(timePattern)
+    return [false, true].flatMap(local =>
+        [false, true].flatMap(offset => precisions.map(precision => z.iso.datetime({ local, offset, precision })))
     );
+}
+
+function referencePatternsForFormat(format: string, pattern: string): ReadonlySet<string> {
+    let referenceSchemas: z.ZodType[];
+    switch (format) {
+        case 'email': {
+            referenceSchemas = [z.email()];
+            break;
+        }
+        case 'uri': {
+            referenceSchemas = [z.url()];
+            break;
+        }
+        case 'date': {
+            referenceSchemas = [z.iso.date()];
+            break;
+        }
+        case 'date-time': {
+            referenceSchemas = datetimeReferenceSchemas(pattern);
+            break;
+        }
+        default: {
+            referenceSchemas = [];
+        }
+    }
+    return new Set(referenceSchemas.map(schema => zodEmittedPattern(schema)).filter((emitted): emitted is string => emitted !== undefined));
 }
 
 function isRedundantFormatPattern(original: Record<string, unknown>, parsed: Record<string, unknown>, key: string): boolean {
@@ -75,17 +91,43 @@ function isRedundantFormatPattern(original: Record<string, unknown>, parsed: Rec
         return false;
     }
 
-    if (parsed.format === 'date-time') {
-        return isZodIsoDatetimePattern(original.pattern);
-    }
-
-    return ZOD_REDUNDANT_FORMAT_PATTERNS.get(parsed.format)?.has(original.pattern) === true;
+    return referencePatternsForFormat(parsed.format, original.pattern).has(original.pattern);
 }
 
 const ANNOTATION_ONLY_JSON_SCHEMA_KEYWORDS = new Set(['$comment', 'deprecated', 'examples', 'readOnly', 'writeOnly']);
 
 function isAnnotationOnlyJsonSchemaKeyword(key: string): boolean {
     return ANNOTATION_ONLY_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-');
+}
+
+// The spec declares a closed shape for the `requestedSchema` root: `$schema`, `type`,
+// `properties` and `required` only. The wire schema cannot enforce that (its root is a
+// catchall so hand-authored extensions stay wire-legal), and the stripped-keys diff below
+// never fires for root keys the catchall retains — so converted Standard Schemas are pruned
+// here: annotation-only root keywords are dropped, anything else unknown rejects (e.g.
+// `z.strictObject()` emits a root `additionalProperties: false`). The keyword set is derived
+// from the wire schema so it tracks spec revisions; `$schema` is spec-declared but absent
+// from the wire schema's declared keys (the catchall admits it).
+const ELICITATION_ROOT_KEYWORDS = new Set(['$schema', ...Object.keys(ElicitRequestFormParamsSchema.shape.requestedSchema.shape)]);
+const ROOT_ANNOTATION_KEYWORDS = new Set(['title', 'description']);
+
+function pruneElicitationSchemaRoot(schema: Record<string, unknown>): Record<string, unknown> {
+    const requestedSchema: Record<string, unknown> = {};
+    const unsupportedKeys: string[] = [];
+    for (const [key, value] of Object.entries(schema)) {
+        if (ELICITATION_ROOT_KEYWORDS.has(key)) {
+            requestedSchema[key] = value;
+        } else if (!ROOT_ANNOTATION_KEYWORDS.has(key) && !isAnnotationOnlyJsonSchemaKeyword(key)) {
+            unsupportedKeys.push(key);
+        }
+    }
+    if (unsupportedKeys.length > 0) {
+        throw new ProtocolError(
+            ProtocolErrorCode.InvalidParams,
+            `Elicitation requestedSchema contains unsupported JSON Schema keyword(s) after Standard Schema conversion: ${unsupportedKeys.join(', ')}`
+        );
+    }
+    return requestedSchema;
 }
 
 function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = ''): string[] {
@@ -137,7 +179,7 @@ export function normalizeElicitInputFormParams(
         const standardSchema = formParams.requestedSchema;
         const normalizedParams = {
             ...formParams,
-            requestedSchema: convertStandardElicitationSchema(standardSchema)
+            requestedSchema: pruneElicitationSchemaRoot(convertStandardElicitationSchema(standardSchema))
         };
         const parsedParams = parseSchema(ElicitRequestFormParamsSchema, normalizedParams);
         if (!parsedParams.success) {

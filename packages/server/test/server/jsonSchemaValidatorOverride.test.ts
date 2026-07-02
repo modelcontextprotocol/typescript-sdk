@@ -306,6 +306,16 @@ describe('server JSON Schema validator overrides', () => {
 
         await expect(
             server.elicitInput({
+                message: 'What is your name?',
+                requestedSchema: z.strictObject({
+                    name: z.string()
+                })
+            })
+        ).rejects.toThrow(/unsupported JSON Schema keyword\(s\).*additionalProperties/);
+        expect(sawElicitationRequest).toBe(false);
+
+        await expect(
+            server.elicitInput({
                 message: 'How many?',
                 requestedSchema: z.object({
                     count: z.number().gt(0)

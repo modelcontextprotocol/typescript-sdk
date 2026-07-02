@@ -17,6 +17,7 @@
  * discriminator, and hand-built result literals are equally legal — the
  * server seam re-checks the at-least-one rule for them.
  */
+import { ProtocolError } from '../types/errors';
 import { isInputRequiredResult } from '../types/guards';
 import type {
     CreateMessageRequestParams,
@@ -128,10 +129,17 @@ export const inputRequired: InputRequiredBuilder = Object.assign(buildInputRequi
             | (Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' })
             | (Omit<ElicitInputFormParams<StandardSchemaWithJSON>, 'mode'> & { mode?: 'form' })
     ): InputRequest {
-        const { params: normalizedParams } = normalizeElicitInputFormParams(
-            params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
-        );
-        return { method: 'elicitation/create', params: normalizedParams };
+        try {
+            const { params: normalizedParams } = normalizeElicitInputFormParams(
+                params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
+            );
+            return { method: 'elicitation/create', params: normalizedParams };
+        } catch (error) {
+            // Authoring mistakes in the builder surface as TypeError, matching inputRequired()
+            // itself; a ProtocolError escaping a prompts/get or resources/read handler would
+            // reach the client as InvalidParams on its own request.
+            throw error instanceof ProtocolError ? new TypeError(error.message, { cause: error }) : error;
+        }
     },
     elicitUrl(params: Omit<ElicitRequestURLParams, 'mode' | 'elicitationId'>): InputRequest {
         // The neutral ElicitRequestURLParams keeps `elicitationId` (it is required on the

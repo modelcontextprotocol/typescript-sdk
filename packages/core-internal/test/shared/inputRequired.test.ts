@@ -8,7 +8,6 @@ import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired';
-import { ProtocolError } from '../../src/types/errors';
 import { isInputRequiredResult } from '../../src/types/guards';
 import { validateStandardSchema } from '../../src/util/standardSchema';
 
@@ -103,19 +102,34 @@ describe('inputRequired() builder', () => {
         });
     });
 
-    test('elicit rejects non-object Standard Schema roots as invalid elicitation params', () => {
+    test('elicit rejects non-object Standard Schema roots as a TypeError', () => {
         expect(() =>
             inputRequired.elicit({
                 message: 'Name?',
                 requestedSchema: z.string()
             })
-        ).toThrow(ProtocolError);
+        ).toThrow(TypeError);
         expect(() =>
             inputRequired.elicit({
                 message: 'Name?',
                 requestedSchema: z.string()
             })
         ).toThrow(/Elicitation requestedSchema must describe an object/);
+    });
+
+    test('elicit rejects schemas outside the elicitation subset as a TypeError', () => {
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.strictObject({ name: z.string() })
+            })
+        ).toThrow(TypeError);
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.strictObject({ name: z.string() })
+            })
+        ).toThrow(/unsupported JSON Schema keyword\(s\).*additionalProperties/);
     });
 });
 
