@@ -1657,6 +1657,39 @@ describe('Zod v4', () => {
             return { transport, mcpServer };
         }
 
+        it('reusing one stateless transport rejects at the handleRequest call site (single-use invariant)', async () => {
+            // Deliberately share ONE stateless transport across two requests:
+            // the second handleRequest call must reject with the single-use
+            // message at the Node call site (not be absorbed into a bare 500).
+            const mcpServer = new McpServer({ name: 'single-use-test', version: '1.0.0' }, { capabilities: { logging: {} } });
+            const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await mcpServer.connect(transport);
+            perRequestServers.push(mcpServer);
+
+            const callSiteErrors: Error[] = [];
+            const sharedServer = createServer(async (req, res) => {
+                try {
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    callSiteErrors.push(error as Error);
+                    if (!res.headersSent) res.writeHead(500);
+                    res.end();
+                }
+            });
+            const sharedUrl = await listenOnRandomPort(sharedServer);
+            try {
+                const first = await sendPostRequest(sharedUrl, TEST_MESSAGES.initialize);
+                expect(first.status).toBe(200);
+                expect(callSiteErrors).toHaveLength(0);
+
+                await sendPostRequest(sharedUrl, TEST_MESSAGES.toolsList);
+                expect(callSiteErrors).toHaveLength(1);
+                expect(callSiteErrors[0]!.message).toContain('Stateless transport cannot be reused across requests');
+            } finally {
+                sharedServer.close();
+            }
+        });
+
         it('should operate without session ID validation', async () => {
             // Initialize the server first
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);

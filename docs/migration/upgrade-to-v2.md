@@ -1618,7 +1618,7 @@ rewrite required unless noted.
 
 #### Transport / connection lifecycle (v1 parity)
 
-Two v1 transport lifecycle invariants (in effect since sdk@1.26.0) apply in v2:
+The following v1 transport lifecycle invariants (in effect since sdk@1.26.0) apply in v2:
 
 - **A stateless `WebStandardStreamableHTTPServerTransport` serves exactly one request.**
   With `sessionIdGenerator: undefined`, the second `handleRequest()` call throws

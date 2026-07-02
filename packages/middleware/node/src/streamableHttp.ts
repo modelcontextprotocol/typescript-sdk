@@ -203,12 +203,18 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // Create a custom handler that includes our context
         // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
         // break frameworks like Next.js whose response classes extend the native Response
+        let dispatchError: unknown;
         const handler = getRequestListener(
             async (webRequest: Request) => {
-                return this._webStandardTransport.handleRequest(webRequest, {
-                    authInfo,
-                    parsedBody
-                });
+                try {
+                    return await this._webStandardTransport.handleRequest(webRequest, {
+                        authInfo,
+                        parsedBody
+                    });
+                } catch (error) {
+                    dispatchError = error;
+                    throw error;
+                }
             },
             { overrideGlobalObjects: false }
         );
@@ -216,6 +222,16 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
         // including proper SSE streaming support
         await handler(req, res);
+
+        // getRequestListener absorbs a rejected dispatch into a generic 500
+        // response, which would swallow the wrapped transport's single-use
+        // throw. Re-raise it so the documented behavior (reusing a stateless
+        // transport across requests throws at the call site) holds for the
+        // Node adapter too. Other dispatch errors keep the existing
+        // 500-response behavior.
+        if (dispatchError instanceof Error && dispatchError.message.includes('Stateless transport cannot be reused across requests')) {
+            throw dispatchError;
+        }
     }
 
     /**

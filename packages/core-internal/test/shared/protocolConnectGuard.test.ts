@@ -57,6 +57,36 @@ function createProtocol(): Protocol<BaseContext> {
 }
 
 describe('Protocol.connect() reuse guard', () => {
+    test('a transport that failed to start cannot disturb a later connection', async () => {
+        const protocol = createProtocol();
+        const failing = new MockTransport('failing');
+        const userOnClose = (): void => {};
+        failing.onclose = userOnClose;
+        failing.start = async (): Promise<void> => {
+            throw new Error('boot failure');
+        };
+
+        await expect(protocol.connect(failing)).rejects.toThrow('boot failure');
+        expect(protocol.transport).toBeUndefined();
+        // The unwind restored the transport's own callbacks.
+        expect(failing.onclose).toBe(userOnClose);
+
+        // A later connection is undisturbed by events from the failed
+        // transport (e.g. a child process 'close' arriving after a failed
+        // spawn already rejected start()).
+        const transportB = new MockTransport('B');
+        await protocol.connect(transportB);
+        let sawClose = false;
+        protocol.onclose = () => {
+            sawClose = true;
+        };
+
+        failing.onclose?.();
+
+        expect(protocol.transport).toBe(transportB);
+        expect(sawClose).toBe(false);
+    });
+
     test('connect() while already connected throws', async () => {
         const protocol = createProtocol();
         const transportA = new MockTransport('A');

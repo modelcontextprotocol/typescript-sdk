@@ -1,6 +1,7 @@
 ---
 '@modelcontextprotocol/server': patch
 '@modelcontextprotocol/core-internal': patch
+'@modelcontextprotocol/client': patch
 ---
 
 Restores two v1 transport lifecycle invariants dropped in the v2 rewrite:

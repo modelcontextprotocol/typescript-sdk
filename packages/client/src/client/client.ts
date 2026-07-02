@@ -929,15 +929,10 @@ export class Client extends Protocol<ClientContext> {
     override async connect(transport: Transport, options?: ConnectOptions): Promise<void> {
         // Fail fast while still connected: the negotiated paths below reset
         // per-connection state and run the discover probe BEFORE the base
-        // Protocol.connect() reuse guard would fire — without this early
-        // check, a connect() on a connected instance would corrupt the live
-        // connection's state before throwing. Same guard + message as
-        // Protocol.connect().
-        if (this.transport) {
-            throw new Error(
-                'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
-            );
-        }
+        // Protocol.connect() guard would fire — without this early check, a
+        // connect() on a connected instance would corrupt the live
+        // connection's state before throwing.
+        this.assertNotConnected();
         if (options?.prior !== undefined) {
             // Zero-round-trip reconnect from a previously-obtained
             // DiscoverResult: bypasses versionNegotiation resolution entirely.

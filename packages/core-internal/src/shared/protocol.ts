@@ -775,16 +775,26 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Attaches to the given transport, starts it, and starts listening for messages.
-     *
-     * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     * Throws if this instance is already bound to a transport. Called by
+     * {@linkcode Protocol.connect} and, earlier, by subclass connect
+     * overrides whose pre-connect work mutates per-connection state (see
+     * `Client.connect()`): the check must run before any of that work.
      */
-    async connect(transport: Transport): Promise<void> {
+    protected assertNotConnected(): void {
         if (this._transport) {
             throw new Error(
                 'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
             );
         }
+    }
+
+    /**
+     * Attaches to the given transport, starts it, and starts listening for messages.
+     *
+     * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
+     */
+    async connect(transport: Transport): Promise<void> {
+        this.assertNotConnected();
 
         this._transport = transport;
         const _onclose = this.transport?.onclose;
@@ -825,7 +835,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // A transport that failed to start was never connected: unwind so
             // the instance can retry connect() — the reuse guard above would
             // otherwise lock the instance onto a transport that never carried
-            // traffic.
+            // traffic. Restore the transport's own callbacks too: leaving the
+            // wrapped closures installed would let a late event from the
+            // failed transport (e.g. a child process 'close' after a failed
+            // spawn) tear down whatever connection a successful retry
+            // established.
+            transport.onclose = _onclose;
+            transport.onerror = _onerror;
+            transport.onmessage = _onmessage;
             this._transport = undefined;
             throw error;
         }
