@@ -45,3 +45,9 @@ jobs:
 
             - name: Run all example pairs (transport × era)
               run: pnpm tsx scripts/examples/run-examples.ts
+
+            # Every docs-page companion under examples/guides/ is a real program
+            # (the page's quoted output comes from it). Run each one; a file whose
+            # first line is "// docs: typecheck-only" is skipped.
+            - name: Run guide examples
+              run: pnpm docs:examples

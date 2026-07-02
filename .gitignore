@@ -51,7 +51,6 @@ dist/
 .worktrees/
 
 # Generated docs-site artifacts
-docs/index.md
 docs/api/
 docs/.vitepress/cache/
 docs/.vitepress/dist/

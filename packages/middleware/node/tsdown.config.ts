@@ -7,7 +7,8 @@ export default defineConfig({
     entry: ['src/index.ts'],
 
     // 2. Output Configuration
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true, // Recommended: Cleans 'dist' before building
     sourcemap: true,

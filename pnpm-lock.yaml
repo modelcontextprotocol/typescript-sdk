@@ -313,9 +313,15 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../packages/client
+      '@modelcontextprotocol/core':
+        specifier: workspace:^
+        version: link:../packages/core
       '@modelcontextprotocol/express':
         specifier: workspace:^
         version: link:../packages/middleware/express
+      '@modelcontextprotocol/fastify':
+        specifier: workspace:^
+        version: link:../packages/middleware/fastify
       '@modelcontextprotocol/hono':
         specifier: workspace:^
         version: link:../packages/middleware/hono
@@ -340,6 +346,9 @@ importers:
       express:
         specifier: catalog:runtimeServerOnly
         version: 5.2.1
+      fastify:
+        specifier: catalog:runtimeServerOnly
+        version: 5.8.4
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.12.9
@@ -11452,7 +11461,7 @@ snapshots:
       esbuild: 0.27.4
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.8
+      postcss: 8.5.15
       rollup: 4.60.0
       tinyglobby: 0.2.15
     optionalDependencies:
@@ -11466,7 +11475,7 @@ snapshots:
       esbuild: 0.27.4
       fdir: 6.5.0(picomatch@4.0.4)
       picomatch: 4.0.4
-      postcss: 8.5.8
+      postcss: 8.5.15
       rollup: 4.60.0
       tinyglobby: 0.2.15
     optionalDependencies:

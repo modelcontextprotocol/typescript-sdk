@@ -38,4 +38,4 @@ const authProvider = new PrivateKeyJwtProvider({
 });
 ```
 
-The full snippet lives in the client guide (`docs/client.md` → `auth_privateKeyJwt`). There is no runnable leg for it in this story — the in-repo `client_credentials` AS only implements `client_secret_basic`/`client_secret_post`.
+The full snippet lives in [Machine auth › Sign with a private key instead of a secret](../../docs/clients/machine-auth.md#sign-with-a-private-key-instead-of-a-secret) (`guides/clients/machine-auth.examples.ts` → `privateKeyJwt_provider`). There is no runnable leg for it in this story — the in-repo `client_credentials` AS only implements `client_secret_basic`/`client_secret_post`.

@@ -157,19 +157,30 @@ function detectPm(repoRoot: string): string {
     return 'npm';
 }
 
-function installCommand(pm: string): string {
+export function installCommand(pm: string, opts: { hasOwnPnpmWorkspace: boolean; packageDirs: string[] }): string {
     if (pm !== 'pnpm') return `${pm} install --ignore-scripts`;
-    // pnpm walks up to find a workspace; clones live inside this SDK's pnpm workspace, so a plain
-    // `pnpm install` targets the OUTER workspace and never populates the clone's node_modules — every
-    // downstream check (tsc base config, tsup, vitest) then fails identically at baseline and post,
-    // masking real codemod signal.
-    //   --ignore-workspace:    treat the clone as a standalone project (not part of the SDK workspace).
-    //   --no-frozen-lockfile:  the codemod rewrites package.json to swap v1 → v2 deps, so the lockfile
-    //                          must be allowed to change. CI=true (set in shell()) otherwise defaults
-    //                          pnpm to a frozen lockfile and the post-codemod reinstall silently skips
-    //                          the new v2 deps, leaving the clone on v1.
-    // npm/yarn/bun key off a `workspaces` field in package.json (absent at this repo root), so they
-    // need no equivalent flags.
+    // --no-frozen-lockfile: the codemod rewrites package.json to swap v1 → v2 deps, so the lockfile must
+    //   be allowed to change. CI=true (set in shell()) otherwise defaults pnpm to a frozen lockfile and the
+    //   post-codemod reinstall silently skips the new v2 deps, leaving the clone on v1.
+    if (opts.hasOwnPnpmWorkspace) {
+        // The clone is its OWN pnpm workspace — pnpm-workspace.yaml defines catalog:/workspace: deps
+        // (e.g. mastra). `--ignore-workspace` would discard that file and pnpm would fail to resolve them
+        // (ERR_PNPM_CATALOG_ENTRY_NOT_FOUND_FOR_SPEC; unresolved workspace: links → repo skipped). We don't
+        // need it: the SDK workspace excludes the clones (`!packages/codemod/batch-test/**`) and pnpm uses
+        // the clone's own pnpm-workspace.yaml as the nearest root. Scope the install to the target packages
+        // and their dependencies (`{./<dir>}...`) so a monorepo target installs only what the checks need
+        // (e.g. 2 of mastra's 161 projects) instead of the whole tree. The braces are load-bearing: pnpm
+        // silently ignores the trailing `...` on a bare `./<dir>...` path selector (installing the package
+        // without its workspace deps); the `{./<dir>}...` form honors it.
+        const filters = opts.packageDirs
+            .filter(dir => dir !== '.')
+            .map(dir => `--filter ${JSON.stringify(`{./${dir}}...`)}`)
+            .join(' ');
+        return `pnpm install --ignore-scripts --no-frozen-lockfile${filters ? ` ${filters}` : ''}`;
+    }
+    // Single-package clone with no workspace of its own: pnpm would walk up to the (clone-excluding) SDK
+    // workspace and never populate the clone's node_modules. `--ignore-workspace` treats it as standalone.
+    // npm/yarn/bun key off a `workspaces` field in package.json (absent at this repo root).
     return 'pnpm install --ignore-scripts --ignore-workspace --no-frozen-lockfile';
 }
 
@@ -643,17 +654,22 @@ function main(): void {
         const pm = detectPm(clonePath);
         console.log(`  Package manager: ${pm}`);
 
-        // Step 3: Install
+        // Process packages
+        const packages: PackageEntry[] = entry.packages ?? [{ dir: '.', sourceDir: 'src' }];
+        const repoPkgResults: PackageReport[] = [];
+
+        // Step 3: Install. A clone that is its own pnpm workspace (catalog:/workspace: deps) must keep its
+        // pnpm-workspace.yaml — see installCommand. Computed once and reused for the post-codemod reinstall.
+        const installCmd = installCommand(pm, {
+            hasOwnPnpmWorkspace: existsSync(path.join(clonePath, 'pnpm-workspace.yaml')),
+            packageDirs: packages.map(p => p.dir)
+        });
         console.log('  Installing dependencies...');
-        const installResult = shell(installCommand(pm), clonePath);
+        const installResult = shell(installCmd, clonePath);
         if (installResult.exitCode !== 0) {
             console.log(`  ERROR: install failed, skipping\n  ${installResult.stderr.split('\n')[0]}`);
             continue;
         }
-
-        // Process packages
-        const packages: PackageEntry[] = entry.packages ?? [{ dir: '.', sourceDir: 'src' }];
-        const repoPkgResults: PackageReport[] = [];
 
         for (const pkg of packages) {
             const sourceDir = pkg.sourceDir ?? 'src';
@@ -697,7 +713,7 @@ function main(): void {
                 if (rewrites > 0) console.log(`    Pinned ${rewrites} deps to resolved published versions`);
             }
             console.log('    Re-installing dependencies...');
-            shell(installCommand(pm), clonePath);
+            shell(installCmd, clonePath);
 
             // Step 7: Post-codemod checks
             console.log('    Running post-codemod checks...');
