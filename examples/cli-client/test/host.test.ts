@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { configFromTargets, interpolateEnv, isHttpServer, parseConfig } from '../host/config';
 import { contentBlockToParts, resourceToContextText, stripAnsi, toolResultToParts, truncate } from '../host/content';
+import { resolveVersionOptions } from '../host/host';
 import { namespaceTool, routeNamespacedTool, sanitizeServerName } from '../host/naming';
 
 describe('tool namespacing and routing', () => {
@@ -92,5 +93,27 @@ describe('config parsing', () => {
 
     it('rejects an empty --server list', () => {
         expect(() => configFromTargets([])).toThrow();
+    });
+});
+
+describe('protocol version selection', () => {
+    it('defaults to auto probing, --legacy to the plain 2025 handshake', () => {
+        expect(resolveVersionOptions(false)).toEqual({ versionNegotiation: { mode: 'auto' } });
+        expect(resolveVersionOptions(true)).toEqual({ versionNegotiation: { mode: 'legacy' } });
+    });
+
+    it('runs a known 2025-era revision through the legacy handshake, offering only that revision', () => {
+        const expected = { versionNegotiation: { mode: 'legacy' }, supportedProtocolVersions: ['2025-06-18'] };
+        expect(resolveVersionOptions(false, '2025-06-18')).toEqual(expected);
+        // --legacy alongside a 2025-era revision is redundant but consistent.
+        expect(resolveVersionOptions(true, '2025-06-18')).toEqual(expected);
+    });
+
+    it('pins anything newer via the modern handshake', () => {
+        expect(resolveVersionOptions(false, '2026-07-28')).toEqual({ versionNegotiation: { mode: { pin: '2026-07-28' } } });
+    });
+
+    it('rejects --legacy combined with a revision the 2025 handshake cannot reach', () => {
+        expect(() => resolveVersionOptions(true, '2026-07-28')).toThrow(/--legacy conflicts with --protocol-version/);
     });
 });
