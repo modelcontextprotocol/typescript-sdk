@@ -131,10 +131,9 @@ export {
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema';
 export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema';
 export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema';
-// Validator providers are type-only here — import the runtime classes from the explicit
-// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
-export type { AjvJsonSchemaValidator } from '../../validators/ajvProvider';
-export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider';
+// Validator provider classes stay subpath-only. Re-exporting them here, even as
+// `type`, can make generated root declarations advertise runtime-shaped root
+// exports that the package root does not provide.
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types';
