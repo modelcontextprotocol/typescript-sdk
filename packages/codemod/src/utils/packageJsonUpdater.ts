@@ -3,8 +3,8 @@ import path from 'node:path';
 
 import fg from 'fast-glob';
 
-import { V2_PACKAGE_VERSIONS } from '../versions';
 import type { PackageJsonChange } from '../types';
+import { V2_PACKAGE_VERSIONS } from '../versions';
 import { findPackageJson } from './projectAnalyzer';
 
 const V1_PACKAGE = '@modelcontextprotocol/sdk';

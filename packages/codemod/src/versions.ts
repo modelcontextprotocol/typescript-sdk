@@ -2,8 +2,8 @@ import clientPkg from '../../client/package.json';
 import corePkg from '../../core/package.json';
 import expressPkg from '../../middleware/express/package.json';
 import nodePkg from '../../middleware/node/package.json';
-import serverLegacyPkg from '../../server-legacy/package.json';
 import serverPkg from '../../server/package.json';
+import serverLegacyPkg from '../../server-legacy/package.json';
 
 /**
  * Caret ranges for the v2 packages the codemod writes into migrated package.json

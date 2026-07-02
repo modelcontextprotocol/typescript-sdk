@@ -6,10 +6,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { V2_PACKAGE_VERSIONS } from '../versions';
 import { getMigration } from '../migrations/index';
 import { run } from '../runner';
 import type { Diagnostic, Migration } from '../types';
+import { V2_PACKAGE_VERSIONS } from '../versions';
 
 // ---------------------------------------------------------------------------
 // Types
