@@ -24,7 +24,7 @@ The one exception to the generic commands is the reference pair: [`cli-client/`]
 | ------------------------------------- | ------------------------------------------------------------------------ |
 | [`tools/`](./tools/README.md)         | Register tools, infer input/output schemas, call them, structured output |
 | [`prompts/`](./prompts/README.md)     | Prompts + argument completion                                            |
-| [`resources/`](./resources/README.md) | Static + templated resources, list/read                                  |
+| [`resources/`](./resources/README.md) | Static + templated resources, list/read, era-split subscriptions         |
 | [`dual-era/`](./dual-era/README.md)   | One factory, both protocol eras, both transports                         |
 
 ## Feature stories

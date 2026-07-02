@@ -117,6 +117,41 @@ server.registerResource(
 // Imported dynamically so the page's lead region stays self-contained.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// "Serve per-resource subscriptions"
+// ---------------------------------------------------------------------------
+
+//#region sendResourceUpdated_subscribers
+let deployStatus = 'idle';
+
+const deploys = new McpServer({ name: 'deploys', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+
+deploys.registerResource(
+    'deploy-status',
+    'deploys://status',
+    { description: 'The current deploy state', mimeType: 'text/plain' },
+    async uri => ({ contents: [{ uri: uri.href, text: deployStatus }] })
+);
+
+// The SDK routes the two verbs; which URIs this connection watches is yours to track.
+const subscribedUris = new Set<string>();
+deploys.server.setRequestHandler('resources/subscribe', request => {
+    subscribedUris.add(request.params.uri);
+    return {};
+});
+deploys.server.setRequestHandler('resources/unsubscribe', request => {
+    subscribedUris.delete(request.params.uri);
+    return {};
+});
+
+async function setDeployStatus(status: string): Promise<void> {
+    deployStatus = status;
+    if (subscribedUris.has('deploys://status')) {
+        await deploys.server.sendResourceUpdated({ uri: 'deploys://status' });
+    }
+}
+//#endregion sendResourceUpdated_subscribers
+
 const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
 
 const client = new Client({ name: 'resources-docs-harness', version: '1.0.0' });
@@ -152,6 +187,30 @@ if (uris.some(uri => uri.startsWith('users://')) || !uris.includes('teams://core
 //#region sendResourceListChanged
 server.sendResourceListChanged();
 //#endregion sendResourceListChanged
+
+// "Serve per-resource subscriptions" — a 2025-era client subscribes, the status
+// changes, exactly one notifications/resources/updated arrives, and none after
+// unsubscribe.
+const watcher = new Client({ name: 'resources-docs-watcher', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
+const [watcherTransport, deploysTransport] = InMemoryTransport.createLinkedPair();
+const updates: string[] = [];
+watcher.setNotificationHandler('notifications/resources/updated', notification => {
+    updates.push(notification.params.uri);
+});
+await deploys.connect(deploysTransport);
+await watcher.connect(watcherTransport);
+
+await watcher.subscribeResource({ uri: 'deploys://status' });
+await setDeployStatus('deploying');
+await watcher.unsubscribeResource({ uri: 'deploys://status' });
+await setDeployStatus('done');
+await new Promise(resolve => setTimeout(resolve, 50));
+console.log('updates:', updates);
+if (updates.length !== 1 || updates[0] !== 'deploys://status') {
+    throw new Error(`resources.md subscription claim failed: ${JSON.stringify(updates)}`);
+}
+await watcher.close();
+await deploys.close();
 
 await client.close();
 await server.close();

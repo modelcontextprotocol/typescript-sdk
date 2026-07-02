@@ -212,6 +212,49 @@ server.sendResourceListChanged();
 
 The notification tells connected clients to call `resources/list` again. A change to one resource's content is a different signal, `notifications/resources/updated` — [Notifications](./notifications.md) covers both.
 
+## Serve per-resource subscriptions
+
+A 2025-era client opts into `notifications/resources/updated` for one URI with `resources/subscribe`. The SDK routes the verb; the bookkeeping is yours: advertise the capability, track the URIs per connection, and send the notification to subscribers only.
+
+```ts source="../../examples/guides/servers/resources.examples.ts#sendResourceUpdated_subscribers"
+let deployStatus = 'idle';
+
+const deploys = new McpServer({ name: 'deploys', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+
+deploys.registerResource(
+    'deploy-status',
+    'deploys://status',
+    { description: 'The current deploy state', mimeType: 'text/plain' },
+    async uri => ({ contents: [{ uri: uri.href, text: deployStatus }] })
+);
+
+// The SDK routes the two verbs; which URIs this connection watches is yours to track.
+const subscribedUris = new Set<string>();
+deploys.server.setRequestHandler('resources/subscribe', request => {
+    subscribedUris.add(request.params.uri);
+    return {};
+});
+deploys.server.setRequestHandler('resources/unsubscribe', request => {
+    subscribedUris.delete(request.params.uri);
+    return {};
+});
+
+async function setDeployStatus(status: string): Promise<void> {
+    deployStatus = status;
+    if (subscribedUris.has('deploys://status')) {
+        await deploys.server.sendResourceUpdated({ uri: 'deploys://status' });
+    }
+}
+```
+
+The `Set` belongs to one server instance, and each connection gets its own instance from your factory — a subscription never leaks across connections. Send `resources/updated` only to connections that subscribed; unsolicited per-resource updates are wrong on 2025-era connections.
+
+::: info
+On [2026-07-28](../protocol-versions.md) connections the verb does not exist: clients name resource URIs in their `subscriptions/listen` filter, and the entry delivers updates published on the handler's notifier — [Notifications](./notifications.md#publish-a-resource-update-through-the-handler) covers that path.
+:::
+
+The [`resources` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/resources) runs this pattern as a self-verifying pair over stdio and HTTP on both eras.
+
 ## Recap
 
 - `registerResource(name, uri, config, readCallback)` registers a resource at a fixed URI.
@@ -220,3 +263,4 @@ The notification tells connected clients to call `resources/list` again. A chang
 - A template's `list` callback is what makes its instances appear in `resources/list`.
 - Resolve file-backed paths to their real location and reject anything outside the root before reading.
 - Registration changes emit `notifications/resources/list_changed` automatically.
+- `resources/subscribe` bookkeeping is the server's: advertise `resources: { subscribe: true }`, track URIs per connection, send `resources/updated` to subscribers only.

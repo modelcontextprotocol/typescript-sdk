@@ -1,5 +1,11 @@
 /**
- * Drives the resources example: list, list templates, read direct + templated.
+ * Drives the resources example: list, list templates, read direct + templated,
+ * then subscribe to `counter://value` and assert the update notification. The
+ * subscription sender is era-split — `subscriptions/listen` on 2026-07-28,
+ * `resources/subscribe` on 2025 — while the notification handler is one
+ * registration either way. Per-request legacy HTTP has no channel to deliver
+ * notifications, so that leg asserts the calls succeed and skips the delivery
+ * assertion.
  */
 import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -18,6 +24,7 @@ await (transport === 'stdio'
 
 const list = await client.listResources();
 check.ok(list.resources.some(r => r.uri === 'config://app'));
+check.ok(list.resources.some(r => r.uri === 'counter://value'));
 
 const templates = await client.listResourceTemplates();
 check.ok(templates.resourceTemplates.some(t => t.uriTemplate === 'greeting://{name}'));
@@ -29,5 +36,48 @@ check.equal(configContent && 'text' in configContent ? configContent.text : '', 
 const hello = await client.readResource({ uri: 'greeting://world' });
 const helloContent = hello.contents[0];
 check.equal(helloContent && 'text' in helloContent ? helloContent.text : '', 'Hello, world!');
+
+// --- Subscriptions ---------------------------------------------------------
+
+// One handler serves both delivery paths: the 2026-07-28 listen stream and a
+// 2025-era connection's unsolicited notification dispatch the same way.
+let resolveUpdated: ((uri: string) => void) | undefined;
+client.setNotificationHandler('notifications/resources/updated', notification => {
+    resolveUpdated?.(notification.params.uri);
+});
+
+// Per-request legacy HTTP answers each POST in isolation: subscribing succeeds,
+// but there is no stream to deliver the notification on.
+const deliverable = !(era === 'legacy' && transport === 'http');
+
+const updated = new Promise<string>(resolve => {
+    resolveUpdated = resolve;
+});
+
+const subscription = era === 'modern' ? await client.listen({ resourceSubscriptions: ['counter://value'] }) : undefined;
+if (era === 'legacy') {
+    await client.subscribeResource({ uri: 'counter://value' });
+}
+
+const bumped = await client.callTool({ name: 'increment', arguments: {} });
+check.ok(!bumped.isError);
+
+if (deliverable) {
+    const updatedUri = await Promise.race([
+        updated,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('no resources/updated within 8s')), 8000))
+    ]);
+    check.equal(updatedUri, 'counter://value');
+
+    const counter = await client.readResource({ uri: 'counter://value' });
+    const counterContent = counter.contents[0];
+    check.equal(counterContent && 'text' in counterContent ? counterContent.text : '', '1');
+}
+
+if (subscription) {
+    await subscription.close();
+} else if (era === 'legacy') {
+    await client.unsubscribeResource({ uri: 'counter://value' });
+}
 
 await client.close();
