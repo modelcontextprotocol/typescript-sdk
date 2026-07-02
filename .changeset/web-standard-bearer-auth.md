@@ -1,6 +1,7 @@
 ---
 '@modelcontextprotocol/server': minor
 '@modelcontextprotocol/express': patch
+'@modelcontextprotocol/codemod': patch
 ---
 
 Add runtime-neutral Bearer authentication to `@modelcontextprotocol/server`:
