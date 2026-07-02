@@ -488,6 +488,9 @@ const defaultHandler = {
                 viewInfo ??= { mode: 'address', label: 'your network address' };
                 const headers = new Headers(request.headers);
                 headers.delete(AUTH_RELAY_HEADER);
+                // The view route must NEVER route by session id: a stale session id would
+                // override the resolved board and stream a private board without a token.
+                headers.delete('mcp-session-id');
                 headers.set(VIEW_INFO_HEADER, JSON.stringify(viewInfo));
                 return serveBoard(new Request(request, { headers }), env, boardName);
             }
