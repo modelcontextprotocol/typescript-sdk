@@ -130,7 +130,11 @@ export async function handleAuthorize(
         // the approval. The cookie is an opaque KV-backed session (no token, no board
         // id in any URL); /board with no ?b= resolves it to this grant's board.
         const viewerId = crypto.randomUUID();
-        await viewerSessions.put(`viewer:${viewerId}`, JSON.stringify({ boardId }), { expirationTtl: 7200 });
+        await viewerSessions.put(
+            `viewer:${viewerId}`,
+            JSON.stringify({ boardId, clientName: client?.clientName ?? oauthRequest.clientId }),
+            { expirationTtl: 7200 }
+        );
         return new Response(null, {
             status: 302,
             headers: {

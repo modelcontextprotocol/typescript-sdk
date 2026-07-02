@@ -104,6 +104,8 @@ interface Env {
 
 /** Internal relay: the API handler forwards verified auth into the board object. */
 const AUTH_RELAY_HEADER = 'x-todos-authinfo';
+/** Internal relay: how the live view resolved this board, echoed as the stream's first frame. */
+const VIEW_INFO_HEADER = 'x-todos-view-info';
 
 /** A live 2025-era session: its transport, tier, and when its client was last heard from. */
 interface LegacySession {
@@ -243,12 +245,15 @@ export class TodosBoard {
      * snapshot on every change, as server-sent events. Just another bus subscriber — the
      * same seam the durable copy and the pinned sessions use.
      */
-    private boardEventStream(): Response {
+    private boardEventStream(viewInfo: string | null): Response {
         const encoder = new TextEncoder();
         let unsubscribe: (() => void) | undefined;
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         const stream = new ReadableStream<Uint8Array>({
             start: controller => {
+                if (viewInfo !== null) {
+                    controller.enqueue(encoder.encode(`event: info\ndata: ${viewInfo}\n\n`));
+                }
                 const send = (): void => {
                     try {
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(this.app.snapshot())}\n\n`));
@@ -280,7 +285,7 @@ export class TodosBoard {
 
     async fetch(request: Request): Promise<Response> {
         if (new URL(request.url).pathname === '/board/events') {
-            return this.boardEventStream();
+            return this.boardEventStream(request.headers.get(VIEW_INFO_HEADER));
         }
         // Verified auth relayed by the API handler (never trusted from clients: the
         // anonymous route strips this header before the request reaches any board).
@@ -461,18 +466,27 @@ const defaultHandler = {
                 if (request.method !== 'GET') return new Response(null, { status: 405 });
                 const named = url.searchParams.get('b');
                 let boardName: string | undefined;
+                let viewInfo: { mode: 'named' | 'oauth' | 'address'; label: string } | undefined;
                 if (named) {
-                    boardName = `named:${named.slice(0, 128)}`;
+                    const trimmed = named.slice(0, 128);
+                    boardName = `named:${trimmed}`;
+                    viewInfo = { mode: 'named', label: trimmed };
                 } else {
                     const viewerId = /(?:^|;\s*)todos_viewer=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1];
                     if (viewerId) {
                         const record = await env.OAUTH_KV.get(`viewer:${viewerId}`);
-                        if (record !== null) boardName = `auth:${(JSON.parse(record) as { boardId: string }).boardId}`;
+                        if (record !== null) {
+                            const viewer = JSON.parse(record) as { boardId: string; clientName?: string };
+                            boardName = `auth:${viewer.boardId}`;
+                            viewInfo = { mode: 'oauth', label: `${viewer.clientName ?? 'your client'} · ${viewer.boardId.slice(0, 8)}` };
+                        }
                     }
                 }
                 boardName ??= `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
+                viewInfo ??= { mode: 'address', label: 'your network address' };
                 const headers = new Headers(request.headers);
                 headers.delete(AUTH_RELAY_HEADER);
+                headers.set(VIEW_INFO_HEADER, JSON.stringify(viewInfo));
                 return serveBoard(new Request(request, { headers }), env, boardName);
             }
 

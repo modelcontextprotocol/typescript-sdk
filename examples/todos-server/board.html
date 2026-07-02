@@ -42,7 +42,8 @@
         </style>
     </head>
     <body>
-        <h1>Live board: <code id="board-name"></code></h1>
+        <h1 id="board-title">Live board</h1>
+        <p id="identity" style="font-weight: 600"></p>
         <p>
             Updates appear the moment any MCP client changes this board. Point a client at <code>__HOST__/mcp</code> with the
             <code>X-Todos-Board</code> header set to this board's name (add <code>?b=&lt;name&gt;</code> to this page's URL), then watch
@@ -59,6 +60,15 @@
             const empty = document.getElementById('empty');
             const status = document.getElementById('status');
             const source = new EventSource('/board/events' + location.search);
+            source.addEventListener('info', event => {
+                const info = JSON.parse(event.data);
+                identity.textContent =
+                    info.mode === 'oauth'
+                        ? `You are OAuthed: this is the private board granted to ${info.label}.`
+                        : info.mode === 'named'
+                          ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
+                          : 'Your address-keyed board (no OAuth grant, no ?b= name).';
+            });
             source.onopen = () => {
                 status.textContent = 'live';
             };
