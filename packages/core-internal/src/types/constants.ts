@@ -1,6 +1,46 @@
-export const LATEST_PROTOCOL_VERSION = '2025-11-25';
+/*
+ * Protocol revision constants for the legacy (pre-2026-07-28) era.
+ *
+ * The wire protocol splits into two eras (see `shared/protocolEras.ts`): legacy
+ * revisions are negotiated via the `initialize` handshake; modern revisions
+ * (2026-07-28 and later) are negotiated exclusively via `server/discover`. The
+ * constants below are legacy-era facts only — a modern revision never appears
+ * in them, so an `initialize` exchange can never offer or accept one.
+ */
+
+/**
+ * The most recent legacy-era protocol revision — the version a client offers
+ * in the `initialize` handshake by default.
+ *
+ * This is deliberately not the newest revision the SDK speaks: 2026-07-28 and
+ * later revisions belong to the modern era, negotiated exclusively via
+ * `server/discover` (opt in through the client's `versionNegotiation` option).
+ * Use `isModernProtocolVersion` to classify a negotiated version string.
+ */
+export const LATEST_LEGACY_PROTOCOL_VERSION = '2025-11-25';
+
+/**
+ * The legacy revision assumed for an HTTP request that carries no
+ * `MCP-Protocol-Version` header — the last revision released before the
+ * header existed.
+ */
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
-export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
+
+/**
+ * The legacy-era protocol revisions this SDK can negotiate via the
+ * `initialize` handshake, newest first.
+ *
+ * Deliberately excludes modern (2026-07-28+) revisions — those are negotiated
+ * only via `server/discover`, so they must never appear in an `initialize`
+ * offer, accept, or counter-offer.
+ */
+export const SUPPORTED_LEGACY_PROTOCOL_VERSIONS = [LATEST_LEGACY_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
+
+/** @deprecated Renamed to {@linkcode LATEST_LEGACY_PROTOCOL_VERSION}; alias removed at 2.0.0 GA. */
+export const LATEST_PROTOCOL_VERSION = LATEST_LEGACY_PROTOCOL_VERSION;
+
+/** @deprecated Renamed to {@linkcode SUPPORTED_LEGACY_PROTOCOL_VERSIONS}; alias removed at 2.0.0 GA. */
+export const SUPPORTED_PROTOCOL_VERSIONS = SUPPORTED_LEGACY_PROTOCOL_VERSIONS;
 
 /**
  * `_meta` key associating a message with a 2025-11-25 task.

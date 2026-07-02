@@ -74,6 +74,39 @@ The rejection is a typed, local `SdkError` — nothing reaches the server beyond
 ERA_NEGOTIATION_FAILED: Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)
 ```
 
+## The constants are era-scoped
+
+The exported version constants name their era, because each era has its own list:
+`LATEST_LEGACY_PROTOCOL_VERSION` (`'2025-11-25'`) is the revision `initialize` offers
+by default, and `SUPPORTED_LEGACY_PROTOCOL_VERSIONS` is the full `initialize`
+negotiation list. Neither ever contains a 2026-07-28+ revision — modern revisions are
+negotiated only via `server/discover`, so "latest" here means *latest legacy*, not the
+newest revision the SDK speaks. To classify the revision a connection actually landed
+on, use `isModernProtocolVersion` (or ask `getProtocolEra()` directly):
+
+```ts source="../examples/guides/protocolVersions.examples.ts#isModernProtocolVersion_classify"
+import { isModernProtocolVersion, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/client';
+
+console.log(`initialize offers: ${LATEST_LEGACY_PROTOCOL_VERSION}`);
+
+for (const connection of [fallback, client]) {
+    const version = connection.getNegotiatedProtocolVersion();
+    if (version) console.log(`${version} → ${isModernProtocolVersion(version) ? 'modern' : 'legacy'}`);
+}
+```
+
+The `'auto'` client from above landed on the modern era; the fallback client landed on
+legacy — the constant never changes, only the negotiated outcome does:
+
+```
+initialize offers: 2025-11-25
+2025-11-25 → legacy
+2026-07-28 → modern
+```
+
+The pre-rename names (`LATEST_PROTOCOL_VERSION`, `SUPPORTED_PROTOCOL_VERSIONS`) remain
+as deprecated aliases until 2.0.0 GA.
+
 ## Understand the probe
 
 `probe` bounds the `server/discover` round trip that `'auto'` and a pin run before anything else.

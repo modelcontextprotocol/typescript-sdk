@@ -14,7 +14,10 @@ export const SIMPLE_RENAMES: Record<string, string> = {
     JSONRPCResponse: 'JSONRPCResultResponse',
     JSONRPCResponseSchema: 'JSONRPCResultResponseSchema',
     ResourceReference: 'ResourceTemplateReference',
-    ResourceReferenceSchema: 'ResourceTemplateReferenceSchema'
+    ResourceReferenceSchema: 'ResourceTemplateReferenceSchema',
+    // Era-scoped rename — see docs/migration/upgrade-to-v2.md (Types & schemas).
+    LATEST_PROTOCOL_VERSION: 'LATEST_LEGACY_PROTOCOL_VERSION',
+    SUPPORTED_PROTOCOL_VERSIONS: 'SUPPORTED_LEGACY_PROTOCOL_VERSIONS'
 };
 
 export const ERROR_CODE_SDK_MEMBERS = new Set(['RequestTimeout', 'ConnectionClosed']);

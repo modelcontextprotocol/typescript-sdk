@@ -26,13 +26,20 @@ export const FIRST_MODERN_PROTOCOL_VERSION = '2026-07-28';
 
 /**
  * Modern-era protocol revisions this SDK can negotiate via `server/discover`.
- * Deliberately separate from {@linkcode SUPPORTED_PROTOCOL_VERSIONS} (the legacy
+ * Deliberately separate from {@linkcode SUPPORTED_LEGACY_PROTOCOL_VERSIONS} (the legacy
  * `initialize` list), so adding a revision here can never leak a modern version
  * string into a 2025-era handshake. Internal — not part of the public API surface.
  */
 export const SUPPORTED_MODERN_PROTOCOL_VERSIONS = [FIRST_MODERN_PROTOCOL_VERSION];
 
-/** Whether the given protocol revision belongs to the modern (2026-07-28+) era. */
+/**
+ * Whether the given protocol revision belongs to the modern (2026-07-28+) era.
+ *
+ * Public: pair with `Client.getNegotiatedProtocolVersion()` to classify the
+ * revision a connection landed on. Assumes the ISO-date revision identifiers
+ * the protocol defines — a non-date string (e.g. `'draft'`) is not
+ * classifiable and compares lexicographically like any other string.
+ */
 export function isModernProtocolVersion(version: string): boolean {
     return version >= FIRST_MODERN_PROTOCOL_VERSION;
 }

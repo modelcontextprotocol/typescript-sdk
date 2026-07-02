@@ -33,7 +33,7 @@ import {
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     inputRequired,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion,
     UrlElicitationRequiredError
@@ -105,7 +105,7 @@ const legacyInitialize = (id: number): JSONRPCRequest => ({
     jsonrpc: '2.0',
     id,
     method: 'initialize',
-    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
+    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
 });
 
 function resultOf(message: JSONRPCMessage): Record<string, unknown> {

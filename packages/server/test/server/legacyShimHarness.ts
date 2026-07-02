@@ -14,7 +14,7 @@ import type {
     JSONRPCResultResponse,
     RequestId
 } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 
 import type { McpServer } from '../../src/server/mcp';
 import type { Server } from '../../src/server/server';
@@ -27,7 +27,7 @@ export const legacyInitialize = (id: number, capabilities: Record<string, unknow
     jsonrpc: '2.0',
     id,
     method: 'initialize',
-    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
+    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
 });
 
 export function resultOf(message: JSONRPCMessage): Record<string, unknown> {

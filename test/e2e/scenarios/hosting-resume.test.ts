@@ -8,7 +8,7 @@
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { EventId, EventStore, JSONRPCMessage, StreamId } from '@modelcontextprotocol/server';
-import { LATEST_PROTOCOL_VERSION, McpServer, parseJSONRPCMessage } from '@modelcontextprotocol/server';
+import { LATEST_LEGACY_PROTOCOL_VERSION, McpServer, parseJSONRPCMessage } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
@@ -32,7 +32,7 @@ async function completeHandshake(
             id: 0,
             method: 'initialize',
             params: {
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities,
                 clientInfo: { name: 'test', version: '0' }
             }
@@ -46,7 +46,7 @@ async function completeHandshake(
 
     await initRes.body?.cancel();
 
-    const baseHeaders = { 'mcp-session-id': sessionId, 'mcp-protocol-version': LATEST_PROTOCOL_VERSION };
+    const baseHeaders = { 'mcp-session-id': sessionId, 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION };
 
     const notifRes = await fetch(url, {
         method: 'POST',

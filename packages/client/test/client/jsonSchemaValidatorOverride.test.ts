@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { Client } from '../../src/client/client';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 
@@ -24,7 +24,7 @@ async function connectInitializedClient(client: Client) {
                 jsonrpc: '2.0',
                 id: message.id,
                 result: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: { tools: {} },
                     serverInfo: { name: 'test-server', version: '1.0.0' }
                 }
@@ -132,7 +132,7 @@ describe('client JSON Schema validator overrides', () => {
                         jsonrpc: '2.0',
                         id: message.id,
                         result: {
-                            protocolVersion: LATEST_PROTOCOL_VERSION,
+                            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                             capabilities: { tools: {} },
                             serverInfo: { name: 'test-server', version: '1.0.0' }
                         }

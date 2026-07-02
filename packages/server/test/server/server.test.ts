@@ -3,8 +3,8 @@ import {
     InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS
+    LATEST_LEGACY_PROTOCOL_VERSION,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { Server } from '../../src/server/server';
 
@@ -72,7 +72,7 @@ describe('Server', () => {
                 id: 1,
                 method: 'initialize',
                 params: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: {},
                     clientInfo: { name: 'test-client', version: '1.0.0' }
                 }
@@ -80,7 +80,7 @@ describe('Server', () => {
 
             await responsePromise;
 
-            expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+            expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_LEGACY_PROTOCOL_VERSION);
 
             await server.close();
         });
@@ -96,16 +96,16 @@ describe('Server', () => {
         it('returns the requested version after initialize when the server supports it', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
-            const respondedVersion = await initializeServer(server, LATEST_PROTOCOL_VERSION);
+            const respondedVersion = await initializeServer(server, LATEST_LEGACY_PROTOCOL_VERSION);
 
-            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
-            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            expect(respondedVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
             await server.close();
         });
 
         it('returns the older version when the client requests an older supported version', async () => {
-            expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(OLDER_SUPPORTED_VERSION);
+            expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain(OLDER_SUPPORTED_VERSION);
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const respondedVersion = await initializeServer(server, OLDER_SUPPORTED_VERSION);
@@ -117,15 +117,15 @@ describe('Server', () => {
         });
 
         it('returns the fallback version when the client requests an unsupported version', async () => {
-            expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(UNSUPPORTED_VERSION);
+            expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).not.toContain(UNSUPPORTED_VERSION);
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const respondedVersion = await initializeServer(server, UNSUPPORTED_VERSION);
 
             // The server falls back to its latest supported version and the getter reflects
             // the version it actually responded with, not the one the client asked for.
-            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
-            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            expect(respondedVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
             await server.close();
         });
@@ -141,14 +141,14 @@ describe('Server', () => {
             // counter-offer can never name it. The dual-era list arms live in
             // discover.test.ts ("era-aware counter-offer ordering").
             const DRAFT_REVISION = '2026-07-28';
-            expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(DRAFT_REVISION);
+            expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).not.toContain(DRAFT_REVISION);
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
 
             const respondedVersion = await initializeServer(server, DRAFT_REVISION);
 
-            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(respondedVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
             expect(respondedVersion).not.toBe(DRAFT_REVISION);
-            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
             await server.close();
         });
@@ -176,7 +176,7 @@ describe('Server', () => {
                 id: 1,
                 method: 'initialize',
                 params: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: {},
                     clientInfo: { name: 'test-client', version: '1.0.0' }
                 }

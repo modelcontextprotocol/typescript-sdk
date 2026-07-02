@@ -43,7 +43,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '../types/index';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
@@ -68,7 +68,7 @@ export type ProtocolOptions = {
      * the server counter-offers it); 2026-era entries are only ever selected via
      * `server/discover`. Passed to transport during {@linkcode Protocol.connect | connect()}.
      *
-     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
+     * @default {@linkcode SUPPORTED_LEGACY_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 
@@ -606,7 +606,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
-        this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_LEGACY_PROTOCOL_VERSIONS;
 
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);

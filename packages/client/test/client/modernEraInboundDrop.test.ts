@@ -7,7 +7,7 @@
  * methods it has no handler for).
  */
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -53,7 +53,7 @@ async function scriptedServerSide(eras: 'modern' | 'legacy') {
                 jsonrpc: '2.0',
                 id: request.id,
                 result: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: {},
                     serverInfo: { name: 'scripted-legacy-server', version: '1.0.0' }
                 }
@@ -130,7 +130,7 @@ describe('client inbound-drop on modern-era connections (TS-01)', () => {
         const { clientTx, serverTx, written } = await scriptedServerSide('legacy');
         const client = new Client({ name: 'legacy-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
-        expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+        expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
         await serverTx.send({ jsonrpc: '2.0', id: 'legacy-1', method: 'roots/list', params: {} });
         await flush();

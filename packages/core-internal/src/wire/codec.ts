@@ -289,7 +289,7 @@ export interface WireCodec {
 /**
  * Era resolution, many-to-one (Q1-SD1): every modern-era revision
  * (`>= 2026-07-28`) → the 2026-era codec; every legacy revision (the five
- * `SUPPORTED_PROTOCOL_VERSIONS`) and `undefined`/unknown → the 2025-era
+ * `SUPPORTED_LEGACY_PROTOCOL_VERSIONS`) and `undefined`/unknown → the 2025-era
  * codec (the DV-13 default posture — hand-constructed instances and
  * unclassified traffic are legacy-era). This is the same era predicate the
  * rest of the SDK uses ({@link isModernProtocolVersion}); a pinned modern

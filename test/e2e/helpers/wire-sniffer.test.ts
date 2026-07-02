@@ -1,4 +1,4 @@
-import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
+import { LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
 
 import { assertWireMessage } from './wire-sniffer';
@@ -16,7 +16,11 @@ describe('assertWireMessage', () => {
     it('accepts a valid client initialize request', () => {
         expect(() =>
             assertWireMessage(
-                req('initialize', { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }),
+                req('initialize', {
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'c', version: '0' }
+                }),
                 'client'
             )
         ).not.toThrow();

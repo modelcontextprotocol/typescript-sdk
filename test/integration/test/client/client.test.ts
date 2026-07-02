@@ -2,12 +2,12 @@ import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/clie
 import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
     setNegotiatedProtocolVersion,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { McpServer, Server } from '@modelcontextprotocol/server';
 
@@ -24,7 +24,7 @@ test('should initialize with matching protocol version', async () => {
                     jsonrpc: '2.0',
                     id: message.id,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                         capabilities: {},
                         serverInfo: {
                             name: 'test',
@@ -57,7 +57,7 @@ test('should initialize with matching protocol version', async () => {
         expect.objectContaining({
             method: 'initialize',
             params: expect.objectContaining({
-                protocolVersion: LATEST_PROTOCOL_VERSION
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION
             })
         }),
         expect.objectContaining({
@@ -73,7 +73,7 @@ test('should initialize with matching protocol version', async () => {
  * Test: Initialize with Supported Older Protocol Version
  */
 test('should initialize with supported older protocol version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+    const OLD_VERSION = SUPPORTED_LEGACY_PROTOCOL_VERSIONS[1];
     const clientTransport: Transport = {
         start: vi.fn().mockResolvedValue(undefined),
         close: vi.fn().mockResolvedValue(undefined),
@@ -135,7 +135,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
                     jsonrpc: '2.0',
                     id: message.id,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                         capabilities: {},
                         serverInfo: { name: 'test', version: '1.0' }
                     }
@@ -149,8 +149,8 @@ test('should restore negotiated protocol version on transport when reconnecting 
     await client.connect(initialTransport);
 
     // Initial handshake should have set the protocol version on the transport
-    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
-    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_LEGACY_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
     // Now simulate reconnection: new transport with a pre-existing sessionId.
     // connect() will early-return without re-initializing, but MUST restore the protocol version
@@ -169,7 +169,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
     // No initialize request should have been sent (sessionId was set)
     expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
     // But the protocol version MUST have been restored onto the new transport
-    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_LEGACY_PROTOCOL_VERSION);
 });
 
 /***
@@ -185,7 +185,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
  */
 test('should run a fresh initialize handshake after close() when the previous connection negotiated the modern era', async () => {
     const MODERN_REVISION = '2026-07-28';
-    const supportedProtocolVersions = [MODERN_REVISION, ...SUPPORTED_PROTOCOL_VERSIONS];
+    const supportedProtocolVersions = [MODERN_REVISION, ...SUPPORTED_LEGACY_PROTOCOL_VERSIONS];
 
     const connectModern = async (client: Client) => {
         const server = new Server({ name: 'modern server', version: '1.0' }, { capabilities: {}, supportedProtocolVersions });
@@ -225,7 +225,7 @@ test('should run a fresh initialize handshake after close() when the previous co
     // a leftover modern negotiated version would kill `initialize` locally (it is physically
     // absent from the modern registry).
     await connectLegacy(client);
-    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
     await client.close();
 });
@@ -277,7 +277,7 @@ test('should reject unsupported protocol version', async () => {
  * Test: Connect New Client to Old Supported Server Version
  */
 test('should connect new client to old, supported server version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+    const OLD_VERSION = SUPPORTED_LEGACY_PROTOCOL_VERSIONS[1];
     const server = new Server(
         {
             name: 'test server',
@@ -352,7 +352,7 @@ test('should negotiate version when client is old, and newer server supports its
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
         capabilities: {
             resources: {},
             tools: {}
@@ -471,7 +471,7 @@ test('should respect server capabilities', async () => {
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
         capabilities: {
             resources: {},
             tools: {}
@@ -549,7 +549,7 @@ test('should return empty lists for missing capabilities by default', async () =
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
         capabilities: {
             tools: {}
         },
@@ -880,7 +880,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
                     jsonrpc: '2.0',
                     id: messageId,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                         capabilities: {},
                         serverInfo: {
                             name: 'test-server',
@@ -1022,7 +1022,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
                     jsonrpc: '2.0',
                     id: messageId,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                         capabilities: {},
                         serverInfo: {
                             name: 'test-server',

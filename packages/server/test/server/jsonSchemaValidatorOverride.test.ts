@@ -1,5 +1,5 @@
 import type { JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { Server } from '../../src/server/server';
 
@@ -39,7 +39,7 @@ describe('server JSON Schema validator overrides', () => {
             id: 1,
             method: 'initialize',
             params: {
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities: { elicitation: { form: {} } },
                 clientInfo: { name: 'test-client', version: '1.0.0' }
             }

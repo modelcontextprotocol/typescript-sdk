@@ -11,7 +11,7 @@ import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
@@ -60,7 +60,7 @@ async function scriptedServerSide(era: 'modern' | 'legacy', answerToolsList = tr
                 jsonrpc: '2.0',
                 id: request.id,
                 result: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: { tools: {} },
                     serverInfo: { name: 'scripted-legacy-server', version: '1.0.0' }
                 }

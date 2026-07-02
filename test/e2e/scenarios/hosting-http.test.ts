@@ -14,7 +14,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/server';
-import { LATEST_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { LATEST_LEGACY_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
@@ -36,7 +36,11 @@ const initializeBody = (clientInfo?: { name: string; version: string }) =>
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: clientInfo ?? { name: 'probe', version: '0' } }
+        params: {
+            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
+            capabilities: {},
+            clientInfo: clientInfo ?? { name: 'probe', version: '0' }
+        }
     });
 
 function sseTap(body: ReadableStream<Uint8Array>) {
@@ -80,7 +84,7 @@ verifies('hosting:http:accept-406', async (_args: TestArgs) => {
     const { handleRequest, close } = hostPerSession(echoServer);
 
     try {
-        const base = { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION };
+        const base = { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION };
         const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
 
         const initRes = await handleRequest(
@@ -139,7 +143,7 @@ verifies('hosting:http:batch', async (_args: TestArgs) => {
 
     try {
         const headers = {
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+            'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         };
@@ -186,7 +190,7 @@ verifies('hosting:http:content-type-415', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'text/plain',
                     accept: 'application/json, text/event-stream'
                 },
@@ -221,7 +225,7 @@ verifies('hosting:http:disconnect-not-cancel', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -234,7 +238,7 @@ verifies('hosting:http:disconnect-not-cancel', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'mcp-session-id': sessionId!,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
@@ -278,7 +282,7 @@ verifies('hosting:http:dns-rebinding', async (_args: TestArgs) => {
 
     try {
         const headers = {
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+            'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         };
@@ -335,7 +339,7 @@ verifies('hosting:http:json-response-mode', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -360,7 +364,7 @@ verifies('hosting:http:method-405', async (_args: TestArgs) => {
     try {
         for (const method of ['PUT', 'PATCH']) {
             const res = await tx.handleRequest(
-                new Request('http://in-process/mcp', { method, headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION } })
+                new Request('http://in-process/mcp', { method, headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION } })
             );
             expect(res.status).toBe(405);
             expect(res.headers.get('allow')).toBe('GET, POST, DELETE');
@@ -392,7 +396,7 @@ verifies('hosting:http:no-broadcast', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -404,7 +408,11 @@ verifies('hosting:http:no-broadcast', async (_args: TestArgs) => {
         const sse = await handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'GET',
-                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: {
+                    accept: 'text/event-stream',
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                    'mcp-session-id': sessionId
+                }
             })
         );
         expect(sse.status).toBe(200);
@@ -415,7 +423,7 @@ verifies('hosting:http:no-broadcast', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'mcp-session-id': sessionId,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
@@ -477,7 +485,7 @@ verifies('hosting:http:notifications-202', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -490,7 +498,7 @@ verifies('hosting:http:notifications-202', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'mcp-session-id': sessionId,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
@@ -513,7 +521,7 @@ verifies('hosting:http:onerror', async (_args: TestArgs) => {
 
     try {
         const accept = 'application/json, text/event-stream';
-        const base = { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION };
+        const base = { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION };
         const init = await tx.handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'POST',
@@ -592,7 +600,7 @@ verifies('hosting:http:parse-error-400', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -616,7 +624,7 @@ verifies('hosting:http:protocol-version-400', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -642,7 +650,7 @@ verifies('hosting:http:protocol-version-400', async (_args: TestArgs) => {
 
         expect(unsupported.status).toBe(400);
         const text = await unsupported.text();
-        expect(text).toContain(LATEST_PROTOCOL_VERSION);
+        expect(text).toContain(LATEST_LEGACY_PROTOCOL_VERSION);
     } finally {
         await close();
     }
@@ -656,7 +664,7 @@ verifies('hosting:http:protocol-version-default', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -707,7 +715,7 @@ verifies('hosting:http:response-same-connection', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -720,7 +728,11 @@ verifies('hosting:http:response-same-connection', async (_args: TestArgs) => {
         const sse = await handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'GET',
-                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: {
+                    accept: 'text/event-stream',
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                    'mcp-session-id': sessionId
+                }
             })
         );
         expect(sse.status).toBe(200);
@@ -730,7 +742,7 @@ verifies('hosting:http:response-same-connection', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'mcp-session-id': sessionId,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
@@ -774,7 +786,7 @@ verifies('hosting:http:second-sse-rejected', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -786,7 +798,11 @@ verifies('hosting:http:second-sse-rejected', async (_args: TestArgs) => {
         const sse1 = await handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'GET',
-                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: {
+                    accept: 'text/event-stream',
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                    'mcp-session-id': sessionId
+                }
             })
         );
         expect(sse1.status).toBe(200);
@@ -797,7 +813,11 @@ verifies('hosting:http:second-sse-rejected', async (_args: TestArgs) => {
             const sse2 = await handleRequest(
                 new Request('http://in-process/mcp', {
                     method: 'GET',
-                    headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                    headers: {
+                        accept: 'text/event-stream',
+                        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                        'mcp-session-id': sessionId
+                    }
                 })
             );
             expect(sse2.status).toBe(409);
@@ -807,7 +827,7 @@ verifies('hosting:http:second-sse-rejected', async (_args: TestArgs) => {
                 new Request('http://in-process/mcp', {
                     method: 'POST',
                     headers: {
-                        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                         'mcp-session-id': sessionId,
                         'content-type': 'application/json',
                         accept: 'application/json, text/event-stream'
@@ -844,7 +864,7 @@ verifies('hosting:http:sse-close-after-response', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -857,7 +877,7 @@ verifies('hosting:http:sse-close-after-response', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'mcp-session-id': sessionId,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
@@ -915,7 +935,7 @@ verifies('hosting:http:standalone-sse', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -927,7 +947,11 @@ verifies('hosting:http:standalone-sse', async (_args: TestArgs) => {
         const sse = await handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'GET',
-                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: {
+                    accept: 'text/event-stream',
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                    'mcp-session-id': sessionId
+                }
             })
         );
         expect(sse.status).toBe(200);
@@ -968,7 +992,7 @@ verifies('hosting:http:standalone-sse-no-response', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -980,7 +1004,11 @@ verifies('hosting:http:standalone-sse-no-response', async (_args: TestArgs) => {
         const sse = await handleRequest(
             new Request('http://in-process/mcp', {
                 method: 'GET',
-                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: {
+                    accept: 'text/event-stream',
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
+                    'mcp-session-id': sessionId
+                }
             })
         );
         expect(sse.status).toBe(200);
@@ -1022,7 +1050,7 @@ verifies('hosting:http:send-no-listener-noop', async (_args: TestArgs) => {
             new Request('http://in-process/mcp', {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },

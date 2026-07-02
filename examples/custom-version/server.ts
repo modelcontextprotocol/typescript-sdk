@@ -7,11 +7,11 @@ import { createServer } from 'node:http';
 
 import { parseExampleArgs } from '@mcp-examples/shared';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import { createMcpHandler, McpServer, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, SUPPORTED_LEGACY_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
 // Add support for a newer protocol version (first in list is fallback).
-const CUSTOM_VERSIONS = ['2026-01-01', ...SUPPORTED_PROTOCOL_VERSIONS];
+const CUSTOM_VERSIONS = ['2026-01-01', ...SUPPORTED_LEGACY_PROTOCOL_VERSIONS];
 
 function buildServer(): McpServer {
     const server = new McpServer(

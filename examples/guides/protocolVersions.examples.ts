@@ -79,6 +79,19 @@ await fallback.connect(new StreamableHTTPClientTransport(new URL('http://localho
 console.log(fallback.getProtocolEra());
 //#endregion versionNegotiation_fallback
 
+// ## The constants are era-scoped — names carry the initialize/discover split.
+
+//#region isModernProtocolVersion_classify
+import { isModernProtocolVersion, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/client';
+
+console.log(`initialize offers: ${LATEST_LEGACY_PROTOCOL_VERSION}`);
+
+for (const connection of [fallback, client]) {
+    const version = connection.getNegotiatedProtocolVersion();
+    if (version) console.log(`${version} → ${isModernProtocolVersion(version) ? 'modern' : 'legacy'}`);
+}
+//#endregion isModernProtocolVersion_classify
+
 // ## Pin an era — a pin never falls back; against a 2025-only server it rejects.
 
 //#region versionNegotiation_pin

@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { LATEST_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { LATEST_LEGACY_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import express from 'express';
 import { expect, vi } from 'vitest';
@@ -51,7 +51,7 @@ verifies('hosting:session:create', async (_args: TestArgs) => {
             new Request(url, {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -59,7 +59,7 @@ verifies('hosting:session:create', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -96,7 +96,7 @@ verifies('hosting:session:cors-expose', async (_args: TestArgs) => {
             method: 'POST',
             headers: {
                 origin: browserOrigin,
-                'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                 'content-type': 'application/json',
                 accept: 'application/json, text/event-stream'
             },
@@ -104,7 +104,7 @@ verifies('hosting:session:cors-expose', async (_args: TestArgs) => {
                 jsonrpc: '2.0',
                 id: 1,
                 method: 'initialize',
-                params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
             })
         });
 
@@ -161,7 +161,7 @@ verifies('hosting:session:unknown-id', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -170,7 +170,7 @@ verifies('hosting:session:unknown-id', async (_args: TestArgs) => {
         const unknownId = randomUUID();
         const headers = {
             'mcp-session-id': unknownId,
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+            'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         };
@@ -200,7 +200,7 @@ verifies('hosting:session:missing-id', async (_args: TestArgs) => {
     await server.connect(tx);
     const url = new URL('http://in-process/mcp');
     const headers = {
-        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream'
     };
@@ -214,7 +214,7 @@ verifies('hosting:session:missing-id', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -268,7 +268,7 @@ verifies('hosting:session:delete', async (_args: TestArgs) => {
 
     const url = new URL('http://in-process/mcp');
     const headers = {
-        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream'
     };
@@ -282,7 +282,7 @@ verifies('hosting:session:delete', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -304,7 +304,7 @@ verifies('hosting:session:delete', async (_args: TestArgs) => {
         const deleteRes = await handle(
             new Request(url, {
                 method: 'DELETE',
-                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
             })
         );
         expect(deleteRes.status).toBe(200);
@@ -330,7 +330,7 @@ verifies('hosting:session:post-termination-404', async (_args: TestArgs) => {
     const { handleRequest, close } = hostPerSession(echoServer);
     const url = new URL('http://in-process/mcp');
     const headers = {
-        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream'
     };
@@ -344,7 +344,7 @@ verifies('hosting:session:post-termination-404', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -365,7 +365,7 @@ verifies('hosting:session:post-termination-404', async (_args: TestArgs) => {
         const deleteRes = await handleRequest(
             new Request(url, {
                 method: 'DELETE',
-                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
             })
         );
         expect(deleteRes.status).toBe(200);
@@ -405,7 +405,7 @@ verifies('hosting:session:id-charset', async (_args: TestArgs) => {
                 new Request(url, {
                     method: 'POST',
                     headers: {
-                        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                         'content-type': 'application/json',
                         accept: 'application/json, text/event-stream'
                     },
@@ -413,7 +413,11 @@ verifies('hosting:session:id-charset', async (_args: TestArgs) => {
                         jsonrpc: '2.0',
                         id: 1,
                         method: 'initialize',
-                        params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                        params: {
+                            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
+                            capabilities: {},
+                            clientInfo: { name: 'c', version: '0' }
+                        }
                     })
                 })
             );
@@ -442,7 +446,7 @@ verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
     const initReq = new Request(url, {
         method: 'POST',
         headers: {
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+            'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         },
@@ -450,7 +454,7 @@ verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
             jsonrpc: '2.0',
             id: 1,
             method: 'initialize',
-            params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+            params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
         })
     });
 
@@ -464,7 +468,7 @@ verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
             method: 'POST',
             headers: {
                 'mcp-session-id': sessionId,
-                'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                 'content-type': 'application/json',
                 accept: 'application/json, text/event-stream'
             },
@@ -472,7 +476,7 @@ verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
                 jsonrpc: '2.0',
                 id: 2,
                 method: 'initialize',
-                params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
             })
         });
 
@@ -530,7 +534,7 @@ verifies('hosting:session:isolation', async (_args: TestArgs) => {
         const deleteRes = await host.handleRequest(
             new Request(url, {
                 method: 'DELETE',
-                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionIdB }
+                headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION, 'mcp-session-id': sessionIdB }
             })
         );
         expect(deleteRes.status).toBe(200);
@@ -543,7 +547,7 @@ verifies('hosting:session:isolation', async (_args: TestArgs) => {
                 method: 'POST',
                 headers: {
                     'mcp-session-id': sessionIdB,
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -564,7 +568,7 @@ verifies('hosting:stateless:no-session-id', async (_args: TestArgs) => {
     const req = new Request(url, {
         method: 'POST',
         headers: {
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+            'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         },
@@ -572,7 +576,7 @@ verifies('hosting:stateless:no-session-id', async (_args: TestArgs) => {
             jsonrpc: '2.0',
             id: 1,
             method: 'initialize',
-            params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+            params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
         })
     });
 
@@ -632,13 +636,13 @@ verifies('hosting:stateless:get-delete-405', async (_args: TestArgs) => {
     const getRes = await handleStateless(
         new Request(url, {
             method: 'GET',
-            headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, accept: 'text/event-stream' }
+            headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION, accept: 'text/event-stream' }
         })
     );
     expect(getRes.status).toBe(405);
 
     const deleteRes = await handleStateless(
-        new Request(url, { method: 'DELETE', headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION } })
+        new Request(url, { method: 'DELETE', headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION } })
     );
     expect(deleteRes.status).toBe(405);
 });
@@ -698,7 +702,7 @@ verifies('hosting:stateless:no-reuse', async (_args: TestArgs) => {
             new Request(url, {
                 method: 'POST',
                 headers: {
-                    'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                    'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                     'content-type': 'application/json',
                     accept: 'application/json, text/event-stream'
                 },
@@ -706,7 +710,7 @@ verifies('hosting:stateless:no-reuse', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -715,7 +719,7 @@ verifies('hosting:stateless:no-reuse', async (_args: TestArgs) => {
         const secondReq = new Request(url, {
             method: 'POST',
             headers: {
-                'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
                 'content-type': 'application/json',
                 accept: 'application/json, text/event-stream'
             },
@@ -831,7 +835,7 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
     const host = hostPerSession(makeServer);
     const url = new URL('http://in-process/mcp');
     const headers = {
-        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION,
         'content-type': 'application/json',
         accept: 'application/json, text/event-stream'
     };
@@ -845,7 +849,7 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
                     jsonrpc: '2.0',
                     id: 1,
                     method: 'initialize',
-                    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
                 })
             })
         );
@@ -880,7 +884,7 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
         const deleteRes = await host.handleRequest(
             new Request(url, {
                 method: 'DELETE',
-                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+                headers: { 'mcp-protocol-version': LATEST_LEGACY_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
             })
         );
         expect(deleteRes.status).toBe(200);

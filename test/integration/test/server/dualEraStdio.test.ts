@@ -25,7 +25,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
@@ -100,7 +100,7 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
             const inbound = recordInbound(transport);
 
             // The 2025 vertical, byte-shape checks included.
-            expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
             const tools = await client.listTools();
             expect(tools.tools.map(tool => tool.name)).toEqual(['echo']);
             const result = await client.callTool({ name: 'echo', arguments: { text: 'over the real pipe' } });
@@ -167,7 +167,7 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
                 jsonrpc: '2.0',
                 id: 'raw-late-initialize',
                 method: 'initialize',
-                params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'late', version: '0' } }
+                params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'late', version: '0' } }
             });
             const lateError = (lateInitialize as { error: { code: number; data?: { supported?: string[] } } }).error;
             expect(lateError.code).toBe(-32_022);
@@ -204,13 +204,13 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
                 id: 'fallback-init',
                 method: 'initialize',
                 params: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: {},
                     clientInfo: { name: 'fallback-pipe-client', version: '1.0.0' }
                 }
             });
             const initResult = (init as { result?: { protocolVersion?: string } }).result;
-            expect(initResult?.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(initResult?.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
             expect(JSON.stringify(init)).not.toContain('resultType');
 
             await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });

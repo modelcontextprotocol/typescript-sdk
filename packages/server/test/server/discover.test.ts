@@ -28,10 +28,10 @@ import {
     InMemoryTransport,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
@@ -39,7 +39,7 @@ import { discoverAdvertisedCapabilities, Server } from '../../src/server/server'
 
 const MODERN = '2026-07-28';
 /** A supported list spanning both eras — what the constant becomes after a future bump. */
-const DUAL_ERA_VERSIONS = [MODERN, ...SUPPORTED_PROTOCOL_VERSIONS];
+const DUAL_ERA_VERSIONS = [MODERN, ...SUPPORTED_LEGACY_PROTOCOL_VERSIONS];
 
 async function sendRaw(server: Server, request: JSONRPCRequest, options?: { markModern?: boolean }): Promise<JSONRPCMessage> {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -166,7 +166,7 @@ describe('discover advertisement constraints', () => {
 
         // The legacy initialize advertisement still carries the full capability set.
         const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities, supportedProtocolVersions: DUAL_ERA_VERSIONS });
-        const response = await sendRaw(server, initializeRequest(LATEST_PROTOCOL_VERSION));
+        const response = await sendRaw(server, initializeRequest(LATEST_LEGACY_PROTOCOL_VERSION));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
         expect(result.capabilities.tools).toEqual({ listChanged: true });
@@ -184,7 +184,7 @@ describe('era-aware counter-offer ordering (the guard that precedes any constant
         // supportedProtocolVersions[0] is the modern revision here — the
         // counter-offer must NOT be it: a fallback initialize never meets a
         // leaked 2026 string at this site.
-        expect(result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        expect(result.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         expect(result.protocolVersion).not.toBe(MODERN);
         await server.close();
     });
@@ -194,8 +194,8 @@ describe('era-aware counter-offer ordering (the guard that precedes any constant
         const response = await sendRaw(server, initializeRequest(MODERN));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
-        expect(result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
-        expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+        expect(result.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+        expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         await server.close();
     });
 
@@ -204,7 +204,7 @@ describe('era-aware counter-offer ordering (the guard that precedes any constant
         const response = await sendRaw(server, initializeRequest('1999-01-01'));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
-        expect(result.protocolVersion).toBe(SUPPORTED_PROTOCOL_VERSIONS[0]);
+        expect(result.protocolVersion).toBe(SUPPORTED_LEGACY_PROTOCOL_VERSIONS[0]);
         await server.close();
     });
 });

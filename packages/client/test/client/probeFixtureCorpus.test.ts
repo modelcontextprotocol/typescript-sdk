@@ -19,7 +19,7 @@
  * probe wire shape (string id, `server/discover` first, never a real request).
  */
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import { LATEST_LEGACY_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -123,7 +123,7 @@ const CORPUS: CorpusRow[] = [
             kind: 'rpc-error',
             code: -32_022,
             message: 'Unsupported protocol version',
-            data: { supported: [MODERN, LATEST_PROTOCOL_VERSION], requested: '2027-01-01' }
+            data: { supported: [MODERN, LATEST_LEGACY_PROTOCOL_VERSION], requested: '2027-01-01' }
         },
         expected: 'corrective'
     },
@@ -138,7 +138,7 @@ const CORPUS: CorpusRow[] = [
             kind: 'rpc-error',
             code: -32_022,
             message: 'Unsupported protocol version',
-            data: { supported: [LATEST_PROTOCOL_VERSION], requested: MODERN }
+            data: { supported: [LATEST_LEGACY_PROTOCOL_VERSION], requested: MODERN }
         },
         expected: 'legacy'
     },

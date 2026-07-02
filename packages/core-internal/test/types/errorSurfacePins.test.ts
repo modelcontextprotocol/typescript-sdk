@@ -19,16 +19,17 @@ import {
     INVALID_PARAMS,
     INVALID_REQUEST,
     JSONRPC_VERSION,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
     ProtocolError,
     ProtocolErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS,
     ResourceNotFoundError,
     UnsupportedProtocolVersionError,
     UrlElicitationRequiredError
 } from '../../src/types/index';
+import { FIRST_MODERN_PROTOCOL_VERSION, isModernProtocolVersion } from '../../src/shared/protocolEras';
 import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
 
 describe('ProtocolErrorCode', () => {
@@ -187,11 +188,26 @@ describe('protocol version constants', () => {
     test('values and membership are frozen', () => {
         // The supported list is pinned by exact value (not just membership) so a
         // naive LATEST bump that silently drops a previous version goes red here.
-        expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
+        expect(LATEST_LEGACY_PROTOCOL_VERSION).toBe('2025-11-25');
         expect(DEFAULT_NEGOTIATED_PROTOCOL_VERSION).toBe('2025-03-26');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toEqual(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']);
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(LATEST_PROTOCOL_VERSION);
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toEqual(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']);
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain(LATEST_LEGACY_PROTOCOL_VERSION);
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+    });
+
+    test('the era surface is public, and the pre-rename names remain aliases until 2.0.0 GA', async () => {
+        // Users interpreting getNegotiatedProtocolVersion() need the classifier,
+        // not just the ProtocolEra type — pin the public barrel's era surface,
+        // including the deprecated aliases (identity, not just equality: the
+        // supported list is the same array object). Era-disjointness of the
+        // legacy list is pinned in shared/protocolEras.test.ts.
+        const publicBarrel = await import('../../src/exports/public/index');
+        expect(publicBarrel.isModernProtocolVersion).toBe(isModernProtocolVersion);
+        expect(publicBarrel.FIRST_MODERN_PROTOCOL_VERSION).toBe(FIRST_MODERN_PROTOCOL_VERSION);
+        expect(publicBarrel.LATEST_LEGACY_PROTOCOL_VERSION).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+        expect(publicBarrel.SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toBe(SUPPORTED_LEGACY_PROTOCOL_VERSIONS);
+        expect(publicBarrel.LATEST_PROTOCOL_VERSION).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+        expect(publicBarrel.SUPPORTED_PROTOCOL_VERSIONS).toBe(SUPPORTED_LEGACY_PROTOCOL_VERSIONS);
     });
 });
 

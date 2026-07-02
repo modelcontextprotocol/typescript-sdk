@@ -21,9 +21,9 @@ import { randomUUID } from 'node:crypto';
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { JSONRPCRequestSchema } from '@modelcontextprotocol/core-internal';
 import {
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     McpServer,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS,
     WebStandardStreamableHTTPServerTransport
 } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
@@ -44,7 +44,7 @@ function echoServer(): McpServer {
     return s;
 }
 
-const OLDER_VERSION = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION);
+const OLDER_VERSION = SUPPORTED_LEGACY_PROTOCOL_VERSIONS.find(v => v !== LATEST_LEGACY_PROTOCOL_VERSION);
 
 interface RecordedRequest {
     method: string;
@@ -125,7 +125,7 @@ verifies('typescript:client-transport:http:protocol-version-stored', async (_arg
 
         await client.connect(transport);
 
-        expect(transport.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        expect(transport.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
         await client.close();
         await transport.close();
@@ -138,7 +138,7 @@ verifies('client-transport:http:protocol-version-header', async (_args: TestArgs
     const records: RecordedRequest[] = [];
 
     expect(OLDER_VERSION).toBeDefined();
-    expect(OLDER_VERSION).not.toBe(LATEST_PROTOCOL_VERSION);
+    expect(OLDER_VERSION).not.toBe(LATEST_LEGACY_PROTOCOL_VERSION);
     const olderVersion = defined(OLDER_VERSION, 'older supported protocol version');
 
     // The server only supports an older spec version, so initialize negotiates the connection down to it

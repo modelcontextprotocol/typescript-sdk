@@ -44,7 +44,7 @@ import {
     codecForVersion,
     isInputRequiredResult,
     isModernProtocolVersion,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     legacyProtocolVersions,
     LOG_LEVEL_META_KEY,
     LoggingLevelSchema,
@@ -637,7 +637,7 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(
                     ProtocolErrorCode.InternalError,
                     `Handler for ${method} returned an input-required result, but this request is served on protocol revision ` +
-                        `${this._negotiatedProtocolVersion ?? LATEST_PROTOCOL_VERSION}, which has no input_required vocabulary`
+                        `${this._negotiatedProtocolVersion ?? LATEST_LEGACY_PROTOCOL_VERSION}, which has no input_required vocabulary`
                 );
             }
             // Write-once handlers served to deployed 2025 clients.
@@ -888,7 +888,7 @@ export class Server extends Protocol<ServerContext> {
         const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
         const protocolVersion = legacyVersions.includes(requestedVersion)
             ? requestedVersion
-            : (legacyVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (legacyVersions[0] ?? LATEST_LEGACY_PROTOCOL_VERSION);
 
         // The negotiated version is the instance's connection state — it IS
         // the wire-era selection for everything this instance sends and

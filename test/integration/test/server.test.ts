@@ -12,10 +12,10 @@ import type {
 } from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     SdkError,
     SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { McpServer, Server } from '@modelcontextprotocol/server';
@@ -90,7 +90,7 @@ test('should accept latest protocol version', async () => {
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: expect.any(Object),
                     serverInfo: {
                         name: 'test server',
@@ -128,7 +128,7 @@ test('should accept latest protocol version', async () => {
         id: 1,
         method: 'initialize',
         params: {
-            protocolVersion: LATEST_PROTOCOL_VERSION,
+            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
             capabilities: {},
             clientInfo: {
                 name: 'test client',
@@ -141,7 +141,7 @@ test('should accept latest protocol version', async () => {
 });
 
 test('should accept supported older protocol version', async () => {
-    const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1];
+    const OLD_VERSION = SUPPORTED_LEGACY_PROTOCOL_VERSIONS[1];
     let sendPromiseResolve: (value: unknown) => void;
     const sendPromise = new Promise(resolve => {
         sendPromiseResolve = resolve;
@@ -213,7 +213,7 @@ test('should handle unsupported protocol version', async () => {
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                     capabilities: expect.any(Object),
                     serverInfo: {
                         name: 'test server',

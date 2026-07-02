@@ -1444,6 +1444,16 @@ handling (no `additionalProperties: false` by default; passthrough objects emit
 Golden tests, transcript pins, and strict client-side validators of your advertised
 tool list need re-baselining — the new shapes are spec-conformant.
 
+**Protocol-version constants name their era.** `LATEST_PROTOCOL_VERSION` and
+`SUPPORTED_PROTOCOL_VERSIONS` are renamed to `LATEST_LEGACY_PROTOCOL_VERSION` and
+`SUPPORTED_LEGACY_PROTOCOL_VERSIONS` (same values): they hold only legacy revisions —
+the ones negotiated via the `initialize` handshake — never the 2026-07-28+ revisions,
+which negotiate exclusively via `server/discover`. The codemod applies the rename; the
+old names remain as `@deprecated` aliases until 2.0.0 GA. To classify the revision a
+connection actually landed on, use the newly public `isModernProtocolVersion(version)`
+(or `Client.getProtocolEra()`) — see
+[Protocol versions](../protocol-versions.md#the-constants-are-era-scoped).
+
 ### Behavioral changes
 
 These are runtime-behavior changes that may affect tests and assertions; no source
@@ -1514,7 +1524,7 @@ rewrite required unless noted.
   entries when it has any (otherwise the SDK's default modern set); a `{ pin }` is
   honored as given and is not checked against the list (see
   [support-2026-07-28.md](./support-2026-07-28.md#client-side-versionnegotiation)).
-  v1 had no public equivalent (`SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) —
+  v1 had no public equivalent (v1's `SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) —
   replace any workaround that patched the offered version with this option.
 - **Also unchanged: HTTP 405 tolerances.** A `405` answering the standalone GET stream
   open is benign (the client proceeds without the stream), and a `405` answering the

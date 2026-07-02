@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
+import { SUPPORTED_LEGACY_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 
 import { McpServer } from '../../src/server/mcp';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
@@ -19,7 +19,7 @@ import { WebStandardStreamableHTTPServerTransport } from '../../src/server/strea
  * refactors of the transport internals.
  *
  * The rest of the message (prefix, echoed version, supported-versions list)
- * is asserted against a string derived from `SUPPORTED_PROTOCOL_VERSIONS`
+ * is asserted against a string derived from `SUPPORTED_LEGACY_PROTOCOL_VERSIONS`
  * rather than a frozen byte literal, so these tests survive additions to the
  * supported-versions list while still catching any rewording.
  */
@@ -106,7 +106,7 @@ describe('Unsupported protocol version - wire literal continuity', () => {
             expect(body.id).toBeNull();
             expect(body.error.code).toBe(-32_000);
             expect(body.error.message).toBe(
-                `Bad Request: Unsupported protocol version: 2099-01-01 (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                `Bad Request: Unsupported protocol version: 2099-01-01 (supported versions: ${SUPPORTED_LEGACY_PROTOCOL_VERSIONS.join(', ')})`
             );
         } finally {
             await transport.close();

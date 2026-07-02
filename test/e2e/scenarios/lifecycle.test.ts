@@ -22,12 +22,12 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     McpServer,
     SdkError,
     SdkErrorCode,
     Server,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
@@ -37,8 +37,8 @@ import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
 function olderSupportedVersion(): string {
-    const older = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION);
-    if (older === undefined) throw new Error('expected SUPPORTED_PROTOCOL_VERSIONS to include a version other than the latest');
+    const older = SUPPORTED_LEGACY_PROTOCOL_VERSIONS.find(v => v !== LATEST_LEGACY_PROTOCOL_VERSION);
+    if (older === undefined) throw new Error('expected SUPPORTED_LEGACY_PROTOCOL_VERSIONS to include a version other than the latest');
     return older;
 }
 
@@ -125,7 +125,7 @@ verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
     expect(initReqs).toHaveLength(1);
     const initParams = initReqs[0];
     if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
-    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    expect(initParams.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
     expect(initParams.clientInfo).toEqual({ name: 'lifecycle-client', version: '0.0.0' });
     expect(initParams.capabilities).toEqual({ roots: {} });
 
@@ -225,7 +225,7 @@ verifies('lifecycle:ping', async ({ transport }: TestArgs) => {
 
 verifies('lifecycle:version:match', async ({ transport }: TestArgs) => {
     const initReqs: InitializeRequest['params'][] = [];
-    const makeServer = () => recordingInitServer(LATEST_PROTOCOL_VERSION, initReqs);
+    const makeServer = () => recordingInitServer(LATEST_LEGACY_PROTOCOL_VERSION, initReqs);
     const client = minimalClient();
 
     await using _ = await wire(transport, makeServer, client);
@@ -233,7 +233,7 @@ verifies('lifecycle:version:match', async ({ transport }: TestArgs) => {
     expect(initReqs).toHaveLength(1);
     const initParams = initReqs[0];
     if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
-    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    expect(initParams.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
     // Connect succeeded at the matched version: server state is populated.
     expect(client.getServerCapabilities()).toEqual({});
@@ -254,8 +254,8 @@ verifies('lifecycle:version:downgrade', async ({ transport }: TestArgs) => {
     expect(initReqs).toHaveLength(1);
     const initParams = initReqs[0];
     if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
-    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
-    expect(OLDER_SUPPORTED_VERSION).not.toBe(LATEST_PROTOCOL_VERSION);
+    expect(initParams.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
+    expect(OLDER_SUPPORTED_VERSION).not.toBe(LATEST_LEGACY_PROTOCOL_VERSION);
     expect(client.getServerCapabilities()).toEqual({});
     expect(client.getServerVersion()).toEqual({ name: 's', version: '0' });
 });
@@ -269,7 +269,7 @@ verifies('lifecycle:version:server-fallback-latest', async ({ transport }: TestA
             : message
     );
 
-    expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(BOGUS_VERSION);
+    expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).not.toContain(BOGUS_VERSION);
 
     await using _ = await wire(transport, minimalServer, client);
 
@@ -284,7 +284,7 @@ verifies('lifecycle:version:server-fallback-latest', async ({ transport }: TestA
         e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
     );
     if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) throw new Error('expected a result for the initialize request');
-    expect(initResponse.message.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    expect(initResponse.message.result.protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
 
     // The client accepted the fallback version: initialization completed and server state is populated.
     expect(client.getServerVersion()).toEqual({ name: 'minimal-server', version: '0.0.0' });
@@ -498,7 +498,7 @@ verifies('lifecycle:version:custom-supported-versions', async ({ transport }: Te
     const makeServer = () =>
         new McpServer(
             { name: 'custom-versions-server', version: '0.0.0' },
-            { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, OLDER_SUPPORTED_VERSION] }
+            { supportedProtocolVersions: [LATEST_LEGACY_PROTOCOL_VERSION, OLDER_SUPPORTED_VERSION] }
         );
     const client = new Client(
         { name: 'custom-versions-client', version: '0.0.0' },
@@ -531,11 +531,11 @@ verifies('lifecycle:version:custom-supported-versions', async ({ transport }: Te
 verifies('lifecycle:version:no-overlap-rejects', async ({ transport }: TestArgs) => {
     // The server only negotiates the latest version while the client only accepts the older one — no overlap.
     const makeServer = () =>
-        new McpServer({ name: 'no-overlap-server', version: '0.0.0' }, { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION] });
+        new McpServer({ name: 'no-overlap-server', version: '0.0.0' }, { supportedProtocolVersions: [LATEST_LEGACY_PROTOCOL_VERSION] });
     const client = new Client({ name: 'no-overlap-client', version: '0.0.0' }, { supportedProtocolVersions: [OLDER_SUPPORTED_VERSION] });
 
     await expect(wire(transport, makeServer, client)).rejects.toThrow(
-        `Server's protocol version is not supported: ${LATEST_PROTOCOL_VERSION}`
+        `Server's protocol version is not supported: ${LATEST_LEGACY_PROTOCOL_VERSION}`
     );
 
     // The connection was never established: initialization state stays empty. (Transport closure itself is lifecycle:version:reject-unsupported's contract.)

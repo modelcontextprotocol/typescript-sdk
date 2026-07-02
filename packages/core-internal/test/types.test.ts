@@ -14,14 +14,14 @@ import {
     DiscoverResultSchema,
     ElicitRequestFormParamsSchema,
     EmptyResultSchema,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     LOG_LEVEL_META_KEY,
     PromptMessageSchema,
     PROTOCOL_VERSION_META_KEY,
     ResourceLinkSchema,
     ResultSchema,
     SamplingMessageSchema,
-    SUPPORTED_PROTOCOL_VERSIONS,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS,
     ToolChoiceSchema,
     ToolResultContentSchema,
     ToolSchema,
@@ -36,17 +36,17 @@ import { RequestMetaEnvelopeSchema } from '../src/wire/rev2026-07-28/schemas';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
-        expect(LATEST_PROTOCOL_VERSION).toBeDefined();
-        expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
+        expect(LATEST_LEGACY_PROTOCOL_VERSION).toBeDefined();
+        expect(LATEST_LEGACY_PROTOCOL_VERSION).toBe('2025-11-25');
     });
     test('should have correct supported protocol versions', () => {
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toBeDefined();
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toBeInstanceOf(Array);
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(LATEST_PROTOCOL_VERSION);
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-06-18');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-03-26');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-11-05');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-10-07');
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toBeDefined();
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toBeInstanceOf(Array);
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain(LATEST_LEGACY_PROTOCOL_VERSION);
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain('2025-06-18');
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain('2025-03-26');
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain('2024-11-05');
+        expect(SUPPORTED_LEGACY_PROTOCOL_VERSIONS).toContain('2024-10-07');
     });
 
     describe('ResourceLink', () => {

@@ -8,9 +8,9 @@
  * go-sdk substring dependency) is the same one the standalone transport test
  * pins. This twin asserts the bytes hold on the sugar path itself: HTTP 400,
  * code -32000, and the literal substring `Unsupported protocol version`, with
- * the supported-versions suffix derived from `SUPPORTED_PROTOCOL_VERSIONS`.
+ * the supported-versions suffix derived from `SUPPORTED_LEGACY_PROTOCOL_VERSIONS`.
  */
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
+import { SUPPORTED_LEGACY_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -67,7 +67,7 @@ describe('createMcpHandler legacy:"stateless" — unsupported protocol version w
         expect(body.id).toBeNull();
         expect(body.error.code).toBe(-32_000);
         expect(body.error.message).toBe(
-            `Bad Request: Unsupported protocol version: 2024-01-01 (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+            `Bad Request: Unsupported protocol version: 2024-01-01 (supported versions: ${SUPPORTED_LEGACY_PROTOCOL_VERSIONS.join(', ')})`
         );
     });
 

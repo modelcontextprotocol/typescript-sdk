@@ -1,5 +1,5 @@
 import type { Icon, JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import { McpServer, ResourceTemplate } from '../../src/index';
 
@@ -25,7 +25,7 @@ async function initializeAndRequest(server: McpServer, request: { method: string
         id: 1,
         method: 'initialize',
         params: {
-            protocolVersion: LATEST_PROTOCOL_VERSION,
+            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
             capabilities: {},
             clientInfo: { name: 'c', version: '1.0.0' }
         }
@@ -52,7 +52,7 @@ async function getInitializeResult(server: McpServer): Promise<Record<string, un
         id: 1,
         method: 'initialize',
         params: {
-            protocolVersion: LATEST_PROTOCOL_VERSION,
+            protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
             capabilities: {},
             clientInfo: { name: 'c', version: '1.0.0' }
         }

@@ -23,7 +23,7 @@
  */
 import { Client, SdkError, SdkErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { JSONRPCRequest } from '@modelcontextprotocol/server';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
+import { InMemoryTransport, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 
 import { verifies } from '../helpers/verifies';
@@ -54,7 +54,8 @@ function initializeResult(requestedVersion: string) {
 function makeResponder(toolCallBody: unknown) {
     return function respondTo(request: JSONRPCRequest): unknown {
         if (request.method === 'initialize') {
-            const requested = (request.params as { protocolVersion?: string } | undefined)?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+            const requested =
+                (request.params as { protocolVersion?: string } | undefined)?.protocolVersion ?? LATEST_LEGACY_PROTOCOL_VERSION;
             return initializeResult(requested);
         }
         if (request.method === 'server/discover') {

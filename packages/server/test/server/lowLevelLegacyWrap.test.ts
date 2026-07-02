@@ -8,7 +8,7 @@
  * the wrap — the only era branch is the codec.
  */
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, isJSONRPCResultResponse, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isJSONRPCResultResponse, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Server } from '../../src/server/server';
@@ -39,7 +39,7 @@ const initializeRequest = (id: number): JSONRPCRequest => ({
     jsonrpc: '2.0',
     id,
     method: 'initialize',
-    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
+    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
 });
 
 describe('SEP-2106: the 2025 wire codec owns the legacy {result:…} wrap (low-level Server)', () => {

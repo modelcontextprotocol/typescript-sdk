@@ -14,7 +14,12 @@ import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { SdkError, SdkErrorCode, setNegotiatedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
+import {
+    SdkError,
+    SdkErrorCode,
+    setNegotiatedProtocolVersion,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/core-internal';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -22,7 +27,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
 const MODERN = '2026-07-28';
-const DUAL_ERA_VERSIONS = [MODERN, ...SUPPORTED_PROTOCOL_VERSIONS];
+const DUAL_ERA_VERSIONS = [MODERN, ...SUPPORTED_LEGACY_PROTOCOL_VERSIONS];
 
 function recordingFetch() {
     const bodies: string[] = [];

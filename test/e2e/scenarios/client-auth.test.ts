@@ -51,7 +51,7 @@ import type {
     StoredOAuthClientInformation,
     StoredOAuthTokens
 } from '@modelcontextprotocol/server';
-import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
+import { LATEST_LEGACY_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
 import { importSPKI, jwtVerify } from 'jose';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
@@ -1269,7 +1269,11 @@ verifies('client-auth:prm-discovery:fallback-order', async (_args: TestArgs) => 
         return new Response('Not Found', { status: 404 });
     };
 
-    const result = await discoverOAuthProtectedResourceMetadata(MCP_URL, { protocolVersion: LATEST_PROTOCOL_VERSION }, discoveryFetch);
+    const result = await discoverOAuthProtectedResourceMetadata(
+        MCP_URL,
+        { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION },
+        discoveryFetch
+    );
     expect(result).toMatchObject(prmMetadata);
     expect(discoveryCalls[0]).toBe('/.well-known/oauth-protected-resource/mcp');
 });
@@ -1574,7 +1578,7 @@ verifies('client-auth:low-level:discover-and-exchange', async (_args: TestArgs) 
     const clientInformation = { client_id: 'low-level-public-client' };
     const redirectUri = 'http://localhost:3000/callback';
 
-    const prm = await discoverOAuthProtectedResourceMetadata(MCP_URL, { protocolVersion: LATEST_PROTOCOL_VERSION }, discoveryFetch);
+    const prm = await discoverOAuthProtectedResourceMetadata(MCP_URL, { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION }, discoveryFetch);
     expect(prm.resource).toBe(RESOURCE);
     expect(prm.authorization_servers).toContain(ISSUER);
 
@@ -1582,7 +1586,7 @@ verifies('client-auth:low-level:discover-and-exchange', async (_args: TestArgs) 
     if (!authorizationServer) throw new Error('protected resource metadata did not list an authorization server');
 
     const asMetadata = await discoverAuthorizationServerMetadata(authorizationServer, {
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
         fetchFn: discoveryFetch
     });
     if (!asMetadata) throw new Error('authorization server metadata discovery returned undefined');

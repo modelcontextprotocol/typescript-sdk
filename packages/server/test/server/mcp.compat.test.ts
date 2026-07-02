@@ -1,5 +1,5 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isStandardSchema, LATEST_LEGACY_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 import { McpServer } from '../../src/index';
@@ -98,7 +98,7 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
             id: 1,
             method: 'initialize',
             params: {
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities: {},
                 clientInfo: { name: 'c', version: '1.0.0' }
             }

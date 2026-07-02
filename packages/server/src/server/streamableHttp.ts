@@ -15,7 +15,7 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
 export type StreamId = string;
@@ -155,7 +155,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * `supportedProtocolVersions` to the transport, so you typically don't need
      * to set this option directly.
      *
-     * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
+     * @default {@linkcode SUPPORTED_LEGACY_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
 }
@@ -262,7 +262,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
-        this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_LEGACY_PROTOCOL_VERSIONS;
     }
 
     /**

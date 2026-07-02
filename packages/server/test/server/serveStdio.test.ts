@@ -35,7 +35,7 @@ import {
     inputRequired,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode
@@ -60,7 +60,7 @@ const envelope = (overrides?: Record<string, unknown>) => ({
     ...overrides
 });
 
-const initializeRequest = (id: number | string, requestedVersion = LATEST_PROTOCOL_VERSION): JSONRPCRequest => ({
+const initializeRequest = (id: number | string, requestedVersion = LATEST_LEGACY_PROTOCOL_VERSION): JSONRPCRequest => ({
     jsonrpc: '2.0',
     id,
     method: 'initialize',
@@ -139,7 +139,7 @@ describe('legacy opening (default legacy: serve)', () => {
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
             expect(init.result).toEqual({
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities: { tools: { listChanged: true } },
                 serverInfo: { name: 'serve-stdio-test-server', version: '1.0.0' },
                 instructions: 'serve-stdio test instructions'
@@ -246,7 +246,7 @@ describe('modern opening', () => {
             expect(init.error.code).toBe(-32_022);
             const data = init.error.data as { supported?: string[]; requested?: string };
             expect(data.supported).toContain(MODERN);
-            expect(data.requested).toBe(LATEST_PROTOCOL_VERSION);
+            expect(data.requested).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
 
         await handle.close();
@@ -293,7 +293,7 @@ describe('server/discover probe window', () => {
         const init = await request(initializeRequest(2));
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
-            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
 
         // The optimistic modern instance was discarded; the legacy session is
@@ -327,7 +327,7 @@ describe('server/discover probe window', () => {
         }
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
-            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
         // The probe answer reached the wire before the fallback's handshake answer.
         expect(inbound.indexOf(discover)).toBeLessThan(inbound.indexOf(init));
@@ -362,7 +362,7 @@ describe('server/discover probe window', () => {
         const init = await request(initializeRequest(3));
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
-            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
         expect(eras).toEqual(['modern', 'legacy']);
         expect(closed[0]).toBe(true);
@@ -391,7 +391,7 @@ describe('server/discover probe window', () => {
         const init = await request(initializeRequest(2));
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
-            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
 
         // The fallback handshake was served by a fresh legacy instance and
@@ -422,7 +422,7 @@ describe('server/discover probe window', () => {
         const init = await request(initializeRequest(2));
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
-            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
 
         // The probe instance was discarded and the fallback is served end to
@@ -503,7 +503,7 @@ describe("legacy: 'reject'", () => {
             expect(init.error.code).toBe(-32_022);
             const data = init.error.data as { supported?: string[]; requested?: string };
             expect(data.supported).toContain(MODERN);
-            expect(data.requested).toBe(LATEST_PROTOCOL_VERSION);
+            expect(data.requested).toBe(LATEST_LEGACY_PROTOCOL_VERSION);
         }
         expect(eras).toEqual([]);
 
@@ -848,7 +848,7 @@ describe('legacy input_required shim through the stdio entry', () => {
             id: 1,
             method: 'initialize',
             params: {
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities: { elicitation: { form: {} } },
                 clientInfo: { name: 'legacy-client', version: '1.0.0' }
             }

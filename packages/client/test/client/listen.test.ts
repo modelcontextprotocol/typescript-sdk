@@ -9,7 +9,7 @@
 import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
@@ -93,7 +93,7 @@ describe('Client.listen()', () => {
                 void serverTx.send({
                     jsonrpc: '2.0',
                     id: req.id,
-                    result: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                    result: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, serverInfo: { name: 's', version: '1' } }
                 });
             }
         };

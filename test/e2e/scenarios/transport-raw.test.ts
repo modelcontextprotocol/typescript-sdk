@@ -21,7 +21,7 @@ import {
     CallToolResultSchema,
     InitializeResultSchema,
     JSONRPCResultResponseSchema,
-    LATEST_PROTOCOL_VERSION
+    LATEST_LEGACY_PROTOCOL_VERSION
 } from '@modelcontextprotocol/core-internal';
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/server';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
@@ -58,7 +58,7 @@ const INITIALIZED_NOTIFICATION: JSONRPCNotification = { jsonrpc: '2.0', method: 
  * request.
  */
 function expectedNegotiatedVersion(requested: string): string {
-    return requested >= '2026-07-28' ? LATEST_PROTOCOL_VERSION : requested;
+    return requested >= '2026-07-28' ? LATEST_LEGACY_PROTOCOL_VERSION : requested;
 }
 
 /** Hand-built tools/call request for the echo tool exposed by both real servers used below. */

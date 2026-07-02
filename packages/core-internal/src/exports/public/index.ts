@@ -83,6 +83,7 @@ export {
     INVALID_PARAMS,
     INVALID_REQUEST,
     JSONRPC_VERSION,
+    LATEST_LEGACY_PROTOCOL_VERSION,
     LATEST_PROTOCOL_VERSION,
     LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
@@ -90,13 +91,18 @@ export {
     PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY,
     SUBSCRIPTION_ID_META_KEY,
+    SUPPORTED_LEGACY_PROTOCOL_VERSIONS,
     SUPPORTED_PROTOCOL_VERSIONS,
     TRACEPARENT_META_KEY,
     TRACESTATE_META_KEY
 } from '../../types/constants';
 
-// Protocol-era helpers
+// Protocol-era helpers: the era vocabulary plus the classifier for interpreting
+// a negotiated version string (e.g. from `Client.getNegotiatedProtocolVersion()`).
+// The era-scoped supported-version *lists* stay era-local: the legacy list is
+// exported above; the modern list is internal to negotiation.
 export type { ProtocolEra } from '../../shared/protocolEras';
+export { FIRST_MODERN_PROTOCOL_VERSION, isModernProtocolVersion } from '../../shared/protocolEras';
 
 // Enums
 export { ProtocolErrorCode } from '../../types/enums';

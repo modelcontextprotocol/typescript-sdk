@@ -12,7 +12,7 @@ import {
     InMemoryTransport,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION
+    LATEST_LEGACY_PROTOCOL_VERSION
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
@@ -59,7 +59,7 @@ const initializeRequest = (id: number): JSONRPCRequest => ({
     jsonrpc: '2.0',
     id,
     method: 'initialize',
-    params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
+    params: { protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'legacy-client', version: '1.0.0' } }
 });
 
 describe('Q10-L2: a hand-constructed server on 2025 traffic', () => {
@@ -71,7 +71,7 @@ describe('Q10-L2: a hand-constructed server on 2025 traffic', () => {
         expect(isJSONRPCResultResponse(init)).toBe(true);
         if (isJSONRPCResultResponse(init)) {
             expect(init.result).toEqual({
-                protocolVersion: LATEST_PROTOCOL_VERSION,
+                protocolVersion: LATEST_LEGACY_PROTOCOL_VERSION,
                 capabilities: { tools: { listChanged: true } },
                 serverInfo: { name: 'legacy-default-test-server', version: '1.0.0' },
                 instructions: 'test instructions'
