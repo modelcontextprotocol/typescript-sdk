@@ -12,7 +12,7 @@ declare module '*.html' {
 declare module 'cloudflare:workers' {
     export class WorkerEntrypoint<Env = unknown> {
         protected readonly env: Env;
-        protected readonly ctx: { props?: unknown; waitUntil(promise: Promise<unknown>): void };
+        protected readonly ctx: { props?: unknown };
         fetch?(request: Request): Response | Promise<Response>;
     }
 }

@@ -19,7 +19,7 @@
  *   `WebStandardStreamableHTTPServerTransport` connected to a server instance pinned to that
  *   session, so push-style server→client requests (elicitation/sampling — the interactive
  *   tools) work over HTTP. Each session subscribes its instance to the board's bus
- *   (`app.forwardServerEvent`), so `resources/subscribe` subscribers hear changes made on any
+ *   (`app.subscribeInstance`), so `resources/subscribe` subscribers hear changes made on any
  *   connection; the subscription ends with the session. Session ids embed this object's own
  *   opaque id, and the worker routes session traffic by that prefix, so a session sticks to
  *   its board even when the client's egress IP rotates mid-session. Sessions are in-memory:
@@ -276,15 +276,13 @@ export class TodosBoard {
      * snapshot on every change, as server-sent events. Just another bus subscriber — the
      * same seam the durable copy and the pinned sessions use.
      */
-    private boardEventStream(viewInfo: string | null): Response {
+    private boardEventStream(viewInfo: string): Response {
         const encoder = new TextEncoder();
         let unsubscribe: (() => void) | undefined;
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         const stream = new ReadableStream<Uint8Array>({
             start: controller => {
-                if (viewInfo !== null) {
-                    controller.enqueue(encoder.encode(`event: info\ndata: ${viewInfo}\n\n`));
-                }
+                controller.enqueue(encoder.encode(`event: info\ndata: ${viewInfo}\n\n`));
                 const send = (): void => {
                     try {
                         controller.enqueue(encoder.encode(`data: ${JSON.stringify(this.app.snapshot())}\n\n`));
@@ -319,7 +317,9 @@ export class TodosBoard {
     async fetch(request: Request): Promise<Response> {
         this.origin ??= new URL(request.url).origin;
         if (new URL(request.url).pathname === '/board/events') {
-            return this.boardEventStream(request.headers.get(VIEW_INFO_HEADER));
+            // serveBoard's view route always sets the header; the fallback only guards a
+            // direct DO hit that production routing cannot produce.
+            return this.boardEventStream(request.headers.get(VIEW_INFO_HEADER) ?? '{"mode":"address","label":"your network address"}');
         }
         // Verified auth relayed by the API handler (never trusted from clients: the
         // anonymous route strips this header before the request reaches any board).
@@ -388,10 +388,12 @@ function corsHeaders(request: Request): Record<string, string> {
     };
 }
 
-function withCors(request: Request, response: Response, options?: { fillOnly?: boolean }): Response {
+// Applied once, at the outermost wrapper: fills in whatever CORS headers a response
+// does not already carry (the provider sets its own on some routes).
+function withCors(request: Request, response: Response): Response {
     const headers = new Headers(response.headers);
     for (const [name, value] of Object.entries(corsHeaders(request))) {
-        if (!options?.fillOnly || !headers.has(name)) headers.set(name, value);
+        if (!headers.has(name)) headers.set(name, value);
     }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
@@ -416,8 +418,8 @@ type BoardRoute =
     // The read-only live view. Never routes by session id, never carries identity.
     | { kind: 'view'; board: string; viewInfo: ViewInfo };
 
-function sessionNotFound(status = 404): Response {
-    return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status });
+function sessionNotFound(): Response {
+    return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 });
 }
 
 /**
@@ -469,77 +471,73 @@ export class TodosApi extends WorkerEntrypoint<Env> {
         if (!props?.boardId) {
             return Response.json({ error: 'invalid grant' }, { status: 403 });
         }
-        const response = await serveBoard(request, this.env, {
+        return serveBoard(request, this.env, {
             kind: 'mcp',
             board: boardName.auth(props.boardId),
             authInfo: propsToAuthInfo(props, request)
         });
-        return withCors(request, response);
     }
 }
 
 const defaultHandler = {
     async fetch(request: Request, env: Env): Promise<Response> {
         const url = new URL(request.url);
-        const response = await (async (): Promise<Response> => {
-            if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
+        if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
-            if (url.pathname === '/mcp') {
-                // Anonymous tier: boards keyed by the X-Todos-Board header (a board of the
-                // client's own naming) or the connecting address.
-                const named = request.headers.get('x-todos-board');
-                return serveBoard(request, env, {
-                    kind: 'mcp',
-                    board: named ? boardName.named(named) : boardName.ip(request)
-                });
-            }
-
-            if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
-                return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1', env.OAUTH_KV);
-            }
-
-            if (url.pathname === '/board') {
-                return new Response(renderBoardPage(url.origin), {
-                    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }
-                });
-            }
-
-            if (url.pathname === '/board/events') {
-                // Read-only live view. ?b=<name> names an anonymous board; without it, a
-                // viewer cookie claimed at OAuth consent resolves to that grant's own
-                // board, falling back to the viewer's address-keyed board. Board ids and
-                // tokens never appear in URLs.
-                if (request.method !== 'GET') return new Response(null, { status: 405 });
-                const named = url.searchParams.get('b');
-                let route: BoardRoute | undefined;
-                if (named) {
-                    route = { kind: 'view', board: boardName.named(named), viewInfo: { mode: 'named', label: named.slice(0, 128) } };
-                } else {
-                    const viewer = await resolveViewerBoard(request.headers.get('cookie'), env.OAUTH_KV);
-                    if (viewer) {
-                        route = {
-                            kind: 'view',
-                            board: boardName.auth(viewer.boardId),
-                            viewInfo: { mode: 'oauth', label: `${viewer.clientName ?? 'your client'} · ${viewer.boardId.slice(0, 8)}` }
-                        };
-                    }
-                }
-                route ??= { kind: 'view', board: boardName.ip(request), viewInfo: { mode: 'address', label: 'your network address' } };
-                return serveBoard(request, env, route);
-            }
-
-            if (url.pathname === '/') {
-                return new Response(renderLandingPage(url.origin), {
-                    headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }
-                });
-            }
-
-            return new Response('Not found. The MCP endpoint is /mcp (anonymous) or /oauth/mcp (OAuth); see / for how to connect.\n', {
-                status: 404,
-                headers: { 'content-type': 'text/plain; charset=utf-8' }
+        if (url.pathname === '/mcp') {
+            // Anonymous tier: boards keyed by the X-Todos-Board header (a board of the
+            // client's own naming) or the connecting address.
+            const named = request.headers.get('x-todos-board');
+            return serveBoard(request, env, {
+                kind: 'mcp',
+                board: named ? boardName.named(named) : boardName.ip(request)
             });
-        })();
-        return withCors(request, response);
+        }
+
+        if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
+            return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1', env.OAUTH_KV);
+        }
+
+        if (url.pathname === '/board') {
+            return new Response(renderBoardPage(url.origin), {
+                headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }
+            });
+        }
+
+        if (url.pathname === '/board/events') {
+            // Read-only live view. ?b=<name> names an anonymous board; without it, a
+            // viewer cookie claimed at OAuth consent resolves to that grant's own
+            // board, falling back to the viewer's address-keyed board. Board ids and
+            // tokens never appear in URLs.
+            if (request.method !== 'GET') return new Response(null, { status: 405 });
+            const named = url.searchParams.get('b');
+            let route: BoardRoute | undefined;
+            if (named) {
+                route = { kind: 'view', board: boardName.named(named), viewInfo: { mode: 'named', label: named.slice(0, 128) } };
+            } else {
+                const viewer = await resolveViewerBoard(request.headers.get('cookie'), env.OAUTH_KV);
+                if (viewer) {
+                    route = {
+                        kind: 'view',
+                        board: boardName.auth(viewer.boardId),
+                        viewInfo: { mode: 'oauth', label: `${viewer.clientName ?? 'your client'} · ${viewer.boardId.slice(0, 8)}` }
+                    };
+                }
+            }
+            route ??= { kind: 'view', board: boardName.ip(request), viewInfo: { mode: 'address', label: 'your network address' } };
+            return serveBoard(request, env, route);
+        }
+
+        if (url.pathname === '/') {
+            return new Response(renderLandingPage(url.origin), {
+                headers: { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'public, max-age=300' }
+            });
+        }
+
+        return new Response('Not found. The MCP endpoint is /mcp (anonymous) or /oauth/mcp (OAuth); see / for how to connect.\n', {
+            status: 404,
+            headers: { 'content-type': 'text/plain; charset=utf-8' }
+        });
     }
 };
 
@@ -571,6 +569,6 @@ export default {
             env,
             ctx
         );
-        return withCors(request, response, { fillOnly: true });
+        return withCors(request, response);
     }
 };

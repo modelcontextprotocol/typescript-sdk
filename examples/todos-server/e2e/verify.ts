@@ -197,7 +197,10 @@ const grantA = await dance();
 const grantB = await dance();
 const whoami = await toolText(await mcp('/oauth/mcp', 'tools/call', 'whoami', {}, { authorization: `Bearer ${grantA.token}` }));
 check.match(whoami, /Authenticated via OAuth/);
-await mcp('/oauth/mcp', 'tools/call', 'add_task', { title: 'canary-A' }, { authorization: `Bearer ${grantA.token}` });
+const canaryAdd = await toolText(
+    await mcp('/oauth/mcp', 'tools/call', 'add_task', { title: 'canary-A' }, { authorization: `Bearer ${grantA.token}` })
+);
+check.match(canaryAdd, /canary-A/);
 const listB = await toolText(await mcp('/oauth/mcp', 'tools/call', 'list_tasks', {}, { authorization: `Bearer ${grantB.token}` }));
 check.ok(!listB.includes('canary-A'));
 console.error('[verify] 3. grants + isolation ok');
@@ -241,6 +244,8 @@ check.equal(crossGrant.status, 404);
 const legit = await onSession('/oauth/mcp', { authorization: `Bearer ${grantA.token}` });
 check.equal(legit.status, 200);
 const viewLeak = await readSse('/board/events', { 'mcp-session-id': sessionId }, frames => frames.some(f => f.startsWith('data: ')), 6000);
+// The absence of the canary only proves anything over a stream that produced a snapshot.
+check.ok(viewLeak.some(f => f.startsWith('data: ')));
 check.ok(!viewLeak.join('').includes('canary-A'));
 console.error('[verify] 4. tier security ok');
 
@@ -255,15 +260,17 @@ check.ok(frames.some(f => f.includes('"mode":"named"')));
 check.ok(frames.some(f => f.includes('seen-live')));
 console.error('[verify] 5. board view ok');
 
-// 6. Viewer cookie from consent resolves to the grant board (skipped without a cookie —
-// the auto-consent 302 carries it too, so it is present in both modes).
-if (grantA.viewerCookie) {
-    const viewer = await readSse('/board/events', { cookie: grantA.viewerCookie }, frames => frames.some(f => f.includes('"mode"')), 6000);
-    check.ok(viewer.some(f => f.includes('"mode":"oauth"')));
-    console.error('[verify] 6. viewer cookie ok');
-} else {
-    console.error('[verify] 6. viewer cookie skipped (no cookie in this consent mode)');
-}
+// 6. The approve 302 carries the viewer cookie in both consent modes; it must resolve
+// to the grant board.
+check.ok(grantA.viewerCookie !== undefined);
+const viewer = await readSse(
+    '/board/events',
+    { cookie: grantA.viewerCookie ?? '' },
+    frames => frames.some(f => f.includes('"mode"')),
+    6000
+);
+check.ok(viewer.some(f => f.includes('"mode":"oauth"')));
+console.error('[verify] 6. viewer cookie ok');
 
 // 7. Pages serve and the board script parses.
 const landing = await fetch(`${BASE}/`, { headers: UA });
@@ -285,7 +292,7 @@ const badClient = await fetch(`${BASE}/authorize?response_type=code&client_id=no
     redirect: 'manual',
     headers: UA
 });
-check.ok(badClient.status === 400 || badClient.status === 302);
+check.equal(badClient.status, 400);
 const bareApprove = await fetch(`${BASE}/authorize/approve`, { method: 'POST', redirect: 'manual', headers: UA });
 check.equal(bareApprove.status, 400);
 console.error('[verify] 8. error paths ok');

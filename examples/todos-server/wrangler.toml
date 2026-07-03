@@ -26,12 +26,17 @@ class_name = "TodosBoard"
 tag = "v1"
 new_sqlite_classes = ["TodosBoard"]
 
-# REQUEST_STATE_SECRET is a deployment secret (wrangler secret put), never in
-# this file: it must be stable across isolates so multi-round input_required
-# flows survive landing on different instances.
+# REQUEST_STATE_SECRET (wrangler secret put) is optional: each board mints and
+# persists its own requestState key, which survives isolate recycling because
+# rounds always route back to the same board. Set a deployment-wide secret only
+# if rounds must verify across boards.
 
 # Grant/token storage for the OAuth provider. The id below is account-specific:
 # create your own with `wrangler kv namespace create OAUTH_KV` and replace it.
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 id = "736937bd5b404370a37eb548ef0311de"
+
+# The port e2e/verify.ts dials by default.
+[dev]
+port = 8850

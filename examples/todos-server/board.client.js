@@ -1,4 +1,5 @@
 // @ts-check
+/* global document, location, EventSource, URLSearchParams, setTimeout */
 // The live board page's script, shipped as its own Text module so the repo's
 // lint/format gates see it (an inline <script> is invisible to them). The
 // worker inlines it into board.html at render time via the __BOARD_SCRIPT__
@@ -54,7 +55,7 @@ function connect() {
         // Opened straight from consent, the viewer cookie can land a moment
         // after this page: if we resolved to the address fallback, try once
         // more before accepting it.
-        if (info.mode === 'address' && !namedBoard && !retried) {
+        if (info.mode === 'address' && claiming && !retried) {
             retried = true;
             status.textContent = 'claiming your board…';
             source.close();

@@ -59,6 +59,7 @@ Any other `mcpServers`-style host can spawn it too:
 | Subscriptions              | the board                                              | `resources/subscribe`/`unsubscribe` handlers for 2025-era clients; `subscriptions/listen` routing for 2026-07-28; every mutation notifies                                 |
 | list_changed               | every mutation                                         | resource list + resource updated notifications, delivered correctly over stdio and per-request HTTP                                                                       |
 | Prompts + completions      | `plan-my-day`, `seed-board`                            | `completable()` argument values (project names, themes) wired to `completion/complete`                                                                                    |
+| OAuth tiers                | `whoami` (todos.ts)                                    | Reports `ctx.authInfo`: the verified grant (client + scopes) or the anonymous tier, plus where to watch the board live.                                                   |
 
 The two protocol eras differ in how interactive conversations travel: on 2025-era connections the wire carries _pushed_ `elicitation/create` / `sampling/createMessage` requests; on 2026-07-28 the server returns `input_required` results and the client retries the call with the answers. The interactive tools (`brainstorm_tasks`, `clear_done`, `prioritize`) are written **once** in the `input_required` style — on 2025-era connections the SDK's default-on legacy shim performs the push-style round trips for them, so there is no era branch in any handler. (For a side-by-side of the two wire styles written by hand, see `examples/elicitation`.)
 
@@ -74,12 +75,17 @@ One serving-mode caveat: over **HTTP with a 2025-era client**, `createMcpHandler
 ## Layout
 
 ```text
-server.ts    transport entry (Node): serveStdio by default, createMcpHandler + node adapter behind --http
-worker.ts    transport entry (Cloudflare Workers): the hosted demo — createMcpHandler's web-standard
-             fetch behind a per-visitor Durable Object, plus the landing page (index.html) at /
-todos.ts     the application: state, tools, resources, prompts, subscriptions — every feature above.
-             createTodosApp() gives a host its own board: a buildServer factory, snapshot/restore for
-             persistence, and subscribeInstance for hosts that pin long-lived instances to a bus
+server.ts        transport entry (Node): serveStdio by default, createMcpHandler + node adapter behind --http
+worker.ts        transport entry (Cloudflare Workers): the hosted demo — one door to a per-visitor board
+                 Durable Object (serveBoard), the OAuth provider wrapper, and the pages
+todos.ts         the application: state, tools, resources, prompts, subscriptions — every feature above.
+                 createTodosApp() gives a host its own board: a buildServer factory, snapshot/restore for
+                 persistence, and subscribeInstance for hosts that pin long-lived instances to a bus
+oauth.ts         the OAuth glue: propsToAuthInfo (grant props → AuthInfo), the no-account consent page,
+                 and the viewer-session lifecycle for the live board view
+board.html       the /board live view page; its script ships as board.client.js so the lint gates see it
+index.html       the landing page at /
+e2e/verify.ts    probes a running worker: the dance, tier security, the live view, the pages
 ```
 
 ## Live board view (Cloudflare Workers deployment)
@@ -144,7 +150,7 @@ address, or by an `X-Todos-Board` header when the client sends one) that expires
 
 ```bash
 # from this directory
-npx wrangler dev                                  # local: http://127.0.0.1:8787/mcp
+npx wrangler dev                                  # local: http://127.0.0.1:8850/mcp
 npx wrangler deploy                               # deploys to <name>.<account>.workers.dev
 openssl rand -base64 48 | npx wrangler secret put REQUEST_STATE_SECRET
 ```

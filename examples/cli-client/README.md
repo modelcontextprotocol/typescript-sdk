@@ -48,7 +48,7 @@ pnpm --filter @mcp-examples/todos-server start:http
 ANTHROPIC_API_KEY=sk-… pnpm --filter @mcp-examples/cli-client start -- --server http://127.0.0.1:3000/mcp --provider anthropic
 ```
 
-The status line shows what was negotiated — `connected to "todos" (2026-07-28, 8 tools, 2 resources, 2 prompts)`. Add `--legacy` in terminal B to force the 2025-era handshake against the same server and watch the legacy arms of every feature run instead (`connected to "todos" (2025-11-25, …)`). To hold the connection to one exact revision, use `--protocol-version 2025-06-18` (or any supported revision) — the connection fails rather than settle on anything else.
+The status line shows what was negotiated — `connected to "todos" (2026-07-28, 9 tools, 2 resources, 2 prompts)`. Add `--legacy` in terminal B to force the 2025-era handshake against the same server and watch the legacy arms of every feature run instead (`connected to "todos" (2025-11-25, …)`). To hold the connection to one exact revision, use `--protocol-version 2025-06-18` (or any supported revision) — the connection fails rather than settle on anything else.
 
 A tour that touches everything, in one sitting:
 

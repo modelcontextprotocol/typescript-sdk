@@ -17,19 +17,6 @@ export default [
         rules: { 'import/no-unresolved': ['error', { ignore: ['^cloudflare:'] }] }
     },
     {
-        // Browser page scripts shipped as Text modules (inlined into HTML at render).
-        files: ['**/*.client.js'],
-        languageOptions: {
-            globals: {
-                document: 'readonly',
-                location: 'readonly',
-                EventSource: 'readonly',
-                URLSearchParams: 'readonly',
-                setTimeout: 'readonly'
-            }
-        }
-    },
-    {
         files: ['**/*.{ts,tsx,js,jsx,mts,cts}'],
         rules: {
             // Examples write to stdout/stderr deliberately.

@@ -104,12 +104,12 @@ export interface TodosAppOptions {
      */
     bus?: ServerEventBus;
     /**
-     * Location of a human-viewable live board page — a URL, a path, or a thunk
-     * resolved when a server is built (the worker learns its origin from the first
-     * request). When set, the instructions and `whoami` tell the client where to
-     * send the user to watch the board live. Leave unset for hosts without one.
+     * Thunk producing the URL of a human-viewable live board page, resolved when a
+     * server is built (the worker learns its origin from the first request). When
+     * set, the instructions and `whoami` tell the client where to send the user to
+     * watch the board live. Leave unset for hosts without one.
      */
-    boardViewPath?: string | (() => string);
+    boardViewPath?: () => string;
 }
 
 /** One todo board plus the `buildServer` factory that serves it. */
@@ -312,7 +312,7 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
     }
 
     function buildServer(reqCtx: McpRequestContext): McpServer {
-        const boardViewPath = typeof options.boardViewPath === 'function' ? options.boardViewPath() : options.boardViewPath;
+        const boardViewPath = options.boardViewPath?.();
         const server = new McpServer(
             { name: 'todos', version: '1.0.0' },
             {
@@ -761,7 +761,9 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
                         text:
                             (reqCtx.authInfo
                                 ? `Authenticated via OAuth: client ${reqCtx.authInfo.clientId ?? 'unknown'}, scopes [${(reqCtx.authInfo.scopes ?? []).join(' ')}]. This board belongs to your grant.`
-                                : 'Anonymous tier: this board is keyed by your network address or the X-Todos-Board header. Authorize via OAuth for a private board.') +
+                                : boardViewPath
+                                  ? 'Anonymous tier: this board is keyed by your network address or the X-Todos-Board header. Authorize via OAuth for a private board.'
+                                  : 'No OAuth grant on this connection — anonymous tier.') +
                             (boardViewPath
                                 ? reqCtx.authInfo
                                     ? ` The user can watch it live at ${boardViewPath}, in the browser where they approved consent.`
