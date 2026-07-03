@@ -42,6 +42,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'Web-standard runtimes', link: '/serving/web-standard' },
             { text: 'Sessions, state, scaling', link: '/serving/sessions-state-scaling' },
             { text: 'Authorization', link: '/serving/authorization' },
+            { text: 'External authorization servers', link: '/serving/external-authorization-servers' },
             { text: 'Legacy clients', link: '/serving/legacy-clients' }
         ]
     },
