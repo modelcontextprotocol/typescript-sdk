@@ -56,73 +56,7 @@
         <p id="empty" hidden>The board is empty — add a task from a connected client.</p>
         <p id="status">connecting…</p>
         <script>
-            const identity = document.getElementById('identity');
-            const list = document.getElementById('tasks');
-            const empty = document.getElementById('empty');
-            const status = document.getElementById('status');
-            const namedBoard = new URLSearchParams(location.search).get('b');
-            // Opened from the consent click, this tab races the approval POST: the
-            // viewer cookie for the NEW grant lands with the approve response, which
-            // may arrive after this page. #claim defers the first connection so the
-            // cookie is in place, instead of resolving to a previous grant's board.
-            const claiming = location.hash === '#claim' && !namedBoard;
-            let source;
-            let retried = false;
-
-            function renderInfo(info) {
-                identity.textContent =
-                    info.mode === 'oauth'
-                        ? `You are OAuthed: this is the private board granted to ${info.label}.`
-                        : info.mode === 'named'
-                          ? `Shared board "${info.label}" — anyone with this link (and any client sending X-Todos-Board: ${info.label}) sees it.`
-                          : 'Your address-keyed board (no OAuth grant, no ?b= name).';
-            }
-
-            function onSnapshot(event) {
-                const snapshot = JSON.parse(event.data);
-                const tasks = snapshot.tasks ?? [];
-                list.replaceChildren(
-                    ...tasks.map(task => {
-                        const item = document.createElement('li');
-                        item.textContent = `${task.title} (${task.id}, ${task.project}${task.priority ? ', ' + task.priority : ''})`;
-                        if (task.status === 'done') item.classList.add('done');
-                        return item;
-                    })
-                );
-                empty.hidden = tasks.length > 0;
-            }
-
-            function connect() {
-                source = new EventSource('/board/events' + location.search);
-                source.onopen = () => {
-                    status.textContent = 'live';
-                };
-                source.onerror = () => {
-                    status.textContent = 'reconnecting…';
-                };
-                source.onmessage = onSnapshot;
-                source.addEventListener('info', event => {
-                    const info = JSON.parse(event.data);
-                    // Opened straight from consent, the viewer cookie can land a moment
-                    // after this page: if we resolved to the address fallback, try once
-                    // more before accepting it.
-                    if (info.mode === 'address' && !namedBoard && !retried) {
-                        retried = true;
-                        status.textContent = 'claiming your board…';
-                        source.close();
-                        setTimeout(connect, 1200);
-                        return;
-                    }
-                    renderInfo(info);
-                });
-            }
-            if (claiming) {
-                status.textContent = 'claiming your board…';
-                identity.textContent = 'finishing authorization…';
-                setTimeout(connect, 1500);
-            } else {
-                connect();
-            }
+            __BOARD_SCRIPT__;
         </script>
     </body>
 </html>

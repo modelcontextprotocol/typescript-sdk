@@ -16,3 +16,9 @@ declare module 'cloudflare:workers' {
         fetch?(request: Request): Response | Promise<Response>;
     }
 }
+
+/** The board page's client script, bundled as text and inlined at render time. */
+declare module '*.client.js' {
+    const text: string;
+    export default text;
+}

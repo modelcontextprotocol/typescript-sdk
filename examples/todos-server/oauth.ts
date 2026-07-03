@@ -12,6 +12,7 @@
  * deployments replace exactly one thing: the consent step authenticates a
  * user (their IdP) instead of minting an anonymous board.
  */
+import type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 
 /** What `completeAuthorization` stores and every authorized request gets back. */
@@ -45,17 +46,39 @@ export interface ViewerSessionStore {
     get(key: string): Promise<string | null>;
 }
 
-/** The provider helpers the worker uses (subset of OAuthHelpers we touch). */
-export interface OAuthHelpers {
-    parseAuthRequest(request: Request): Promise<{ clientId: string; scope: string[]; state: string; redirectUri: string }>;
-    lookupClient(clientId: string): Promise<{ clientId: string; clientName?: string; redirectUris: string[] } | null>;
-    completeAuthorization(options: {
-        request: unknown;
-        userId: string;
-        metadata: Record<string, unknown>;
-        scope: string[];
-        props: TodosGrantProps;
-    }): Promise<{ redirectTo: string }>;
+export type { OAuthHelpers } from '@cloudflare/workers-oauth-provider';
+
+/** The one place a cookie value is read: shared by the consent nonce and the viewer session. */
+function cookieValue(name: string, cookieHeader: string | null): string | undefined {
+    return new RegExp(String.raw`(?:^|;\s*)${name}=([^;]+)`).exec(cookieHeader ?? '')?.[1];
+}
+
+const VIEWER_COOKIE = 'todos_viewer';
+const VIEWER_TTL_SECONDS = 7200;
+
+/** What a viewer session records: which board, and who the grant was issued to. */
+export interface ViewerSession {
+    boardId: string;
+    clientName?: string;
+}
+
+/**
+ * Claim the live view for a freshly minted board. Returns the Set-Cookie value;
+ * the whole lifecycle (mint here, resolve below, shared TTL) lives in this file.
+ */
+async function claimViewerSession(store: ViewerSessionStore, session: ViewerSession): Promise<string> {
+    const viewerId = crypto.randomUUID();
+    await store.put(`viewer:${viewerId}`, JSON.stringify(session), { expirationTtl: VIEWER_TTL_SECONDS });
+    return `${VIEWER_COOKIE}=${viewerId}; Path=/board; Max-Age=${VIEWER_TTL_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+/** Resolve a viewer cookie back to its session, or undefined for absent/expired/unknown. */
+export async function resolveViewerBoard(cookieHeader: string | null, store: ViewerSessionStore): Promise<ViewerSession | undefined> {
+    const viewerId = cookieValue(VIEWER_COOKIE, cookieHeader);
+    if (!viewerId) return undefined;
+    const record = await store.get(`viewer:${viewerId}`);
+    if (record === null) return undefined;
+    return JSON.parse(record) as ViewerSession;
 }
 
 function escapeHtml(value: string): string {
@@ -131,19 +154,11 @@ export async function handleAuthorize(
         // The one moment the human is in the browser: claiming the live view rides
         // the approval. The cookie is an opaque KV-backed session (no token, no board
         // id in any URL); /board with no ?b= resolves it to this grant's board.
-        const viewerId = crypto.randomUUID();
-        await viewerSessions.put(
-            `viewer:${viewerId}`,
-            JSON.stringify({ boardId, clientName: client?.clientName ?? oauthRequest.clientId }),
-            { expirationTtl: 7200 }
-        );
-        return new Response(null, {
-            status: 302,
-            headers: {
-                location: redirectTo,
-                'set-cookie': `todos_viewer=${viewerId}; Path=/board; Max-Age=7200; HttpOnly; Secure; SameSite=Lax`
-            }
+        const cookie = await claimViewerSession(viewerSessions, {
+            boardId,
+            clientName: client?.clientName ?? oauthRequest.clientId
         });
+        return new Response(null, { status: 302, headers: { location: redirectTo, 'set-cookie': cookie } });
     };
 
     // Approval happens ONLY on the dedicated approve action, bound to the consent
@@ -152,7 +167,7 @@ export async function handleAuthorize(
     if (url.pathname === '/authorize/approve' && request.method === 'POST') {
         const form = await request.formData().catch(() => {});
         const submitted = form?.get('nonce');
-        const cookieNonce = /(?:^|;\s*)todos_consent=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1];
+        const cookieNonce = cookieValue('todos_consent', request.headers.get('cookie'));
         if (typeof submitted !== 'string' || submitted.length === 0 || submitted !== cookieNonce) {
             return new Response('Consent expired — reopen the authorization link.\n', { status: 400 });
         }

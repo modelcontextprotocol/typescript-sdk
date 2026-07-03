@@ -12,7 +12,7 @@ tsconfig = "tsconfig.worker.json"
 # The landing page ships inside the bundle as a text module.
 [[rules]]
 type = "Text"
-globs = ["**/*.html"]
+globs = ["**/*.html", "**/*.client.js"]
 fallthrough = true
 
 # One Durable Object per visitor: holds that visitor's board (memory, hydrated
@@ -35,8 +35,3 @@ new_sqlite_classes = ["TodosBoard"]
 [[kv_namespaces]]
 binding = "OAUTH_KV"
 id = "736937bd5b404370a37eb548ef0311de"
-
-# Public origin baked into user-facing links (the live board pointer in the
-# server instructions). Update when the deployment moves.
-[vars]
-PUBLIC_ORIGIN = "https://todos-demo-ts.fweinberger-test.workers.dev"

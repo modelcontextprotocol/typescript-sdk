@@ -36,10 +36,11 @@ import {
 } from '@modelcontextprotocol/server';
 import { WorkerEntrypoint } from 'cloudflare:workers';
 
+import boardScript from './board.client.js';
 import boardHtml from './board.html';
 import indexHtml from './index.html';
 import type { OAuthHelpers, TodosGrantProps, ViewerSessionStore } from './oauth';
-import { handleAuthorize, propsToAuthInfo } from './oauth';
+import { handleAuthorize, propsToAuthInfo, resolveViewerBoard } from './oauth';
 import type { BoardSnapshot, TodosApp } from './todos';
 import { createTodosApp } from './todos';
 
@@ -100,14 +101,36 @@ interface Env {
     OAUTH_PROVIDER: OAuthHelpers;
     /** Set to '1' to auto-approve consent — used by the scripted end-to-end dance. */
     TODOS_AUTO_CONSENT?: string;
-    /** Public origin for user-facing links (wrangler [vars]); unset falls back to a relative path. */
-    PUBLIC_ORIGIN?: string;
 }
 
 /** Internal relay: the API handler forwards verified auth into the board object. */
 const AUTH_RELAY_HEADER = 'x-todos-authinfo';
 /** Internal relay: how the live view resolved this board, echoed as the stream's first frame. */
 const VIEW_INFO_HEADER = 'x-todos-view-info';
+
+/** The live view's identity frame (the SSE stream's first event; board.client.js renders it). */
+interface ViewInfo {
+    mode: 'named' | 'oauth' | 'address';
+    label: string;
+}
+
+// Board names are namespaced so one keying scheme can never collide with (and read)
+// another's boards: a client-chosen header value, a network address, and a grant id
+// live in disjoint prefixes.
+const boardName = {
+    auth: (boardId: string): string => `auth:${boardId}`,
+    named: (raw: string): string => `named:${raw.slice(0, 128)}`,
+    ip: (request: Request): string => `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`
+};
+
+// A session id is `<minting object's own id>.<uuid>`: opaque, unguessable, and
+// self-routing (the prefix names the board object that owns the session).
+function mintSessionId(doId: DurableObjectId): string {
+    return `${doId.toString()}.${crypto.randomUUID()}`;
+}
+function boardOfSession(sessionId: string): string {
+    return sessionId.split('.')[0] ?? '';
+}
 
 /** A live 2025-era session: its transport, tier, and when its client was last heard from. */
 interface LegacySession {
@@ -137,7 +160,14 @@ export class TodosBoard {
             const requestStateKey = env.REQUEST_STATE_SECRET ?? (await this.loadOrCreateCodecKey());
             const parsedMaxTasks = Number(env.MAX_TASKS);
             const maxTasks = Number.isFinite(parsedMaxTasks) && parsedMaxTasks > 0 ? parsedMaxTasks : DEFAULT_MAX_TASKS;
-            this.app = createTodosApp({ requestStateKey, maxTasks, bus: this.bus, boardViewPath: `${env.PUBLIC_ORIGIN ?? ''}/board` });
+            // The public origin is learned from the first request (fetch stores it),
+            // so links in instructions/whoami are absolute without any configuration.
+            this.app = createTodosApp({
+                requestStateKey,
+                maxTasks,
+                bus: this.bus,
+                boardViewPath: () => `${this.origin ?? ''}/board`
+            });
             this.handler = createMcpHandler(this.app.buildServer, { bus: this.bus });
             // The durable copy of the board follows the same announcements every client does.
             this.bus.subscribe(event => {
@@ -216,10 +246,9 @@ export class TodosBoard {
                 { status: 429 }
             );
         }
-        const prefix = this.state.id.toString();
         const server = this.app.buildServer({ era: 'legacy', ...(authInfo === undefined ? {} : { authInfo }) });
         const transport = new WebStandardStreamableHTTPServerTransport({
-            sessionIdGenerator: () => `${prefix}.${crypto.randomUUID()}`,
+            sessionIdGenerator: () => mintSessionId(this.state.id),
             onsessioninitialized: sessionId => {
                 this.sessions.set(sessionId, { transport, authed: authInfo !== undefined, lastSeenMs: Date.now() });
             }
@@ -285,7 +314,10 @@ export class TodosBoard {
         });
     }
 
+    private origin?: string;
+
     async fetch(request: Request): Promise<Response> {
+        this.origin ??= new URL(request.url).origin;
         if (new URL(request.url).pathname === '/board/events') {
             return this.boardEventStream(request.headers.get(VIEW_INFO_HEADER));
         }
@@ -356,44 +388,68 @@ function corsHeaders(request: Request): Record<string, string> {
     };
 }
 
-function withCors(request: Request, response: Response): Response {
+function withCors(request: Request, response: Response, options?: { fillOnly?: boolean }): Response {
     const headers = new Headers(response.headers);
-    for (const [name, value] of Object.entries(corsHeaders(request))) headers.set(name, value);
+    for (const [name, value] of Object.entries(corsHeaders(request))) {
+        if (!options?.fillOnly || !headers.has(name)) headers.set(name, value);
+    }
     return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
-// The landing page is constant per deployment origin — substitute once per isolate.
-let landingPage: { origin: string; html: string } | undefined;
-function renderLandingPage(origin: string): string {
-    if (landingPage?.origin !== origin) landingPage = { origin, html: indexHtml.replaceAll('__HOST__', origin) };
-    return landingPage.html;
+// Pages are constant per deployment origin — substitute once per isolate.
+function pageRenderer(html: string): (origin: string) => string {
+    let cached: { origin: string; rendered: string } | undefined;
+    return origin => {
+        if (cached?.origin !== origin) cached = { origin, rendered: html.replaceAll('__HOST__', origin) };
+        return cached.rendered;
+    };
 }
+const renderLandingPage = pageRenderer(indexHtml);
+const renderBoardPage = pageRenderer(boardHtml.replace('__BOARD_SCRIPT__', () => boardScript));
 
-let boardPage: { origin: string; html: string } | undefined;
-function renderBoardPage(origin: string): string {
-    if (boardPage?.origin !== origin) boardPage = { origin, html: boardHtml.replaceAll('__HOST__', origin) };
-    return boardPage.html;
+/** How a request is allowed to reach a board — the whole tier model in one type. */
+type BoardRoute =
+    // MCP traffic. Sessions may re-route to the object that minted them (that is how a
+    // session survives egress-IP rotation) — but on the token-verified route a session
+    // must belong to the token's own board, and the verified identity rides along.
+    | { kind: 'mcp'; board: string; authInfo?: AuthInfo }
+    // The read-only live view. Never routes by session id, never carries identity.
+    | { kind: 'view'; board: string; viewInfo: ViewInfo };
+
+function sessionNotFound(status = 404): Response {
+    return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status });
 }
 
 /**
- * Route one MCP request to its board. Session ids carry the id of the object that
- * minted them (opaque, unguessable, validated by idFromString), so a session survives
- * the client's egress IP rotating; session-less requests route by `fallbackBoardName`.
+ * The single door to a board object. Owns every internal-header and session-routing
+ * rule: inbound copies of the internal headers are always dropped (clients cannot
+ * assert an identity or a view), and only this function decides which object serves
+ * the request. Callers describe intent with a BoardRoute and never touch headers.
  */
-async function serveBoard(request: Request, env: Env, fallbackBoardName: string): Promise<Response> {
-    const sessionId = request.headers.get('mcp-session-id');
-    let id: DurableObjectId | undefined;
+async function serveBoard(request: Request, env: Env, route: BoardRoute): Promise<Response> {
+    const headers = new Headers(request.headers);
+    headers.delete(AUTH_RELAY_HEADER);
+    headers.delete(VIEW_INFO_HEADER);
+
+    let id: DurableObjectId;
+    const sessionId = route.kind === 'mcp' ? request.headers.get('mcp-session-id') : null;
+    if (route.kind === 'view') headers.delete('mcp-session-id');
     if (sessionId === null) {
-        id = env.BOARDS.idFromName(fallbackBoardName);
+        id = env.BOARDS.idFromName(route.board);
     } else {
+        if (route.kind === 'mcp' && route.authInfo && boardOfSession(sessionId) !== env.BOARDS.idFromName(route.board).toString()) {
+            return sessionNotFound();
+        }
         try {
-            id = env.BOARDS.idFromString(sessionId.split('.')[0] ?? '');
+            id = env.BOARDS.idFromString(boardOfSession(sessionId));
         } catch {
-            return Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 });
+            return sessionNotFound();
         }
     }
+    if (route.kind === 'mcp' && route.authInfo) headers.set(AUTH_RELAY_HEADER, JSON.stringify(route.authInfo));
+    if (route.kind === 'view') headers.set(VIEW_INFO_HEADER, JSON.stringify(route.viewInfo));
     try {
-        return await env.BOARDS.get(id).fetch(request);
+        return await env.BOARDS.get(id).fetch(new Request(request, { headers }));
     } catch (error) {
         // Details stay server-side; clients get a stable, generic shape.
         console.error('board fetch failed:', error);
@@ -413,19 +469,11 @@ export class TodosApi extends WorkerEntrypoint<Env> {
         if (!props?.boardId) {
             return Response.json({ error: 'invalid grant' }, { status: 403 });
         }
-        // A presented session id must belong to this grant's own board: the token decides
-        // the board, never the session id (which could otherwise route into another grant).
-        const sessionId = request.headers.get('mcp-session-id');
-        if (sessionId !== null && sessionId.split('.')[0] !== this.env.BOARDS.idFromName(`auth:${props.boardId}`).toString()) {
-            return withCors(
-                request,
-                Response.json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null }, { status: 404 })
-            );
-        }
-        const headers = new Headers(request.headers);
-        headers.set(AUTH_RELAY_HEADER, JSON.stringify(propsToAuthInfo(props, request)));
-        const relayed = new Request(request, { headers });
-        const response = await serveBoard(relayed, this.env, `auth:${props.boardId}`);
+        const response = await serveBoard(request, this.env, {
+            kind: 'mcp',
+            board: boardName.auth(props.boardId),
+            authInfo: propsToAuthInfo(props, request)
+        });
         return withCors(request, response);
     }
 }
@@ -437,16 +485,13 @@ const defaultHandler = {
             if (request.method === 'OPTIONS') return new Response(null, { status: 204 });
 
             if (url.pathname === '/mcp') {
-                // Anonymous tier, unchanged: boards keyed by the X-Todos-Board header (a
-                // board of the client's own naming) or the connecting address — namespaced
-                // so a header value can never collide with an address-keyed board. The
-                // internal auth-relay header is stripped: only the provider-verified API
-                // route may assert an identity.
-                const headers = new Headers(request.headers);
-                headers.delete(AUTH_RELAY_HEADER);
+                // Anonymous tier: boards keyed by the X-Todos-Board header (a board of the
+                // client's own naming) or the connecting address.
                 const named = request.headers.get('x-todos-board');
-                const visitor = named ? `named:${named.slice(0, 128)}` : `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
-                return serveBoard(new Request(request, { headers }), env, visitor);
+                return serveBoard(request, env, {
+                    kind: 'mcp',
+                    board: named ? boardName.named(named) : boardName.ip(request)
+                });
             }
 
             if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
@@ -460,39 +505,27 @@ const defaultHandler = {
             }
 
             if (url.pathname === '/board/events') {
-                // Read-only live view. ?b=<name> names an anonymous board; without it,
-                // a viewer cookie claimed at OAuth consent resolves to that grant's own
-                // board, falling back to the viewer's address-keyed board. Board ids
-                // and tokens never appear in URLs — the cookie is an opaque KV-backed
-                // session claimed while the human was provably in the consent flow.
+                // Read-only live view. ?b=<name> names an anonymous board; without it, a
+                // viewer cookie claimed at OAuth consent resolves to that grant's own
+                // board, falling back to the viewer's address-keyed board. Board ids and
+                // tokens never appear in URLs.
                 if (request.method !== 'GET') return new Response(null, { status: 405 });
                 const named = url.searchParams.get('b');
-                let boardName: string | undefined;
-                let viewInfo: { mode: 'named' | 'oauth' | 'address'; label: string } | undefined;
+                let route: BoardRoute | undefined;
                 if (named) {
-                    const trimmed = named.slice(0, 128);
-                    boardName = `named:${trimmed}`;
-                    viewInfo = { mode: 'named', label: trimmed };
+                    route = { kind: 'view', board: boardName.named(named), viewInfo: { mode: 'named', label: named.slice(0, 128) } };
                 } else {
-                    const viewerId = /(?:^|;\s*)todos_viewer=([^;]+)/.exec(request.headers.get('cookie') ?? '')?.[1];
-                    if (viewerId) {
-                        const record = await env.OAUTH_KV.get(`viewer:${viewerId}`);
-                        if (record !== null) {
-                            const viewer = JSON.parse(record) as { boardId: string; clientName?: string };
-                            boardName = `auth:${viewer.boardId}`;
-                            viewInfo = { mode: 'oauth', label: `${viewer.clientName ?? 'your client'} · ${viewer.boardId.slice(0, 8)}` };
-                        }
+                    const viewer = await resolveViewerBoard(request.headers.get('cookie'), env.OAUTH_KV);
+                    if (viewer) {
+                        route = {
+                            kind: 'view',
+                            board: boardName.auth(viewer.boardId),
+                            viewInfo: { mode: 'oauth', label: `${viewer.clientName ?? 'your client'} · ${viewer.boardId.slice(0, 8)}` }
+                        };
                     }
                 }
-                boardName ??= `ip:${request.headers.get('cf-connecting-ip') ?? 'anonymous'}`;
-                viewInfo ??= { mode: 'address', label: 'your network address' };
-                const headers = new Headers(request.headers);
-                headers.delete(AUTH_RELAY_HEADER);
-                // The view route must NEVER route by session id: a stale session id would
-                // override the resolved board and stream a private board without a token.
-                headers.delete('mcp-session-id');
-                headers.set(VIEW_INFO_HEADER, JSON.stringify(viewInfo));
-                return serveBoard(new Request(request, { headers }), env, boardName);
+                route ??= { kind: 'view', board: boardName.ip(request), viewInfo: { mode: 'address', label: 'your network address' } };
+                return serveBoard(request, env, route);
             }
 
             if (url.pathname === '/') {
@@ -538,10 +571,6 @@ export default {
             env,
             ctx
         );
-        const headers = new Headers(response.headers);
-        for (const [name, value] of Object.entries(corsHeaders(request))) {
-            if (!headers.has(name)) headers.set(name, value);
-        }
-        return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+        return withCors(request, response, { fillOnly: true });
     }
 };

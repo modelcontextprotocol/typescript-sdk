@@ -7,7 +7,8 @@
         "start:http": "tsx server.ts --http",
         "dev:worker": "npx --yes wrangler@4.100.0 dev",
         "deploy:worker": "npx --yes wrangler@4.100.0 deploy",
-        "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit"
+        "typecheck:worker": "tsc -p tsconfig.worker.json --noEmit",
+        "verify": "tsx e2e/verify.ts"
     },
     "dependencies": {
         "@cloudflare/workers-oauth-provider": "0.8.0",

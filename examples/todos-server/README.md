@@ -79,7 +79,7 @@ worker.ts    transport entry (Cloudflare Workers): the hosted demo — createMcp
              fetch behind a per-visitor Durable Object, plus the landing page (index.html) at /
 todos.ts     the application: state, tools, resources, prompts, subscriptions — every feature above.
              createTodosApp() gives a host its own board: a buildServer factory, snapshot/restore for
-             persistence, and forwardServerEvent for hosts that pin long-lived instances to a bus
+             persistence, and subscribeInstance for hosts that pin long-lived instances to a bus
 ```
 
 ## Live board view (Cloudflare Workers deployment)

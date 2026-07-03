@@ -98,17 +98,18 @@ export interface TodosAppOptions {
      * The board's change bus. Every mutation announces on it once, and the serving entry
      * fans the events out: `createMcpHandler({ bus })` routes them onto its
      * `subscriptions/listen` streams, and a host that pins long-lived instances (sessions)
-     * forwards them with {@linkcode TodosApp.forwardServerEvent}. Unset (stdio, tests), the
+     * subscribes each pinned instance via {@linkcode TodosApp.subscribeInstance}. Unset (stdio, tests), the
      * app announces only on the connection that made the change — the sole audience a
      * single-connection transport has.
      */
     bus?: ServerEventBus;
     /**
-     * Path of a human-viewable live board page on this deployment's origin (e.g. '/board').
-     * When set, the instructions and `whoami` tell the client where to send the user to
-     * watch the board update in real time. Leave unset for hosts without one (stdio).
+     * Location of a human-viewable live board page — a URL, a path, or a thunk
+     * resolved when a server is built (the worker learns its origin from the first
+     * request). When set, the instructions and `whoami` tell the client where to
+     * send the user to watch the board live. Leave unset for hosts without one.
      */
-    boardViewPath?: string;
+    boardViewPath?: string | (() => string);
 }
 
 /** One todo board plus the `buildServer` factory that serves it. */
@@ -311,14 +312,15 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
     }
 
     function buildServer(reqCtx: McpRequestContext): McpServer {
+        const boardViewPath = typeof options.boardViewPath === 'function' ? options.boardViewPath() : options.boardViewPath;
         const server = new McpServer(
             { name: 'todos', version: '1.0.0' },
             {
                 capabilities: { logging: {}, resources: { listChanged: true, subscribe: true } },
                 requestState: { verify: stateCodec.verify },
                 instructions:
-                    (options.boardViewPath
-                        ? `LIVE VIEW: the user can watch this board update in real time at ${options.boardViewPath} — with ?b=<name> when connected via the X-Todos-Board header, or as-is in the browser where they approved OAuth consent. Show them this link when you first respond. `
+                    (boardViewPath
+                        ? `LIVE VIEW: the user can watch this board update in real time at ${boardViewPath} — with ?b=<name> when connected via the X-Todos-Board header, or as-is in the browser where they approved OAuth consent. Show them this link when you first respond. `
                         : '') +
                     'todos is a small project todo board (it starts empty). Use list_tasks to see the board, add_task / add_tasks and complete_task to ' +
                     'change it, prioritize to rank the open tasks, brainstorm_tasks to invent themed example tasks, work_through_tasks to finish every ' +
@@ -352,7 +354,7 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
          * no bus exists to carry it (stdio, where the entry lifts the instance's notification
          * onto its open subscriptions/listen streams). Every other connection hears it through
          * the bus — the entry's listen streams directly, pinned instances via
-         * {@linkcode TodosApp.forwardServerEvent} — so the announcement is made exactly once.
+         * {@linkcode TodosApp.subscribeInstance} — so the announcement is made exactly once.
          */
         const announceBoardChange = async (): Promise<void> => {
             server.sendResourceListChanged();
@@ -760,10 +762,10 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
                             (reqCtx.authInfo
                                 ? `Authenticated via OAuth: client ${reqCtx.authInfo.clientId ?? 'unknown'}, scopes [${(reqCtx.authInfo.scopes ?? []).join(' ')}]. This board belongs to your grant.`
                                 : 'Anonymous tier: this board is keyed by your network address or the X-Todos-Board header. Authorize via OAuth for a private board.') +
-                            (options.boardViewPath
+                            (boardViewPath
                                 ? reqCtx.authInfo
-                                    ? ` The user can watch it live at ${options.boardViewPath}, in the browser where they approved consent.`
-                                    : ` The user can watch it live at ${options.boardViewPath}?b=<board-name> (when connected with the X-Todos-Board header).`
+                                    ? ` The user can watch it live at ${boardViewPath}, in the browser where they approved consent.`
+                                    : ` The user can watch it live at ${boardViewPath}?b=<board-name> (when connected with the X-Todos-Board header).`
                                 : '')
                     }
                 ]
