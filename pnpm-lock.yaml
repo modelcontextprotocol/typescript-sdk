@@ -1243,9 +1243,9 @@ importers:
 
   examples/todos-server:
     dependencies:
-      '@hono/node-server':
-        specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+      '@cloudflare/workers-oauth-provider':
+        specifier: 0.8.0
+        version: 0.8.0
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -2452,6 +2452,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-oauth-provider@0.8.0':
+    resolution: {integrity: sha512-Vb2mjT9R+rLS9FcHgd5+ab4u7SP0ZB7x7t9M94JNMdN5e2ogRf3NOUCPW6NhBCTPwKu36VrfrYPPNGjOek4VYQ==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -7323,6 +7326,8 @@ snapshots:
 
   '@cloudflare/workerd-windows-64@1.20260317.1':
     optional: true
+
+  '@cloudflare/workers-oauth-provider@0.8.0': {}
 
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
