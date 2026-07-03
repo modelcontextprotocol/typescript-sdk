@@ -31,7 +31,7 @@ pnpm --filter @mcp-examples/cli-client start -- --server http://127.0.0.1:3000/m
 pnpm --filter @mcp-examples/cli-client start -- --server http://127.0.0.1:3000/mcp --legacy
 ```
 
-The client's status line shows what was negotiated: `connected to "todos" (2026-07-28, 8 tools, …)` vs `(2025-11-25, …)`.
+The client's status line shows what was negotiated: `connected to "todos" (2026-07-28, 9 tools, …)` vs `(2025-11-25, …)`.
 
 You don't need the HTTP step for a quick look — running `cli-client` with no arguments spawns this server over stdio automatically.
 

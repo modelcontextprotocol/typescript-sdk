@@ -32,7 +32,7 @@ async function serveVerified(request: Request, props: GrantProps): Promise<Respo
 }
 ```
 
-Every tool and resource handler now reads the identity as `ctx.authInfo`, and token expiry and revocation are enforced by the provider on each request — your code never sees an invalid token. One contract to know: fronting providers typically hand your handler only what was stored when the grant was approved, so embed everything `AuthInfo` needs (client id, scopes) into the grant at consent time.
+Every tool and resource handler now reads the identity as `ctx.http.authInfo`, and token expiry and revocation are enforced by the provider on each request — your code never sees an invalid token. One contract to know: fronting providers typically hand your handler only what was stored when the grant was approved, so embed everything `AuthInfo` needs (client id, scopes) into the grant at consent time.
 
 ::: info Running reference
 The [`todos-server` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/todos-server) deploys this style on Cloudflare Workers: `workers-oauth-provider` owns the endpoints, both discovery documents, dynamic client registration and Client ID Metadata Documents, and KV-backed grants — the app supplies a consent step and the `propsToAuthInfo` mapping (`oauth.ts`), and serves anonymous and token-authorized tiers side by side.
@@ -61,7 +61,7 @@ async function fetchHandler(request: Request): Promise<Response> {
 }
 ```
 
-A request with a missing, malformed, or expired token gets the `401` challenge; a valid one reaches handlers with `ctx.authInfo` populated from your verifier. [Require authorization](./authorization.md) covers the rest of this style's surface: the challenge contents, publishing protected resource metadata that names your external issuer, and per-tool scopes.
+A request with a missing, malformed, or expired token gets the `401` challenge; a valid one reaches handlers with `ctx.http.authInfo` populated from your verifier. [Require authorization](./authorization.md) covers the rest of this style's surface: the challenge contents, publishing protected resource metadata that names your external issuer, and per-tool scopes.
 
 ## Choosing a style
 

@@ -5,7 +5,7 @@ description: 'Require a bearer token on a server you run: verification, protecte
 
 # Require authorization
 
-Protecting a server you run → this page. Signing a user in from a client you build → [Authenticate a user with OAuth](../clients/oauth.md). No user present → [Authenticate without a user](../clients/machine-auth.md).
+Protecting a server you run → this page. Where the Authorization Server itself comes from → [Bring your own Authorization Server](./external-authorization-servers.md). Signing a user in from a client you build → [Authenticate a user with OAuth](../clients/oauth.md). No user present → [Authenticate without a user](../clients/machine-auth.md).
 
 ## Require a bearer token
 
@@ -40,7 +40,7 @@ app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 A request with a missing, malformed, or expired token gets `401` with the OAuth error code `invalid_token`. A valid token missing one of `requiredScopes` gets `403` with `insufficient_scope`. Both responses carry a `WWW-Authenticate: Bearer …` challenge whose `resource_metadata` parameter is the URL you passed — that challenge is what starts a client's OAuth flow.
 
 ::: info Coming from v1?
-The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, …) are frozen in `@modelcontextprotocol/server-legacy/auth`. Use a dedicated identity provider for new servers; this page only covers the resource-server half.
+The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, …) are frozen in `@modelcontextprotocol/server-legacy/auth`. Use a dedicated identity provider for new servers — [Bring your own Authorization Server](./external-authorization-servers.md) covers that half; this page covers the resource-server half.
 :::
 
 ## Require a bearer token on a web-standard host
