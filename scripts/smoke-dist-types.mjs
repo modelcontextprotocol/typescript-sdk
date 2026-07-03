@@ -14,7 +14,7 @@ try {
         path.join(dir, 'consumer.ts'),
         [
             "import { Client } from '@modelcontextprotocol/client';",
-            "import type { AjvJsonSchemaValidator as ClientAjv } from '@modelcontextprotocol/client';",
+            "import type { JsonSchemaValidator as ClientJsonSchemaValidator } from '@modelcontextprotocol/client';",
             "import { AjvJsonSchemaValidator } from '@modelcontextprotocol/client/validators/ajv';",
             "import { CfWorkerJsonSchemaValidator as ClientCf } from '@modelcontextprotocol/client/validators/cf-worker';",
             "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';",
@@ -24,7 +24,7 @@ try {
             "import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';",
             "export const c = new Client({ name: 'smoke', version: '1.0.0' });",
             "export const s = new McpServer({ name: 'smoke', version: '1.0.0' });",
-            'export type T = ClientAjv;',
+            'export type T = ClientJsonSchemaValidator<unknown>;',
             'export { AjvJsonSchemaValidator, ServerAjv, ClientCf, ServerCf, StdioClientTransport, StdioServerTransport };',
             ''
         ].join('\n')
