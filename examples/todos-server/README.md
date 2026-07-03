@@ -91,6 +91,23 @@ connected agents work. Without `?b=` it shows your grant's board if you approved
 consent in this browser (approval sets an opaque, KV-backed viewer cookie — no token or
 board id ever appears in a URL), falling back to your address-keyed board.
 
+## Verifying a deployment
+
+`e2e/verify.ts` probes a running worker end to end — the OAuth dance (both consent
+modes), the tier-security invariants (a session id is never a credential), board
+isolation between grants, the live view's SSE stream, the pages (including that the
+board script parses), and the authorization error paths:
+
+```sh
+pnpm --filter @mcp-examples/todos-server verify                                  # wrangler dev on :8850
+pnpm --filter @mcp-examples/todos-server verify -- --base https://your.deploy    # a live deployment
+```
+
+Stays manual on purpose: the real-browser consent click, a real client's OAuth dance
+(Claude Code / cli-client), and anything involving a third-party platform quirk
+(workers.dev bot protection 403s non-browser user agents; deploys propagate for
+~30s — re-run rather than chase ghosts).
+
 ## OAuth (Cloudflare Workers deployment)
 
 The worker wraps everything in [`@cloudflare/workers-oauth-provider`](https://github.com/cloudflare/workers-oauth-provider):
