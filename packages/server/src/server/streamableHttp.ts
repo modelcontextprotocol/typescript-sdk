@@ -313,6 +313,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         );
     }
 
+    private findDuplicateRequestId(messages: JSONRPCMessage[]): RequestId | undefined {
+        const requestIds = new Set<RequestId>();
+        for (const message of messages) {
+            if (!isJSONRPCRequest(message)) continue;
+            if (requestIds.has(message.id) || this._requestToStreamMapping.has(message.id)) {
+                return message.id;
+            }
+            requestIds.add(message.id);
+        }
+        return undefined;
+    }
+
     /**
      * Validates request headers for DNS rebinding protection.
      * @returns Error response if validation fails, `undefined` if validation passes.
@@ -697,7 +709,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             const request = req;
 
-            let rawMessage;
+            let rawMessage: unknown;
             if (options?.parsedBody === undefined) {
                 try {
                     rawMessage = await req.json();
@@ -772,6 +784,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     this.onmessage?.(message, { authInfo: options?.authInfo, request });
                 }
                 return new Response(null, { status: 202 });
+            }
+
+            const duplicateRequestId = this.findDuplicateRequestId(messages);
+            if (duplicateRequestId !== undefined) {
+                const error = `Invalid Request: Request id ${String(duplicateRequestId)} is already in flight`;
+                this.onerror?.(new Error(error));
+                return this.createJsonErrorResponse(400, -32_600, error);
             }
 
             // The default behavior is to use SSE streaming
