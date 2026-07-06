@@ -301,7 +301,24 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_000, /Not Acceptable/);
             });
 
-            it('should reject request with wrong Content-Type header', async () => {
+            it('should accept valid JSON without Content-Type header', async () => {
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: new TextEncoder().encode(JSON.stringify(TEST_MESSAGES.initialize))
+                });
+
+                expect(request.headers.get('content-type')).toBeNull();
+
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+                expect(response.headers.get('mcp-session-id')).toBeDefined();
+            });
+
+            it('should not reject valid JSON based on Content-Type header', async () => {
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
                     headers: {
@@ -312,9 +329,8 @@ describe('Zod v4', () => {
                 });
                 const response = await transport.handleRequest(request);
 
-                expect(response.status).toBe(415);
-                const errorData = await response.json();
-                expectErrorResponse(errorData, -32_000, /Unsupported Media Type/);
+                expect(response.status).toBe(200);
+                expect(response.headers.get('mcp-session-id')).toBeDefined();
             });
 
             it('should reject invalid JSON', async () => {
@@ -1257,23 +1273,21 @@ describe('Zod v4', () => {
             expect(error?.message).toContain('Not Acceptable');
         });
 
-        it('should call onerror for unsupported Content-Type', async () => {
+        it('should not call onerror for valid JSON without Content-Type', async () => {
             const request = new Request('http://localhost/mcp', {
                 method: 'POST',
                 headers: {
-                    Accept: 'application/json, text/event-stream',
-                    'Content-Type': 'text/plain'
+                    Accept: 'application/json, text/event-stream'
                 },
-                body: JSON.stringify(TEST_MESSAGES.initialize)
+                body: new TextEncoder().encode(JSON.stringify(TEST_MESSAGES.initialize))
             });
+
+            expect(request.headers.get('content-type')).toBeNull();
 
             const response = await transport.handleRequest(request);
 
-            expect(response.status).toBe(415);
-            expect(errors.length).toBeGreaterThan(0);
-            const error = errors[0];
-            expect(error).toBeDefined();
-            expect(error?.message).toContain('Unsupported Media Type');
+            expect(response.status).toBe(200);
+            expect(errors).toHaveLength(0);
         });
 
         it('should call onerror for server not initialized', async () => {
