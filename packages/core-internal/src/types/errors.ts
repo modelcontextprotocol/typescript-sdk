@@ -1,3 +1,4 @@
+import { brandedHasInstance, stampErrorBrands } from '../errors/crossBundleBrand';
 import { ProtocolErrorCode } from './enums';
 import type {
     ClientCapabilities,
@@ -9,8 +10,39 @@ import type {
 /**
  * Protocol errors are JSON-RPC errors that cross the wire as error responses.
  * They use numeric error codes from the {@linkcode ProtocolErrorCode} enum.
+ *
+ * `instanceof` on this class (and its subclasses) is brand-matched, so it works
+ * across separately bundled copies of the SDK — e.g. an error constructed by
+ * `@modelcontextprotocol/client` matches the class re-exported by
+ * `@modelcontextprotocol/server` in the same process.
  */
 export class ProtocolError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.ProtocolError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: number,
         message: string,
@@ -18,6 +50,7 @@ export class ProtocolError extends Error {
     ) {
         super(message);
         this.name = 'ProtocolError';
+        stampErrorBrands(this, new.target);
     }
 
     /**
@@ -86,11 +119,14 @@ export class ProtocolError extends Error {
  * accept `-32002` as resource not found — earlier SDK builds emitted that
  * code, and {@linkcode ProtocolError.fromError} reconstructs this class for
  * either code **when `error.data` carries `uri`** (a bare `-32002` without
- * `data.uri` stays a generic {@linkcode ProtocolError}). Do not rely on
- * `instanceof` — it does not work across separately bundled copies of the
- * SDK.
+ * `data.uri` stays a generic {@linkcode ProtocolError}). `instanceof` checks
+ * are brand-matched and work across separately bundled copies of the SDK.
  */
 export class ResourceNotFoundError extends ProtocolError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.ResourceNotFoundError' });
+    }
+
     constructor(uri: string, message: string = `Resource not found: ${uri}`) {
         super(ProtocolErrorCode.InvalidParams, message, { uri });
     }
@@ -106,6 +142,10 @@ export class ResourceNotFoundError extends ProtocolError {
  * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
  */
 export class UrlElicitationRequiredError extends ProtocolError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UrlElicitationRequiredError' });
+    }
+
     constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
         super(ProtocolErrorCode.UrlElicitationRequired, message, {
             elicitations: elicitations
@@ -127,6 +167,10 @@ export class UrlElicitationRequiredError extends ProtocolError {
  * version that was requested (`requested`).
  */
 export class UnsupportedProtocolVersionError extends ProtocolError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UnsupportedProtocolVersionError' });
+    }
+
     constructor(data: UnsupportedProtocolVersionErrorData, message: string = `Unsupported protocol version: ${data.requested}`) {
         super(ProtocolErrorCode.UnsupportedProtocolVersion, message, data);
     }
@@ -156,11 +200,15 @@ export class UnsupportedProtocolVersionError extends ProtocolError {
  * have to declare for the request to be served. On HTTP, the response status
  * is `400 Bad Request`.
  *
- * Recognize this error by its code and `data.requiredCapabilities` rather than
- * by class identity (`instanceof` does not work across separately bundled
- * copies of the SDK).
+ * Recognize this error by its code and `data.requiredCapabilities`, or by
+ * `instanceof` — checks are brand-matched and work across separately bundled
+ * copies of the SDK.
  */
 export class MissingRequiredClientCapabilityError extends ProtocolError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.MissingRequiredClientCapabilityError' });
+    }
+
     constructor(
         data: MissingRequiredClientCapabilityErrorData,
         message: string = `Missing required client capabilities: ${Object.keys(data.requiredCapabilities).join(', ')}`

@@ -827,6 +827,28 @@ The SDK now distinguishes three error kinds:
 3. **`SdkHttpError`** (extends `SdkError`) — HTTP transport errors with typed `.status`
    and `.statusText`.
 
+These classes (and `OAuthError`, the client's `SseError`, `UnauthorizedError`, and the
+OAuth-client-flow error family) brand-match under `instanceof`, so checks work across
+separately bundled copies of the SDK — e.g. a process using both
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server`. Each branded
+hierarchy also exposes the same check as an explicit static guard
+(`SdkError.isInstance(err)`, `ProtocolError.isInstance(err)`, …) that narrows in
+TypeScript — use whichever style your codebase prefers; both read the same brand.
+Fine print (applies equally to `instanceof` and `isInstance`):
+
+- **Version skew** — matching needs *both* copies at a brand-aware release; against an
+  older copy, behavior degrades to plain prototype `instanceof` (false across bundles).
+  During mixed-version rollouts, recognize errors without class identity: match
+  `error.name` plus the class's discriminant field (`code`, `status`), or reconstruct
+  typed protocol errors with `ProtocolError.fromError(code, message, data)`.
+- **Worker boundaries** — `structuredClone`/`postMessage` drop the (symbol-keyed) brand,
+  so a rehydrated error no longer brand-matches; recognize forwarded errors by
+  `code`/`data` instead.
+- **Brands assert identity, not shape** — a matched instance from another SDK version
+  may lack newer fields; read fields defensively.
+- **Re-bundling with property mangling** (`mangle.props` and similar) breaks the brand
+  statics; default esbuild/webpack/terser settings are safe.
+
 The codemod renames `McpError` → `ProtocolError`, `ErrorCode` → `ProtocolErrorCode`
 (routing `RequestTimeout` / `ConnectionClosed` to `SdkErrorCode`), and
 `StreamableHTTPError` → `SdkHttpError`. After the codemod runs, your `instanceof`
@@ -984,7 +1006,8 @@ peers as `-32602` — a server can no longer emit `-32002` on the wire.
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as
 receive-tolerated vocabulary — accept both `-32602` and `-32002` from peers.
 `ProtocolError.fromError(code, message, data)` reconstructs the typed subclass from
-code + data alone, so it works across bundle boundaries where `instanceof` doesn't.
+code + data alone — the version-agnostic path: it also works on plain wire shapes and
+against SDK copies that predate brand-matched `instanceof`.
 The default message text changed alongside: v1's unknown-resource error read
 `Resource <uri> not found`; v2's `ResourceNotFoundError` default is
 `Resource not found: <uri>` (the code is unchanged). Tests pinning the exact string

@@ -7,6 +7,7 @@
  */
 
 import type { OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
+import { brandedHasInstance, stampErrorBrands } from '@modelcontextprotocol/core-internal';
 
 /**
  * Base class for the OAuth-client-flow error family. Concrete subclasses are
@@ -19,9 +20,36 @@ import type { OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
  * hook and will not match anything until the first behavior change ships.
  */
 export class OAuthClientFlowError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.OAuthClientFlowError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(message: string) {
         super(message);
         this.name = new.target.name;
+        stampErrorBrands(this, new.target);
     }
 }
 
@@ -45,6 +73,10 @@ export class OAuthClientFlowError extends Error {
  * end users. The values are JSON-encoded in the message to neutralize log-injection.
  */
 export class IssuerMismatchError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.IssuerMismatchError' });
+    }
+
     /** Which check failed — metadata echo (RFC 8414 §3.3) or authorization-response `iss` (RFC 9207). */
     readonly kind: 'metadata' | 'authorization_response';
     /** The issuer the client expected (from validated metadata / discovery input). */
@@ -79,6 +111,10 @@ export class IssuerMismatchError extends OAuthClientFlowError {
  * path.
  */
 export class RegistrationRejectedError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.RegistrationRejectedError' });
+    }
+
     /** HTTP status code returned by the registration endpoint. */
     public readonly status: number;
     /** Raw response body text (typically an RFC 7591 error JSON document). */
@@ -102,6 +138,10 @@ export class RegistrationRejectedError extends OAuthClientFlowError {
  * of falling through to a fresh `/authorize` redirect.
  */
 export class InsecureTokenEndpointError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.InsecureTokenEndpointError' });
+    }
+
     /** The token endpoint URL that was rejected. */
     public readonly tokenEndpoint: string;
 
@@ -145,6 +185,10 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
  * client credentials are protected structurally by the `issuer` stamp instead.
  */
 export class AuthorizationServerMismatchError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.AuthorizationServerMismatchError' });
+    }
+
     constructor(
         /** The issuer recorded in `discoveryState()` when the authorization redirect was issued. */
         public readonly recordedIssuer: string,
@@ -160,6 +204,10 @@ export class AuthorizationServerMismatchError extends OAuthClientFlowError {
 }
 
 export class InsufficientScopeError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.InsufficientScopeError' });
+    }
+
     /** The `scope` value from the `WWW-Authenticate` challenge — the scopes the resource server says are required. */
     readonly requiredScope?: string;
     /** The `resource_metadata` URL from the `WWW-Authenticate` challenge, if present. */
