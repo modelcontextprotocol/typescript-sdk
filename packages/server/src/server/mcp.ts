@@ -18,6 +18,7 @@ import type {
     ReadResourceResult,
     Resource,
     ResourceTemplateReference,
+    ResourceUpdatedNotification,
     Result,
     ServerContext,
     StandardSchemaWithJSON,
@@ -146,6 +147,14 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        // A declared `resources.subscribe` capability gets SDK-owned subscription
+        // bookkeeping automatically; deferring the install to connect time lets a
+        // hand-registered `resources/subscribe` handler win by already existing.
+        this._autoTrackResourceSubscriptions();
+        // Per-resource subscriptions are connection state: a reused instance must
+        // not carry the previous connection's subscriptions onto a new transport,
+        // where they would route unsolicited `notifications/resources/updated`.
+        this._resourceSubscriptions.clear();
         return await this.server.connect(transport);
     }
 
@@ -505,6 +514,137 @@ export class McpServer {
         });
 
         this._resourceHandlersInitialized = true;
+    }
+
+    private readonly _resourceSubscriptions = new Set<string>();
+
+    /**
+     * The resource URIs the connected client has subscribed to via `resources/subscribe`,
+     * as recorded by the SDK's subscription tracking — automatic on {@linkcode connect}
+     * when the `resources.subscribe` capability is declared, or explicit via
+     * {@linkcode trackResourceSubscriptions}. Empty while no tracking is active, and
+     * always empty on 2026-07-28 connections (per-resource subscriptions travel on
+     * `subscriptions/listen` there, handled by the serving entries).
+     * Subscriptions are connection state: {@linkcode connect} resets the set.
+     */
+    get resourceSubscriptions(): ReadonlySet<string> {
+        return this._resourceSubscriptions;
+    }
+
+    /**
+     * Explicitly enables SDK-owned bookkeeping for per-resource subscriptions on
+     * 2025-era connections, with optional veto hooks: installs the
+     * `resources/subscribe` and `resources/unsubscribe` request handlers, records
+     * subscribed URIs in {@linkcode resourceSubscriptions}, and declares the
+     * `resources.subscribe` capability (so, like any capability registration, it
+     * must be called before {@linkcode connect}).
+     *
+     * Declaring the `resources.subscribe` capability alone already activates the
+     * same tracking automatically at {@linkcode connect} time — call this method
+     * only to attach hooks, or to declare the capability and install the handlers
+     * in one step. Handlers hand-registered on the underlying {@linkcode server}
+     * always win: the automatic install skips when either subscription verb
+     * already has a handler.
+     *
+     * `onSubscribe` runs before the URI is recorded: throw to refuse the
+     * subscription — the error propagates as the handler error, so the client
+     * receives it as the JSON-RPC error response (throw a {@linkcode ProtocolError}
+     * to control the error code) and the set is left unchanged. `onUnsubscribe`
+     * is symmetric: it runs before the URI is removed, and a throw leaves the
+     * subscription in place.
+     *
+     * Calling this more than once throws: the first call installed the
+     * `resources/subscribe` handler, so the duplicate-registration guard rejects
+     * the second. The same guard rejects it when a subscribe handler was
+     * installed manually on the underlying server, or when a prior
+     * {@linkcode connect} already auto-installed the handlers for a declared
+     * `resources.subscribe` capability — attach hooks before the first connect.
+     *
+     * On 2026-07-28 connections the two verbs do not exist (clients name resource
+     * URIs in their `subscriptions/listen` filter and the serving entries own that
+     * bookkeeping), and requests for them are rejected before any handler runs —
+     * enabling tracking on a dual-era server is harmless there.
+     *
+     * @example
+     * ```ts source="./mcp.examples.ts#McpServer_trackResourceSubscriptions_basic"
+     * server.trackResourceSubscriptions({
+     *     onSubscribe: uri => {
+     *         if (!uri.startsWith('status://')) {
+     *             throw new Error(`Subscriptions to ${uri} are not supported`);
+     *         }
+     *     }
+     * });
+     *
+     * // ...later, when the resource changes:
+     * if (server.resourceSubscriptions.has('status://deploy')) {
+     *     await server.sendResourceUpdated({ uri: 'status://deploy' });
+     * }
+     * ```
+     */
+    trackResourceSubscriptions(options?: {
+        /** Veto hook: runs before the URI is recorded; a throw refuses the subscription. */
+        onSubscribe?: (uri: string, ctx: ServerContext) => void | Promise<void>;
+        /** Symmetric hook for `resources/unsubscribe`; a throw leaves the subscription in place. */
+        onUnsubscribe?: (uri: string, ctx: ServerContext) => void | Promise<void>;
+    }): void {
+        // Assert-first, mutate-after: a repeat call (or a manually installed
+        // subscribe handler) throws here before any state changes.
+        this.server.assertCanSetRequestHandler('resources/subscribe');
+        this.server.assertCanSetRequestHandler('resources/unsubscribe');
+
+        // A server advertising the resources capability must also answer its
+        // list/read methods, so those handlers are installed first when nothing has
+        // done so yet. This call asserts before it mutates, which keeps the whole
+        // method atomic: any throw leaves no capability half-declared.
+        this.setResourceRequestHandlers();
+
+        // Declaring `resources.subscribe` is what advertises the two verbs; doing it
+        // here (merged with any previously declared resources bits) makes the opt-in
+        // a single call, the same way registerTool declares `tools`.
+        this.server.registerCapabilities({ resources: { subscribe: true } });
+
+        this._installResourceSubscriptionHandlers(options);
+    }
+
+    /**
+     * The {@linkcode connect}-time automatic arm of the subscription tracking: a
+     * declared `resources.subscribe` capability gets the same handlers an explicit
+     * {@linkcode trackResourceSubscriptions} call installs (without hooks). The
+     * install is skipped when either subscription verb already has a handler — a
+     * hand-registered handler wins, and a repeat {@linkcode connect} finds the
+     * first connect's handlers and does nothing (the set is cleared separately).
+     */
+    private _autoTrackResourceSubscriptions(): void {
+        if (!this.server.getCapabilities().resources?.subscribe) {
+            return;
+        }
+        if (this.server.hasRequestHandler('resources/subscribe') || this.server.hasRequestHandler('resources/unsubscribe')) {
+            return;
+        }
+        this._installResourceSubscriptionHandlers();
+    }
+
+    private _installResourceSubscriptionHandlers(options?: {
+        onSubscribe?: (uri: string, ctx: ServerContext) => void | Promise<void>;
+        onUnsubscribe?: (uri: string, ctx: ServerContext) => void | Promise<void>;
+    }): void {
+        this.server.setRequestHandler('resources/subscribe', async (request, ctx) => {
+            await options?.onSubscribe?.(request.params.uri, ctx);
+            // A request cancelled while the hook ran must not mutate the set —
+            // the protocol suppresses the aborted request's response, so the
+            // client would never learn a subscription was recorded.
+            ctx.mcpReq.signal.throwIfAborted();
+            this._resourceSubscriptions.add(request.params.uri);
+            return {};
+        });
+
+        this.server.setRequestHandler('resources/unsubscribe', async (request, ctx) => {
+            await options?.onUnsubscribe?.(request.params.uri, ctx);
+            // Symmetric to subscribe: no set mutation for a cancelled request.
+            ctx.mcpReq.signal.throwIfAborted();
+            this._resourceSubscriptions.delete(request.params.uri);
+            return {};
+        });
     }
 
     private _promptHandlersInitialized = false;
@@ -1120,6 +1260,17 @@ export class McpServer {
     sendResourceListChanged() {
         if (this.isConnected()) {
             this.server.sendResourceListChanged();
+        }
+    }
+
+    /**
+     * Sends a resource updated event for the given resource URI to the client, if connected.
+     * On 2025-era connections, send this only for URIs the client subscribed to — see
+     * {@linkcode trackResourceSubscriptions} and {@linkcode resourceSubscriptions}.
+     */
+    async sendResourceUpdated(params: ResourceUpdatedNotification['params']): Promise<void> {
+        if (this.isConnected()) {
+            await this.server.sendResourceUpdated(params);
         }
     }
 

@@ -1611,6 +1611,19 @@ not found`. Low-level `Server` users remain responsible for registering handlers
   tests need re-baselining. To advertise without the default, set
   `listChanged: false` explicitly; capabilities declared on the low-level `Server` are
   advertised verbatim.
+- **Declared `resources.subscribe` now activates SDK-owned subscription tracking.** At
+  `McpServer.connect()`, a declared `resources: { subscribe: true }` capability installs
+  the `resources/subscribe` and `resources/unsubscribe` handlers when neither verb has
+  one yet: both verbs answer `{}` instead of v1's `-32601 Method not found`, and the
+  subscribed URIs are recorded in the per-connection `mcpServer.resourceSubscriptions`
+  read-only set (cleared on every connect). Hand-registered handlers win — register
+  them before `connect()` (as in v1) and the automatic install skips, so existing
+  escape-hatch servers keep their exact behavior. To veto subscriptions, call
+  `mcpServer.trackResourceSubscriptions({ onSubscribe })` before the **first**
+  `connect()`: the hook runs before a URI is recorded and a throw is returned to the
+  client as the request's error (after a connect has auto-installed the handlers, the
+  explicit call throws its duplicate-registration error). Tests pinning `-32601` for
+  `resources/subscribe` on servers that declare the capability need re-baselining.
 - **`WebStandardStreamableHTTPServerTransport` store-first `eventStore` semantics.**
   Request-related events emitted after `closeSSE()` — and the final response when no
   per-request stream is connected — are now persisted to the configured `eventStore` for

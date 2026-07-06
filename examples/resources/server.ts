@@ -24,6 +24,9 @@ const COUNTER_URI = 'counter://value';
 let counter = 0;
 
 function buildServer(reqCtx: McpRequestContext, publishUpdated?: (uri: string) => void): McpServer {
+    // Declaring `resources.subscribe` is the whole opt-in: at connect time the SDK
+    // installs the resources/subscribe and resources/unsubscribe handlers and
+    // tracks the URIs THIS connection watches in `server.resourceSubscriptions`.
     const server = new McpServer(
         { name: 'resources-example', version: '1.0.0' },
         { capabilities: { resources: { subscribe: true, listChanged: true } } }
@@ -53,18 +56,6 @@ function buildServer(reqCtx: McpRequestContext, publishUpdated?: (uri: string) =
         async uri => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: String(counter) }] })
     );
 
-    // resources/subscribe bookkeeping is the application's: the SDK routes the
-    // two verbs, and which URIs THIS connection watches lives here.
-    const subscribedUris = new Set<string>();
-    server.server.setRequestHandler('resources/subscribe', request => {
-        subscribedUris.add(request.params.uri);
-        return {};
-    });
-    server.server.setRequestHandler('resources/unsubscribe', request => {
-        subscribedUris.delete(request.params.uri);
-        return {};
-    });
-
     server.registerTool('increment', { description: `Bump ${COUNTER_URI} by one` }, async () => {
         counter += 1;
         if (publishUpdated) {
@@ -72,11 +63,11 @@ function buildServer(reqCtx: McpRequestContext, publishUpdated?: (uri: string) =
             // so the change is published on the entry's notifier for the listen
             // streams other requests hold open.
             publishUpdated(COUNTER_URI);
-        } else if (reqCtx.era === 'modern' || subscribedUris.has(COUNTER_URI)) {
+        } else if (reqCtx.era === 'modern' || server.resourceSubscriptions.has(COUNTER_URI)) {
             // Connection serving (stdio): announce in-band. The entry routes it
             // onto 2026-07-28 listen streams; on a 2025-era connection it goes
             // only to subscribers — unsolicited per-resource updates are wrong.
-            await server.server.sendResourceUpdated({ uri: COUNTER_URI }).catch(() => {});
+            await server.sendResourceUpdated({ uri: COUNTER_URI }).catch(() => {});
         }
         return { content: [{ type: 'text', text: String(counter) }] };
     });

@@ -1760,10 +1760,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Whether a request handler is currently registered for the given method.
+     */
+    hasRequestHandler(method: RequestMethod | string): boolean {
+        return this._requestHandlers.has(method);
+    }
+
+    /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
     assertCanSetRequestHandler(method: RequestMethod | string): void {
-        if (this._requestHandlers.has(method)) {
+        if (this.hasRequestHandler(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
     }
