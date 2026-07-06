@@ -1153,11 +1153,12 @@ describe('OAuth Authorization', () => {
             );
             expect(discoveryCalls).toHaveLength(0);
 
-            // Verify the token request includes the resource parameter from cached metadata
+            // Verify the token request includes the resource parameter from cached metadata,
+            // preserved verbatim (no trailing slash added — see #1968).
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -2560,6 +2561,60 @@ describe('OAuth Authorization', () => {
             const authUrl: URL = redirectCall[0];
             // Should use the PRM's resource value, not the full requested URL
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
+        });
+
+        it('preserves bare-domain resource URI from PRM without adding a trailing slash', async () => {
+            // Regression test for #1968: `new URL("https://example.com").href` adds a trailing
+            // slash, which breaks providers (e.g. Microsoft Entra ID) that require an exact
+            // match between the OAuth `resource` parameter and the configured resource indicator.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            // Bare-origin resource URI with no trailing slash
+                            resource: 'https://api.example.com',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server/endpoint'
+            });
+
+            expect(result).toBe('REDIRECT');
+
+            const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
+            const authUrl: URL = redirectCall[0];
+            // Resource indicator must round-trip exactly as published in PRM (no trailing slash)
+            expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com');
         });
 
         it('excludes resource parameter when Protected Resource Metadata is not present', async () => {
