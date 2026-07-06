@@ -48,8 +48,8 @@ export interface BearerAuthOptions {
      * `WWW-Authenticate` header on 401/403 responses, per
      * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728}.
      *
-     * Typically built with `getOAuthProtectedResourceMetadataUrl` from
-     * `@modelcontextprotocol/express`.
+     * Typically built with `getOAuthProtectedResourceMetadataUrl`, exported
+     * from this package.
      */
     resourceMetadataUrl?: string;
 }

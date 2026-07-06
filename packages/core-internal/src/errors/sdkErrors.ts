@@ -1,3 +1,5 @@
+import { brandedHasInstance, stampErrorBrands } from './crossBundleBrand';
+
 /**
  * Error codes for SDK errors (local errors that never cross the wire).
  * Unlike {@linkcode ProtocolErrorCode} which uses numeric JSON-RPC codes, `SdkErrorCode` uses
@@ -98,6 +100,32 @@ export enum SdkErrorCode {
  * ```
  */
 export class SdkError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
@@ -105,6 +133,7 @@ export class SdkError extends Error {
     ) {
         super(message);
         this.name = 'SdkError';
+        stampErrorBrands(this, new.target);
     }
 }
 
@@ -134,6 +163,10 @@ export interface SdkHttpErrorData {
  * ```
  */
 export class SdkHttpError extends SdkError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkHttpError' });
+    }
+
     declare readonly data: SdkHttpErrorData;
 
     constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {

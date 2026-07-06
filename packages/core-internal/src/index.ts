@@ -1,4 +1,5 @@
 export * from './auth/errors';
+export * from './errors/crossBundleBrand';
 export * from './errors/sdkErrors';
 export * from './shared/auth';
 export * from './shared/authUtils';

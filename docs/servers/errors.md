@@ -179,7 +179,7 @@ Three more subclasses cover the other structured protocol errors:
 - `UnsupportedProtocolVersionError({ supported, requested })` — `-32022`; `data.supported` lets the peer pick a version and retry.
 - `MissingRequiredClientCapabilityError({ requiredCapabilities })` — `-32021`; `data.requiredCapabilities` names exactly what the client must declare.
 
-Match these by `code` and `data` shape, not by `instanceof` — `instanceof` fails across separately bundled copies of the SDK.
+Match these by `code` and `data` shape when peers may run pre-brand SDK copies or hand you plain wire shapes; on brand-aware releases `instanceof` also matches across separately bundled copies of the SDK. The same check is available as an explicit static guard — `ProtocolError.isInstance(err)`, `ResourceNotFoundError.isInstance(err)` — which narrows in TypeScript and reads the same brand.
 
 ## Look up a protocol error code
 
@@ -205,5 +205,5 @@ Match these by `code` and `data` shape, not by `instanceof` — `instanceof` fai
 - A tool handler that throws produces the same `isError: true` result; the exception's `message` becomes the `content` text.
 - A tool handler cannot produce a protocol error — only `UrlElicitationRequiredError` escapes.
 - `ProtocolError` and its subclasses, thrown from resource, prompt, and completion callbacks, become JSON-RPC error responses the model never sees.
-- `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data`, not `instanceof`.
+- `ResourceNotFoundError` and the other subclasses pick the code and pack structured `data`; match them by `code` and `data` — or, on brand-aware releases, by `instanceof`.
 - The table above lists every `ProtocolErrorCode` member.

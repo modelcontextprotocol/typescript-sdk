@@ -89,6 +89,16 @@ app.use(mcpAuthMetadataRouter({ oauthMetadata, resourceServerUrl: mcpServerUrl }
 
 The router mounts two well-known routes: `/.well-known/oauth-protected-resource/mcp` — the path-aware RFC 9728 location, the same string `getOAuthProtectedResourceMetadataUrl(mcpServerUrl)` put into the challenge — and `/.well-known/oauth-authorization-server`, a mirror of `oauthMetadata` for clients that probe your origin directly. An unauthenticated client follows `401` → `resource_metadata` → `authorization_servers` to find your AS, obtains a token, and retries.
 
+On a web-standard host, `oauthMetadataResponse` from `@modelcontextprotocol/server` serves the same two documents from a `fetch(request)` handler — it returns the matched document `Response` (with permissive CORS and `405` handling) or `undefined` to fall through to your own routing:
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#oauthMetadataResponse_webStandard"
+import { oauthMetadataResponse } from '@modelcontextprotocol/server';
+
+async function webStandardFetch(request: Request): Promise<Response> {
+    return oauthMetadataResponse(request, { oauthMetadata, resourceServerUrl: mcpServerUrl }) ?? serveMcp(request);
+}
+```
+
 ## Read the caller in your handlers
 
 `requireBearerAuth` attaches the verified `AuthInfo` to `req.auth`, `toNodeHandler` forwards it, and tool handlers inside `buildServer` read it as `ctx.http.authInfo` — the exact object your verifier returned.

@@ -83,3 +83,13 @@ function buildServer(): McpServer {
 
     return server;
 }
+
+//#region oauthMetadataResponse_webStandard
+import { oauthMetadataResponse } from '@modelcontextprotocol/server';
+
+async function webStandardFetch(request: Request): Promise<Response> {
+    return oauthMetadataResponse(request, { oauthMetadata, resourceServerUrl: mcpServerUrl }) ?? serveMcp(request);
+}
+//#endregion oauthMetadataResponse_webStandard
+
+declare function serveMcp(request: Request): Promise<Response>;
