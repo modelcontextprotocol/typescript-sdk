@@ -1,3 +1,4 @@
+import { mediaTypeEssence } from '../shared/mediaType.js';
 import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
@@ -572,16 +573,17 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const hasRequests = messages.filter(msg => 'method' in msg && 'id' in msg && msg.id !== undefined).length > 0;
 
-            // Check the response type
+            // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');
+            const responseMediaType = mediaTypeEssence(contentType);
 
             if (hasRequests) {
-                if (contentType?.includes('text/event-stream')) {
+                if (responseMediaType === 'text/event-stream') {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
                     this._handleSseStream(response.body, { onresumptiontoken }, false);
-                } else if (contentType?.includes('application/json')) {
+                } else if (responseMediaType === 'application/json') {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
                     const responseMessages = Array.isArray(data)
