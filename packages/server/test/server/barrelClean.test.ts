@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -7,6 +8,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
+const requireDist = createRequire(join(pkgDir, 'package.json'));
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
 // Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
 const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
@@ -67,5 +69,16 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
                 );
             }
         }
+    });
+
+    test('CJS AJV validator subpath exposes Ajv at runtime', () => {
+        const { Ajv, AjvJsonSchemaValidator, addFormats } = requireDist(
+            './dist/validators/ajv.cjs'
+        ) as typeof import('../../src/validators/ajv');
+
+        const ajv = new Ajv({ strict: false, allErrors: true });
+        addFormats(ajv);
+
+        expect(new AjvJsonSchemaValidator(ajv)).toBeInstanceOf(AjvJsonSchemaValidator);
     });
 });

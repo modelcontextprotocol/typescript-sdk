@@ -25,7 +25,7 @@ jobs:
             url: ${{ steps.deployment.outputs.page_url }}
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
