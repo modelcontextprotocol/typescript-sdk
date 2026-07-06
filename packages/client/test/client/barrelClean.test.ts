@@ -12,6 +12,7 @@ const requireDist = createRequire(join(pkgDir, 'package.json'));
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
 // Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
 const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
+const ROOT_VALIDATOR_EXPORTS = ['AjvJsonSchemaValidator', 'CfWorkerJsonSchemaValidator', 'CfWorkerSchemaDraft'];
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();
@@ -27,6 +28,12 @@ function chunkImportsOf(entryPath: string): string[] {
     }
     visited.delete(entryPath);
     return [...visited];
+}
+
+function rootExportBlockOf(content: string): string {
+    const blocks = content.match(/(?:^|\n)export \{[\s\S]*?\};/g);
+    expect(blocks).toBeTruthy();
+    return blocks!.at(-1)!;
 }
 
 describe('@modelcontextprotocol/client root entry is browser-safe', () => {
@@ -79,5 +86,14 @@ describe('@modelcontextprotocol/client root entry is browser-safe', () => {
         addFormats(ajv);
 
         expect(new AjvJsonSchemaValidator(ajv)).toBeInstanceOf(AjvJsonSchemaValidator);
+    });
+
+    test('root declarations do not advertise validator provider classes', () => {
+        for (const declaration of ['index.d.mts', 'index.d.cts']) {
+            const rootExportBlock = rootExportBlockOf(readFileSync(join(distDir, declaration), 'utf8'));
+            for (const symbol of ROOT_VALIDATOR_EXPORTS) {
+                expect(rootExportBlock).not.toMatch(new RegExp(`\\b(?:type\\s+)?${symbol}\\b`));
+            }
+        }
     });
 });
