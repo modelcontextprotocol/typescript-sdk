@@ -171,3 +171,20 @@
     text-decoration: underline;
     margin-left: 4px;
 }
+
+/* --------------------------------------------------- markdown-source footer */
+
+.markdown-source {
+    margin-bottom: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--vp-c-divider);
+    color: var(--vp-c-text-3);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.markdown-source a {
+    color: var(--vp-c-text-2);
+    text-decoration: underline;
+    font-weight: 400;
+}
