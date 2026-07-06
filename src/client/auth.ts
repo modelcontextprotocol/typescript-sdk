@@ -239,7 +239,7 @@ export class UnauthorizedError extends Error {
     }
 }
 
-type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
+export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {
     return ['client_secret_basic', 'client_secret_post', 'none'].includes(method);
@@ -313,7 +313,7 @@ export function selectClientAuthMethod(clientInformation: OAuthClientInformation
  * @param params - URL search parameters to modify
  * @throws {Error} When required credentials are missing
  */
-function applyClientAuthentication(
+export function applyClientAuthentication(
     method: ClientAuthMethod,
     clientInformation: OAuthClientInformation,
     headers: Headers,
