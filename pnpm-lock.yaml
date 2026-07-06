@@ -427,15 +427,18 @@ importers:
 
   examples/caching:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -496,15 +499,18 @@ importers:
 
   examples/custom-methods:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -518,15 +524,18 @@ importers:
 
   examples/custom-version:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -537,15 +546,18 @@ importers:
 
   examples/dual-era:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -581,15 +593,18 @@ importers:
 
   examples/extension-capabilities:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -647,15 +662,18 @@ importers:
 
   examples/json-response:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -703,15 +721,18 @@ importers:
 
   examples/mrtr:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -784,15 +805,18 @@ importers:
 
   examples/parallel-calls:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -806,15 +830,18 @@ importers:
 
   examples/prompts:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -862,15 +889,18 @@ importers:
 
   examples/resources:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -881,15 +911,18 @@ importers:
 
   examples/sampling:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -903,15 +936,18 @@ importers:
 
   examples/schema-validators:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1107,15 +1143,18 @@ importers:
 
   examples/stateless-legacy:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1129,15 +1168,18 @@ importers:
 
   examples/stickynotes:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1151,15 +1193,18 @@ importers:
 
   examples/streaming:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1173,15 +1218,18 @@ importers:
 
   examples/subscriptions:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1195,12 +1243,15 @@ importers:
 
   examples/todos-server:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -1214,15 +1265,18 @@ importers:
 
   examples/tools:
     dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/node':
+      '@modelcontextprotocol/hono':
         specifier: workspace:*
-        version: link:../../packages/middleware/node
+        version: link:../../packages/middleware/hono
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server

@@ -7,9 +7,10 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
-        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*"
     },
     "devDependencies": {

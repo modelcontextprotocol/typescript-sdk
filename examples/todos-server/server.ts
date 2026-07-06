@@ -3,10 +3,9 @@
  * todos.ts). Same dual-transport skeleton as every other example: stdio by default
  * (cli-client spawns it as a child process), Streamable HTTP behind `--http`.
  */
-import { createServer } from 'node:http';
-
+import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
@@ -23,7 +22,11 @@ if (transport === 'stdio') {
     // events (the board changing) are published through the handler's notifier instead.
     onBoardChanged(() => handler.notify.resourcesChanged());
     onBoardUpdated(uri => handler.notify.resourceUpdated(uri));
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` binds the endpoint behind localhost host/origin
+    // validation by default, matching the framework factories' defaults.
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
         console.error(`[todos] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

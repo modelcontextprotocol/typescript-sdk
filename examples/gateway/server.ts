@@ -9,7 +9,7 @@
 import { createServer } from 'node:http';
 
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { localhostHostValidation, localhostOriginValidation, toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -44,6 +44,16 @@ function buildServer(): McpServer {
 const { port } = parseExampleArgs();
 
 const handler = createMcpHandler(buildServer);
-createServer(toNodeHandler(handler)).listen(port, () => {
+const nodeHandler = toNodeHandler(handler);
+// Bind loopback explicitly and apply host/origin validation in front of the
+// handler, matching the framework factories' defaults. The guards answer
+// rejected requests themselves and never reach `createMcpHandler`, so the
+// per-request factory count the client asserts on is unchanged.
+const validateHost = localhostHostValidation();
+const validateOrigin = localhostOriginValidation();
+createServer((req, res) => {
+    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    void nodeHandler(req, res);
+}).listen(port, '127.0.0.1', () => {
     console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
 });

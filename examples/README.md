@@ -16,6 +16,8 @@ pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/mcp
 
 Add `-- --legacy` to the client command for the 2025-era handshake.
 
+Every HTTP leg serves the handler behind host/origin validation — via `createMcpHonoApp()` (or another framework app factory, which arm the checks by default on localhost binds), or, for raw `node:http` stories, via the `localhostHostValidation()` / `localhostOriginValidation()` guards from `@modelcontextprotocol/node` composed in front of `toNodeHandler` on an explicit loopback bind. New stories follow the canonical skeleton — see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 The one exception to the generic commands is the reference pair: [`cli-client/`](./cli-client/README.md) and [`todos-server/`](./todos-server/README.md) have their own entry points (`pnpm --filter @mcp-examples/cli-client start`, `pnpm --filter @mcp-examples/todos-server start:http`) — see their READMEs.
 
 ## Start here

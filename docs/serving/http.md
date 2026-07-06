@@ -66,19 +66,25 @@ Because no state lives on the instance, the endpoint is stateless and scales hor
 
 ## Mount it on your runtime
 
-On a web-standard runtime — Cloudflare Workers, Deno, Bun — `export default handler` is the entire mount. Node frameworks wrap the handler once with `toNodeHandler` from `@modelcontextprotocol/node`; on plain `node:http`:
+On a web-standard runtime — Cloudflare Workers, Deno, Bun — `export default handler` is the entire mount. Node frameworks wrap the handler once with `toNodeHandler` from `@modelcontextprotocol/node`; on plain `node:http`, bind loopback explicitly and compose the `localhostHostValidation` / `localhostOriginValidation` guards (also from `@modelcontextprotocol/node`) in front of it, matching the framework factories' defaults:
 
 ```ts source="../../examples/guides/serving/http.examples.ts#mountNode"
-createServer(toNodeHandler(handler)).listen(3000);
+const nodeHandler = toNodeHandler(handler);
+const validateHost = localhostHostValidation();
+const validateOrigin = localhostOriginValidation();
+createServer((req, res) => {
+    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    void nodeHandler(req, res);
+}).listen(3000, '127.0.0.1');
 ```
 
-`POST http://localhost:3000/mcp` now reaches the factory. The same wrapped handler mounts under [Express](./express.md), [Fastify](./fastify.md), and [Hono](./hono.md); [Serve on web-standard runtimes](./web-standard.md) covers the `export default` side.
+`POST http://127.0.0.1:3000/mcp` now reaches the factory; the guards answer anything else with `403` before the handler sees it — [the next section](#validate-host-and-origin-in-front-of-it) explains why they belong in front. The same wrapped handler mounts under [Express](./express.md), [Fastify](./fastify.md), and [Hono](./hono.md); [Serve on web-standard runtimes](./web-standard.md) covers the `export default` side.
 
 ## Validate Host and Origin in front of it
 
 The handler trusts its caller: it validates no `Host` header, no `Origin` header, and no token. Mount those checks in front of it — on a localhost bind, the `Host` check is what stops **DNS rebinding**, a malicious page resolving its own domain to `127.0.0.1` so the browser treats your local server as same-origin.
 
-Under a framework you never wire either check by hand: `createMcpExpressApp`, `createMcpHonoApp`, and `createMcpFastifyApp` all arm both by default on localhost binds — the [Express](./express.md), [Hono](./hono.md), and [Fastify](./fastify.md) recipes start there. On a bare fetch runtime, put `hostHeaderValidationResponse` and `originValidationResponse` (from `@modelcontextprotocol/server`) in front of `handler.fetch` — [Serve on web-standard runtimes](./web-standard.md#protect-against-dns-rebinding) builds that wrapper.
+Under a framework you never wire either check by hand: `createMcpExpressApp`, `createMcpHonoApp`, and `createMcpFastifyApp` all arm both by default on localhost binds — the [Express](./express.md), [Hono](./hono.md), and [Fastify](./fastify.md) recipes start there. On plain `node:http`, compose `localhostHostValidation` and `localhostOriginValidation` (from `@modelcontextprotocol/node`) in front of the wrapped handler, as [the mount above](#mount-it-on-your-runtime) does. On a bare fetch runtime, put `hostHeaderValidationResponse` and `originValidationResponse` (from `@modelcontextprotocol/server`) in front of `handler.fetch` — [Serve on web-standard runtimes](./web-standard.md#protect-against-dns-rebinding) builds that wrapper.
 
 ## Pass authentication through
 
