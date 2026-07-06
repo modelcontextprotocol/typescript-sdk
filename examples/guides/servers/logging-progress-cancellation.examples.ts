@@ -20,6 +20,19 @@ import * as z from 'zod/v4';
 const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { capabilities: { logging: {} } });
 //#endregion logging_capability
 
+// "Route SDK diagnostics" — keep local SDK output off the stdio protocol channel.
+//#region sdkLogger_stderr
+const sdkLogger = {
+    debug: (...args: unknown[]) => console.error('[debug]', ...args),
+    info: (...args: unknown[]) => console.error('[info]', ...args),
+    warn: (...args: unknown[]) => console.error('[warn]', ...args),
+    error: (...args: unknown[]) => console.error('[error]', ...args)
+};
+
+const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
+//#endregion sdkLogger_stderr
+void diagnosticServer;
+
 // "Report progress from a handler" — the page's lead block.
 //#region registerTool_progress
 server.registerTool(
