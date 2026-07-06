@@ -1292,6 +1292,46 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
     });
 
+    // Regression test for #1417: serverless-express on AWS Lambda Function URLs
+    // drains the request stream and sets req.body to `null` rather than leaving
+    // it undefined. The transport should treat this the same as "no pre-parsed
+    // body" and fall through to reading the body itself, not pass `null` to the
+    // JSON-RPC parser.
+    describe('StreamableHTTPServerTransport with parsedBody = null (Lambda regression #1417)', () => {
+        let server: Server;
+        let transport: StreamableHTTPServerTransport;
+        let baseUrl: URL;
+
+        beforeEach(async () => {
+            const result = await createTestServer({
+                customRequestHandler: async (req, res) => {
+                    // Mimic serverless-express: pass `null` explicitly as parsedBody.
+                    await transport.handleRequest(req, res, null);
+                },
+                sessionIdGenerator: () => randomUUID()
+            });
+
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+        });
+
+        afterEach(async () => {
+            await stopTestServer({ server, transport });
+        });
+
+        it('parses the request body when parsedBody is null', async () => {
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('mcp-session-id')).toBeTruthy();
+
+            const text = await readSSEEvent(response);
+            expect(text).toContain('"id":"init-1"');
+            expect(text).toContain('"protocolVersion"');
+        });
+    });
+
     // Test resumability support
     describe('StreamableHTTPServerTransport with resumability', () => {
         let server: Server;
