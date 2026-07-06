@@ -23,10 +23,13 @@ describe('mediaTypeEssence', () => {
         expect(mediaTypeEssence(';charset=utf-8')).toBeUndefined();
     });
 
-    it('yields a no-match essence for a bare joined duplicate header', () => {
-        // Headers.get() joins repeated headers with ', '; the comparison sees
-        // the joined string, which does not equal 'application/json'.
+    it('yields no essence for joined duplicate headers, with or without parameters', () => {
+        // Headers.get() joins repeated headers with ', '. Without parameters
+        // the comma lands in the first segment; with parameters it hides in
+        // the tail — both must behave the same.
         expect(mediaTypeEssence('application/json, application/json')).toBe('application/json, application/json');
+        expect(mediaTypeEssence('application/json; charset=utf-8, text/plain')).toBeUndefined();
+        expect(mediaTypeEssence('application/json; charset=utf-8, application/json')).toBeUndefined();
     });
 });
 
@@ -49,6 +52,8 @@ describe('isJsonContentType', () => {
         expect(isJsonContentType('text/plain;')).toBe(false);
         expect(isJsonContentType('text/plain, application/json')).toBe(false);
         expect(isJsonContentType('application/json, application/json')).toBe(false);
+        expect(isJsonContentType('application/json; charset=utf-8, text/plain')).toBe(false);
+        expect(isJsonContentType('text/plain; charset=utf-8, application/json')).toBe(false);
         expect(isJsonContentType('application/json-patch+json')).toBe(false);
         expect(isJsonContentType('application/jsonp')).toBe(false);
     });
