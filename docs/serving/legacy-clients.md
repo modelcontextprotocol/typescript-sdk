@@ -70,7 +70,7 @@ async function serve(request: Request): Promise<Response> {
 }
 ```
 
-`legacyStatelessFallback(factory)` is the entry's default legacy serving as a standalone handler — it holds the legacy leg's place here. Put your existing wiring there instead and it keeps its sessions, its event store, and its clients: [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts) runs a sessionful `StreamableHTTPServerTransport` deployment behind this exact branch. Route every `false` to the strict handler — the modern path owns the error answers for malformed modern requests.
+`legacyStatelessFallback(factory)` is the entry's default legacy serving as a standalone handler — it holds the legacy leg's place here. Put your existing wiring there instead and it keeps its sessions, its event store, and its clients: [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts) runs a sessionful `StreamableHTTPServerTransport` deployment behind this exact branch. Route every `false` to the strict handler — the modern path owns the error answers for malformed modern requests. When the branch needs the routing reason rather than a boolean — say, sending only the legacy `initialize` handshake to a session host and everything else to the stateless handler — `classifyEntryRequest` is the same classification step returning the full outcome (`classified.outcome.reason === 'initialize'`) plus a body-preserving `forwardRequest` to hand to whichever handler wins.
 
 The `initialize` the strict handler rejected above now completes the 2025 handshake on the legacy leg:
 

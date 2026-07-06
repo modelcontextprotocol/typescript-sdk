@@ -389,11 +389,12 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
 }
 
 /* ------------------------------------------------------------------------ *
- * The entry's classification step (shared with isLegacyRequest)
+ * The entry's classification step (shared with isLegacyRequest, exported for
+ * hand-wired hybrid routing)
  * ------------------------------------------------------------------------ */
 
-/** The outcome of the entry's classification step for one inbound HTTP request. */
-type EntryClassification =
+/** The outcome of the entry's classification step ({@linkcode classifyEntryRequest}) for one inbound HTTP request. */
+export type EntryClassification =
     /** The body bytes could not be read at all (a failing stream, not malformed JSON). */
     | { step: 'unreadable-body' }
     /** A POST with an empty or non-JSON body: nothing to classify, so there is no envelope claim. */
@@ -402,17 +403,55 @@ type EntryClassification =
     | { step: 'classified'; outcome: InboundClassificationOutcome; body: unknown; parsedBody: unknown; forwardRequest: Request };
 
 /**
- * The entry's classification step: read the request body exactly once (unless
- * a pre-parsed body is supplied) and classify the request with
- * {@linkcode classifyInboundRequest}. This is the single code path behind both
- * {@linkcode createMcpHandler}'s routing and the exported
- * {@linkcode isLegacyRequest} predicate, so the two can never disagree.
+ * The entry's classification step, taking the web-standard `Request` itself —
+ * the Request-shaped sibling of {@linkcode classifyInboundRequest}. It
+ * extracts the HTTP method and the `MCP-Protocol-Version` / `Mcp-Method` /
+ * `Mcp-Name` headers, reads the request body exactly once (unless a
+ * pre-parsed body is supplied) with the unreadable-stream vs. no-JSON-body
+ * distinction, and classifies with {@linkcode classifyInboundRequest} — so a
+ * hand-wired composition never hand-assembles those fields. This is the
+ * single code path behind both {@linkcode createMcpHandler}'s routing and the
+ * exported {@linkcode isLegacyRequest} predicate, so the three can never
+ * disagree.
  *
- * Pass `needsForward: false` when the caller never reads `forwardRequest` —
- * the body-preserving clone is then skipped and `forwardRequest` is the
- * (consumed) input request.
+ * Where {@linkcode isLegacyRequest} collapses the decision to a boolean, this
+ * returns the full routing outcome — for hybrid deployments that need the
+ * routing reason. The canonical pattern routes the legacy `initialize`
+ * handshake to a sessionful host and everything else (modern traffic, other
+ * legacy traffic, rejections) to a stateless or strict handler:
+ *
+ * ```ts
+ * import { classifyEntryRequest, createMcpHandler } from '@modelcontextprotocol/server';
+ *
+ * const stateless = createMcpHandler(factory);
+ *
+ * async function serve(request: Request): Promise<Response> {
+ *     const classified = await classifyEntryRequest(request);
+ *     if (classified.step === 'unreadable-body') {
+ *         return new Response(null, { status: 400 });
+ *     }
+ *     if (classified.step === 'classified' && classified.outcome.kind === 'legacy' && classified.outcome.reason === 'initialize') {
+ *         // The 2025 handshake: open a session on the sessionful legacy host.
+ *         return sessionHost(classified.forwardRequest);
+ *     }
+ *     // Hand the already-parsed body along so the entry classifies from the
+ *     // value instead of reading the forwarded clone a second time.
+ *     return stateless.fetch(classified.forwardRequest, classified.step === 'classified' ? { parsedBody: classified.parsedBody } : undefined);
+ * }
+ * ```
+ *
+ * For a `POST` the body is read from the request you pass; `forwardRequest`
+ * is a body-preserving clone (or the input itself for body-less methods and
+ * pre-parsed bodies) that stays fully readable for whichever handler the
+ * outcome routes to. Pass `needsForward: false` when the caller never reads
+ * `forwardRequest` — the body-preserving clone is then skipped and
+ * `forwardRequest` is the (consumed) input request.
  */
-async function classifyEntryRequest(request: Request, providedParsedBody?: unknown, needsForward = true): Promise<EntryClassification> {
+export async function classifyEntryRequest(
+    request: Request,
+    providedParsedBody?: unknown,
+    needsForward = true
+): Promise<EntryClassification> {
     const httpMethod = request.method.toUpperCase();
 
     let body: unknown;

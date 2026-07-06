@@ -7,12 +7,17 @@
  * faces, the per-request era write + client-identity backfill, notification
  * routing, the response-mode knob, and close() teardown of the modern leg.
  */
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    classifyInboundRequest,
+    PROTOCOL_VERSION_META_KEY
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { McpRequestContext } from '../../src/server/createMcpHandler';
-import { createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler';
+import { classifyEntryRequest, createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler';
 import { McpServer } from '../../src/server/mcp';
 import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
 
@@ -733,6 +738,130 @@ describe('createMcpHandler — user-land routing with isLegacyRequest (replaces 
         const construct = () => createMcpHandler(factory, { legacy: myExistingLegacyHandler as unknown as 'stateless' });
         expect(construct).toThrow(TypeError);
         expect(construct).toThrow(/isLegacyRequest/);
+    });
+});
+
+describe('classifyEntryRequest — the Request-shaped sibling of classifyInboundRequest', () => {
+    const legacyInitialize = {
+        jsonrpc: '2.0',
+        id: 'init-1',
+        method: 'initialize',
+        params: { protocolVersion: '2025-11-25', clientInfo: { name: 'legacy', version: '1.0' }, capabilities: {} }
+    };
+
+    /** The fields a hand-wired composition would extract itself to call {@linkcode classifyInboundRequest} directly. */
+    function handExtractedFields(request: Request, body?: unknown): Parameters<typeof classifyInboundRequest>[0] {
+        return {
+            httpMethod: request.method.toUpperCase(),
+            protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
+            mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+            mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
+            ...(body !== undefined && { body })
+        };
+    }
+
+    it('classifies representative requests exactly as classifyInboundRequest classifies the hand-extracted fields', async () => {
+        const cases: Array<{ name: string; body?: unknown; request: () => Request }> = [
+            {
+                name: 'modern envelope POST',
+                body: modernToolsCall('echo', { text: 'x' }),
+                request: () => postRequest(modernToolsCall('echo', { text: 'x' }))
+            },
+            { name: 'legacy initialize POST', body: legacyInitialize, request: () => postRequest(legacyInitialize) },
+            { name: 'GET session operation', request: () => new Request('http://localhost/mcp', { method: 'GET' }) },
+            {
+                name: 'header-only modern (modern header, claim-less body)',
+                body: { jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} },
+                request: () =>
+                    postRequest(
+                        { jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} },
+                        { 'mcp-protocol-version': MODERN_REVISION, 'mcp-method': 'tools/list' }
+                    )
+            }
+        ];
+
+        for (const { name, body, request } of cases) {
+            const classified = await classifyEntryRequest(request());
+            expect(classified.step, name).toBe('classified');
+            if (classified.step !== 'classified') continue;
+            expect(classified.outcome, name).toEqual(classifyInboundRequest(handExtractedFields(request(), body)));
+            expect(classified.body, name).toEqual(body);
+        }
+    });
+
+    it('reports a POST with a non-JSON body as no-json-body (nothing to hand-extract), with the bytes preserved for routing', async () => {
+        const classified = await classifyEntryRequest(postRequest('{not json'));
+        expect(classified.step).toBe('no-json-body');
+        if (classified.step !== 'no-json-body') return;
+        expect(await classified.forwardRequest.text()).toBe('{not json');
+    });
+
+    it('reads the input body exactly once and hands routing a still-readable forwardRequest (the entry contract)', async () => {
+        const original = { jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} };
+        const request = postRequest(original);
+        const classified = await classifyEntryRequest(request);
+
+        expect(classified.step).toBe('classified');
+        if (classified.step !== 'classified') return;
+        // The single read consumed the input request...
+        expect(request.bodyUsed).toBe(true);
+        // ...and forwardRequest carries the original bytes, unread — exactly
+        // what createMcpHandler hands its legacy leg.
+        expect(classified.forwardRequest.bodyUsed).toBe(false);
+        expect(await classified.forwardRequest.text()).toBe(JSON.stringify(original));
+        expect(classified.parsedBody).toEqual(original);
+
+        // With a pre-parsed body the stream is never touched and no clone is made.
+        const preParsed = postRequest(original);
+        const classifiedPreParsed = await classifyEntryRequest(preParsed, original);
+        expect(classifiedPreParsed.step).toBe('classified');
+        if (classifiedPreParsed.step !== 'classified') return;
+        expect(preParsed.bodyUsed).toBe(false);
+        expect(classifiedPreParsed.forwardRequest).toBe(preParsed);
+
+        // needsForward: false skips the body-preserving clone — forwardRequest
+        // is then the (consumed) input request, the isLegacyRequest fast path.
+        const noForward = postRequest(original);
+        const classifiedNoForward = await classifyEntryRequest(noForward, undefined, false);
+        expect(classifiedNoForward.step).toBe('classified');
+        if (classifiedNoForward.step !== 'classified') return;
+        expect(classifiedNoForward.forwardRequest).toBe(noForward);
+        expect(noForward.bodyUsed).toBe(true);
+    });
+
+    it('routes on the outcome reason — legacy initialize to a session host, everything else to the entry (the hybrid pattern)', async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
+        const sessionHost = vi.fn(async (request: Request) => new Response(await request.text(), { status: 299 }));
+
+        const route = async (request: Request): Promise<Response> => {
+            const classified = await classifyEntryRequest(request);
+            if (classified.step === 'unreadable-body') {
+                return new Response(null, { status: 400 });
+            }
+            if (classified.step === 'classified' && classified.outcome.kind === 'legacy' && classified.outcome.reason === 'initialize') {
+                return sessionHost(classified.forwardRequest);
+            }
+            // Hand the already-parsed body along so the entry classifies from
+            // the value instead of reading the forwarded clone a second time.
+            return handler.fetch(
+                classified.forwardRequest,
+                classified.step === 'classified' ? { parsedBody: classified.parsedBody } : undefined
+            );
+        };
+
+        // The 2025 handshake reaches the session host with its bytes intact.
+        const initResponse = await route(postRequest(legacyInitialize));
+        expect(initResponse.status).toBe(299);
+        expect(await initResponse.text()).toBe(JSON.stringify(legacyInitialize));
+
+        // Modern traffic is served by the entry from the forwarded clone —
+        // the entry's own single body read still works downstream.
+        const modernResponse = await route(postRequest(modernToolsCall('echo', { text: 'routed' })));
+        expect(modernResponse.status).toBe(200);
+        const body = (await modernResponse.json()) as { result: { content: Array<{ text: string }> } };
+        expect(body.result.content[0]?.text).toBe('routed');
+        expect(sessionHost).toHaveBeenCalledTimes(1);
     });
 });
 

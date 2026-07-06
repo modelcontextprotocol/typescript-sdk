@@ -10,13 +10,14 @@ export type { CompletableSchema, CompleteCallback } from './server/completable';
 export { completable, isCompletable } from './server/completable';
 export type {
     CreateMcpHandlerOptions,
+    EntryClassification,
     LegacyHttpHandler,
     McpHandlerRequestOptions,
     McpHttpHandler,
     McpRequestContext,
     McpServerFactory
 } from './server/createMcpHandler';
-export { createMcpHandler, isLegacyRequest, legacyStatelessFallback } from './server/createMcpHandler';
+export { classifyEntryRequest, createMcpHandler, isLegacyRequest, legacyStatelessFallback } from './server/createMcpHandler';
 export type {
     AnyToolHandler,
     BaseToolCallback,
@@ -69,6 +70,7 @@ export { fromJsonSchema } from './fromJsonSchema';
 
 // Inbound HTTP request classification (dual-era serving): the body-primary era
 // predicate used by createMcpHandler, exported for hand-wired compositions.
+// Its Request-shaped sibling, classifyEntryRequest, is exported above.
 export type {
     InboundClassificationOutcome,
     InboundHttpRequest,

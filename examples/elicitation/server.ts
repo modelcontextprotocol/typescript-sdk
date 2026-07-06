@@ -33,10 +33,10 @@ import type {
 } from '@modelcontextprotocol/server';
 import {
     acceptedContent,
+    classifyEntryRequest,
     createMcpHandler,
     inputRequired,
     isInitializeRequest,
-    isLegacyRequest,
     McpServer,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
@@ -279,14 +279,18 @@ if (transport === 'stdio') {
 
     createServer((req, res) => {
         void (async () => {
-            // `toWebRequest` reads the Node body into a web-standard `Request`,
-            // so the body now lives in `request`, not `req`. Ask the predicate
-            // first — it classifies an internal clone, leaving `request`
-            // readable for the `.json()` both arms need (reading `.json()`
-            // first would make the predicate's internal clone throw).
+            // `toWebRequest` reads the Node body into a web-standard `Request`.
+            // One classification step reads it exactly once and returns the
+            // routing outcome together with the parsed body both arms need —
+            // no second `.json()` read, no clone-ordering pitfall.
             const request = await toWebRequest(req);
-            const legacy = await isLegacyRequest(request);
-            const body: unknown = req.method === 'POST' ? await request.json().catch(() => {}) : undefined;
+            const classified = await classifyEntryRequest(request);
+            if (classified.step === 'unreadable-body') {
+                res.writeHead(400).end();
+                return;
+            }
+            const legacy = classified.step === 'no-json-body' || classified.outcome.kind === 'legacy';
+            const body: unknown = classified.step === 'classified' ? classified.parsedBody : undefined;
             await (legacy ? handleLegacy(req, res, body) : modern(req, res, body));
         })().catch(error => {
             console.error('[server] request error:', error instanceof Error ? error.message : error);
