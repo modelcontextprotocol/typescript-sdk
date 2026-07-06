@@ -34,7 +34,7 @@ export function mediaTypeEssence(header: string | null | undefined): string | un
  * Whether a raw `Content-Type` header value denotes `application/json`.
  * Parameters (for example `charset=utf-8`) are allowed and ignored; malformed
  * parameter sections do not reject a header whose media type is unambiguously
- * `application/json` (see {@linkcode mediaTypeEssence} for the exact grammar).
+ * `application/json` (see `mediaTypeEssence` for the exact grammar).
  */
 export function isJsonContentType(header: string | null | undefined): boolean {
     // Fast path: the exact literal is what SDK clients send on every POST.
