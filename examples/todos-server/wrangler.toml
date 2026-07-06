@@ -6,7 +6,15 @@ main = "worker.ts"
 compatibility_date = "2026-06-18"
 # CIMD (URL-formatted client ids): the platform guarantees metadata fetches
 # only ever reach public addresses — SSRF protection at the runtime layer.
-compatibility_flags = ["global_fetch_strictly_public"]
+# global_fetch_strictly_public: platform-level SSRF guard the provider requires
+# before it will serve Client ID Metadata Documents.
+# enable_request_signal: OFF BY DEFAULT on Workers, and without it a client
+# disconnect is invisible to the isolate — request.signal never fires, response
+# streams are never cancelled, and 2026-07-28 cancellation (closing the request
+# stream MUST cancel the request) silently does nothing while tools run to
+# completion. With the flag, the signal fires and rides the relayed Request into
+# the board object, where the SDK's per-request transport aborts the handler.
+compatibility_flags = ["global_fetch_strictly_public", "enable_request_signal"]
 tsconfig = "tsconfig.worker.json"
 
 # The landing page ships inside the bundle as a text module.

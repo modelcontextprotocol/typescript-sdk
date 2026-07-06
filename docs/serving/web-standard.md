@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # Serve on web-standard runtimes
 
 ```sh
@@ -28,6 +29,16 @@ export default handler;
 
 The deployed worker answers MCP requests on every path, with no Node adapter and no body middleware. The factory runs once per request, so a fresh `McpServer` serves every call: [Serve over HTTP](./http.md#understand-the-per-request-factory) covers that model.
 
+::: warning Cloudflare Workers: cancellation needs a compatibility flag
+On Workers, `request.signal` never fires unless the deployment sets the `enable_request_signal` compatibility flag — client disconnects are invisible to the isolate, so 2026-07-28 cancellation (a client cancels by closing the request's response stream) silently does nothing and long-running tools plough on. Add the flag in `wrangler.toml`:
+
+```toml
+compatibility_flags = ["enable_request_signal"]
+```
+
+With it set, the SDK's per-request serving aborts the handler's `ctx.mcpReq.signal` when the client goes away — including across a Durable Object hop, as long as the forwarded `Request` derives from the original. Node deployments need nothing: the adapter wires socket close to the same signal.
+:::
+
 ## Protect against DNS rebinding
 
 The handler performs no `Host` or `Origin` validation, and on a bare fetch-native runtime there is no app factory to arm it for you. Put the framework-agnostic response helpers in front of `fetch`.
@@ -37,8 +48,7 @@ import { hostHeaderValidationResponse, originValidationResponse } from '@modelco
 
 const guarded = {
     async fetch(request: Request): Promise<Response> {
-        const rejected =
-            hostHeaderValidationResponse(request, ['api.example.com']) ?? originValidationResponse(request, ['app.example.com']);
+        const rejected = hostHeaderValidationResponse(request, ['api.example.com']) ?? originValidationResponse(request, ['app.example.com']);
         return rejected ?? handler.fetch(request);
     }
 };

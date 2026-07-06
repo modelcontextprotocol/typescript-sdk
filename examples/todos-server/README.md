@@ -109,6 +109,9 @@ pnpm --filter @mcp-examples/todos-server verify                                 
 pnpm --filter @mcp-examples/todos-server verify -- --base https://your.deploy    # a live deployment
 ```
 
+Section 9 needs `enable_request_signal` in `wrangler.toml` (see the comment there):
+without it Workers never surfaces client disconnects and cancellation is silently dead.
+
 Stays manual on purpose: the real-browser consent click, a real client's OAuth dance
 (Claude Code / cli-client), and anything involving a third-party platform quirk
 (workers.dev bot protection 403s non-browser user agents; deploys propagate for

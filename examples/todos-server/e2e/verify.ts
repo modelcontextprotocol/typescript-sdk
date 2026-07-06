@@ -297,4 +297,45 @@ const bareApprove = await fetch(`${BASE}/authorize/approve`, { method: 'POST', r
 check.equal(bareApprove.status, 400);
 console.error('[verify] 8. error paths ok');
 
+// 9. 2026-era cancellation: dropping the request's response stream mid-call MUST
+// stop the tool (draft streamable-http). On Workers this needs the
+// enable_request_signal compatibility flag — this probe is the regression net.
+const cancelBoard = `verify-cancel-${Math.random().toString(36).slice(2, 10)}`;
+const onCancelBoard = (name: string, args: unknown): Promise<Response> =>
+    mcp('/mcp', 'tools/call', name, args, { 'x-todos-board': cancelBoard });
+for (let i = 0; i < 6; i++) await onCancelBoard('add_task', { title: `cancel-target-${i}` });
+const dropController = new AbortController();
+const longCall = fetch(`${BASE}/mcp`, {
+    method: 'POST',
+    headers: {
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream',
+        'mcp-protocol-version': '2026-07-28',
+        'mcp-method': 'tools/call',
+        'mcp-name': 'work_through_tasks',
+        'x-todos-board': cancelBoard,
+        ...UA
+    },
+    body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 9,
+        method: 'tools/call',
+        params: { name: 'work_through_tasks', arguments: { secondsPerTask: 2 }, _meta: { ...ENVELOPE, progressToken: 'cancel-probe' } }
+    }),
+    signal: dropController.signal
+});
+const streaming = await longCall;
+check.equal(streaming.status, 200);
+// Consume one frame so the exchange is demonstrably live, then drop the connection.
+const frameReader = streaming.body?.getReader();
+check.ok(frameReader !== undefined);
+await frameReader!.read();
+await new Promise(resolve => setTimeout(resolve, 2500));
+dropController.abort();
+await new Promise(resolve => setTimeout(resolve, 12_000));
+const survivors = await toolText(await onCancelBoard('list_tasks', {}));
+const stillOpen = (survivors.match(/- \[ \]/g) ?? []).length;
+check.ok(stillOpen >= 2);
+console.error(`[verify] 9. cancellation ok (${stillOpen}/6 tasks spared by the mid-call drop)`);
+
 console.error('[verify] all checks passed');
