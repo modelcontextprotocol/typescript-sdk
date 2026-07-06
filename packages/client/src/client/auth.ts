@@ -15,7 +15,6 @@ import type {
 import {
     brandedHasInstance,
     checkResourceAllowed,
-    stampErrorBrands,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -25,7 +24,8 @@ import {
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
-    resourceUrlFromServerUrl
+    resourceUrlFromServerUrl,
+    stampErrorBrands
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
