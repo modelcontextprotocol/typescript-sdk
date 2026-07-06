@@ -1370,6 +1370,265 @@ describe('Zod v4', () => {
         });
     });
 
+    describe('HTTPServerTransport - refused handshake close chain (closeOnRefusedHandshake: true)', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+        let oncloseSpy: ReturnType<typeof vi.fn<() => void>>;
+
+        beforeEach(async () => {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                closeOnRefusedHandshake: true
+            });
+            await mcpServer.connect(transport);
+
+            // connect() installed the Protocol's own onclose handler — chain it
+            // so the spy observes the close without detaching server teardown.
+            const protocolOnClose = transport.onclose;
+            oncloseSpy = vi.fn<() => void>();
+            transport.onclose = () => {
+                oncloseSpy();
+                protocolOnClose?.();
+            };
+        });
+
+        afterEach(async () => {
+            await transport.close();
+        });
+
+        /** The refusal-path close is scheduled on a microtask — let it run. */
+        const flushCloseChain = () => new Promise(resolve => setTimeout(resolve, 0));
+
+        it('fires onclose when a schema-invalid initialize is refused on a never-established transport', async () => {
+            // `initialize` with params failing the schema-validated guard: it
+            // is not recognized as an initialization request, so the handshake
+            // is refused with 400 before any session exists.
+            const invalidInit = { jsonrpc: '2.0', method: 'initialize', params: {}, id: 'init-bad' } as JSONRPCMessage;
+            const response = await transport.handleRequest(createRequest('POST', invalidInit));
+
+            expect(response.status).toBe(400);
+            await flushCloseChain();
+            expect(oncloseSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('fires onclose when the initialize Accept header is refused on a never-established transport', async () => {
+            const response = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' }));
+
+            expect(response.status).toBe(406);
+            await flushCloseChain();
+            expect(oncloseSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('runs the connected server close chain when a batch initialize is refused', async () => {
+            const serverClosed = vi.fn();
+            mcpServer.server.onclose = serverClosed;
+
+            const response = await transport.handleRequest(createRequest('POST', [TEST_MESSAGES.initialize, TEST_MESSAGES.initialize]));
+
+            expect(response.status).toBe(400);
+            await flushCloseChain();
+            expect(oncloseSpy).toHaveBeenCalledTimes(1);
+            expect(serverClosed).toHaveBeenCalledTimes(1);
+        });
+
+        it('fires onclose when the handshake attempt itself throws on a never-established transport', async () => {
+            // A throwing sessionIdGenerator lands the handshake in
+            // handlePostRequest's outer catch before any session state was
+            // written — the 400 there is a refusal like the explicit paths.
+            const throwingTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => {
+                    throw new Error('generator boom');
+                },
+                closeOnRefusedHandshake: true
+            });
+            const throwingServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            await throwingServer.connect(throwingTransport);
+            const protocolOnClose = throwingTransport.onclose;
+            const closeSpy = vi.fn<() => void>();
+            throwingTransport.onclose = () => {
+                closeSpy();
+                protocolOnClose?.();
+            };
+
+            const response = await throwingTransport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+
+            expect(response.status).toBe(400);
+            await flushCloseChain();
+            expect(closeSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('fires onclose when a pre-session GET is refused on a never-established transport', async () => {
+            const response = await transport.handleRequest(createRequest('GET', undefined, { accept: 'application/json' }));
+
+            expect(response.status).toBe(406);
+            await flushCloseChain();
+            expect(oncloseSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('fires onclose when a pre-session request is refused on a path no refusal branch instruments (405 unsupported method)', async () => {
+            // The invariant lives at the handleRequest entry, not at the
+            // individual refusal branches — an unsupported method's 405 is a
+            // pre-session refusal like any other.
+            const response = await transport.handleRequest(new Request('http://localhost/mcp', { method: 'PATCH' }));
+
+            expect(response.status).toBe(405);
+            await flushCloseChain();
+            expect(oncloseSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not fire onclose when an established session receives refused GET and DELETE requests', async () => {
+            const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+            const badGet = await transport.handleRequest(createRequest('GET', undefined, { sessionId, accept: 'application/json' }));
+            expect(badGet.status).toBe(406);
+
+            const badDelete = await transport.handleRequest(createRequest('DELETE', undefined, { sessionId: 'invalid-session' }));
+            expect(badDelete.status).toBe(404);
+
+            await flushCloseChain();
+            expect(oncloseSpy).not.toHaveBeenCalled();
+
+            // The session stays serviceable after both refusals.
+            const ping: JSONRPCMessage = { jsonrpc: '2.0', method: 'ping', id: 'ping-2' };
+            const pingResponse = await transport.handleRequest(createRequest('POST', ping, { sessionId }));
+            expect(pingResponse.status).toBe(200);
+        });
+
+        it('does not close a stateless transport on a refused request even with the option on (shared stateless endpoints stay up)', async () => {
+            // The Hono/Workers wirings share ONE stateless transport across
+            // all clients; a malformed request from one client must not take
+            // the endpoint down for everyone — the option only applies to
+            // sessionful transports.
+            const statelessServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            const statelessTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                closeOnRefusedHandshake: true
+            });
+            await statelessServer.connect(statelessTransport);
+            const protocolOnClose = statelessTransport.onclose;
+            const statelessOnclose = vi.fn<() => void>();
+            statelessTransport.onclose = () => {
+                statelessOnclose();
+                protocolOnClose?.();
+            };
+
+            const refused = await statelessTransport.handleRequest(
+                createRequest('POST', TEST_MESSAGES.initialize, { accept: 'application/json' })
+            );
+            expect(refused.status).toBe(406);
+            await flushCloseChain();
+            expect(statelessOnclose).not.toHaveBeenCalled();
+
+            // The shared endpoint still serves the next client.
+            const initResponse = await statelessTransport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            await statelessTransport.close();
+        });
+
+        it('does not fire onclose when an established session receives a malformed request', async () => {
+            const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+            const malformed = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: 'not valid json'
+            });
+            const response = await transport.handleRequest(malformed);
+
+            expect(response.status).toBe(400);
+            await flushCloseChain();
+            expect(oncloseSpy).not.toHaveBeenCalled();
+
+            // The session stays serviceable after the refusal.
+            const ping: JSONRPCMessage = { jsonrpc: '2.0', method: 'ping', id: 'ping-1' };
+            const pingResponse = await transport.handleRequest(createRequest('POST', ping, { sessionId }));
+            expect(pingResponse.status).toBe(200);
+        });
+
+        it('leaves a long-lived sessionful transport open on pre-session refusals by default (version-negotiation probes)', async () => {
+            // The SDK client's own version negotiation sends a pre-session
+            // non-initialize probe, expects the 400, then initializes on the
+            // SAME transport — the default posture must not end it.
+            const endpointServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            const endpointTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+            await endpointServer.connect(endpointTransport);
+            const protocolOnClose = endpointTransport.onclose;
+            const endpointOnclose = vi.fn<() => void>();
+            endpointTransport.onclose = () => {
+                endpointOnclose();
+                protocolOnClose?.();
+            };
+
+            const probe = await endpointTransport.handleRequest(createRequest('POST', TEST_MESSAGES.toolsList));
+            expect(probe.status).toBe(400);
+            await flushCloseChain();
+            expect(endpointOnclose).not.toHaveBeenCalled();
+
+            const initResponse = await endpointTransport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            expect(initResponse.headers.get('mcp-session-id')).toBeDefined();
+            await endpointTransport.close();
+        });
+
+        it('defers the close while an initialize is in flight when a concurrent refusal settles (active-request guard)', async () => {
+            // The initialize's session state is only assigned after its body is
+            // read; a refusal settling inside that window must not tear the
+            // handshake down. A gated streaming body holds the initialize
+            // in flight deterministically. (The option's sessionIdGenerator is
+            // sync-typed, so the async injection point is the body read.)
+            const encoder = new TextEncoder();
+            let releaseBody!: () => void;
+            const gate = new Promise<void>(resolve => {
+                releaseBody = resolve;
+            });
+            const body = new ReadableStream<Uint8Array>({
+                start: async controller => {
+                    await gate;
+                    controller.enqueue(encoder.encode(JSON.stringify(TEST_MESSAGES.initialize)));
+                    controller.close();
+                }
+            });
+            const initRequest = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json'
+                },
+                body,
+                // Streaming request bodies require half-duplex in undici.
+                duplex: 'half'
+            } as RequestInit);
+
+            const initPromise = transport.handleRequest(initRequest);
+            // Let the initialize enter handleRequest and start reading.
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            const refused = await transport.handleRequest(new Request('http://localhost/mcp', { method: 'PATCH' }));
+            expect(refused.status).toBe(405);
+            await flushCloseChain();
+            expect(oncloseSpy).not.toHaveBeenCalled();
+
+            releaseBody();
+            const initResponse = await initPromise;
+            expect(initResponse.status).toBe(200);
+            expect(initResponse.headers.get('mcp-session-id')).toBeDefined();
+            await flushCloseChain();
+            expect(oncloseSpy).not.toHaveBeenCalled();
+        });
+    });
+
     describe('close() re-entrancy guard', () => {
         it('should not recurse when onclose triggers a second close()', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });

@@ -34,6 +34,10 @@ const route = async (req: Request, res: Response) => {
     if (!sessionId && isInitializeRequest(req.body)) {
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
+            // This pair exists for one expected handshake: if the
+            // initialize is refused, close the transport (onclose below
+            // runs) so the just-connected server never leaks.
+            closeOnRefusedHandshake: true,
             onsessioninitialized: id => {
                 sessions.set(id, transport);
             }
@@ -59,7 +63,7 @@ app.get('/mcp', route);
 app.delete('/mcp', route);
 ```
 
-The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
+The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. `closeOnRefusedHandshake` extends that to the handshake itself — each transport here exists for one expected `initialize`, so if that first request is refused instead (a malformed body, a missing `Accept` header), the transport closes and `onclose` runs, and the server connected just above never leaks. Leave the option off for a sessionful transport that serves an endpoint long-term, where pre-session refusals (a client's version-negotiation probe, say) must not end it. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
 
 ::: tip
 On shutdown, close every stored transport — `for (const [, transport] of sessions) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.

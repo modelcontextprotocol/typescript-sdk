@@ -267,6 +267,9 @@ app.all('/mcp', async (req: Request, res: Response) => {
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore, // resumability — events are persisted for replay on GET reconnect
+            // This pair serves one expected handshake: a refused initialize
+            // closes the transport (onclose below runs) instead of leaking it.
+            closeOnRefusedHandshake: true,
             onsessioninitialized: id => {
                 sessions.set(id, transport);
             }

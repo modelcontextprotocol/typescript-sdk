@@ -39,6 +39,9 @@ const handleLegacy = async (req: Request, res: Response) => {
     } else if (!sid && isInitializeRequest(req.body)) {
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
+            // This pair serves one expected handshake: a refused initialize
+            // closes the transport (onclose below runs) instead of leaking it.
+            closeOnRefusedHandshake: true,
             onsessioninitialized: id => {
                 sessions.set(id, transport);
             }

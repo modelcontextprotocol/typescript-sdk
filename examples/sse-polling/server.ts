@@ -107,6 +107,9 @@ app.all('/mcp', async (req: Request, res: Response) => {
             sessionIdGenerator: () => randomUUID(),
             eventStore,
             retryInterval: 300, // Default retry interval for priming events
+            // This pair serves one expected handshake: a refused initialize
+            // closes the transport (onclose below runs) instead of leaking it.
+            closeOnRefusedHandshake: true,
             onsessioninitialized: id => {
                 console.error(`[${id}] Session initialized`);
                 transports.set(id, transport);

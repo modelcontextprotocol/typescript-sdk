@@ -46,6 +46,10 @@ function sessions_routing(app: Express, buildServer: () => McpServer) {
         if (!sessionId && isInitializeRequest(req.body)) {
             const transport = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
+                // This pair exists for one expected handshake: if the
+                // initialize is refused, close the transport (onclose below
+                // runs) so the just-connected server never leaks.
+                closeOnRefusedHandshake: true,
                 onsessioninitialized: id => {
                     sessions.set(id, transport);
                 }

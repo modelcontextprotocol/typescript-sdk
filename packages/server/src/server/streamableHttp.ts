@@ -107,6 +107,29 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
 
     /**
+     * Close the transport when its first completed request fails to establish
+     * a session.
+     *
+     * Enable this on transports created per handshake attempt — the
+     * session-map recipe, where a fresh transport and connected server pair
+     * serves one expected `initialize`. When the pair's first completed
+     * request does not establish the session (a refused or throwing
+     * handshake, a pre-session `GET`/`DELETE`, an unsupported method), the
+     * transport closes and fires {@linkcode WebStandardStreamableHTTPServerTransport.onclose | onclose},
+     * so the paired server tears down instead of leaking. A request still in
+     * flight defers the close, and an established session is never affected.
+     *
+     * Leave it off (the default) for a transport that serves an endpoint
+     * long-term: pre-session refusals there — for example the SDK client's
+     * version-negotiation probe, answered `400` before `initialize` — must
+     * not end the transport. Only meaningful with `sessionIdGenerator` set;
+     * stateless transports never close on refusals.
+     *
+     * @default false
+     */
+    closeOnRefusedHandshake?: boolean;
+
+    /**
      * If `true`, the server will return JSON responses instead of starting an SSE stream.
      * This can be useful for simple request/response scenarios without streaming.
      * Default is `false` (SSE streams are preferred).
@@ -236,6 +259,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
+    private _closeOnRefusedHandshake: boolean = false;
+    /** Requests currently inside {@linkcode handleRequest} — the refused-handshake close is deferred while any are in flight. */
+    private _activeRequests: number = 0;
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
     private _eventStore?: EventStore;
@@ -254,6 +280,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
+        this._closeOnRefusedHandshake = options.closeOnRefusedHandshake ?? false;
         this._enableJsonResponse = options.enableJsonResponse ?? false;
         this._eventStore = options.eventStore;
         this._onsessioninitialized = options.onsessioninitialized;
@@ -349,26 +376,66 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     /**
      * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
      * Returns a `Response` object (Web Standard)
+     *
+     * With {@linkcode WebStandardStreamableHTTPServerTransportOptions.closeOnRefusedHandshake | closeOnRefusedHandshake}
+     * enabled, enforces one invariant behind every response: a sessionful
+     * transport's first completed request either establishes the session or
+     * ends the transport. On a per-handshake transport, a request that leaves
+     * it without a session — a refused or throwing handshake, a pre-session
+     * `GET`/`DELETE`, an unsupported method — can never be followed by one
+     * that reaches this instance, so the close chain is scheduled behind the
+     * response; without it, anything the consumer paired with the transport
+     * before the handshake (a connected server, a session-map entry keyed off
+     * {@linkcode onclose}) would never hear about the teardown and leak.
+     * The close runs on a microtask (the response is never delayed), is
+     * deferred while any other request is still in flight (a refusal settling
+     * next to an `initialize` still parsing its body must not tear it down),
+     * and re-checks the predicate before closing; a successful `initialize`
+     * assigns `sessionId` and its initialized state synchronously before its
+     * response is produced, so it never matches. Established sessions and
+     * stateless transports never match the predicate — refusals leave them
+     * untouched. {@linkcode close} is idempotent, so caller-side closes still
+     * work.
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
-        // Validate request headers for DNS rebinding protection
-        const validationError = this.validateRequestHeaders(req);
-        if (validationError) {
-            return validationError;
-        }
+        this._activeRequests += 1;
+        try {
+            // Validate request headers for DNS rebinding protection
+            const validationError = this.validateRequestHeaders(req);
+            if (validationError) {
+                return validationError;
+            }
 
-        switch (req.method) {
-            case 'POST': {
-                return this.handlePostRequest(req, options);
+            switch (req.method) {
+                case 'POST': {
+                    return await this.handlePostRequest(req, options);
+                }
+                case 'GET': {
+                    return await this.handleGetRequest(req);
+                }
+                case 'DELETE': {
+                    return await this.handleDeleteRequest(req);
+                }
+                default: {
+                    return this.handleUnsupportedRequest();
+                }
             }
-            case 'GET': {
-                return this.handleGetRequest(req);
-            }
-            case 'DELETE': {
-                return this.handleDeleteRequest(req);
-            }
-            default: {
-                return this.handleUnsupportedRequest();
+        } finally {
+            // The awaits above mean this runs once the response (or throw) has
+            // settled — after a successful initialize has assigned its state.
+            this._activeRequests -= 1;
+            if (
+                this._closeOnRefusedHandshake &&
+                this._activeRequests === 0 &&
+                this.sessionIdGenerator !== undefined &&
+                !this._initialized &&
+                this.sessionId === undefined
+            ) {
+                queueMicrotask(() => {
+                    if (this._activeRequests === 0 && !this._initialized && this.sessionId === undefined) {
+                        void this.close().catch(() => {});
+                    }
+                });
             }
         }
     }

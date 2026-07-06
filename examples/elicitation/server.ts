@@ -254,6 +254,9 @@ if (transport === 'stdio') {
         } else if (!sid && isInitializeRequest(body)) {
             const t = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
+                // This pair serves one expected handshake: a refused initialize
+                // closes the transport (onclose below runs) instead of leaking it.
+                closeOnRefusedHandshake: true,
                 onsessioninitialized: id => {
                     sessions.set(id, t);
                 }
