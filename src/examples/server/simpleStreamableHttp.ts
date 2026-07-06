@@ -379,11 +379,11 @@ const getServer = () => {
 
                 return { task };
             },
-            async getTask(_args, { taskId, taskStore: getTaskStore }) {
-                return await getTaskStore.getTask(taskId);
+            async getTask({ taskId, taskStore }) {
+                return await taskStore.getTask(taskId);
             },
-            async getTaskResult(_args, { taskId, taskStore: getResultTaskStore }) {
-                const result = await getResultTaskStore.getTaskResult(taskId);
+            async getTaskResult({ taskId, taskStore }) {
+                const result = await taskStore.getTaskResult(taskId);
                 return result as CallToolResult;
             }
         }
@@ -605,10 +605,10 @@ const getServer = () => {
                     task
                 };
             },
-            async getTask(_args, { taskId, taskStore }) {
+            async getTask({ taskId, taskStore }) {
                 return await taskStore.getTask(taskId);
             },
-            async getTaskResult(_args, { taskId, taskStore }) {
+            async getTaskResult({ taskId, taskStore }) {
                 const result = await taskStore.getTaskResult(taskId);
                 return result as CallToolResult;
             }
