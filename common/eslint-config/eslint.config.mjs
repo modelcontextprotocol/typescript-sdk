@@ -95,6 +95,11 @@ export default defineConfig(
         }
     },
     {
+        // Ignore build artifacts everywhere (mirrors .prettierignore). A flat-config
+        // object with only `ignores` is a global ignore; ESLint does not skip dist by default.
+        ignores: ['**/dist/**', '**/build/**', '**/coverage/**']
+    },
+    {
         // Ignore generated protocol types everywhere
         ignores: ['**/spec.types.2025-11-25.ts', '**/spec.types.2026-07-28.ts']
     },

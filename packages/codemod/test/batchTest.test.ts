@@ -3,13 +3,42 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 
-import { parseArgs, parseCodemodCliOutput, runCodemod } from '../src/bin/batchTest';
+import { parseArgs, parseCodemodCliOutput, runCodemod, installCommand } from '../src/bin/batchTest';
 import { computeResultsDirName, type ResolvedConfig } from '../src/bin/batchTest';
 import { parseNpmViewVersion, rewriteToPublishedVersion, cleanSubprocessEnv } from '../src/bin/batchTest';
 import { getMigration } from '../src/migrations/index';
 
 afterEach(() => {
     vi.restoreAllMocks();
+});
+
+describe('installCommand', () => {
+    it('uses plain --ignore-scripts for non-pnpm managers', () => {
+        expect(installCommand('npm', { hasOwnPnpmWorkspace: false, packageDirs: ['.'] })).toBe('npm install --ignore-scripts');
+        expect(installCommand('yarn', { hasOwnPnpmWorkspace: true, packageDirs: ['packages/a'] })).toBe('yarn install --ignore-scripts');
+    });
+
+    it('isolates a pnpm clone with no workspace of its own via --ignore-workspace', () => {
+        expect(installCommand('pnpm', { hasOwnPnpmWorkspace: false, packageDirs: ['.'] })).toBe(
+            'pnpm install --ignore-scripts --ignore-workspace --no-frozen-lockfile'
+        );
+    });
+
+    it('respects a pnpm clone that is its own workspace and scopes the install to the target packages', () => {
+        const cmd = installCommand('pnpm', { hasOwnPnpmWorkspace: true, packageDirs: ['packages/core', 'packages/mcp'] });
+        expect(cmd).not.toContain('--ignore-workspace');
+        // braces required: pnpm ignores the `...` on a bare `./dir...` selector (drops workspace deps);
+        // `{./dir}...` includes them.
+        expect(cmd).toBe(
+            'pnpm install --ignore-scripts --no-frozen-lockfile --filter "{./packages/core}..." --filter "{./packages/mcp}..."'
+        );
+    });
+
+    it('installs the whole workspace (no --filter) when the only target is the clone root', () => {
+        expect(installCommand('pnpm', { hasOwnPnpmWorkspace: true, packageDirs: ['.'] })).toBe(
+            'pnpm install --ignore-scripts --no-frozen-lockfile'
+        );
+    });
 });
 
 describe('parseArgs', () => {

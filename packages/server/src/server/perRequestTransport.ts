@@ -27,10 +27,14 @@
  * stream, and request-header validation (which belongs to middleware). The
  * exchange is single-use; serving another request requires a new transport
  * (and, in the per-request serving model, a fresh server instance).
+ *
+ * Consumers wiring this transport into a custom entry (instead of
+ * `createMcpHandler`) inherit the spec's per-error HTTP mandate with it: a
+ * terminal `MissingRequiredClientCapabilityError` (-32021) MUST answer 400,
+ * which this transport applies whenever the response is still uncommitted.
  */
 import type {
     AuthInfo,
-    JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -45,6 +49,7 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     LADDER_ERROR_HTTP_STATUS,
+    ProtocolErrorCode,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core-internal';
@@ -252,13 +257,27 @@ export class PerRequestHTTPServerTransport implements Transport {
             // validation ladder, the era registry gate and handoff check, a
             // missing handler — are answered with the mapped HTTP status from
             // the ladder table. Handler-produced errors, whatever their code,
-            // stay in-band on HTTP 200. Ladder rejections keep that mapped
-            // status in every response mode (the SSE upgrade is deferred to
-            // the first actual send), so a forced-`sse` exchange still
-            // answers pre-dispatch rejections as plain HTTP errors.
+            // stay in-band on HTTP 200 — except
+            // MissingRequiredClientCapability (-32021), whose 400 the spec
+            // mandates per-error with no origin condition and whose only
+            // SDK-produced post-window source (the input_required capability
+            // gate) cannot fire any earlier — a handler-minted -32021 gets
+            // the same 400; a handler RELAYING a downstream peer's
+            // -32020/-32022 is not that peer's spec error and stays in-band.
+            // Must agree with httpStatusForErrorCode (core-internal), which
+            // is deliberately NOT called here: its `?? 400` ladder fallback
+            // would wrongly map window codes outside the table.
+            // The mapping applies only while no response has been committed:
+            // once the stream is open — the handler streamed first, or the
+            // exchange is forced-`sse` (which settles its 200 at dispatch
+            // end) — the status is on the wire and the error rides the
+            // stream. Pre-dispatch ladder rejections always precede the
+            // forced-`sse` upgrade, so they keep their mapped status in every
+            // response mode.
+            const errorCode = isJSONRPCErrorResponse(message) ? message.error.code : undefined;
             const ladderStatus =
-                this._dispatchWindowOpen && isJSONRPCErrorResponse(message)
-                    ? LADDER_ERROR_HTTP_STATUS[(message as JSONRPCErrorResponse).error.code]
+                errorCode !== undefined && (this._dispatchWindowOpen || errorCode === ProtocolErrorCode.MissingRequiredClientCapability)
+                    ? LADDER_ERROR_HTTP_STATUS[errorCode]
                     : undefined;
             if (ladderStatus !== undefined && this._sse === undefined) {
                 this.settleResponse(Response.json(message, { status: ladderStatus, headers: { 'Content-Type': 'application/json' } }));

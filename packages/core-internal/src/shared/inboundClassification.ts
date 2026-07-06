@@ -371,7 +371,9 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
  * the ladder (or a pre-handler protocol gate) produced. Errors produced by
  * request handlers — whatever their code — stay in-band on HTTP 200, and are
  * never mapped to an HTTP status by this table; in particular `-32603` and
- * domain-specific codes never become a blanket 500.
+ * domain-specific codes never become a blanket 500. The single exception is
+ * `MissingRequiredClientCapability` (-32021) — see
+ * {@linkcode httpStatusForErrorCode}.
  *
  * `-32602` (invalid params) deliberately has NO entry: the only invalid-params
  * rejection that maps to HTTP 400 is the classifier's own envelope rung
@@ -390,11 +392,24 @@ export const LADDER_ERROR_HTTP_STATUS: Readonly<Record<number, number>> = {
 /**
  * The HTTP status to answer a JSON-RPC error with, keyed on the error's
  * origin. `in-band` errors (anything produced by a request handler) are
- * always HTTP 200 — the JSON-RPC error response is the payload, not an HTTP
- * failure. `ladder` errors map through {@linkcode LADDER_ERROR_HTTP_STATUS}.
+ * HTTP 200 — the JSON-RPC error response is the payload, not an HTTP
+ * failure — with ONE exception: `MissingRequiredClientCapability` (-32021),
+ * whose 400 the spec mandates on the error itself with no origin condition,
+ * and which the SDK genuinely produces after dispatch (the `input_required`
+ * capability gate). A handler relaying some downstream peer's `-32020`/`-32022`
+ * is NOT that peer's spec error and stays in-band like every other handler
+ * code. `ladder` errors map through {@linkcode LADDER_ERROR_HTTP_STATUS}.
+ *
+ * The per-request transport intentionally does NOT delegate to this function:
+ * its `?? 400` ladder fallback is only correct for entry-gate codes known to
+ * the table, and would wrongly map dispatch-window errors outside it (a
+ * window `-32602` must stay in-band on 200). The transport indexes the table
+ * directly; keep the two in agreement when editing either.
  */
 export function httpStatusForErrorCode(code: number, origin: 'ladder' | 'in-band'): number {
-    if (origin === 'in-band') return 200;
+    if (origin === 'in-band') {
+        return code === ProtocolErrorCode.MissingRequiredClientCapability ? 400 : 200;
+    }
     return LADDER_ERROR_HTTP_STATUS[code] ?? 400;
 }
 

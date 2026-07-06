@@ -1,6 +1,8 @@
 ---
 shape: how-to
+description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-tool scopes.'
 ---
+
 # Require authorization
 
 Protecting a server you run → this page. Signing a user in from a client you build → [Authenticate a user with OAuth](../clients/oauth.md). No user present → [Authenticate without a user](../clients/machine-auth.md).
@@ -40,6 +42,25 @@ A request with a missing, malformed, or expired token gets `401` with the OAuth 
 ::: info Coming from v1?
 The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, …) are frozen in `@modelcontextprotocol/server-legacy/auth`. Use a dedicated identity provider for new servers; this page only covers the resource-server half.
 :::
+
+## Require a bearer token on a web-standard host
+
+On hosts whose HTTP surface is a `fetch(request)` handler — Cloudflare Workers, Deno, Bun, Hono — the gate is `requireBearerAuth` from `@modelcontextprotocol/server`: no framework, only web-standard `Request` and `Response`.
+
+```ts source="../../examples/guides/serving/authorization.web.examples.ts#requireBearerAuth_webStandard"
+const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'] });
+const handler = createMcpHandler(buildServer);
+
+export default {
+    async fetch(request: Request): Promise<Response> {
+        const auth = await gate(request);
+        if (auth instanceof Response) return auth;
+        return handler.fetch(request, { authInfo: auth });
+    }
+};
+```
+
+The gate resolves to the verified `AuthInfo` — pass it to the handler as `{ authInfo }` and handlers read it as `ctx.http.authInfo` — or to the ready-to-return challenge `Response`. Status codes, error bodies, and the `WWW-Authenticate` challenge (including `resourceMetadataUrl`) are identical to the Express middleware: both are adapters over one core, so a verifier written for one serves the other unchanged.
 
 ## Verify tokens your way
 
@@ -106,6 +127,7 @@ Responding `403 insufficient_scope` at the HTTP layer instead triggers the clien
 
 ## Recap
 
+- `requireBearerAuth` from `@modelcontextprotocol/server` is the same gate for web-standard `fetch` hosts; the Express middleware adapts the same core.
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
 - Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.

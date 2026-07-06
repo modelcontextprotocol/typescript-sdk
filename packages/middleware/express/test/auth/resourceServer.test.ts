@@ -129,6 +129,31 @@ describe('requireBearerAuth middleware', () => {
         expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'server_error' }));
         expect(next).not.toHaveBeenCalled();
     });
+
+    it('responds 500 without a WWW-Authenticate challenge', async () => {
+        mockVerifyAccessToken.mockRejectedValue(new OAuthError(OAuthErrorCode.ServerError, 'boom'));
+
+        const { req, res, next } = createMockReqResNext('Bearer valid');
+        const middleware = requireBearerAuth({ verifier: mockVerifier });
+        await middleware(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(500);
+        expect(res.set).not.toHaveBeenCalled();
+        expect(next).not.toHaveBeenCalled();
+    });
+
+    it('responds 400 without a WWW-Authenticate challenge for other OAuth error codes', async () => {
+        mockVerifyAccessToken.mockRejectedValue(new OAuthError(OAuthErrorCode.InvalidRequest, 'nope'));
+
+        const { req, res, next } = createMockReqResNext('Bearer valid');
+        const middleware = requireBearerAuth({ verifier: mockVerifier });
+        await middleware(req, res, next);
+
+        expect(res.status).toHaveBeenCalledWith(400);
+        expect(res.set).not.toHaveBeenCalled();
+        expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ error: 'invalid_request' }));
+        expect(next).not.toHaveBeenCalled();
+    });
 });
 
 // ---------------------------------------------------------------------------

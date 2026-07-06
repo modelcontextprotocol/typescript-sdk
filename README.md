@@ -10,7 +10,7 @@
 
 <!-- prettier-ignore -->
 > [!WARNING]
-> **We're limiting pull requests to contributors while we land the [2026-07-28 spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) implementation.**
+> **We're limiting pull requests to 1 per new contributor while we land the [2026-07-28 spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) implementation.**
 >
 > [Issues](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml) are the most useful feedback right now — we'll reopen PRs as v2 stabilizes.
 

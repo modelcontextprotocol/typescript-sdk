@@ -87,7 +87,7 @@ On stdio, [`serveStdio`](../serving/stdio.md) routes the instance's own `send*Li
 :::
 
 ::: info Coming from 2025-era subscriptions
-A 2025-era connection delivers per-resource updates without a listen stream — [Subscriptions](../clients/subscriptions.md#fall-back-to-legacy-per-resource-subscribe) covers that path, and [Protocol versions](../protocol-versions.md) the era split.
+A 2025-era connection delivers per-resource updates without a listen stream — [Resources](./resources.md#serve-per-resource-subscriptions) covers the server's subscription bookkeeping, [Subscriptions](../clients/subscriptions.md#fall-back-to-legacy-per-resource-subscribe) the client call, and [Protocol versions](../protocol-versions.md) the era split.
 :::
 
 ## Pick an event bus for multi-process deployments

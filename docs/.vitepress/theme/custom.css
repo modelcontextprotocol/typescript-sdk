@@ -13,9 +13,16 @@
  * which forces horizontal scrolling on most of our ~100-column code blocks.
  * Let the layout breathe and the column grow so typical snippets fit;
  * genuinely long lines still scroll inside their own block.
+ *
+ * Clamped to the viewport because the default theme's `(min-width: 1440px)`
+ * rules size the sidebar and nav title as
+ * `calc((100% - (var(--vp-layout-max-width) - 64px)) / 2 + ...)`, which goes
+ * negative on viewports narrower than the max width: the sidebar collapses
+ * and the site title spills over the search bar. With the clamp, those rules
+ * resolve to their stock sub-1440px values on narrower viewports instead.
  */
 :root {
-    --vp-layout-max-width: 1680px;
+    --vp-layout-max-width: min(100vw, 1680px);
 }
 
 /* !important: the default rule is a scoped component style ([data-v-…]), which
@@ -163,4 +170,21 @@
     color: var(--vp-c-text-1);
     text-decoration: underline;
     margin-left: 4px;
+}
+
+/* --------------------------------------------------- markdown-source footer */
+
+.markdown-source {
+    margin-bottom: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--vp-c-divider);
+    color: var(--vp-c-text-3);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.markdown-source a {
+    color: var(--vp-c-text-2);
+    text-decoration: underline;
+    font-weight: 400;
 }

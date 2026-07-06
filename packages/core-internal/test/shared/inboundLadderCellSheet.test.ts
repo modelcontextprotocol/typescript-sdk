@@ -20,13 +20,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { InboundHttpRequest, InboundLadderRejection } from '../../src/shared/inboundClassification';
-import {
-    classifyInboundRequest,
-    httpStatusForErrorCode,
-    INBOUND_VALIDATION_LADDER,
-    LADDER_ERROR_HTTP_STATUS,
-    modernOnlyStrictRejection
-} from '../../src/shared/inboundClassification';
+import { classifyInboundRequest, INBOUND_VALIDATION_LADDER, modernOnlyStrictRejection } from '../../src/shared/inboundClassification';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants';
 
 const MODERN_REVISION = '2026-07-28';
@@ -397,37 +391,6 @@ describe('the validation ladder as data', () => {
     });
 });
 
-describe('HTTP status mapping for ladder-originated errors (origin-keyed)', () => {
-    test('the table maps exactly the ladder-originated codes', () => {
-        // The parse-error and invalid-request rows joined the table when the
-        // status matrix was completed alongside the cache fill / capability
-        // gate work; they were previously carried only by the classifier's own
-        // httpStatus on the rejection outcomes (same 400, now table-visible).
-        expect(LADDER_ERROR_HTTP_STATUS).toEqual({
-            [-32_700]: 400,
-            [-32_601]: 404,
-            [-32_600]: 400,
-            [-32_022]: 400,
-            [-32_021]: 400,
-            [-32_020]: 400
-        });
-    });
-
-    test('the table never maps invalid params: the classifier envelope short-circuit is the only -32602 -> 400 source', () => {
-        expect(Object.keys(LADDER_ERROR_HTTP_STATUS)).not.toContain(String(-32_602));
-        expect(httpStatusForErrorCode(-32_602, 'in-band')).toBe(200);
-    });
-
-    test('handler-originated errors stay in-band on HTTP 200, whatever their code', () => {
-        for (const code of [-32_603, -32_602, -32_601, -32_022, -32_002, -32_000, 1234]) {
-            expect(httpStatusForErrorCode(code, 'in-band')).toBe(200);
-        }
-    });
-
-    test('ladder-originated codes map to their HTTP statuses', () => {
-        expect(httpStatusForErrorCode(-32_601, 'ladder')).toBe(404);
-        expect(httpStatusForErrorCode(-32_022, 'ladder')).toBe(400);
-        expect(httpStatusForErrorCode(-32_021, 'ladder')).toBe(400);
-        expect(httpStatusForErrorCode(-32_020, 'ladder')).toBe(400);
-    });
-});
+// The error→HTTP-status policy (LADDER_ERROR_HTTP_STATUS / httpStatusForErrorCode)
+// is pinned in errorHttpStatusMatrix.test.ts — the single test surface for that
+// module. This file pins the classifier's cells only.
