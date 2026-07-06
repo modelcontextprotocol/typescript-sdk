@@ -98,9 +98,6 @@ catalogs:
     '@hono/node-server':
       specifier: ^1.19.9
       version: 1.19.11
-    content-type:
-      specifier: ^1.0.5
-      version: 1.0.5
     cors:
       specifier: ^2.8.5
       version: 2.8.6
@@ -126,6 +123,9 @@ catalogs:
     ajv-formats:
       specifier: ^3.0.1
       version: 3.0.1
+    content-type:
+      specifier: ^1.0.5
+      version: 1.0.5
     json-schema-typed:
       specifier: ^8.0.2
       version: 8.0.2
@@ -1479,6 +1479,9 @@ importers:
 
   packages/core-internal:
     dependencies:
+      content-type:
+        specifier: catalog:runtimeShared
+        version: 1.0.5
       json-schema-typed:
         specifier: catalog:runtimeShared
         version: 8.0.2
@@ -1843,7 +1846,7 @@ importers:
   packages/server-legacy:
     dependencies:
       content-type:
-        specifier: catalog:runtimeServerOnly
+        specifier: catalog:runtimeShared
         version: 1.0.5
       cors:
         specifier: catalog:runtimeServerOnly
