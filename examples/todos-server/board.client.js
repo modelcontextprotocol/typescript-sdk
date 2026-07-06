@@ -33,8 +33,29 @@ function onSnapshot(event) {
     list.replaceChildren(
         ...tasks.map(task => {
             const item = document.createElement('li');
-            item.textContent = `${task.title} (${task.id}, ${task.project}${task.priority ? ', ' + task.priority : ''})`;
-            if (task.status === 'done') item.classList.add('done');
+            item.className = task.status === 'done' ? 'task done' : 'task';
+            const box = document.createElement('input');
+            box.type = 'checkbox';
+            box.checked = task.status === 'done';
+            box.disabled = true;
+            box.tabIndex = -1;
+            const title = document.createElement('span');
+            title.className = 'title';
+            title.textContent = task.title;
+            const meta = document.createElement('span');
+            meta.className = 'meta';
+            const chip = text => {
+                const span = document.createElement('span');
+                span.className = 'chip';
+                span.textContent = text;
+                return span;
+            };
+            meta.append(chip(`project · ${task.project}`));
+            if (task.priority) meta.append(chip(`priority · ${task.priority}`));
+            const id = document.createElement('span');
+            id.textContent = task.id;
+            meta.append(id);
+            item.append(box, title, meta);
             return item;
         })
     );

@@ -20,11 +20,38 @@
                 padding: 0.1rem 0.3rem;
             }
             ul {
-                padding-left: 1.4rem;
+                list-style: none;
+                padding: 0;
+                display: grid;
+                gap: 0.5rem;
             }
-            li.done {
+            li.task {
+                display: flex;
+                align-items: baseline;
+                gap: 0.6rem;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                padding: 0.5rem 0.75rem;
+            }
+            li.task .title {
+                flex: 1;
+            }
+            li.done .title {
                 color: #888;
                 text-decoration: line-through;
+            }
+            .meta {
+                display: flex;
+                gap: 0.4rem;
+                align-items: baseline;
+                color: #888;
+                font-size: 0.78rem;
+                white-space: nowrap;
+            }
+            .chip {
+                border: 1px solid #ccc;
+                border-radius: 999px;
+                padding: 0 0.5rem;
             }
             #identity {
                 font-weight: 600;
@@ -40,6 +67,12 @@
                 }
                 code {
                     background: #222;
+                }
+                li.task {
+                    border-color: #333;
+                }
+                .chip {
+                    border-color: #444;
                 }
             }
         </style>
