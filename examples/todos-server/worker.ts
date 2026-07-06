@@ -39,7 +39,7 @@ import { WorkerEntrypoint } from 'cloudflare:workers';
 import boardScript from './board.client.js';
 import boardHtml from './board.html';
 import indexHtml from './index.html';
-import type { OAuthHelpers, TodosGrantProps, ViewerSessionStore } from './oauth';
+import type { OAuthHelpers, TodosGrantProps } from './oauth';
 import { handleAuthorize, propsToAuthInfo, resolveViewerBoard } from './oauth';
 import type { BoardSnapshot, TodosApp } from './todos';
 import { createTodosApp } from './todos';
@@ -56,34 +56,6 @@ const SESSION_IDLE_MS = 30 * 60 * 1000;
 const BOARD_KEY = 'board:v2';
 const CODEC_KEY_KEY = 'codecKey';
 
-// Minimal structural types for the Workers runtime surface this file touches, so the example
-// typechecks without adding @cloudflare/workers-types to the workspace. If this entry ever
-// grows beyond them, switch to the real types package instead of extending these.
-interface DurableObjectStub {
-    fetch(request: Request): Promise<Response>;
-}
-interface DurableObjectId {
-    toString(): string;
-}
-interface DurableObjectNamespace {
-    idFromName(name: string): DurableObjectId;
-    /** Throws on anything that is not an id minted by this namespace. */
-    idFromString(id: string): DurableObjectId;
-    get(id: DurableObjectId): DurableObjectStub;
-}
-interface DurableObjectStorage {
-    get<T>(key: string): Promise<T | undefined>;
-    put(key: string, value: unknown): Promise<void>;
-    delete(key: string): Promise<boolean>;
-    getAlarm(): Promise<number | null>;
-    setAlarm(scheduledTimeMs: number): Promise<void>;
-}
-interface DurableObjectState {
-    id: DurableObjectId;
-    storage: DurableObjectStorage;
-    blockConcurrencyWhile(callback: () => Promise<void>): Promise<void>;
-}
-
 interface Env {
     BOARDS: DurableObjectNamespace;
     /**
@@ -96,7 +68,7 @@ interface Env {
     /** Optional override for the per-board task cap (a number as a string; wrangler [vars]). */
     MAX_TASKS?: string;
     /** Grant/token storage for the OAuth provider; also holds live-view viewer sessions. */
-    OAUTH_KV: ViewerSessionStore;
+    OAUTH_KV: KVNamespace;
     /** Injected by the provider: parseAuthRequest/lookupClient/completeAuthorization. */
     OAUTH_PROVIDER: OAuthHelpers;
     /** Set to '1' to auto-approve consent — used by the scripted end-to-end dance. */
@@ -465,9 +437,9 @@ async function serveBoard(request: Request, env: Env, route: BoardRoute): Promis
  * verified identity rides an internal header into the board object, where it
  * surfaces to tool handlers as `ctx.authInfo`.
  */
-export class TodosApi extends WorkerEntrypoint<Env> {
+export class TodosApi extends WorkerEntrypoint<Env, TodosGrantProps | undefined> {
     override async fetch(request: Request): Promise<Response> {
-        const props = (this.ctx as { props?: TodosGrantProps }).props;
+        const props = this.ctx.props;
         if (!props?.boardId) {
             return Response.json({ error: 'invalid grant' }, { status: 403 });
         }
@@ -546,12 +518,10 @@ const defaultHandler = {
 // to the default handler. CIMD needs the global_fetch_strictly_public compatibility
 // flag (wrangler.toml): the platform itself guarantees metadata fetches only reach
 // public addresses.
-const provider = new OAuthProvider({
+const provider = new OAuthProvider<Env>({
     apiRoute: '/oauth/mcp',
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    apiHandler: TodosApi as any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    defaultHandler: defaultHandler as any,
+    apiHandler: TodosApi,
+    defaultHandler,
     authorizeEndpoint: '/authorize',
     tokenEndpoint: '/oauth/token',
     clientRegistrationEndpoint: '/oauth/register',
@@ -563,12 +533,8 @@ export default {
     // Browser-based MCP clients must be able to READ the provider's 401 challenge
     // (WWW-Authenticate) and discovery documents cross-origin. The provider sets its
     // own CORS on some routes; ours fills in only what is missing.
-    async fetch(request: Request, env: Env, ctx: unknown): Promise<Response> {
-        const response = await (provider as unknown as { fetch(request: Request, env: Env, ctx: unknown): Promise<Response> }).fetch(
-            request,
-            env,
-            ctx
-        );
+    async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+        const response = await provider.fetch(request, env, ctx);
         return withCors(request, response);
     }
-};
+} satisfies ExportedHandler<Env>;

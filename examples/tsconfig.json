@@ -1,7 +1,16 @@
 {
     "extends": "@modelcontextprotocol/tsconfig",
     "include": ["./"],
-    "exclude": ["node_modules", "dist", "shared", "server-quickstart", "client-quickstart"],
+    "exclude": [
+        "node_modules",
+        "dist",
+        "shared",
+        "server-quickstart",
+        "client-quickstart",
+        "todos-server/worker.ts",
+        "todos-server/oauth.ts",
+        "todos-server/workerEnv.d.ts"
+    ],
     "compilerOptions": {
         "noEmit": true,
         "paths": {

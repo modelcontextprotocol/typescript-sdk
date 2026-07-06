@@ -6,7 +6,9 @@
         // Worker bundle must instead resolve through each package's exports map so the
         // `workerd` condition picks the Workers shims. Clearing `paths` restores that.
         "paths": {},
-        "noEmit": true
+        "noEmit": true,
+        "lib": ["ESNext"],
+        "types": ["@cloudflare/workers-types"]
     },
     "include": ["worker.ts", "todos.ts", "workerEnv.d.ts"]
 }

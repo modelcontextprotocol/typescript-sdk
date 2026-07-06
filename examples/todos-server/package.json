@@ -18,6 +18,7 @@
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
+        "@cloudflare/workers-types": "^4.20260629.1",
         "tsx": "catalog:devTools"
     },
     "example": {
