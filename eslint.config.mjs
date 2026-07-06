@@ -24,6 +24,23 @@ export default tseslint.config(
         ignores: ['src/spec.types.ts']
     },
     {
+        files: ['src/**/*.ts'],
+        rules: {
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector:
+                        ":matches(CallExpression[callee.property.name='includes'], CallExpression[callee.property.name='indexOf'], " +
+                        "CallExpression[callee.property.name='startsWith'])[arguments.0.value='application/json']",
+                    message:
+                        "Substring-matching 'application/json' misclassifies Content-Type values whose media type is different " +
+                        "(e.g. 'text/plain; a=application/json') and mishandles parameters and case. " +
+                        'Parse the media type instead: isJsonContentType() from src/shared/mediaType.js.'
+                }
+            ]
+        }
+    },
+    {
         files: ['src/client/**/*.ts', 'src/server/**/*.ts'],
         ignores: ['**/*.test.ts'],
         rules: {
