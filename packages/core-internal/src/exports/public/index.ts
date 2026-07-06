@@ -39,6 +39,9 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils';
 
+// Media-type utilities (for transport and framework-adapter authors)
+export { isJsonContentType } from '../../shared/mediaType';
+
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 

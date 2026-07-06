@@ -32,6 +32,10 @@
  * `createMcpHandler`) inherit the spec's per-error HTTP mandate with it: a
  * terminal `MissingRequiredClientCapabilityError` (-32021) MUST answer 400,
  * which this transport applies whenever the response is still uncommitted.
+ * A custom entry must also reject POSTs whose Content-Type media type is not
+ * `application/json` (415) before parsing the body — use `isJsonContentType`
+ * from the package root; this transport never sees the HTTP headers, so it
+ * cannot perform that validation itself.
  */
 import type {
     AuthInfo,

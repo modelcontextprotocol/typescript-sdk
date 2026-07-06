@@ -10,6 +10,7 @@ import {
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     JSONRPCMessageSchema,
+    mediaTypeEssence,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
@@ -1080,11 +1081,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
 
-            // Check the response type
+            // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');
+            const responseMediaType = mediaTypeEssence(contentType);
 
             if (hasRequests) {
-                if (contentType?.includes('text/event-stream')) {
+                if (responseMediaType === 'text/event-stream') {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
@@ -1097,7 +1099,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         },
                         false
                     );
-                } else if (contentType?.includes('application/json')) {
+                } else if (responseMediaType === 'application/json') {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
                     const responseMessages = Array.isArray(data)

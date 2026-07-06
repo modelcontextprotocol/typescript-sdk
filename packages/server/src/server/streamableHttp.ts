@@ -11,6 +11,7 @@ import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport }
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
+    isJsonContentType,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -680,6 +681,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
             // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
+            // Accept is a comma-separated list, so a substring check is the intended semantics here (unlike Content-Type below).
+            // eslint-disable-next-line no-restricted-syntax
             if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
                 this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
                 return this.createJsonErrorResponse(
@@ -689,8 +692,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 );
             }
 
+            // Parsed media type, never a substring match — see
+            // isJsonContentType. This check stays here for hand-wired
+            // transports; via createMcpHandler the entry's own check answers
+            // first.
             const ct = req.headers.get('content-type');
-            if (!ct || !ct.includes('application/json')) {
+            if (!isJsonContentType(ct)) {
                 this.onerror?.(new Error('Unsupported Media Type: Content-Type must be application/json'));
                 return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
             }
