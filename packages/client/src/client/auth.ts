@@ -13,6 +13,7 @@ import type {
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
 import {
+    brandedHasInstance,
     checkResourceAllowed,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
@@ -23,7 +24,8 @@ import {
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
-    resourceUrlFromServerUrl
+    resourceUrlFromServerUrl,
+    stampErrorBrands
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
@@ -486,8 +488,36 @@ export interface OAuthDiscoveryState extends OAuthServerInfo {
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
 
 export class UnauthorizedError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UnauthorizedError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(message?: string) {
         super(message ?? 'Unauthorized');
+        this.name = 'UnauthorizedError';
+        stampErrorBrands(this, new.target);
     }
 }
 

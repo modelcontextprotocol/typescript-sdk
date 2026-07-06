@@ -99,6 +99,10 @@ npx typedoc --options typedoc.v1-site.json
 cp docs/*.md "$V1_CONTENT/"
 cp README.md "$V1_CONTENT/index.md"
 
+# The v1 site serves the shared favicon at its own root (see docs/v1/.vitepress/config.mts).
+mkdir -p "$V1_CONTENT/public"
+cp "$REPO_ROOT/docs/public/favicon.svg" "$V1_CONTENT/public/favicon.svg"
+
 # Rewrite links that don't resolve on the site:
 # - source files -> GitHub
 # - README links into docs/ -> site-local pages (docs/*.md sit next to index.md in content/)

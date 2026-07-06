@@ -46,6 +46,8 @@ export type ProbeOutcome =
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text, when available. */
     | { kind: 'http-error'; status: number; body?: string }
     | { kind: 'network-error'; error: unknown }
+    /** The transport's auth flow challenged during the probe send (`UnauthorizedError`). */
+    | { kind: 'auth-required'; error: Error }
     /** No response arrived within the probe timeout. */
     | { kind: 'timeout'; timeoutMs: number };
 
@@ -113,6 +115,15 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
         }
         case 'network-error': {
             return classifyNetworkError(outcome.error, context);
+        }
+        case 'auth-required': {
+            // Not era evidence: propagate the auth challenge unchanged so the
+            // caller can run finishAuth() and reconnect — the reconnect probes
+            // again with the token and settles the era with real evidence.
+            // Converting to a legacy fallback here would re-run the auth flow
+            // inside the same connect (a second authorization prompt) and then
+            // handshake an auth-gated modern server as legacy.
+            return { kind: 'error', error: outcome.error };
         }
         case 'timeout': {
             if (context.transportKind === 'stdio') {

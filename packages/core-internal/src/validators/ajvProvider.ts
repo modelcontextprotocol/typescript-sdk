@@ -2,6 +2,7 @@
  * AJV-based JSON Schema validator provider
  */
 
+import { Ajv as Draft7Ajv } from 'ajv';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
@@ -31,6 +32,7 @@ interface AjvValidateFunction {
     errors?: any;
 }
 
+/** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
 const addFormats = _addFormats as unknown as typeof _addFormats.default;
 
 function createDefaultAjvInstance(): AjvLike {
@@ -152,6 +154,6 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
  * declaration bundling — see #2339). To construct a custom 2020-12 instance, add `ajv` to your own
  * dependencies (matching the SDK's pinned version) and `import { Ajv2020 } from 'ajv/dist/2020.js'`.
  */
-export { Ajv } from 'ajv';
-/** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
-export { addFormats };
+const Ajv = Draft7Ajv;
+
+export { addFormats, Ajv };

@@ -1,4 +1,5 @@
 export * from './auth/errors';
+export * from './errors/crossBundleBrand';
 export * from './errors/sdkErrors';
 export * from './shared/auth';
 export * from './shared/authUtils';
@@ -32,9 +33,8 @@ export * from './util/standardSchema';
 export * from './util/zodCompat';
 export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec';
 
-// Validator providers are type-only here — import the runtime classes from the explicit
-// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
-export type { AjvJsonSchemaValidator } from './validators/ajvProvider';
-export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider';
+// Validator provider classes stay subpath-only. Re-exporting them here, even as
+// `type`, can make generated client/server root declarations advertise
+// runtime-shaped root exports that the package root does not provide.
 export * from './validators/fromJsonSchema';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types';

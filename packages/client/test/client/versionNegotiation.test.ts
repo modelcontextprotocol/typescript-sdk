@@ -18,6 +18,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
+import { UnauthorizedError } from '../../src/client/auth';
 import { Client } from '../../src/client/client';
 import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
 import type { StdioServerParameters } from '../../src/client/stdio';
@@ -704,5 +705,80 @@ describe('era scope discipline', () => {
         type NotAKeyOf<T, K extends string> = K extends keyof T ? false : true;
         const noCachedEra: NotAKeyOf<NonNullable<ConstructorParameters<typeof Client>[1]>, 'cachedEra'> = true;
         expect(noCachedEra).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Probe send-error classification: auth-gated servers propagate the
+ * UnauthorizedError unchanged (finishAuth() + reconnect probes again); other
+ * send failures stay typed negotiation errors.
+ * ------------------------------------------------------------------------- */
+
+describe('probe send-error classification', () => {
+    /** Rejects the probe send with `probeError`, then serves legacy initialize. */
+    class AuthGatedTransport extends ScriptedTransport {
+        constructor(private readonly probeError: Error) {
+            super(legacyServerScript);
+        }
+
+        override async send(message: JSONRPCMessage): Promise<void> {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                throw this.probeError;
+            }
+            await super.send(message);
+        }
+    }
+
+    test('UnauthorizedError from the probe send propagates unchanged — no fallback, no second auth round (finishAuth + reconnect probes again)', async () => {
+        const reason = new UnauthorizedError();
+        const transport = new AuthGatedTransport(reason);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+
+        // The original error, unwrapped: callers dispatch finishAuth() on it.
+        expect(rejection).toBe(reason);
+        // No initialize fallback ran — that would re-trigger the transport's
+        // auth flow (a second authorization prompt) and pin an auth-gated
+        // modern server to the legacy era.
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test("a foreign auth error matching only by name === 'UnauthorizedError' propagates the same way", async () => {
+        class ForeignUnauthorizedError extends Error {
+            override readonly name = 'UnauthorizedError';
+        }
+        const reason = new ForeignUnauthorizedError('401 from middleware');
+        const transport = new AuthGatedTransport(reason);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBe(reason);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('a plain send failure stays a typed negotiation error — no fallback runs', async () => {
+        const transport = new AuthGatedTransport(new Error('connection refused'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 });

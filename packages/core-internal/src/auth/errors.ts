@@ -1,3 +1,4 @@
+import { brandedHasInstance, stampErrorBrands } from '../errors/crossBundleBrand';
 import type { OAuthErrorResponse } from '../shared/auth';
 
 /**
@@ -103,6 +104,32 @@ export enum OAuthErrorCode {
  * OAuth error class for all OAuth-related errors.
  */
 export class OAuthError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.OAuthError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: OAuthErrorCode | string,
         message: string,
@@ -110,6 +137,7 @@ export class OAuthError extends Error {
     ) {
         super(message);
         this.name = 'OAuthError';
+        stampErrorBrands(this, new.target);
     }
 
     /**

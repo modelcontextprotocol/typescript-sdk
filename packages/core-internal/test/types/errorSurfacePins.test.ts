@@ -2,8 +2,9 @@
  * Behavior-surface pins: error codes, error classes, and version constants.
  *
  * Consumers match SDK errors by literal numeric code, `error.name`, and message
- * text — not only by enum member or `instanceof` (which breaks across bundled
- * package boundaries). These tests pin the literal values so that a renumber,
+ * text — not only by enum member or `instanceof` (brand-matched `instanceof`
+ * needs both bundled copies at a brand-aware release; the literal values are
+ * the version-agnostic contract). These tests pin the literal values so that a renumber,
  * rename, or membership change turns CI red instead of landing silently. A
  * failing pin here means the change is deliberate: update the pin in the same
  * change, together with a changeset and a migration-doc entry.
@@ -90,11 +91,34 @@ describe('SdkErrorCode', () => {
     });
 });
 
+describe('cross-bundle brand strings', () => {
+    test('pins every core error brand (renaming one severs cross-version matching — must be deliberate)', async () => {
+        const { OAuthError } = await import('../../src/auth/errors');
+        const { SdkError, SdkHttpError } = await import('../../src/errors/sdkErrors');
+        const {
+            MissingRequiredClientCapabilityError,
+            ProtocolError: PE,
+            ResourceNotFoundError,
+            UnsupportedProtocolVersionError,
+            UrlElicitationRequiredError
+        } = await import('../../src/types/errors');
+        const brand = (cls: unknown): unknown => (cls as { mcpBrand?: string }).mcpBrand;
+        expect(brand(PE)).toBe('mcp.ProtocolError');
+        expect(brand(ResourceNotFoundError)).toBe('mcp.ResourceNotFoundError');
+        expect(brand(UrlElicitationRequiredError)).toBe('mcp.UrlElicitationRequiredError');
+        expect(brand(UnsupportedProtocolVersionError)).toBe('mcp.UnsupportedProtocolVersionError');
+        expect(brand(MissingRequiredClientCapabilityError)).toBe('mcp.MissingRequiredClientCapabilityError');
+        expect(brand(SdkError)).toBe('mcp.SdkError');
+        expect(brand(SdkHttpError)).toBe('mcp.SdkHttpError');
+        expect(brand(OAuthError)).toBe('mcp.OAuthError');
+    });
+});
+
 describe('ProtocolError', () => {
     test('sets error.name, carries code/data, and leaves the message verbatim', () => {
-        // Consumers classify errors via err.name (instanceof breaks when core is
-        // bundled into both the client and server dists), and read .code/.data as
-        // a duck shape. The constructor must not decorate the message.
+        // Consumers classify errors via err.name (`instanceof` brand-matches
+        // across bundles only when both copies are brand-aware), and read
+        // .code/.data as a duck shape. The constructor must not decorate the message.
         const error = new ProtocolError(ProtocolErrorCode.InvalidParams, 'oops', { extra: 1 });
         expect(error.name).toBe('ProtocolError');
         expect(error.code).toBe(-32602);
