@@ -92,6 +92,36 @@ describe('cross-bundle error instanceof (branded)', () => {
         expect(reconstructed instanceof ProtocolError).toBe(true);
     });
 
+    it('isInstance guards agree with instanceof, per class, including across module copies', async () => {
+        const http = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'boom', { status: 404 });
+        expect(SdkHttpError.isInstance(http)).toBe(true);
+        expect(SdkError.isInstance(http)).toBe(true);
+        // inherited guard is scoped to the caller: an SdkError is NOT an SdkHttpError
+        expect(SdkHttpError.isInstance(new SdkError(SdkErrorCode.ConnectionClosed, 'x'))).toBe(false);
+
+        const foreign = await loadForeignCopies();
+        const foreignHttp = new foreign.sdkErrors.SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'boom', { status: 500 });
+        expect(SdkHttpError.isInstance(foreignHttp)).toBe(true);
+        expect(SdkError.isInstance(foreignHttp)).toBe(true);
+        const foreignRnf = new foreign.protocolErrors.ResourceNotFoundError('file:///missing');
+        expect(ResourceNotFoundError.isInstance(foreignRnf)).toBe(true);
+        expect(ProtocolError.isInstance(foreignRnf)).toBe(true);
+        expect(SdkError.isInstance(foreignRnf)).toBe(false);
+
+        // detached calls fail loud instead of silently matching nothing
+        // (the cast models the callback-position escape TS cannot flag, e.g.
+        // `errors.filter(SdkError.isInstance)`)
+        const detached = SdkError.isInstance as (value: unknown) => boolean;
+        expect(() => detached(new SdkError(SdkErrorCode.ConnectionClosed, 'x'))).toThrow(TypeError);
+
+        // agreement with the operator on negatives
+        for (const cls of [ProtocolError, SdkError, SdkHttpError, OAuthError]) {
+            for (const v of [new Error('plain'), null, undefined, 42, 'x', {}]) {
+                expect(cls.isInstance(v)).toBe(v instanceof (cls as never as new () => unknown));
+            }
+        }
+    });
+
     it('user-defined subclasses keep plain prototype semantics (no cross-class false positives)', () => {
         class MyError extends ProtocolError {}
         const mine = new MyError(ProtocolErrorCode.InternalError, 'mine');

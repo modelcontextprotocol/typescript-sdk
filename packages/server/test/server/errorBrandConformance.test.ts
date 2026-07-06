@@ -51,6 +51,18 @@ describe('error brand conformance (server export surface)', () => {
         expect(missing, `branded classes whose hierarchy root does not install brandedHasInstance: ${missing.join(', ')}`).toEqual([]);
     });
 
+    it('every branded class exposes an isInstance guard that agrees with instanceof', () => {
+        const branded = classes.filter(([, cls]) => Object.prototype.hasOwnProperty.call(cls, 'mcpBrand'));
+        const missing = branded.filter(([, cls]) => typeof (cls as { isInstance?: unknown }).isInstance !== 'function').map(([n]) => n);
+        expect(missing, `branded classes without a static isInstance guard: ${missing.join(', ')}`).toEqual([]);
+        for (const [, cls] of branded) {
+            const guard = (cls as unknown as { isInstance: (v: unknown) => boolean }).isInstance;
+            for (const v of [new Error('plain'), null, undefined, 0, '', {}]) {
+                expect(guard.call(cls, v)).toBe(v instanceof (cls as never as new () => unknown));
+            }
+        }
+    });
+
     // Core-internal brand strings are pinned in core-internal's
     // errorSurfacePins.test.ts. A server-local branded error class must add its
     // brand string here so a rename cannot land silently.

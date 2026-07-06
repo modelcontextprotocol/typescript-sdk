@@ -20,6 +20,13 @@
  * keep plain prototype semantics — a foreign base-class instance never satisfies
  * `instanceof UserSubclass`.
  *
+ * Prior art — the same stamp-and-hook shape ships at scale elsewhere: Node core
+ * (stream.Writable since 2017, Console via a marker symbol, diagnostics_channel),
+ * undici's whole error hierarchy (vendored into Node as fetch), googleapis/gaxios
+ * (GaxiosError, Symbol.for marker), AWS SDK v3's ServiceException (which pairs a
+ * Symbol.hasInstance override with a static isInstance guard, as we do), and zod v4
+ * (Symbol.hasInstance on every schema class for cross-version interop).
+ *
  * Contract notes:
  * - Participation criterion: **every error class exported from a public package that
  *   callers are documented to `instanceof` must be branded.** The per-package

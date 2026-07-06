@@ -828,7 +828,11 @@ The SDK now distinguishes three error kinds:
 These classes (and `OAuthError`, the client's `SseError`, `UnauthorizedError`, and the
 OAuth-client-flow error family) brand-match under `instanceof`, so checks work across
 separately bundled copies of the SDK — e.g. a process using both
-`@modelcontextprotocol/client` and `@modelcontextprotocol/server`. Fine print:
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server`. Each branded
+hierarchy also exposes the same check as an explicit static guard
+(`SdkError.isInstance(err)`, `ProtocolError.isInstance(err)`, …) that narrows in
+TypeScript — use whichever style your codebase prefers; both read the same brand.
+Fine print (applies equally to `instanceof` and `isInstance`):
 
 - **Version skew** — matching needs *both* copies at a brand-aware release; against an
   older copy, behavior degrades to plain prototype `instanceof` (false across bundles).

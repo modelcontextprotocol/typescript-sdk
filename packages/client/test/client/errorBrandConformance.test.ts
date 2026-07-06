@@ -15,7 +15,7 @@ import * as barrel from '../../src/index';
  */
 
 /** Error classes exported on purpose without a brand. Justify every entry. */
-const UNBRANDED_ALLOWLIST: ReadonlySet<string> = new Set([]);
+const UNBRANDED_ALLOWLIST: ReadonlySet<string> = new Set();
 
 function exportedErrorClasses(mod: Record<string, unknown>): Array<[string, Function]> {
     return Object.entries(mod)
@@ -86,6 +86,18 @@ describe('error brand conformance (client export surface)', () => {
         });
     });
 
+    it('every branded class exposes an isInstance guard that agrees with instanceof', () => {
+        const branded = classes.filter(([, cls]) => Object.prototype.hasOwnProperty.call(cls, 'mcpBrand'));
+        const missing = branded.filter(([, cls]) => typeof (cls as { isInstance?: unknown }).isInstance !== 'function').map(([n]) => n);
+        expect(missing, `branded classes without a static isInstance guard: ${missing.join(', ')}`).toEqual([]);
+        for (const [, cls] of branded) {
+            const guard = (cls as unknown as { isInstance: (v: unknown) => boolean }).isInstance;
+            for (const v of [new Error('plain'), null, undefined, 0, '', {}]) {
+                expect(guard.call(cls, v)).toBe(v instanceof (cls as never as new () => unknown));
+            }
+        }
+    });
+
     it('core re-exported error classes are exactly the set pinned in errorSurfacePins.test.ts', () => {
         const coreExported = classes.map(([name]) => name).filter(name => CORE_PINNED.has(name));
         expect(coreExported).toEqual([...CORE_PINNED].sort((a, b) => a.localeCompare(b)));
@@ -108,5 +120,11 @@ describe('error brand conformance (client export surface)', () => {
         const unauthorized = new foreignAuth.UnauthorizedError('nope');
         expect(unauthorized instanceof barrel.UnauthorizedError).toBe(true);
         expect(unauthorized.name).toBe('UnauthorizedError');
+
+        // the isInstance guards read the same brands: cross-copy agreement
+        expect(barrel.IssuerMismatchError.isInstance(issuer)).toBe(true);
+        expect(barrel.OAuthClientFlowError.isInstance(issuer)).toBe(true);
+        expect(barrel.UnauthorizedError.isInstance(issuer)).toBe(false);
+        expect(barrel.UnauthorizedError.isInstance(unauthorized)).toBe(true);
     });
 });
