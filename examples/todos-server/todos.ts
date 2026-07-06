@@ -287,16 +287,11 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
     }
 
     // Cross-connection announcements go through the bus, once per change; per-connection
-    // delivery knowledge (that client's subscription set) stays with each instance. The
-    // announcing instance is remembered per EVENT OBJECT, not per moment: object identity
-    // survives asynchronous buses, so echo suppression does not depend on the in-memory
-    // bus's synchronous dispatch.
+    // delivery knowledge (that client's subscription set) stays with each instance.
     const bus = options.bus;
     const connections = new WeakMap<McpServer, { subscribedUris: Set<string> }>();
-    const eventOrigin = new WeakMap<ServerEvent, McpServer>();
 
     function deliverToInstance(target: McpServer, event: ServerEvent): void {
-        if (eventOrigin.get(event) === target) return; // its client heard in-band
         const connection = connections.get(target);
         if (!connection) return;
         if (event.kind === 'resources_list_changed') {
@@ -357,17 +352,22 @@ export function createTodosApp(options: TodosAppOptions = {}): TodosApp {
          * {@linkcode TodosApp.subscribeInstance} — so the announcement is made exactly once.
          */
         const announceBoardChange = async (): Promise<void> => {
-            server.sendResourceListChanged();
-            if (reqCtx.era === 'legacy' ? subscribedUris.has(BOARD_URI) : bus === undefined) {
-                await server.server.sendResourceUpdated({ uri: BOARD_URI }).catch(() => {});
-            }
             if (bus) {
-                const listChanged: ServerEvent = { kind: 'resources_list_changed' };
-                const updated: ServerEvent = { kind: 'resource_updated', uri: BOARD_URI };
-                eventOrigin.set(listChanged, server);
-                eventOrigin.set(updated, server);
-                bus.publish(listChanged);
-                bus.publish(updated);
+                // One delivery path: the bus reaches every connection — pinned
+                // sessions via subscribeInstance, modern clients via their
+                // listen streams — INCLUDING the originating one. Every
+                // sibling SDK (go, csharp, python, java) delivers that echo
+                // too: resources/updated is an idempotent invalidation hint,
+                // not a receipt, so self-exclusion buys nothing and would
+                // need origin tracking that breaks across serializing buses.
+                bus.publish({ kind: 'resources_list_changed' });
+                bus.publish({ kind: 'resource_updated', uri: BOARD_URI });
+                return;
+            }
+            // Bus-less host (stdio): this connection is the only audience.
+            server.sendResourceListChanged();
+            if (subscribedUris.has(BOARD_URI)) {
+                await server.server.sendResourceUpdated({ uri: BOARD_URI }).catch(() => {});
             }
         };
 
