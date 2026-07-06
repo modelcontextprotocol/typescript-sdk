@@ -71,6 +71,25 @@ Only the result comes back:
 
 `progress` must increase on every notification for the same token; `total` and `message` are optional.
 
+## Route SDK diagnostics
+
+Pass `logger` to route local warnings and debug messages from SDK internals. On stdio, send every level to stderr so diagnostics never enter the JSON-RPC channel.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#sdkLogger_stderr"
+const sdkLogger = {
+    debug: (...args: unknown[]) => console.error('[debug]', ...args),
+    info: (...args: unknown[]) => console.error('[info]', ...args),
+    warn: (...args: unknown[]) => console.error('[warn]', ...args),
+    error: (...args: unknown[]) => console.error('[error]', ...args)
+};
+
+const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
+```
+
+The same option works on `Client` and low-level `Server`; `createMcpHandler` also accepts it for handler diagnostics. Every method is optional, and an omitted method discards diagnostics at that level. The default is `console`.
+
+This logger stays local to the process. It does not send MCP `notifications/message`; use `ctx.mcpReq.log` for that deprecated protocol feature.
+
 ## Log to the client
 
 ::: warning Deprecated — SEP-2577
@@ -201,5 +220,6 @@ Resolve an identifier against a fixed list, as `fetch-source` does. A tool that 
 
 - Every handler receives a context as its second argument; the request-scoped helpers live on `ctx.mcpReq`.
 - `ctx.mcpReq.notify` sends `notifications/progress` when the request carried a `progressToken`; `progress` must increase on each one.
+- The `logger` option routes local SDK diagnostics; it is separate from MCP protocol logging.
 - `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; MCP logging is deprecated (SEP-2577).
 - `ctx.mcpReq.signal` aborts on cancellation and disconnect — check it in long loops and forward it to your own I/O.

@@ -90,7 +90,8 @@ export type ProtocolOptions = {
     debouncedNotificationMethods?: string[];
 
     /**
-     * Logger used by SDK internals for warnings and diagnostic messages.
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
      *
      * @default console
      */
