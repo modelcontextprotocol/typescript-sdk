@@ -48,7 +48,8 @@ import { hostHeaderValidationResponse, originValidationResponse } from '@modelco
 
 const guarded = {
     async fetch(request: Request): Promise<Response> {
-        const rejected = hostHeaderValidationResponse(request, ['api.example.com']) ?? originValidationResponse(request, ['app.example.com']);
+        const rejected =
+            hostHeaderValidationResponse(request, ['api.example.com']) ?? originValidationResponse(request, ['app.example.com']);
         return rejected ?? handler.fetch(request);
     }
 };
