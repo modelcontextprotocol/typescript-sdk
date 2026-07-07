@@ -1246,6 +1246,9 @@ importers:
       '@cloudflare/workers-oauth-provider':
         specifier: 0.8.0
         version: 0.8.0
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 1.19.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared

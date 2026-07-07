@@ -5,7 +5,7 @@
  */
 import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import { createMcpHandler, InMemoryServerEventBus } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
@@ -28,7 +28,11 @@ if (transport === 'stdio') {
     const bus = new InMemoryServerEventBus();
     const app = createTodosApp({ requestStateKey: process.env.REQUEST_STATE_SECRET, bus });
     const handler = createMcpHandler(app.buildServer, { bus });
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` binds the endpoint behind localhost host/origin
+    // validation by default, matching the framework factories' defaults.
+    const honoApp = createMcpHonoApp();
+    honoApp.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: honoApp.fetch, port, hostname: '127.0.0.1' }, () => {
         console.error(`[todos] listening on http://127.0.0.1:${port}/mcp`);
     });
 }
