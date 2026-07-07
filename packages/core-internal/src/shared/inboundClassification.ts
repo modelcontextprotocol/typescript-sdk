@@ -464,6 +464,25 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = 
     'resources/read': 'uri'
 };
 
+/** Strip RFC 9110 optional whitespace (SP / HTAB) around a field value in linear time. */
+function stripHttpOws(value: string): string {
+    let start = 0;
+    while (start < value.length) {
+        const code = value.codePointAt(start);
+        if (code !== 0x09 && code !== 0x20) break;
+        start += 1;
+    }
+
+    let end = value.length;
+    while (end > start) {
+        const code = value.codePointAt(end - 1);
+        if (code !== 0x09 && code !== 0x20) break;
+        end -= 1;
+    }
+
+    return start === 0 && end === value.length ? value : value.slice(start, end);
+}
+
 /**
  * SEP-2243 standard-header server-side validation, evaluated by the HTTP
  * entry on a modern-classified request immediately after
@@ -537,11 +556,12 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         );
     }
 
-    const decoded = decodeMcpParamValue(request.mcpNameHeader);
+    const normalizedNameHeader = stripHttpOws(request.mcpNameHeader);
+    const decoded = decodeMcpParamValue(normalizedNameHeader);
     if (decoded === undefined) {
         return crossCheckMismatch(
             'name-header-invalid-encoding',
-            request.mcpNameHeader,
+            normalizedNameHeader,
             'the Mcp-Name header carries an invalid Base64 sentinel value',
             'standard-header-validation'
         );
@@ -549,7 +569,7 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
     if (bodyValue !== undefined && decoded !== bodyValue) {
         return crossCheckMismatch(
             'name-header-mismatch',
-            request.mcpNameHeader,
+            normalizedNameHeader,
             `the body carries params.${sourceField}="${bodyValue}" but the Mcp-Name header names "${decoded}"`,
             'standard-header-validation'
         );
@@ -818,6 +838,18 @@ function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNoti
  * `modern`) or a ladder rejection; it never throws.
  */
 export function classifyInboundRequest(request: InboundHttpRequest): InboundClassificationOutcome {
+    // RFC 9110 §5.5: field parsing excludes optional whitespace around a
+    // field value. Fetch implementations normally perform this normalization,
+    // but transport-neutral callers and some runtimes can expose raw OWS.
+    request = {
+        ...request,
+        ...(request.protocolVersionHeader !== undefined && {
+            protocolVersionHeader: stripHttpOws(request.protocolVersionHeader)
+        }),
+        ...(request.mcpMethodHeader !== undefined && { mcpMethodHeader: stripHttpOws(request.mcpMethodHeader) }),
+        ...(request.mcpNameHeader !== undefined && { mcpNameHeader: stripHttpOws(request.mcpNameHeader) })
+    };
+
     if (request.httpMethod.toUpperCase() !== 'POST') {
         // Body-less 2025-era session operations (and any other non-POST
         // method): the modern era is POST-only.
