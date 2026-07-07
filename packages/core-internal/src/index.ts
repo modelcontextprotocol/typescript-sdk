@@ -11,6 +11,7 @@ export * from './shared/inputRequiredDriver';
 export * from './shared/inputRequiredEngine';
 export * from './shared/logger';
 export * from './shared/mcpParamHeaders';
+export * from './shared/mediaType';
 export * from './shared/metadataUtils';
 export * from './shared/protocol';
 export * from './shared/protocolEras';

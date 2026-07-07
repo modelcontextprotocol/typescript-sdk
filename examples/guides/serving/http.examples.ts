@@ -14,7 +14,7 @@
 /* eslint-disable no-console */
 import { createServer } from 'node:http';
 
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { localhostHostValidation, localhostOriginValidation, toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpServerFactory } from '@modelcontextprotocol/server';
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,13 @@ const perCaller = createMcpHandler(({ authInfo }) => {
 /** Example: mounting the handler on plain `node:http`. */
 function mountNode(): void {
     //#region mountNode
-    createServer(toNodeHandler(handler)).listen(3000);
+    const nodeHandler = toNodeHandler(handler);
+    const validateHost = localhostHostValidation();
+    const validateOrigin = localhostOriginValidation();
+    createServer((req, res) => {
+        if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+        void nodeHandler(req, res);
+    }).listen(3000, '127.0.0.1');
     //#endregion mountNode
 }
 void mountNode;

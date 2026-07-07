@@ -23,7 +23,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
+import {
+    localhostHostValidation,
+    localhostOriginValidation,
+    NodeStreamableHTTPServerTransport,
+    toNodeHandler,
+    toWebRequest
+} from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     ElicitRequestFormParams,
@@ -274,7 +280,15 @@ if (transport === 'stdio') {
         }
     };
 
+    // Host/Origin guards for the hand-wired `node:http` server — plain
+    // `createServer` has no middleware chain, so compose the boolean-returning
+    // guards from `@modelcontextprotocol/node` in front of both arms,
+    // matching the framework factories' localhost defaults.
+    const validateHost = localhostHostValidation();
+    const validateOrigin = localhostOriginValidation();
+
     createServer((req, res) => {
+        if (!validateHost(req, res) || !validateOrigin(req, res)) return;
         void (async () => {
             // `toWebRequest` reads the Node body into a web-standard `Request`,
             // so the body now lives in `request`, not `req`. Ask the predicate
@@ -289,7 +303,7 @@ if (transport === 'stdio') {
             console.error('[server] request error:', error instanceof Error ? error.message : error);
             if (!res.headersSent) res.writeHead(500).end();
         });
-    }).listen(port, () => {
+    }).listen(port, '127.0.0.1', () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

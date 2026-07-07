@@ -42,6 +42,8 @@ import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     httpStatusForErrorCode,
+    isJsonContentType,
+    mediaTypeEssence,
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
     modernOnlyStrictRejection,
@@ -333,7 +335,7 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 ...(options?.parsedBody !== undefined && { parsedBody: options.parsedBody })
             });
-            if (response.body === null || !(response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+            if (response.body === null || mediaTypeEssence(response.headers.get('content-type')) !== 'text/event-stream') {
                 // Non-streaming exchange (a buffered JSON body or a body-less
                 // ack): the response is complete, release the pair now.
                 teardown();
@@ -486,7 +488,11 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  * This is the entry's own classification step exported as a predicate — it
  * runs exactly the code `createMcpHandler` runs to make the routing decision,
  * not a re-implementation — so a hand-wired composition that branches on it
- * can never disagree with the entry. Use it to keep an existing legacy
+ * can never disagree with the entry. It is classification only: hand-wired
+ * compositions must validate Content-Type themselves (415 for POSTs whose
+ * media type is not `application/json`, via {@linkcode isJsonContentType})
+ * before dispatching either leg — routing the legacy leg into the SDK
+ * transports gets their built-in check, but a custom modern leg has none. Use it to keep an existing legacy
  * deployment (for example a sessionful streamable HTTP wiring) serving 2025
  * traffic next to a strict modern endpoint, now that the entry has no
  * handler-valued `legacy` option:
@@ -577,7 +583,10 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  * pattern. Power users composing transport-neutral routing can also use the
  * exported building blocks directly: {@linkcode classifyInboundRequest} for
  * the era decision and `PerRequestHTTPServerTransport` for single-exchange
- * serving.
+ * serving — such compositions must reject POSTs whose Content-Type media type
+ * is not `application/json` (415) before parsing the body, using
+ * {@linkcode isJsonContentType}; neither building block performs this
+ * validation itself.
  *
  * The entry performs no token verification: `authInfo` given to `fetch` is
  * passed through to handlers and the factory as-is and is never derived from
@@ -819,6 +828,18 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     async function handle(request: Request, requestOptions?: McpHandlerRequestOptions): Promise<Response> {
         const authInfo = requestOptions?.authInfo;
+
+        // Content-Type check, answered before the body is read (parsed media
+        // type — see isJsonContentType). Load-bearing for the modern leg,
+        // whose ladder does not inspect Content-Type; the legacy transport
+        // keeps its own check for hand-wired use, so via this entry a
+        // doubly-invalid request answers 415 here before the transport's 406
+        // Accept check would.
+        if (request.method.toUpperCase() === 'POST' && !isJsonContentType(request.headers.get('content-type'))) {
+            reportError(new Error('Unsupported Media Type: Content-Type must be application/json'));
+            return jsonRpcErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
+        }
+
         const classified = await classifyEntryRequest(request, requestOptions?.parsedBody);
 
         if (classified.step === 'unreadable-body') {
