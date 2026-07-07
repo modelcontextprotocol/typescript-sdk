@@ -49,8 +49,6 @@ export { getDisplayName } from '../../shared/metadataUtils';
 export type {
     BaseContext,
     ClientContext,
-    ElicitInputFormParams,
-    ElicitInputResult,
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,

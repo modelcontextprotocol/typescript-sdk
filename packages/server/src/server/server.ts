@@ -10,8 +10,6 @@ import type {
     CreateMessageResult,
     CreateMessageResultWithTools,
     DiscoverResult,
-    ElicitInputFormParams,
-    ElicitInputResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -36,7 +34,6 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
-    StandardSchemaWithJSON,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core-internal';
@@ -55,14 +52,12 @@ import {
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
     modernProtocolVersions,
-    normalizeElicitInputFormParams,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
-    validateStandardSchema,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
@@ -405,7 +400,7 @@ export class Server extends Protocol<ServerContext> {
                     // session-wide stream to deliver it on.
                     return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                 },
-                elicitInput: this.elicitInput.bind(this) as ServerContext['mcpReq']['elicitInput'],
+                elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
             http: hasHttpInfo
@@ -1132,27 +1127,7 @@ export class Server extends Protocol<ServerContext> {
      * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
      * legacy path.
      */
-    async elicitInput<Schema extends StandardSchemaWithJSON>(
-        params: ElicitInputFormParams<Schema>,
-        options?: RequestOptions
-    ): Promise<ElicitInputResult<Schema>>;
-    /**
-     * Creates an elicitation request for the given parameters.
-     * For backwards compatibility, `mode` may be omitted for form requests and will default to `"form"`.
-     * @param params The parameters for the elicitation request.
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     *
-     * @deprecated Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip)
-     * instead. The 2025 push-style server-to-client request model is replaced by input_required
-     * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
-     * legacy path.
-     */
-    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
-    async elicitInput(
-        params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
-        options?: RequestOptions
-    ): Promise<ElicitResult | ElicitInputResult<StandardSchemaWithJSON>> {
+    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
         this._assertPushApiInServedEra('elicitation/create');
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
@@ -1183,10 +1158,10 @@ export class Server extends Protocol<ServerContext> {
      * `acceptedContent` overload and can re-ask).
      */
     private async _sendElicitationLeg(
-        params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
+        params: ElicitRequestFormParams | ElicitRequestURLParams,
         options?: RequestOptions,
         behavior?: { validateAcceptedContent: boolean }
-    ): Promise<ElicitResult | ElicitInputResult<StandardSchemaWithJSON>> {
+    ): Promise<ElicitResult> {
         const mode = (params.mode ?? 'form') as 'form' | 'url';
         const validateAcceptedContent = behavior?.validateAcceptedContent ?? true;
 
@@ -1198,42 +1173,30 @@ export class Server extends Protocol<ServerContext> {
                 return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
-                const { params: formParams, standardSchema } = normalizeElicitInputFormParams(
-                    params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
-                );
+                const formParams: ElicitRequestFormParams =
+                    params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
-                if (validateAcceptedContent && result.action === 'accept' && result.content !== undefined && formParams.requestedSchema) {
-                    if (standardSchema) {
-                        const parsedContent = await validateStandardSchema(standardSchema, result.content);
-                        if (!parsedContent.success) {
+                if (validateAcceptedContent && result.action === 'accept' && result.content && formParams.requestedSchema) {
+                    try {
+                        const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
+                        const validationResult = validator(result.content);
+
+                        if (!validationResult.valid) {
                             throw new ProtocolError(
                                 ProtocolErrorCode.InvalidParams,
-                                `Elicitation response content does not match requested schema: ${parsedContent.error}`
+                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
                             );
                         }
-                        return { ...result, content: parsedContent.data };
-                    } else {
-                        try {
-                            const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
-                            const validationResult = validator(result.content);
-
-                            if (!validationResult.valid) {
-                                throw new ProtocolError(
-                                    ProtocolErrorCode.InvalidParams,
-                                    `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
-                                );
-                            }
-                        } catch (error) {
-                            if (error instanceof ProtocolError) {
-                                throw error;
-                            }
-                            throw new ProtocolError(
-                                ProtocolErrorCode.InternalError,
-                                `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
-                            );
+                    } catch (error) {
+                        if (error instanceof ProtocolError) {
+                            throw error;
                         }
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
+                            `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                        );
                     }
                 }
                 return result;

@@ -10,6 +10,10 @@ An **`input_required`** result is how a `tools/call`, `prompts/get`, or `resourc
 The handler reads what already arrived with `acceptedContent`; while the answer is missing it returns `inputRequired(...)` instead of a tool result.
 
 ```ts source="../../examples/guides/servers/input-required.examples.ts#registerTool_inputRequired"
+const confirmationSchema = z.object({
+    confirm: z.boolean().meta({ title: 'Confirm deployment' })
+});
+
 server.registerTool(
     'deploy',
     {
@@ -17,13 +21,13 @@ server.registerTool(
         inputSchema: z.object({ env: z.string() })
     },
     async ({ env }, ctx): Promise<CallToolResult | InputRequiredResult> => {
-        const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+        const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
         if (confirmed?.confirm !== true) {
             return inputRequired({
                 inputRequests: {
                     confirm: inputRequired.elicit({
                         message: `Deploy to ${env}?`,
-                        requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                        requestedSchema: confirmationSchema
                     })
                 }
             });
@@ -33,7 +37,7 @@ server.registerTool(
 );
 ```
 
-The first round returns `resultType: 'input_required'` carrying the `confirm` request. The client fulfils it and retries `deploy` with the answer in `inputResponses`; on re-entry `acceptedContent` finds it and the handler finishes.
+The first round converts `confirmationSchema` to MCP's restricted elicitation JSON Schema and returns it inside `resultType: 'input_required'`. The client fulfils the request and retries `deploy`; on re-entry `acceptedContent` validates the answer with that same schema and the handler finishes.
 
 Every call on this page comes from an in-memory `Client` with an `elicitation/create` handler — [Test a server](../testing.md) shows that wiring. Calling `deploy` once produces both rounds:
 

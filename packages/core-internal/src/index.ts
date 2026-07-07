@@ -4,7 +4,6 @@ export * from './errors/sdkErrors';
 export * from './shared/auth';
 export * from './shared/authUtils';
 export * from './shared/clientCapabilityRequirements';
-export * from './shared/elicitation';
 export * from './shared/envelope';
 export * from './shared/inboundClassification';
 export * from './shared/inputRequired';

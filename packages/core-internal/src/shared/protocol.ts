@@ -45,7 +45,7 @@ import {
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index';
-import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema';
+import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
@@ -444,18 +444,6 @@ export type BaseContext = {
     };
 };
 
-export type ElicitInputFormParams<Schema extends StandardSchemaWithJSON = StandardSchemaWithJSON> = Omit<
-    ElicitRequestFormParams,
-    'requestedSchema'
-> & {
-    requestedSchema: Schema;
-};
-
-export type ElicitInputResult<Schema extends StandardSchemaWithJSON> = Result & {
-    action: ElicitResult['action'];
-    content?: StandardSchemaWithJSON.InferOutput<Schema>;
-};
-
 /**
  * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.
  */
@@ -479,13 +467,7 @@ export type ServerContext = BaseContext & {
          * replaced by input_required results in the 2026-07-28 protocol. If your factory serves
          * both eras, this only works on the legacy path.
          */
-        elicitInput: {
-            <Schema extends StandardSchemaWithJSON>(
-                params: ElicitInputFormParams<Schema>,
-                options?: RequestOptions
-            ): Promise<ElicitInputResult<Schema>>;
-            (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
-        };
+        elicitInput: (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions) => Promise<ElicitResult>;
 
         /**
          * Request LLM sampling from the client.

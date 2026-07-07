@@ -8,7 +8,6 @@ import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired';
-import { ProtocolError } from '../../src/types/errors';
 import { isInputRequiredResult } from '../../src/types/guards';
 import { validateStandardSchema } from '../../src/util/standardSchema';
 
@@ -53,22 +52,30 @@ describe('inputRequired() builder', () => {
         expect(inputRequired.listRoots()).toEqual({ method: 'roots/list' });
     });
 
-    test('elicit converts Standard Schema requestedSchema to elicitation JSON Schema', () => {
+    test('elicit converts a Standard Schema to the restricted wire schema', () => {
         const request = inputRequired.elicit({
-            message: 'Email?',
-            requestedSchema: z.object({ email: z.email() })
+            message: 'Registration details?',
+            requestedSchema: z.object({
+                email: z.string().meta({ title: 'Email', format: 'email' }),
+                count: z.number().min(1).max(5),
+                role: z.enum(['admin', 'member'])
+            })
         });
 
         expect(request).toEqual({
             method: 'elicitation/create',
             params: {
                 mode: 'form',
-                message: 'Email?',
+                message: 'Registration details?',
                 requestedSchema: {
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
                     type: 'object',
-                    properties: { email: { type: 'string', format: 'email' } },
-                    required: ['email']
+                    properties: {
+                        email: { type: 'string', title: 'Email', format: 'email' },
+                        count: { type: 'number', minimum: 1, maximum: 5 },
+                        role: { type: 'string', enum: ['admin', 'member'] }
+                    },
+                    required: ['email', 'count', 'role']
                 }
             }
         });
@@ -103,19 +110,35 @@ describe('inputRequired() builder', () => {
         });
     });
 
-    test('elicit rejects non-object Standard Schema roots as invalid elicitation params', () => {
+    test('elicit rejects non-object Standard Schema roots as a local type error', () => {
         expect(() =>
             inputRequired.elicit({
                 message: 'Name?',
                 requestedSchema: z.string()
             })
-        ).toThrow(ProtocolError);
+        ).toThrow(TypeError);
         expect(() =>
             inputRequired.elicit({
                 message: 'Name?',
                 requestedSchema: z.string()
             })
         ).toThrow(/Elicitation requestedSchema must describe an object/);
+    });
+
+    test('elicit rejects validation constraints the restricted wire schema cannot express', () => {
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Code?',
+                requestedSchema: z.object({ code: z.string().regex(/^[A-Z]{3}$/) })
+            })
+        ).toThrow(/properties\.code\.pattern/);
+
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Address?',
+                requestedSchema: z.object({ address: z.object({ city: z.string() }) })
+            })
+        ).toThrow(/flat primitive properties/);
     });
 });
 
