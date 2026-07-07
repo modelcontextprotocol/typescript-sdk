@@ -39,6 +39,10 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils';
 
+// The OAuth discovery URL policy (shared/discoveryPolicy.ts) is client-only
+// vocabulary: it is exported from @modelcontextprotocol/client, not from here,
+// so the server package's surface does not carry client-OAuth-flow machinery.
+
 // Media-type utilities (for transport and framework-adapter authors)
 export { isJsonContentType } from '../../shared/mediaType';
 
@@ -62,7 +66,8 @@ export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol';
 // stdio message framing utilities (for custom transport authors)
 export { deserializeMessage, ReadBuffer, serializeMessage, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../shared/stdio';
 
-// Transport types (NOT normalizeHeaders)
+// Transport types (NOT normalizeHeaders or the OMIT_BASE_HEADERS sentinel, which
+// stay on the internal barrel)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport';
 export { createFetchWithInit } from '../../shared/transport';
 export { InMemoryTransport } from '../../util/inMemory';

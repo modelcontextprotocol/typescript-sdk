@@ -1,6 +1,11 @@
 import { CORS_IS_POSSIBLE } from '@modelcontextprotocol/client/_shims';
 import type {
     AuthorizationServerMetadata,
+    DiscoveryUrlContext,
+    DiscoveryUrlPolicyOptions,
+    DiscoveryUrlProducer,
+    DiscoveryUrlPurpose,
+    DiscoveryUrlSource,
     FetchLike,
     OAuthClientInformation,
     OAuthClientInformationFull,
@@ -13,8 +18,10 @@ import type {
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertAllowedDiscoveryUrl,
     brandedHasInstance,
     checkResourceAllowed,
+    DiscoveryUrlBlockedError,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -23,13 +30,20 @@ import {
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
     OAuthTokensSchema,
+    OMIT_BASE_HEADERS,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
     stampErrorBrands
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
-import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
+import {
+    AuthorizationServerMismatchError,
+    InsecureTokenEndpointError,
+    IssuerMismatchError,
+    RedirectFilteredResponseError,
+    RegistrationRejectedError
+} from './authErrors';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
 export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
@@ -150,7 +164,8 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
  * validation in {@linkcode discoverAuthorizationServerMetadata}: when the SDK
  * derives an issuer from `String(new URL(...))` (always slash-suffixed) and the AS
  * publishes a slash-free `metadata.issuer`, the two name the same authorization
- * server.
+ * server. Also the comparison behind {@linkcode OAuthClientProvider.trustedAuthorizationServers}
+ * entry matching.
  */
 function issuersMatch(a: string, b: string): boolean {
     return a === b || (a.endsWith('/') && a.slice(0, -1) === b) || (b.endsWith('/') && b.slice(0, -1) === a);
@@ -183,6 +198,10 @@ export async function handleOAuthUnauthorized(
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,
+        // Relayed from the challenge: a URL-policy rejection falls back to the
+        // well-known derivation instead of failing the flow — see
+        // {@linkcode ResourceMetadataUrlSource}.
+        resourceMetadataUrlSource: 'www-authenticate',
         scope,
         fetchFn: ctx.fetchFn,
         ...extraAuthOptions
@@ -351,6 +370,69 @@ export interface OAuthClientProvider {
     validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
 
     /**
+     * Trust verification hook for every URL the OAuth flow validates: called AFTER
+     * a URL has passed the SDK's own URL policy ({@linkcode assertAllowedDiscoveryUrl}),
+     * at every checkpoint —
+     *
+     * - before each request the flow issues (discovery GETs, token and registration
+     *   POSTs), including each manually-followed redirect `Location` target
+     *   (`ctx.purpose === 'redirect-hop'`), and
+     * - at the assert-only sites where a URL is adopted rather than requested:
+     *   authorization-server adoption per RFC 9728 §7.6 (fresh discovery, the legacy
+     *   server-derived fallback, and restore from cached discovery state — the
+     *   context's `source` says which) and the authorization endpoint the user agent
+     *   is about to be redirected to.
+     *
+     * Filter on `ctx.purpose`/`ctx.source` to scope a check to specific steps.
+     * Throw to reject the URL and fail the flow closed; return normally to accept
+     * it. A rejection always surfaces to callers as
+     * {@linkcode DiscoveryUrlBlockedError} — a throw of any other type is wrapped
+     * (with the original error as `cause`), so there is a single failure type for
+     * every URL-policy or trust rejection. The SDK's mechanical policy checks URL
+     * structure and locality only — implement this hook (or
+     * {@linkcode OAuthClientProvider.trustedAuthorizationServers | trustedAuthorizationServers})
+     * to verify the URLs the flow contacts are ones the application trusts.
+     */
+    validateDiscoveryURL?(ctx: DiscoveryUrlContext): void | Promise<void>;
+
+    /**
+     * Declarative RFC 9728 §7.6 trust list for authorization servers. Entries are
+     * issuer identifiers: an adopted authorization server must match an entry on the
+     * full identifier, tolerating only a trailing-slash difference. A
+     * path-distinguished issuer (e.g. `https://as.example.com/tenant1`) is matched
+     * exactly — listing one tenant does not trust another on the same host, and an
+     * origin-only entry does not cover pathed issuers on that host. The list is
+     * exhaustive, not additive: an authorization server matching no entry is rejected
+     * with {@linkcode DiscoveryUrlBlockedError}, even when it passes every other rule.
+     * This includes the legacy fallback where the MCP server acts as its own
+     * authorization server — list the server's base URL to allow that arrangement.
+     *
+     * The list is enforced where the flow adopts an authorization server
+     * (`auth()` and the transports, including restore from cached discovery
+     * state). {@linkcode fetchToken} takes a caller-supplied authorization
+     * server and adopts nothing, so it does not consult the list — on that path
+     * only the {@linkcode OAuthClientProvider.validateDiscoveryURL | validateDiscoveryURL}
+     * hook runs, at the token-endpoint checkpoint.
+     */
+    trustedAuthorizationServers?: (string | URL)[];
+
+    /**
+     * Overrides for the URL policy applied to every discovery-derived URL before
+     * it is requested or adopted ({@linkcode assertAllowedDiscoveryUrl}) — see
+     * {@linkcode DiscoveryUrlPolicyOptions} for what each option relaxes. All
+     * options are **policy-weakening** and default to off (the policy fails
+     * closed); rejection messages name the option that would have permitted the
+     * URL.
+     *
+     * This member is the durable home for a deployment's policy: every flow the
+     * SDK drives with this provider — including the flows the client transports
+     * run on `401`/`403` challenges and on `finishAuth` — reads it. A per-call
+     * {@linkcode AuthOptions.discoveryPolicy} takes precedence when both are
+     * set; the effective policy is resolved once at flow entry.
+     */
+    readonly discoveryPolicy?: DiscoveryUrlPolicyOptions;
+
+    /**
      * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
      * credentials, in the case where the server has indicated that they are no longer valid.
      * This avoids requiring the user to intervene manually.
@@ -486,6 +568,25 @@ export interface OAuthDiscoveryState extends OAuthServerInfo {
 }
 
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
+
+/**
+ * Provenance of an explicitly-supplied protected-resource-metadata URL
+ * ({@linkcode AuthOptions.resourceMetadataUrl}). It decides how a URL-policy
+ * rejection of that URL is handled:
+ *
+ * - `'www-authenticate'` — relayed from a server's `WWW-Authenticate` challenge
+ *   (the transports label the URLs they extract this way). A rejected URL is
+ *   ignored with a warning and discovery falls back to the SDK's own same-origin
+ *   well-known derivation (RFC 9728 §3): non-conformant relayed input does not
+ *   take the flow down when the SDK can derive the metadata location itself.
+ * - `'caller'` (the default) — configured by the application. A rejected URL is a
+ *   configuration statement the policy contradicts, so the flow fails closed with
+ *   {@linkcode DiscoveryUrlBlockedError} instead of silently discovering at a
+ *   different location. A URL restored from a provider's persisted
+ *   {@linkcode OAuthDiscoveryState} is handled the same way: it is re-validated
+ *   on every restore and a rejection fails closed.
+ */
+export type ResourceMetadataUrlSource = Extract<DiscoveryUrlSource, 'www-authenticate' | 'caller'>;
 
 export class UnauthorizedError extends Error {
     static {
@@ -659,7 +760,13 @@ export async function resolveAuthorizationCallbackParams(
     iss: string | undefined,
     provider: OAuthClientProvider,
     serverUrl: string | URL,
-    opts?: { fetchFn?: FetchLike; resourceMetadataUrl?: URL }
+    opts?: {
+        fetchFn?: FetchLike;
+        resourceMetadataUrl?: URL;
+        /** Provenance of `resourceMetadataUrl` — see {@linkcode ResourceMetadataUrlSource}. */
+        resourceMetadataUrlSource?: ResourceMetadataUrlSource;
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
+    }
 ): Promise<{ authorizationCode: string; iss: string | undefined }> {
     if (typeof codeOrParams === 'string') {
         return { authorizationCode: codeOrParams, iss };
@@ -676,7 +783,20 @@ export async function resolveAuthorizationCallbackParams(
     let metadata = discoveryState?.authorizationServerMetadata;
     if (!metadata) {
         try {
-            const serverInfo = await discoverOAuthServerInfo(serverUrl, opts);
+            // Effective policy resolved once at this flow entry, like authInternal's;
+            // the provider's RFC 9728 §7.6 trust members apply to the adoption exactly
+            // as on the main flow.
+            const serverInfo = await discoverOAuthServerInfoInternal(
+                serverUrl,
+                {
+                    ...opts,
+                    discoveryPolicy: opts?.discoveryPolicy ?? provider.discoveryPolicy
+                },
+                {
+                    trustedAuthorizationServers: provider.trustedAuthorizationServers,
+                    validateDiscoveryURL: provider.validateDiscoveryURL?.bind(provider)
+                }
+            );
             metadata = serverInfo.authorizationServerMetadata;
         } catch {
             metadata = undefined;
@@ -951,10 +1071,32 @@ export interface AuthOptions {
     iss?: string;
     /** Scope to request; computed by Scope Selection Strategy when omitted. */
     scope?: string;
-    /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
+    /**
+     * Explicit protected-resource-metadata URL, bypassing the RFC 9728 §3
+     * well-known derivation. Callers relaying a `WWW-Authenticate` challenge's
+     * `resource_metadata` value should also set
+     * {@linkcode AuthOptions.resourceMetadataUrlSource | resourceMetadataUrlSource}.
+     */
     resourceMetadataUrl?: URL;
+    /**
+     * Where `resourceMetadataUrl` came from — see
+     * {@linkcode ResourceMetadataUrlSource} for how each value handles a
+     * URL-policy rejection. Callers relaying a `WWW-Authenticate` challenge
+     * (as the SDK transports do) set `'www-authenticate'`; the default
+     * `'caller'` treats a rejected URL as a configuration error and fails
+     * closed.
+     */
+    resourceMetadataUrlSource?: ResourceMetadataUrlSource;
     /** Custom `fetch` implementation. */
     fetchFn?: FetchLike;
+    /**
+     * Overrides for the URL policy applied to every discovery-derived URL before it
+     * is requested or adopted ({@linkcode assertAllowedDiscoveryUrl}). All options
+     * are **policy-weakening** and default to off. Takes precedence over
+     * {@linkcode OAuthClientProvider.discoveryPolicy} when both are set; the
+     * effective policy is resolved once at flow entry.
+     */
+    discoveryPolicy?: DiscoveryUrlPolicyOptions;
     /**
      * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization
      * server discovery. Disabling it is **security-weakening** and intended only
@@ -1056,11 +1198,24 @@ async function authInternal(
         iss,
         scope,
         resourceMetadataUrl,
+        resourceMetadataUrlSource,
         fetchFn,
+        discoveryPolicy: discoveryPolicyOverride,
         skipIssuerMetadataValidation,
         forceReauthorization
     }: AuthOptions
 ): Promise<AuthResult> {
+    // The effective URL policy for the whole flow, resolved once at entry:
+    // per-call options take precedence over the provider's durable policy.
+    const discoveryPolicy = discoveryPolicyOverride ?? provider.discoveryPolicy;
+
+    // RFC 9728 §7.6 trust, resolved once at entry. Trust flows only from the
+    // provider — there is no per-call override.
+    const trust: AuthorizationServerTrust = {
+        trustedAuthorizationServers: provider.trustedAuthorizationServers,
+        validateDiscoveryURL: provider.validateDiscoveryURL?.bind(provider)
+    };
+
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
     const clientMetadata = resolveClientMetadata(provider);
@@ -1073,36 +1228,79 @@ async function authInternal(
     let metadata: AuthorizationServerMetadata | undefined;
     let freshDiscoveryState: OAuthDiscoveryState | undefined;
 
-    // If resourceMetadataUrl is not provided, try to load it from cached state
-    // This handles browser redirects where the URL was saved before navigation
+    // If resourceMetadataUrl is not provided, try to load it from cached state.
+    // This handles browser redirects where the URL was saved before navigation.
+    // A URL restored from cache is handled like a caller-configured one: it is
+    // re-validated on every restore and a policy rejection fails closed rather
+    // than discovering at a different location.
     let effectiveResourceMetadataUrl = resourceMetadataUrl;
+    let effectiveResourceMetadataUrlSource = resourceMetadataUrlSource ?? 'caller';
     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
+        effectiveResourceMetadataUrlSource = 'caller';
     }
 
+    // Only a caller-configured metadata URL is recorded in discovery state (a
+    // configuration statement, restored and re-validated as such above). A
+    // challenge-relayed URL is re-extracted from each 401 — and may have been
+    // set aside in favor of the SDK's own well-known derivation (see
+    // discoverMetadataWithFallback) — so recording it could persist a URL the
+    // flow never used and that a restore would then treat as caller-configured.
+    const persistedResourceMetadataUrl =
+        effectiveResourceMetadataUrlSource === 'caller' ? effectiveResourceMetadataUrl?.toString() : undefined;
+
     if (cachedState?.authorizationServerUrl) {
-        // Restore discovery state from cache
+        // Restore discovery state from cache. The cached authorization server URL is
+        // network-derived state, so it is re-validated on every restore exactly like a
+        // fresh adoption — otherwise state persisted before a policy or trust-list
+        // change would keep bypassing RFC 9728 §7.6 verification. A rejected cached
+        // URL throws DiscoveryUrlBlockedError.
         authorizationServerUrl = cachedState.authorizationServerUrl;
+        const cachedUrlContext: DiscoveryUrlContext = {
+            purpose: 'authorization-server',
+            url: new URL(authorizationServerUrl),
+            producer: { url: new URL(serverUrl), kind: 'mcp-server' },
+            source: 'cached-discovery-state'
+        };
+        assertAllowedDiscoveryUrl(cachedUrlContext, discoveryPolicy);
+        await verifyAuthorizationServerTrust(cachedUrlContext, trust);
         resourceMetadata = cachedState.resourceMetadata;
         metadata =
             cachedState.authorizationServerMetadata ??
-            (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
-                fetchFn,
-                skipIssuerValidation: skipIssuerMetadataValidation
-            }));
+            (await discoverAuthorizationServerMetadataInternal(
+                authorizationServerUrl,
+                {
+                    fetchFn,
+                    skipIssuerValidation: skipIssuerMetadataValidation,
+                    discoveryPolicy
+                },
+                trust.validateDiscoveryURL
+            ));
 
         // If resource metadata wasn't cached, try to fetch it for selectResourceURL
         if (!resourceMetadata) {
             try {
-                resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+                resourceMetadata = await discoverOAuthProtectedResourceMetadataInternal(
                     serverUrl,
-                    { resourceMetadataUrl: effectiveResourceMetadataUrl },
-                    fetchFn
+                    {
+                        resourceMetadataUrl: effectiveResourceMetadataUrl,
+                        resourceMetadataUrlSource: effectiveResourceMetadataUrlSource,
+                        discoveryPolicy
+                    },
+                    fetchFn,
+                    trust.validateDiscoveryURL
                 );
             } catch (error) {
                 // Network failures (DNS, connection refused) surface as TypeError — propagate
-                // those rather than masking a transient reachability problem.
-                if (error instanceof TypeError) {
+                // those rather than masking a transient reachability problem. URL-policy
+                // rejections likewise fail closed instead of proceeding without metadata, as
+                // does a runtime-filtered redirect on a caller-configured metadata URL (on an
+                // SDK-derived probe it degrades below, exactly like a 404).
+                if (
+                    error instanceof TypeError ||
+                    error instanceof DiscoveryUrlBlockedError ||
+                    isFilteredCallerMetadataUrl(error, effectiveResourceMetadataUrl, effectiveResourceMetadataUrlSource)
+                ) {
                     throw error;
                 }
                 // RFC 9728 not available — selectResourceURL will handle undefined
@@ -1113,18 +1311,24 @@ async function authInternal(
         if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
             await provider.saveDiscoveryState?.({
                 authorizationServerUrl: String(authorizationServerUrl),
-                resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+                resourceMetadataUrl: persistedResourceMetadataUrl,
                 resourceMetadata,
                 authorizationServerMetadata: metadata
             });
         }
     } else {
         // Full discovery via RFC 9728
-        const serverInfo = await discoverOAuthServerInfo(serverUrl, {
-            resourceMetadataUrl: effectiveResourceMetadataUrl,
-            fetchFn,
-            skipIssuerMetadataValidation
-        });
+        const serverInfo = await discoverOAuthServerInfoInternal(
+            serverUrl,
+            {
+                resourceMetadataUrl: effectiveResourceMetadataUrl,
+                resourceMetadataUrlSource: effectiveResourceMetadataUrlSource,
+                fetchFn,
+                skipIssuerMetadataValidation,
+                discoveryPolicy
+            },
+            trust
+        );
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
         resourceMetadata = serverInfo.resourceMetadata;
@@ -1137,7 +1341,7 @@ async function authInternal(
         // discoverOAuthProtectedResourceMetadata() is not captured back here.
         freshDiscoveryState = {
             authorizationServerUrl: String(authorizationServerUrl),
-            resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
+            resourceMetadataUrl: persistedResourceMetadataUrl,
             resourceMetadata,
             authorizationServerMetadata: metadata
         };
@@ -1247,12 +1451,17 @@ async function authInternal(
                 throw new Error('OAuth client information must be saveable for dynamic registration');
             }
 
-            const fullInformation = await registerClient(authorizationServerUrl, {
-                metadata,
-                clientMetadata,
-                scope: resolvedScope,
-                fetchFn
-            });
+            const fullInformation = await registerClientInternal(
+                authorizationServerUrl,
+                {
+                    metadata,
+                    clientMetadata,
+                    scope: resolvedScope,
+                    fetchFn,
+                    discoveryPolicy
+                },
+                trust.validateDiscoveryURL
+            );
 
             clientInformation = { ...fullInformation, issuer };
             await provider.saveClientInformation(clientInformation, infoCtx);
@@ -1281,7 +1490,8 @@ async function authInternal(
             authorizationCode,
             iss,
             scope: resolvedScope,
-            fetchFn
+            fetchFn,
+            discoveryPolicy
         });
 
         await provider.saveTokens({ ...tokens, issuer }, infoCtx);
@@ -1305,22 +1515,32 @@ async function authInternal(
     if (tokens?.refresh_token && !forceReauthorization) {
         try {
             // Attempt to refresh the token
-            const newTokens = await refreshAuthorization(authorizationServerUrl, {
-                metadata,
-                clientInformation,
-                refreshToken: tokens.refresh_token,
-                resource,
-                addClientAuthentication: provider.addClientAuthentication,
-                fetchFn
-            });
+            const newTokens = await refreshAuthorizationInternal(
+                authorizationServerUrl,
+                {
+                    metadata,
+                    clientInformation,
+                    refreshToken: tokens.refresh_token,
+                    resource,
+                    addClientAuthentication: provider.addClientAuthentication,
+                    fetchFn,
+                    discoveryPolicy
+                },
+                trust.validateDiscoveryURL
+            );
 
             await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
             return 'AUTHORIZED';
         } catch (error) {
-            // A non-TLS token endpoint is a configuration error — re-authorizing cannot
-            // fix it. Surface it so the consumer sees the misconfiguration instead of an
-            // unexplained re-auth prompt.
-            if (error instanceof InsecureTokenEndpointError) {
+            // A non-TLS, policy-blocked, or redirecting token endpoint is a
+            // configuration error — re-authorizing cannot fix it (the exchange
+            // POST targets the same endpoint). Surface it so the consumer sees
+            // the misconfiguration instead of an unexplained re-auth prompt.
+            if (
+                error instanceof InsecureTokenEndpointError ||
+                error instanceof DiscoveryUrlBlockedError ||
+                error instanceof RedirectFilteredResponseError
+            ) {
                 throw error;
             }
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
@@ -1336,14 +1556,19 @@ async function authInternal(
     const state = provider.state ? await provider.state() : undefined;
 
     // Start new authorization flow
-    const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServerUrl, {
-        metadata,
-        clientInformation,
-        state,
-        redirectUrl: provider.redirectUrl,
-        scope: resolvedScope,
-        resource
-    });
+    const { authorizationUrl, codeVerifier } = await startAuthorizationInternal(
+        authorizationServerUrl,
+        {
+            metadata,
+            clientInformation,
+            state,
+            redirectUrl: provider.redirectUrl,
+            scope: resolvedScope,
+            resource,
+            discoveryPolicy
+        },
+        trust.validateDiscoveryURL
+    );
 
     await provider.saveCodeVerifier(codeVerifier);
     await provider.redirectToAuthorization(authorizationUrl);
@@ -1518,12 +1743,46 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
  */
 export async function discoverOAuthProtectedResourceMetadata(
     serverUrl: string | URL,
-    opts?: { protocolVersion?: string; resourceMetadataUrl?: string | URL },
+    opts?: {
+        protocolVersion?: string;
+        resourceMetadataUrl?: string | URL;
+        /**
+         * Where `resourceMetadataUrl` came from — see
+         * {@linkcode ResourceMetadataUrlSource}. Defaults to `'caller'`, which
+         * fails closed on a URL-policy rejection; `'www-authenticate'` (a relayed
+         * challenge value) warns and falls back to the well-known derivation.
+         */
+        resourceMetadataUrlSource?: ResourceMetadataUrlSource;
+        /**
+         * Overrides for the URL policy applied before each discovery request
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
+    },
     fetchFn: FetchLike = fetch
+): Promise<OAuthProtectedResourceMetadata> {
+    return discoverOAuthProtectedResourceMetadataInternal(serverUrl, opts, fetchFn);
+}
+
+/**
+ * {@linkcode discoverOAuthProtectedResourceMetadata} with the provider's
+ * `validateDiscoveryURL` hook threaded by the calling flow entry
+ * ({@linkcode auth} / a transport). Trust flows only from the provider, so the
+ * hook rides this internal variant rather than the public signature — direct
+ * callers configure it on the provider they hand to those entries.
+ */
+async function discoverOAuthProtectedResourceMetadataInternal(
+    serverUrl: string | URL,
+    opts: Parameters<typeof discoverOAuthProtectedResourceMetadata>[1],
+    fetchFn: FetchLike = fetch,
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<OAuthProtectedResourceMetadata> {
     const response = await discoverMetadataWithFallback(serverUrl, 'oauth-protected-resource', fetchFn, {
         protocolVersion: opts?.protocolVersion,
-        metadataUrl: opts?.resourceMetadataUrl
+        metadataUrl: opts?.resourceMetadataUrl,
+        metadataUrlSource: opts?.resourceMetadataUrlSource,
+        discoveryPolicy: opts?.discoveryPolicy,
+        validate: validateDiscoveryURL
     });
 
     if (!response || response.status === 404) {
@@ -1556,9 +1815,14 @@ export async function discoverOAuthProtectedResourceMetadata(
  * In browsers, we cannot reliably distinguish CORS `TypeError` from network `TypeError` from the
  * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
-async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
+async function fetchWithCorsRetry(
+    url: URL,
+    headers: Record<string, string> | undefined,
+    fetchFn: FetchLike,
+    gate: DiscoveryFetchGate
+): Promise<Response | undefined> {
     try {
-        return await fetchFn(url, { headers });
+        return await fetchDiscoveryUrl(url, { headers }, fetchFn, gate);
     } catch (error) {
         if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
             throw error;
@@ -1567,7 +1831,7 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
             // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
             // request: if that succeeds, we've sidestepped the preflight.
             try {
-                return await fetchFn(url, {});
+                return await fetchDiscoveryUrl(url, undefined, fetchFn, gate);
             } catch (retryError) {
                 if (!(retryError instanceof TypeError)) {
                     throw retryError;
@@ -1579,6 +1843,174 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
         }
         return undefined;
     }
+}
+
+/** Redirect status codes eligible for the bounded manual follow on discovery requests. */
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
+
+/** Maximum number of `Location` hops followed on a discovery request. */
+const MAX_DISCOVERY_REDIRECT_HOPS = 3;
+
+/**
+ * URL-policy context threaded through the discovery fetch helpers so that the
+ * initial URL and every redirect target are validated with the originating
+ * purpose on record.
+ *
+ * @internal Not part of the public barrel; shared with the Cross-App Access
+ * helpers so their token requests ride the same validated path.
+ */
+export interface DiscoveryFetchGate {
+    purpose: Exclude<DiscoveryUrlPurpose, 'redirect-hop'>;
+    source: DiscoveryUrlSource;
+    producer: DiscoveryUrlProducer;
+    policy?: DiscoveryUrlPolicyOptions;
+    /**
+     * The provider's {@linkcode OAuthClientProvider.validateDiscoveryURL} hook,
+     * threaded here by the flow entry so the fetch funnel stays provider-agnostic.
+     * Runs after the mechanical policy on the initial URL and on every redirect hop.
+     */
+    validate?: ValidateDiscoveryUrlHook;
+}
+
+/**
+ * Request shape accepted by {@linkcode fetchDiscoveryUrl}. Defaults to a GET.
+ *
+ * @internal Not part of the public barrel.
+ */
+export interface DiscoveryRequestInit {
+    method?: 'GET' | 'POST';
+    headers?: RequestInit['headers'];
+    body?: RequestInit['body'];
+}
+
+/**
+ * Performs an OAuth-flow request with the URL policy applied before any network
+ * I/O: the URL is validated with the gate's purpose
+ * ({@linkcode assertAllowedDiscoveryUrl}) before the first request, so every
+ * request routed through this helper is gated by construction. All requests are
+ * issued with `redirect: 'manual'`.
+ *
+ * GET requests get a bounded manual follow: each `Location` target is validated
+ * with purpose `'redirect-hop'` before it is requested, headers are re-derived
+ * per hop and dropped when a hop leaves the current origin (including base
+ * headers a `createFetchWithInit` wrapper would otherwise re-apply — see
+ * `OMIT_BASE_HEADERS` on the internal barrel), and at most
+ * `MAX_DISCOVERY_REDIRECT_HOPS` (3) hops are followed. A redirect that cannot
+ * be followed (no `Location` or hop budget exhausted) is returned as-is so the
+ * caller's error handling applies — except a runtime-filtered redirect (browser
+ * opaque redirect), which fails with `RedirectFilteredResponseError`; see
+ * `throwIfRedirectFiltered` below for the mechanism.
+ *
+ * POST requests (token, registration) are never re-sent to a `Location` target:
+ * token responses are terminal (RFC 6749 §5), so a redirect status is returned
+ * un-followed and fails the caller's status handling instead.
+ *
+ * @internal Not part of the public barrel; exported for the Cross-App Access
+ * helpers, which issue their token-exchange POSTs through this same path.
+ */
+export async function fetchDiscoveryUrl(
+    url: URL,
+    init: DiscoveryRequestInit | undefined,
+    fetchFn: FetchLike,
+    gate: DiscoveryFetchGate
+): Promise<Response> {
+    const initialContext: DiscoveryUrlContext = { purpose: gate.purpose, url, producer: gate.producer, source: gate.source };
+    assertAllowedDiscoveryUrl(initialContext, gate.policy);
+    await invokeValidateDiscoveryUrlHook(initialContext, gate.validate);
+    const method = init?.method ?? 'GET';
+    let currentUrl = url;
+    let currentHeaders = init?.headers;
+    let response = await fetchFn(currentUrl, { method, headers: currentHeaders, body: init?.body, redirect: 'manual' });
+    throwIfRedirectFiltered(response, currentUrl, gate, method);
+    if (method !== 'GET') {
+        return response;
+    }
+    for (let hop = 0; REDIRECT_STATUS_CODES.has(response.status); hop++) {
+        const location = response.headers.get('location');
+        if (location === null || hop >= MAX_DISCOVERY_REDIRECT_HOPS) {
+            return response;
+        }
+        let nextUrl: URL;
+        try {
+            nextUrl = new URL(location, currentUrl);
+        } catch {
+            // An unparsable Location cannot be followed; surface the redirect response
+            // itself so the caller's HTTP error handling reports it (a URL-parse
+            // TypeError would be misread as a cross-origin fetch rejection by the
+            // retry heuristic in fetchWithCorsRetry).
+            return response;
+        }
+        const hopContext: DiscoveryUrlContext = {
+            purpose: 'redirect-hop',
+            url: nextUrl,
+            // A hop is judged against the producer of the request being followed.
+            producer: gate.producer,
+            source: gate.source,
+            redirectHop: { from: currentUrl, status: response.status, originalPurpose: gate.purpose }
+        };
+        assertAllowedDiscoveryUrl(hopContext, gate.policy);
+        await invokeValidateDiscoveryUrlHook(hopContext, gate.validate);
+        // Release the intermediate response before following the hop.
+        await response.text?.().catch(() => {});
+        if (nextUrl.origin !== currentUrl.origin) {
+            // Headers never travel across origins on a redirect. The sentinel (rather
+            // than plain `undefined`) also keeps a createFetchWithInit wrapper — the
+            // transports' `oauthRequestInit` fetch — from falling back to its base
+            // headers on the cross-origin request.
+            currentHeaders = OMIT_BASE_HEADERS;
+        }
+        currentUrl = nextUrl;
+        response = await fetchFn(currentUrl, { method, headers: currentHeaders, redirect: 'manual' });
+        throwIfRedirectFiltered(response, currentUrl, gate, method, true);
+    }
+    return response;
+}
+
+/**
+ * Fails a request whose response is a redirect the runtime filtered. Browser
+ * runtimes resolve a `redirect: 'manual'` fetch whose response status is a
+ * redirect with an opaque redirect (Fetch `Response.type === 'opaqueredirect'`:
+ * status 0, no readable `Location` header), so the redirect target cannot be
+ * observed. {@linkcode fetchDiscoveryUrl} checks every redirect target before
+ * following it; a target that cannot be observed cannot be checked, so a
+ * filtered redirect fails with `RedirectFilteredResponseError` instead of
+ * surfacing as an unexplained `HTTP 0` status. When the filtered response
+ * answers a followed hop, the error reports purpose `'redirect-hop'` and
+ * carries `redirectHop` (`from` is the URL that answered with the filtered
+ * redirect, `status` is the filtered response's literal `0`), matching the
+ * context shape of other hop-stage rejections.
+ *
+ * How callers handle the failure depends on what the request was for: the
+ * SDK-derived well-known probes treat it as "not retrievably served" and
+ * degrade exactly like a 404 (see {@linkcode discoverOAuthServerInfo}'s legacy
+ * fallback and the {@linkcode discoverAuthorizationServerMetadata} candidate
+ * loop), a challenge-relayed metadata URL falls back to the well-known
+ * derivation with a warning (see `discoverMetadataWithFallback`), and a
+ * caller-configured metadata URL or a token/registration POST fails. Redirected
+ * POST responses are never followed in any runtime — token responses are
+ * terminal (RFC 6749 §5) — so for POSTs the message points at the endpoint
+ * configuration rather than the runtime.
+ */
+function throwIfRedirectFiltered(
+    response: Response,
+    url: URL,
+    gate: DiscoveryFetchGate,
+    method: 'GET' | 'POST',
+    followedHop = false
+): void {
+    if (response.type !== 'opaqueredirect') {
+        return;
+    }
+    const detail =
+        method === 'POST'
+            ? 'redirected responses to this request are never followed, in any runtime (token responses are terminal, RFC 6749 §5); serve this endpoint without a redirect'
+            : 'serve the document at this URL without a redirect, or run the flow in a runtime that exposes redirect responses (a redirect target that passes validation is then followed)';
+    throw new RedirectFilteredResponseError(
+        url,
+        followedHop ? 'redirect-hop' : gate.purpose,
+        detail,
+        followedHop ? { from: url, status: 0, originalPurpose: gate.purpose } : undefined
+    );
 }
 
 /**
@@ -1600,11 +2032,16 @@ function buildWellKnownPath(
 /**
  * Tries to discover OAuth metadata at a specific URL
  */
-async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
+async function tryMetadataDiscovery(
+    url: URL,
+    protocolVersion: string,
+    fetchFn: FetchLike = fetch,
+    gate: DiscoveryFetchGate
+): Promise<Response | undefined> {
     const headers = {
         'MCP-Protocol-Version': protocolVersion
     };
-    return await fetchWithCorsRetry(url, headers, fetchFn);
+    return await fetchWithCorsRetry(url, headers, fetchFn, gate);
 }
 
 /**
@@ -1623,29 +2060,107 @@ async function discoverMetadataWithFallback(
     serverUrl: string | URL,
     wellKnownType: 'oauth-authorization-server' | 'oauth-protected-resource',
     fetchFn: FetchLike,
-    opts?: { protocolVersion?: string; metadataUrl?: string | URL; metadataServerUrl?: string | URL }
+    opts?: {
+        protocolVersion?: string;
+        metadataUrl?: string | URL;
+        /** Provenance of `metadataUrl`; picks the rejection handling below. */
+        metadataUrlSource?: ResourceMetadataUrlSource;
+        metadataServerUrl?: string | URL;
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
+        /** The provider's hook, run at each fetch checkpoint (see {@linkcode DiscoveryFetchGate.validate}). */
+        validate?: ValidateDiscoveryUrlHook;
+    }
 ): Promise<Response | undefined> {
-    const issuer = new URL(serverUrl);
     const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+    const purpose: DiscoveryFetchGate['purpose'] = wellKnownType === 'oauth-protected-resource' ? 'resource-metadata' : 'as-metadata';
+    // Protected-resource metadata is produced by the MCP server itself; the
+    // authorization-server well-known lookup (the deprecated direct path) is
+    // anchored on the authorization server whose metadata is being fetched.
+    const producer: DiscoveryUrlProducer = {
+        url: new URL(serverUrl),
+        kind: wellKnownType === 'oauth-protected-resource' ? 'mcp-server' : 'authorization-server'
+    };
 
-    let url: URL;
     if (opts?.metadataUrl) {
-        url = new URL(opts.metadataUrl);
-    } else {
-        // Try path-aware discovery first
-        const wellKnownPath = buildWellKnownPath(wellKnownType, issuer.pathname);
-        url = new URL(wellKnownPath, opts?.metadataServerUrl ?? issuer);
-        url.search = issuer.search;
+        // An explicit metadata URL is validated before it is requested, and its
+        // provenance picks the handling of a non-usable value. A URL relayed
+        // from a WWW-Authenticate challenge is network-derived input: when it is
+        // non-conformant — most commonly not same-origin with the server
+        // (RFC 9728 §3) — or when its response is a redirect the runtime
+        // filters, the URL is ignored with a warning and discovery falls back to
+        // the SDK's own well-known derivation below, identical to the path taken
+        // when no metadata URL is supplied at all. (A rejection from the
+        // provider's validateDiscoveryURL hook is not covered — it propagates.)
+        // A caller-configured URL ('caller', the default) is a configuration
+        // statement: rejecting it fails closed rather than silently discovering
+        // at a different location.
+        const explicitSource = opts.metadataUrlSource ?? 'caller';
+        const explicitUrl = new URL(opts.metadataUrl);
+        let explicitUrlUsable = true;
+        try {
+            assertAllowedDiscoveryUrl({ purpose, url: explicitUrl, producer, source: explicitSource }, opts?.discoveryPolicy);
+        } catch (error) {
+            if (!(error instanceof DiscoveryUrlBlockedError) || explicitSource !== 'www-authenticate') {
+                throw error;
+            }
+            explicitUrlUsable = false;
+            console.warn(`[mcp-sdk] Ignoring the provided metadata URL and using well-known discovery instead: ${error.message}`);
+        }
+        if (explicitUrlUsable) {
+            const gate: DiscoveryFetchGate = {
+                purpose,
+                source: explicitSource,
+                producer,
+                policy: opts?.discoveryPolicy,
+                validate: opts?.validate
+            };
+            try {
+                return await tryMetadataDiscovery(explicitUrl, protocolVersion, fetchFn, gate);
+            } catch (error) {
+                if (!(error instanceof RedirectFilteredResponseError) || explicitSource !== 'www-authenticate') {
+                    throw error;
+                }
+                console.warn(`[mcp-sdk] Ignoring the provided metadata URL and using well-known discovery instead: ${error.message}`);
+            }
+        }
     }
 
-    let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
+    // Try path-aware discovery first
+    const wellKnownPath = buildWellKnownPath(wellKnownType, producer.url.pathname);
+    const url = new URL(wellKnownPath, opts?.metadataServerUrl ?? producer.url);
+    url.search = producer.url.search;
+
+    const gate: DiscoveryFetchGate = { purpose, source: 'sdk-derived', producer, policy: opts?.discoveryPolicy, validate: opts?.validate };
+
+    // On the SDK-derived probes, a runtime-filtered redirect means the document
+    // is not retrievably served at that URL — the same situation as a 404, so it
+    // is fallback-eligible the same way. It is recorded rather than returned
+    // (there is no response to return) and surfaces only when no probe answers.
+    let filtered: RedirectFilteredResponseError | undefined;
+    const probe = async (probeUrl: URL): Promise<Response | undefined> => {
+        filtered = undefined;
+        try {
+            return await tryMetadataDiscovery(probeUrl, protocolVersion, fetchFn, gate);
+        } catch (error) {
+            if (!(error instanceof RedirectFilteredResponseError)) {
+                throw error;
+            }
+            filtered = error;
+            return undefined;
+        }
+    };
+
+    let response = await probe(url);
 
     // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
-    if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
-        const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
-        response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
+    if (producer.url.pathname !== '/' && (filtered !== undefined || shouldAttemptFallback(response, producer.url.pathname))) {
+        const rootUrl = new URL(`/.well-known/${wellKnownType}`, producer.url);
+        response = await probe(rootUrl);
     }
 
+    if (filtered !== undefined) {
+        throw filtered;
+    }
     return response;
 }
 
@@ -1655,16 +2170,28 @@ async function discoverMetadataWithFallback(
  * If the server returns a 404 for the well-known endpoint, this function will
  * return `undefined`. Any other errors will be thrown as exceptions.
  *
+ * Each candidate URL is checked against the discovery URL policy
+ * ({@linkcode assertAllowedDiscoveryUrl}) before it is requested; a rejected
+ * URL fails the lookup with {@linkcode DiscoveryUrlBlockedError}. Use
+ * `discoveryPolicy` to override individual rules, as with
+ * {@linkcode discoverAuthorizationServerMetadata}.
+ *
  * @deprecated This function is deprecated in favor of {@linkcode discoverAuthorizationServerMetadata}.
  */
 export async function discoverOAuthMetadata(
     issuer: string | URL,
     {
         authorizationServerUrl,
-        protocolVersion
+        protocolVersion,
+        discoveryPolicy
     }: {
         authorizationServerUrl?: string | URL;
         protocolVersion?: string;
+        /**
+         * Overrides for the URL policy applied before each discovery request
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     } = {},
     fetchFn: FetchLike = fetch
 ): Promise<OAuthMetadata | undefined> {
@@ -1681,7 +2208,8 @@ export async function discoverOAuthMetadata(
 
     const response = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
         protocolVersion,
-        metadataServerUrl: authorizationServerUrl
+        metadataServerUrl: authorizationServerUrl,
+        discoveryPolicy
     });
 
     if (!response || response.status === 404) {
@@ -1786,15 +2314,36 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  */
 export async function discoverAuthorizationServerMetadata(
     authorizationServerUrl: string | URL,
-    {
-        fetchFn = fetch,
-        protocolVersion = LATEST_PROTOCOL_VERSION,
-        skipIssuerValidation = false
-    }: {
+    options: {
         fetchFn?: FetchLike;
         protocolVersion?: string;
         skipIssuerValidation?: boolean;
+        /**
+         * Overrides for the URL policy applied before each discovery request
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     } = {}
+): Promise<AuthorizationServerMetadata | undefined> {
+    return discoverAuthorizationServerMetadataInternal(authorizationServerUrl, options);
+}
+
+/**
+ * {@linkcode discoverAuthorizationServerMetadata} with the provider's
+ * `validateDiscoveryURL` hook threaded by the calling flow entry
+ * ({@linkcode auth} / a transport). Trust flows only from the provider, so the
+ * hook rides this internal variant rather than the public signature — direct
+ * callers configure it on the provider they hand to those entries.
+ */
+async function discoverAuthorizationServerMetadataInternal(
+    authorizationServerUrl: string | URL,
+    {
+        fetchFn = fetch,
+        protocolVersion = LATEST_PROTOCOL_VERSION,
+        skipIssuerValidation = false,
+        discoveryPolicy
+    }: NonNullable<Parameters<typeof discoverAuthorizationServerMetadata>[1]> = {},
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<AuthorizationServerMetadata | undefined> {
     const headers = {
         'MCP-Protocol-Version': protocolVersion,
@@ -1804,9 +2353,34 @@ export async function discoverAuthorizationServerMetadata(
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
 
-    // Try each URL in order
+    // URL-policy producer for the discovery requests below. The derived URLs share the
+    // authorization server's origin, so this primarily enforces the structural rules
+    // (https-or-loopback, no userinfo) for direct callers of this function; within
+    // auth() the authorization server URL has already passed the adoption checks.
+    const gate: DiscoveryFetchGate = {
+        purpose: 'as-metadata',
+        source: 'sdk-derived',
+        producer: { url: new URL(authorizationServerUrl), kind: 'authorization-server' },
+        policy: discoveryPolicy,
+        validate: validateDiscoveryURL
+    };
+
+    // Try each URL in order. Each candidate is validated inside the fetch path
+    // before any request leaves the client; a rejected URL fails the whole
+    // discovery rather than falling through to the next candidate.
     for (const { url: endpointUrl, type } of urlsToTry) {
-        const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
+        let response: Response | undefined;
+        try {
+            response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn, gate);
+        } catch (error) {
+            if (!(error instanceof RedirectFilteredResponseError)) {
+                throw error;
+            }
+            // A runtime-filtered redirect means the metadata document is not
+            // retrievably served at this candidate — the same degradation as a
+            // 404: try the next one.
+            continue;
+        }
 
         if (!response) {
             /**
@@ -1856,6 +2430,88 @@ export async function discoverAuthorizationServerMetadata(
 }
 
 /**
+ * Signature of {@linkcode OAuthClientProvider.validateDiscoveryURL}, as threaded
+ * from a flow entry to the URL checkpoints (already bound to the provider).
+ *
+ * @internal Not part of the public barrel.
+ */
+export type ValidateDiscoveryUrlHook = (ctx: DiscoveryUrlContext) => void | Promise<void>;
+
+/**
+ * Runs a provider's `validateDiscoveryURL` hook against a context that has already
+ * passed the mechanical URL policy. A rejection always surfaces as
+ * {@linkcode DiscoveryUrlBlockedError}: a hook throw of any other type is wrapped
+ * (with the original throw as `cause`), so callers observe one failure type for
+ * every URL-policy or trust rejection.
+ */
+async function invokeValidateDiscoveryUrlHook(ctx: DiscoveryUrlContext, validate: ValidateDiscoveryUrlHook | undefined): Promise<void> {
+    if (!validate) {
+        return;
+    }
+    try {
+        await validate(ctx);
+    } catch (error) {
+        if (error instanceof DiscoveryUrlBlockedError) {
+            throw error;
+        }
+        const blocked = new DiscoveryUrlBlockedError(
+            ctx,
+            `rejected by the provider's validateDiscoveryURL hook: ${error instanceof Error ? error.message : String(error)}`
+        );
+        blocked.cause = error;
+        throw blocked;
+    }
+}
+
+/**
+ * The RFC 9728 §7.6 trust members of an {@linkcode OAuthClientProvider}
+ * ({@linkcode OAuthClientProvider.trustedAuthorizationServers | trustedAuthorizationServers}
+ * and {@linkcode OAuthClientProvider.validateDiscoveryURL | validateDiscoveryURL}),
+ * resolved once at flow entry and threaded to the URL checkpoints. Trust flows only
+ * from the provider: standalone callers configure it by implementing these members on
+ * the provider they hand to {@linkcode auth} (or a transport), not through loose
+ * per-call options.
+ *
+ * @internal Not part of the public barrel.
+ */
+export interface AuthorizationServerTrust {
+    /** See {@linkcode OAuthClientProvider.trustedAuthorizationServers}. */
+    trustedAuthorizationServers?: (string | URL)[];
+    /** See {@linkcode OAuthClientProvider.validateDiscoveryURL}. */
+    validateDiscoveryURL?(ctx: DiscoveryUrlContext): void | Promise<void>;
+}
+
+/**
+ * RFC 9728 §7.6 trust verification applied when an authorization server URL is
+ * adopted (fresh discovery or cached-state restore), after the mechanical URL policy
+ * ({@linkcode assertAllowedDiscoveryUrl}): the exhaustive
+ * `trustedAuthorizationServers` match when configured — full issuer identifiers,
+ * tolerating only a trailing-slash difference — then the `validateDiscoveryURL`
+ * hook when implemented.
+ */
+async function verifyAuthorizationServerTrust(ctx: DiscoveryUrlContext, trust: AuthorizationServerTrust): Promise<void> {
+    // Both trust inputs are optional and default to undefined — when neither is
+    // configured no trust verification runs.
+    const trustedServers = trust.trustedAuthorizationServers;
+    if (trustedServers !== undefined) {
+        const trustedIssuers = trustedServers.map(entry => {
+            try {
+                return new URL(String(entry)).href;
+            } catch {
+                throw new Error(`Invalid trustedAuthorizationServers entry (must be an absolute URL): ${String(entry)}`);
+            }
+        });
+        if (!trustedIssuers.some(entry => issuersMatch(entry, ctx.url.href))) {
+            throw new DiscoveryUrlBlockedError(
+                ctx,
+                'the authorization server issuer does not match any trustedAuthorizationServers entry (RFC 9728 §7.6)'
+            );
+        }
+    }
+    await invokeValidateDiscoveryUrlHook(ctx, trust.validateDiscoveryURL);
+}
+
+/**
  * Result of {@linkcode discoverOAuthServerInfo}.
  */
 export interface OAuthServerInfo {
@@ -1892,6 +2548,12 @@ export interface OAuthServerInfo {
  * Use this when you need the authorization server metadata for operations outside the
  * {@linkcode auth} orchestrator, such as token refresh or token revocation.
  *
+ * RFC 9728 §7.6 trust verification of the adopted authorization server is configured
+ * on the {@linkcode OAuthClientProvider} (`trustedAuthorizationServers` /
+ * `validateDiscoveryURL`) and applies when this discovery runs inside a
+ * provider-driven flow ({@linkcode auth} or a transport); there is no per-call
+ * trust override.
+ *
  * @param serverUrl - The MCP resource server URL
  * @param opts - Optional configuration
  * @param opts.resourceMetadataUrl - Override URL for the protected resource metadata endpoint
@@ -1902,46 +2564,142 @@ export async function discoverOAuthServerInfo(
     serverUrl: string | URL,
     opts?: {
         resourceMetadataUrl?: URL;
+        /**
+         * Where `resourceMetadataUrl` came from — see
+         * {@linkcode ResourceMetadataUrlSource}. Defaults to `'caller'`, which
+         * fails closed on a URL-policy rejection.
+         */
+        resourceMetadataUrlSource?: ResourceMetadataUrlSource;
         fetchFn?: FetchLike;
         /**
          * Forwarded to {@linkcode discoverAuthorizationServerMetadata} as
          * `skipIssuerValidation`. **Security-weakening** — see {@linkcode AuthOptions.skipIssuerMetadataValidation}.
          */
         skipIssuerMetadataValidation?: boolean;
+        /**
+         * Overrides for the URL policy applied before each discovery request or
+         * adoption ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     }
 ): Promise<OAuthServerInfo> {
+    return discoverOAuthServerInfoInternal(serverUrl, opts);
+}
+
+/**
+ * Whether a protected-resource-metadata discovery failure is a runtime-filtered
+ * redirect ({@linkcode RedirectFilteredResponseError}) on a caller-configured
+ * metadata URL. A caller-configured URL is a configuration statement, so its
+ * failure propagates out of the flow; the same failure on an SDK-derived
+ * well-known probe means the metadata is not retrievably served there and
+ * degrades exactly like a 404. (A challenge-relayed URL never reaches these
+ * catch sites with this error — its filtered redirect falls back to the
+ * well-known derivation inside `discoverMetadataWithFallback`.)
+ */
+function isFilteredCallerMetadataUrl(
+    error: unknown,
+    explicitUrl: string | URL | undefined,
+    source: ResourceMetadataUrlSource | undefined
+): boolean {
+    return error instanceof RedirectFilteredResponseError && explicitUrl !== undefined && (source ?? 'caller') === 'caller';
+}
+
+/**
+ * {@linkcode discoverOAuthServerInfo} with the provider's RFC 9728 §7.6 trust
+ * members ({@linkcode AuthorizationServerTrust}) threaded by the calling flow
+ * entry ({@linkcode auth} / a transport). Trust flows only from the provider,
+ * so it rides this internal variant rather than the public signature — direct
+ * callers configure it on the provider they hand to those entries.
+ *
+ * @internal Not part of the public barrel; exported for the policy wiring
+ * tests, which drive the trust seam directly.
+ */
+export async function discoverOAuthServerInfoInternal(
+    serverUrl: string | URL,
+    opts: Parameters<typeof discoverOAuthServerInfo>[1],
+    trust?: AuthorizationServerTrust
+): Promise<OAuthServerInfo> {
+    const serverUrlObject = new URL(serverUrl);
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | undefined;
 
     try {
-        resourceMetadata = await discoverOAuthProtectedResourceMetadata(
+        resourceMetadata = await discoverOAuthProtectedResourceMetadataInternal(
             serverUrl,
-            { resourceMetadataUrl: opts?.resourceMetadataUrl },
-            opts?.fetchFn
+            {
+                resourceMetadataUrl: opts?.resourceMetadataUrl,
+                resourceMetadataUrlSource: opts?.resourceMetadataUrlSource,
+                discoveryPolicy: opts?.discoveryPolicy
+            },
+            opts?.fetchFn,
+            trust?.validateDiscoveryURL
         );
-        if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
-            authorizationServerUrl = resourceMetadata.authorization_servers[0];
-        }
     } catch (error) {
         // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
         // transient reachability problems, not "server doesn't support PRM" — propagate so the
         // caller sees the real error instead of silently falling back to a different auth server.
-        if (error instanceof TypeError) {
+        // A URL-policy rejection (e.g. a redirect hop into blocked address space) likewise fails
+        // closed rather than silently switching to the legacy authorization server, as does a
+        // runtime-filtered redirect on a caller-configured metadata URL (an SDK-derived probe's
+        // filtered redirect instead degrades to the fallback below, exactly like a 404).
+        if (
+            error instanceof TypeError ||
+            error instanceof DiscoveryUrlBlockedError ||
+            isFilteredCallerMetadataUrl(error, opts?.resourceMetadataUrl, opts?.resourceMetadataUrlSource)
+        ) {
             throw error;
         }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
+    }
+
+    if (resourceMetadata?.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
+        // RFC 9728 §7.6: the authorization server named by the protected-resource
+        // metadata must pass the URL policy — and the caller's trust verification,
+        // when configured — before it is adopted. Fail closed: a rejected entry
+        // neither falls back to the legacy serverUrl-derived authorization server
+        // (that would silently change the authorization server identity) nor falls
+        // through to another `authorization_servers` entry.
+        const candidate = resourceMetadata.authorization_servers[0]!;
+        const adoptionContext: DiscoveryUrlContext = {
+            purpose: 'authorization-server',
+            url: new URL(candidate),
+            producer: { url: serverUrlObject, kind: 'mcp-server' },
+            source: 'protected-resource-metadata'
+        };
+        assertAllowedDiscoveryUrl(adoptionContext, opts?.discoveryPolicy);
+        await verifyAuthorizationServerTrust(adoptionContext, trust ?? {});
+        authorizationServerUrl = candidate;
     }
 
     // If we don't get a valid authorization server from protected resource metadata,
     // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
     if (!authorizationServerUrl) {
         authorizationServerUrl = String(new URL('/', serverUrl));
+        // The legacy fallback is an adoption like any other: the mechanical policy
+        // and the caller's RFC 9728 §7.6 trust verification both apply, so whether
+        // the server serves protected-resource metadata cannot change which
+        // authorization servers the caller has agreed to. A configured trust list
+        // must name the server's base URL for the fallback to be taken; hooks can
+        // tell this path apart by `source: 'sdk-derived'`.
+        const fallbackContext: DiscoveryUrlContext = {
+            purpose: 'authorization-server',
+            url: new URL(authorizationServerUrl),
+            producer: { url: serverUrlObject, kind: 'mcp-server' },
+            source: 'sdk-derived'
+        };
+        assertAllowedDiscoveryUrl(fallbackContext, opts?.discoveryPolicy);
+        await verifyAuthorizationServerTrust(fallbackContext, trust ?? {});
     }
 
-    const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
-        fetchFn: opts?.fetchFn,
-        skipIssuerValidation: opts?.skipIssuerMetadataValidation
-    });
+    const authorizationServerMetadata = await discoverAuthorizationServerMetadataInternal(
+        authorizationServerUrl,
+        {
+            fetchFn: opts?.fetchFn,
+            skipIssuerValidation: opts?.skipIssuerMetadataValidation,
+            discoveryPolicy: opts?.discoveryPolicy
+        },
+        trust?.validateDiscoveryURL
+    );
 
     return {
         authorizationServerUrl,
@@ -1955,21 +2713,34 @@ export async function discoverOAuthServerInfo(
  */
 export async function startAuthorization(
     authorizationServerUrl: string | URL,
-    {
-        metadata,
-        clientInformation,
-        redirectUrl,
-        scope,
-        state,
-        resource
-    }: {
+    options: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
         resource?: URL;
+        /**
+         * Overrides for the URL policy applied to the authorization endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     }
+): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
+    return startAuthorizationInternal(authorizationServerUrl, options);
+}
+
+/**
+ * {@linkcode startAuthorization} with the provider's `validateDiscoveryURL`
+ * hook threaded by the calling flow entry ({@linkcode auth} / a transport).
+ * Trust flows only from the provider, so the hook rides this internal variant
+ * rather than the public signature — direct callers configure it on the
+ * provider they hand to those entries.
+ */
+async function startAuthorizationInternal(
+    authorizationServerUrl: string | URL,
+    { metadata, clientInformation, redirectUrl, scope, state, resource, discoveryPolicy }: Parameters<typeof startAuthorization>[1],
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
     if (metadata) {
@@ -1988,6 +2759,19 @@ export async function startAuthorization(
     } else {
         authorizationUrl = new URL('/authorize', authorizationServerUrl);
     }
+
+    // The user agent is redirected here carrying the authorization request, so the
+    // endpoint gets the same https-or-loopback and locality rules as every fetched
+    // endpoint, keyed on the authorization server that published it. Asserted only —
+    // this URL is never requested by the SDK.
+    const authorizationEndpointContext: DiscoveryUrlContext = {
+        purpose: 'authorization-endpoint',
+        url: authorizationUrl,
+        producer: { url: new URL(authorizationServerUrl), kind: 'authorization-server' },
+        source: metadata ? 'authorization-server-metadata' : 'sdk-derived'
+    };
+    assertAllowedDiscoveryUrl(authorizationEndpointContext, discoveryPolicy);
+    await invokeValidateDiscoveryUrlHook(authorizationEndpointContext, validateDiscoveryURL);
 
     // Generate PKCE challenge
     const challenge = await pkceChallenge();
@@ -2058,7 +2842,8 @@ export async function executeTokenRequest(
         clientInformation,
         addClientAuthentication,
         resource,
-        fetchFn
+        fetchFn,
+        discoveryPolicy
     }: {
         metadata?: AuthorizationServerMetadata;
         tokenRequestParams: URLSearchParams;
@@ -2066,8 +2851,24 @@ export async function executeTokenRequest(
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         resource?: URL;
         fetchFn?: FetchLike;
-    }
+        /**
+         * Overrides for the URL policy applied to the token endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
+    },
+    /**
+     * The provider's `validateDiscoveryURL` hook, threaded by the calling flow
+     * entry. Trust flows only from the provider.
+     *
+     * @internal
+     */
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<OAuthTokens> {
+    // The scheme rule keeps its dedicated error type (SEP-2207); the full URL
+    // policy — including the locality rules keyed on the authorization server
+    // that published the endpoint — is applied inside the fetch path below,
+    // before the request is sent.
     const tokenUrl = assertSecureTokenEndpoint(metadata?.token_endpoint ?? new URL('/token', authorizationServerUrl));
 
     const headers = new Headers({
@@ -2087,10 +2888,12 @@ export async function executeTokenRequest(
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
     }
 
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: tokenRequestParams
+    const response = await fetchDiscoveryUrl(tokenUrl, { method: 'POST', headers, body: tokenRequestParams }, fetchFn ?? fetch, {
+        purpose: 'token-endpoint',
+        source: metadata ? 'authorization-server-metadata' : 'sdk-derived',
+        producer: { url: new URL(authorizationServerUrl), kind: 'authorization-server' },
+        policy: discoveryPolicy,
+        validate: validateDiscoveryURL
     });
 
     if (!response.ok) {
@@ -2134,7 +2937,8 @@ export async function exchangeAuthorization(
         redirectUri,
         resource,
         addClientAuthentication,
-        fetchFn
+        fetchFn,
+        discoveryPolicy
     }: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
@@ -2150,6 +2954,11 @@ export async function exchangeAuthorization(
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
+        /**
+         * Overrides for the URL policy applied to the token endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     }
 ): Promise<OAuthTokens> {
     validateAuthorizationResponseIssuer({
@@ -2166,7 +2975,8 @@ export async function exchangeAuthorization(
         clientInformation,
         addClientAuthentication,
         resource,
-        fetchFn
+        fetchFn,
+        discoveryPolicy
     });
 }
 
@@ -2184,35 +2994,61 @@ export async function exchangeAuthorization(
  */
 export async function refreshAuthorization(
     authorizationServerUrl: string | URL,
-    {
-        metadata,
-        clientInformation,
-        refreshToken,
-        resource,
-        addClientAuthentication,
-        fetchFn
-    }: {
+    options: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
+        /**
+         * Overrides for the URL policy applied to the token endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     }
+): Promise<OAuthTokens> {
+    return refreshAuthorizationInternal(authorizationServerUrl, options);
+}
+
+/**
+ * {@linkcode refreshAuthorization} with the provider's `validateDiscoveryURL`
+ * hook threaded by the calling flow entry ({@linkcode auth} / a transport).
+ * Trust flows only from the provider, so the hook rides this internal variant
+ * rather than the public signature — direct callers configure it on the
+ * provider they hand to those entries.
+ */
+async function refreshAuthorizationInternal(
+    authorizationServerUrl: string | URL,
+    {
+        metadata,
+        clientInformation,
+        refreshToken,
+        resource,
+        addClientAuthentication,
+        fetchFn,
+        discoveryPolicy
+    }: Parameters<typeof refreshAuthorization>[1],
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<OAuthTokens> {
     const tokenRequestParams = new URLSearchParams({
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
 
-    const tokens = await executeTokenRequest(authorizationServerUrl, {
-        metadata,
-        tokenRequestParams,
-        clientInformation,
-        addClientAuthentication,
-        resource,
-        fetchFn
-    });
+    const tokens = await executeTokenRequest(
+        authorizationServerUrl,
+        {
+            metadata,
+            tokenRequestParams,
+            clientInformation,
+            addClientAuthentication,
+            resource,
+            fetchFn,
+            discoveryPolicy
+        },
+        validateDiscoveryURL
+    );
 
     // Preserve original refresh token if server didn't return a new one
     return { refresh_token: refreshToken, ...tokens };
@@ -2254,7 +3090,8 @@ export async function fetchToken(
         authorizationCode,
         iss,
         scope,
-        fetchFn
+        fetchFn,
+        discoveryPolicy
     }: {
         metadata?: AuthorizationServerMetadata;
         resource?: URL;
@@ -2269,8 +3106,20 @@ export async function fetchToken(
         /** Optional scope parameter from auth() options */
         scope?: string;
         fetchFn?: FetchLike;
+        /**
+         * Overrides for the URL policy applied to the token endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         * Defaults to the provider's {@linkcode OAuthClientProvider.discoveryPolicy}.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     } = {}
 ): Promise<OAuthTokens> {
+    // Effective policy resolved once at this flow entry: per-call options take
+    // precedence over the provider's durable policy. The provider's trust hook is
+    // threaded to the token-endpoint checkpoint the same way.
+    discoveryPolicy ??= provider.discoveryPolicy;
+    const validateDiscoveryURL = provider.validateDiscoveryURL?.bind(provider);
+
     if (authorizationCode !== undefined) {
         validateAuthorizationResponseIssuer({
             iss,
@@ -2302,14 +3151,19 @@ export async function fetchToken(
 
     const clientInformation = await provider.clientInformation({ issuer: metadata?.issuer ?? String(authorizationServerUrl) });
 
-    return executeTokenRequest(authorizationServerUrl, {
-        metadata,
-        tokenRequestParams,
-        clientInformation: clientInformation ?? undefined,
-        addClientAuthentication: provider.addClientAuthentication,
-        resource,
-        fetchFn
-    });
+    return executeTokenRequest(
+        authorizationServerUrl,
+        {
+            metadata,
+            tokenRequestParams,
+            clientInformation: clientInformation ?? undefined,
+            addClientAuthentication: provider.addClientAuthentication,
+            resource,
+            fetchFn,
+            discoveryPolicy
+        },
+        validateDiscoveryURL
+    );
 }
 
 /**
@@ -2328,17 +3182,32 @@ export async function fetchToken(
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
-    {
-        metadata,
-        clientMetadata,
-        scope,
-        fetchFn
-    }: {
+    options: {
         metadata?: AuthorizationServerMetadata;
         clientMetadata: OAuthClientMetadata;
         scope?: string;
         fetchFn?: FetchLike;
+        /**
+         * Overrides for the URL policy applied to the registration endpoint
+         * ({@linkcode assertAllowedDiscoveryUrl}). **Policy-weakening**, default off.
+         */
+        discoveryPolicy?: DiscoveryUrlPolicyOptions;
     }
+): Promise<OAuthClientInformationFull> {
+    return registerClientInternal(authorizationServerUrl, options);
+}
+
+/**
+ * {@linkcode registerClient} with the provider's `validateDiscoveryURL` hook
+ * threaded by the calling flow entry ({@linkcode auth} / a transport). Trust
+ * flows only from the provider, so the hook rides this internal variant rather
+ * than the public signature — direct callers configure it on the provider they
+ * hand to those entries.
+ */
+async function registerClientInternal(
+    authorizationServerUrl: string | URL,
+    { metadata, clientMetadata, scope, fetchFn, discoveryPolicy }: Parameters<typeof registerClient>[1],
+    validateDiscoveryURL?: ValidateDiscoveryUrlHook
 ): Promise<OAuthClientInformationFull> {
     let registrationUrl: URL;
 
@@ -2360,13 +3229,22 @@ export async function registerClient(
         ...(scope === undefined ? {} : { scope })
     };
 
-    const response = await (fetchFn ?? fetch)(registrationUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(submittedMetadata)
-    });
+    // The endpoint is validated inside the fetch path before the registration
+    // request is sent — the same https-or-loopback and locality rules as the
+    // token endpoint (SEP-2207), keyed on the authorization server that
+    // published the endpoint.
+    const response = await fetchDiscoveryUrl(
+        registrationUrl,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(submittedMetadata) },
+        fetchFn ?? fetch,
+        {
+            purpose: 'registration-endpoint',
+            source: metadata ? 'authorization-server-metadata' : 'sdk-derived',
+            producer: { url: new URL(authorizationServerUrl), kind: 'authorization-server' },
+            policy: discoveryPolicy,
+            validate: validateDiscoveryURL
+        }
+    );
 
     if (!response.ok) {
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });

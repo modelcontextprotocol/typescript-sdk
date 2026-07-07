@@ -8,11 +8,11 @@
  * @module
  */
 
-import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import type { DiscoveryUrlPolicyOptions, DiscoveryUrlProducer, DiscoveryUrlSource, FetchLike } from '@modelcontextprotocol/core-internal';
 import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 
 import type { ClientAuthMethod } from './auth';
-import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
+import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata, fetchDiscoveryUrl } from './auth';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.
@@ -62,6 +62,14 @@ export interface RequestJwtAuthGrantOptions {
      * Custom fetch implementation. Defaults to global fetch.
      */
     fetchFn?: FetchLike;
+
+    /**
+     * Overrides for the URL policy applied to the token endpoint before the
+     * request is sent. **Policy-weakening**, default off. These standalone
+     * helpers run without an `OAuthClientProvider`, so this per-call
+     * bag is the only policy input (there is no provider hook on this path).
+     */
+    discoveryPolicy?: DiscoveryUrlPolicyOptions;
 }
 
 /**
@@ -122,9 +130,28 @@ export interface JwtAuthGrantResult {
  * ```
  */
 export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantOptions): Promise<JwtAuthGrantResult> {
-    const { tokenEndpoint, audience, resource, idToken, clientId, clientSecret, scope, fetchFn = fetch } = options;
+    const tokenUrl = assertSecureTokenEndpoint(options.tokenEndpoint);
+    // The caller names the IdP's token endpoint directly, so the endpoint is its
+    // own locality anchor for the URL policy; the structural rules
+    // (https-or-loopback, no userinfo) still apply before the request.
+    return executeJwtAuthGrantRequest(tokenUrl, options, {
+        producer: { url: new URL(tokenUrl), kind: 'authorization-server' },
+        source: 'caller'
+    });
+}
 
-    const tokenUrl = assertSecureTokenEndpoint(tokenEndpoint);
+/**
+ * Shared executor for the RFC 8693 token exchange: the request is issued through
+ * the discovery fetch path, so the token endpoint is validated before the request
+ * — keyed on the authorization server that published it — and a redirected POST is
+ * never re-sent to the `Location` target (token responses are terminal, RFC 6749 §5).
+ */
+async function executeJwtAuthGrantRequest(
+    tokenUrl: URL,
+    options: Omit<RequestJwtAuthGrantOptions, 'tokenEndpoint'>,
+    gate: { producer: DiscoveryUrlProducer; source: DiscoveryUrlSource }
+): Promise<JwtAuthGrantResult> {
+    const { audience, resource, idToken, clientId, clientSecret, scope, discoveryPolicy, fetchFn = fetch } = options;
 
     // Prepare token exchange request per RFC 8693
     const params = new URLSearchParams({
@@ -147,13 +174,23 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         params.set('scope', scope);
     }
 
-    const response = await fetchFn(tokenUrl, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/x-www-form-urlencoded'
+    const response = await fetchDiscoveryUrl(
+        tokenUrl,
+        {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded'
+            },
+            body: params.toString()
         },
-        body: params.toString()
-    });
+        fetchFn,
+        {
+            purpose: 'token-endpoint',
+            source: gate.source,
+            producer: gate.producer,
+            policy: discoveryPolicy
+        }
+    );
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
@@ -206,18 +243,23 @@ export async function discoverAndRequestJwtAuthGrant(options: DiscoverAndRequest
     const { idpUrl, fetchFn = fetch, ...restOptions } = options;
 
     // Discover IdP's authorization server metadata
-    const metadata = await discoverAuthorizationServerMetadata(String(idpUrl), { fetchFn });
+    const metadata = await discoverAuthorizationServerMetadata(String(idpUrl), { fetchFn, discoveryPolicy: options.discoveryPolicy });
 
     if (!metadata?.token_endpoint) {
         throw new Error(`Failed to discover token endpoint for IdP: ${idpUrl}`);
     }
 
-    // Perform token exchange
-    return requestJwtAuthorizationGrant({
-        ...restOptions,
-        tokenEndpoint: metadata.token_endpoint,
-        fetchFn
-    });
+    // Perform token exchange. The endpoint was published by the IdP's metadata, so
+    // the IdP issuer anchors the locality check on the token request.
+    const tokenUrl = assertSecureTokenEndpoint(metadata.token_endpoint);
+    return executeJwtAuthGrantRequest(
+        tokenUrl,
+        { ...restOptions, fetchFn },
+        {
+            producer: { url: new URL(idpUrl), kind: 'authorization-server' },
+            source: 'authorization-server-metadata'
+        }
+    );
 }
 
 /**
@@ -259,8 +301,23 @@ export async function exchangeJwtAuthGrant(options: {
      */
     authMethod?: ClientAuthMethod;
     fetchFn?: FetchLike;
+    /**
+     * Overrides for the URL policy applied to the token endpoint before the
+     * request is sent. **Policy-weakening**, default off. This standalone helper
+     * runs without an `OAuthClientProvider`, so this per-call bag is
+     * the only policy input (there is no provider hook on this path).
+     */
+    discoveryPolicy?: DiscoveryUrlPolicyOptions;
 }): Promise<{ access_token: string; token_type: string; expires_in?: number; scope?: string }> {
-    const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, authMethod = 'client_secret_basic', fetchFn = fetch } = options;
+    const {
+        tokenEndpoint,
+        jwtAuthGrant,
+        clientId,
+        clientSecret,
+        authMethod = 'client_secret_basic',
+        discoveryPolicy,
+        fetchFn = fetch
+    } = options;
 
     const tokenUrl = assertSecureTokenEndpoint(tokenEndpoint);
 
@@ -276,11 +333,23 @@ export async function exchangeJwtAuthGrant(options: {
 
     applyClientAuthentication(authMethod, { client_id: clientId, client_secret: clientSecret }, headers, params);
 
-    const response = await fetchFn(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: params.toString()
-    });
+    const response = await fetchDiscoveryUrl(
+        tokenUrl,
+        {
+            method: 'POST',
+            headers,
+            body: params.toString()
+        },
+        fetchFn,
+        {
+            purpose: 'token-endpoint',
+            // The caller names the authorization server's token endpoint directly,
+            // so the endpoint is its own locality anchor for the URL policy.
+            source: 'caller',
+            producer: { url: new URL(tokenUrl), kind: 'authorization-server' },
+            policy: discoveryPolicy
+        }
+    );
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));

@@ -1130,6 +1130,7 @@ path will not catch them):
 | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
 | `registerClient()` rejected by AS (⚠ `@deprecated` — see [§Deprecated in v2](#deprecated-in-v2-sep-2577))               | `RegistrationRejectedError` (`status`, `body`, `submittedMetadata`)                   |
 | Token-exchange / refresh / `fetchToken` / Cross-App grant on a non-`https:` token endpoint                               | `InsecureTokenEndpointError` (`tokenEndpoint`)                                        |
+| Runtime-filtered redirect where the response is required: caller-configured metadata URL, token / registration POST     | `RedirectFilteredResponseError` (`url`, `purpose`, `redirectHop`)                     |
 | RFC 9207 `iss` mismatch / RFC 8414 §3.3 issuer-echo mismatch                                                             | `IssuerMismatchError` (`kind`, `expected`, `received`)                                |
 | Transport 403 `insufficient_scope` with `onInsufficientScope: 'throw'`, or default mode without an `OAuthClientProvider` | `InsufficientScopeError` (`requiredScope`, `resourceMetadataUrl`, `errorDescription`) |
 | `auth()` callback leg: discovery resolves a different AS than the recorded redirect target                               | `AuthorizationServerMismatchError` (`recordedIssuer`, `currentIssuer`)                |
@@ -1225,6 +1226,112 @@ Access helpers throw `InsecureTokenEndpointError` when the token endpoint is not
 every path including refresh — switch any plain-`http:` AS on a non-loopback host to
 TLS; there is no opt-out. Storage confidentiality of `refresh_token` remains your
 `saveTokens()` implementation's responsibility.
+
+#### Discovery URL policy (RFC 9728 §3 / §7.6, RFC 8414 §2)
+
+Every URL the client OAuth flow derives from the network — the `WWW-Authenticate`
+`resource_metadata` URL, the protected-resource metadata's `authorization_servers[0]`
+(including restore from cached `discoveryState`), each well-known discovery URL, the
+authorization, registration, and token endpoints, and every redirect `Location` on a
+discovery request — is now validated by `assertAllowedDiscoveryUrl` **before** any
+request is made or the URL is adopted. The default policy: `https:` everywhere (`http:` only for
+loopback hosts, matching the SEP-2207 token-endpoint rule), no userinfo, no
+loopback/private/link-local IP-literal targets unless the step that produced the URL
+(`ctx.producer` — the MCP server for URLs adopted or derived during discovery, or the
+authorization server that published an endpoint) is itself local,
+RFC 8414 §2 issuer syntax (no query/fragment) for authorization server identifiers, and
+same-origin-with-the-server for protected-resource metadata. An explicit metadata URL
+carries its provenance (`resourceMetadataUrlSource`): the transports label URLs
+extracted from a `WWW-Authenticate` challenge `'www-authenticate'`, and a
+non-conformant challenge-relayed URL is ignored with a `console.warn` while discovery
+falls back to the SDK's own same-origin well-known derivation; a caller-configured
+`resourceMetadataUrl` (`'caller'`, the default) fails closed instead — like every
+other violation, with `DiscoveryUrlBlockedError` (a rejected
+`authorization_servers[0]` does **not** fall back to the legacy server-derived
+authorization server). Discovery
+requests use `redirect: 'manual'` with a bounded (3-hop) follow that re-validates each
+hop and never carries headers across origins; token and registration POSTs also use
+`redirect: 'manual'` but are never re-sent to the `Location` target — token responses
+are terminal (RFC 6749), so a redirected POST fails with the redirect response's
+status. In browser runtimes the Fetch API filters `redirect: 'manual'` responses into
+opaque redirects (status 0, no readable `Location`), so a redirect on an auth-flow
+request cannot be examined or followed there. The handling depends on the request: the
+SDK's own well-known discovery probes treat a filtered redirect as an unavailable
+document and degrade exactly like a 404 (a browser deployment whose web tier answers
+unknown paths with a redirect keeps taking the legacy authorization-server fallback);
+a challenge-relayed metadata URL whose response is a filtered redirect is ignored with
+a warning while discovery falls back to the well-known derivation; a caller-configured
+`resourceMetadataUrl` fails the flow; and a redirected token or registration POST
+fails in every runtime — those requests are never re-sent to a redirect target — so
+serve the token and registration endpoints without redirects. A filtered redirect on
+a request whose outcome is required surfaces as `RedirectFilteredResponseError`
+(carrying the request's `url` and `purpose`). The Cross-App Access token exchanges (`requestJwtAuthorizationGrant`,
+`discoverAndRequestJwtAuthGrant`, `exchangeJwtAuthGrant`) follow the same rules: a
+token endpoint discovered from the IdP's metadata is keyed on the IdP issuer, while a
+caller-supplied endpoint anchors its own locality check. Cross-origin authorization servers
+(Auth0/Okta/Google-style) and private https DNS names are unaffected — the policy never
+resolves DNS. Escape hatches (all **policy-weakening**): `discoveryPolicy`
+(`allowHttpDiscovery`, `allowCrossOriginResourceMetadata`,
+`allowPrivateAddressTargets`). Set it once on the provider
+(`OAuthClientProvider.discoveryPolicy`) — the durable home read by every flow the
+provider drives, including the transports' `401`/`403` challenge handling and
+`finishAuth` — or per call on `AuthOptions` and the standalone discovery, token,
+registration, and Cross-App Access functions; a per-call policy takes precedence, and
+the effective policy is resolved once at flow entry (the standalone Cross-App Access
+helpers run without a provider, so the per-call bag is their only policy input and the
+provider trust hook does not apply to them).
+For RFC 9728 §7.6 trust verification of the authorization server itself, implement the
+new optional `OAuthClientProvider.validateDiscoveryURL(ctx)` hook or set
+`OAuthClientProvider.trustedAuthorizationServers` (exhaustive allowlist of issuer
+identifiers, matched on the full identifier with only a trailing-slash tolerance — a
+path-distinguished issuer such as `https://as.example.com/tenant1` must be listed
+exactly, and an origin-only entry does not cover pathed issuers on that host). Trust
+is configured on the provider only — there is no per-call trust override; a caller
+that needs trust verification constructs a minimal provider carrying these members
+and drives the flow through `auth()` or a transport (the standalone
+discovery functions apply the URL policy but run no trust verification). The trust
+list applies on every adoption path,
+including the legacy fallback where a server without protected-resource metadata acts
+as its own authorization server — with a trust list configured, list the server's
+base URL to allow that arrangement (hooks can tell the fallback apart by
+`ctx.source === 'sdk-derived'`). `fetchToken()` adopts no authorization server — the
+caller supplies its URL — so the trust list does not apply there; of these members it
+honors only the `validateDiscoveryURL` hook, at the token-endpoint checkpoint.
+The `validateDiscoveryURL` hook runs after the
+mechanical policy at **every** checkpoint: before each discovery, token, and
+registration request (including each followed redirect hop) and at each assert-only
+adoption (authorization-server adoption, cached-state restore, and the authorization
+endpoint before the user agent is redirected) — filter on `ctx.purpose` to scope a
+check. A hook throw that is not a `DiscoveryUrlBlockedError` is wrapped into one
+(original error as `cause`), so callers observe a single failure type. To
+restore the previous behavior wholesale, set all three `discoveryPolicy` flags — but
+prefer enabling only the specific override a deployment needs, since each one weakens a
+conformance check.
+
+#### Transport request headers no longer applied to OAuth requests (`oauthRequestInit`)
+
+In v1, the `requestInit` option on `StreamableHTTPClientTransport` and
+`SSEClientTransport` was merged into **every** request the transport made — including
+the protected-resource metadata, authorization-server metadata, token, and client
+registration requests driven by the authorization flow, which can target a different
+origin than the MCP server. In v2, `requestInit` applies to MCP data-plane traffic
+only; authorization requests are issued through the bare `fetch` (the `fetch` option
+still applies to all requests, so proxy agents, dispatchers, and tracing wrappers keep
+working). Deployments that need extra configuration on authorization requests — e.g.
+gateway headers on well-known endpoints — set the new `oauthRequestInit` transport
+option, which is merged into authorization requests only:
+
+```ts
+const transport = new StreamableHTTPClientTransport(url, {
+    authProvider,
+    requestInit: { headers: { 'X-Api-Key': mcpGatewayKey } }, // MCP requests only
+    oauthRequestInit: { headers: { 'X-Api-Key': authGatewayKey } } // OAuth requests only
+});
+```
+
+`oauthRequestInit` headers follow the same per-hop rule as the rest of the discovery
+path: when a discovery request is redirected to a different origin, the redirected
+request is issued without them — headers never travel across origins on a redirect.
 
 #### Scope step-up on `403 insufficient_scope` (SEP-2350)
 

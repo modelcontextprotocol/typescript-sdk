@@ -508,7 +508,7 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
 
     // Protected host: serves RFC 9728 resource metadata, otherwise requires the issued bearer token.
     const handle = hostPerSession(makeServer);
-    const url = new URL('http://in-process/mcp');
+    const url = new URL('http://localhost/mcp');
     const serverFetch = async (u: URL | string, init?: RequestInit): Promise<Response> => {
         const req = new Request(u, init);
         const requestUrl = new URL(req.url);
@@ -519,7 +519,7 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
         if (auth !== `Bearer ${ACCESS_TOKEN}`) {
             return new Response(null, {
                 status: 401,
-                headers: { 'WWW-Authenticate': `Bearer resource_metadata="http://in-process${PRM_PATH}/mcp"` }
+                headers: { 'WWW-Authenticate': `Bearer resource_metadata="http://localhost${PRM_PATH}/mcp"` }
             });
         }
         return handle.handleRequest(req);

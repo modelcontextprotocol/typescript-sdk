@@ -1,8 +1,9 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
-import { isJsonContentType } from '@modelcontextprotocol/core-internal';
+import { DiscoveryUrlBlockedError, isJsonContentType } from '@modelcontextprotocol/core-internal';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
+import { RedirectFilteredResponseError } from '../../src/client/authErrors';
 import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../src/client/middleware';
 
 vi.mock('../../src/client/auth', async () => {
@@ -149,6 +150,7 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com',
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
+            resourceMetadataUrlSource: 'www-authenticate',
             fetchFn: mockFetch
         });
 
@@ -197,6 +199,7 @@ describe('withOAuth', () => {
             serverUrl: 'https://api.example.com', // Should be extracted from request URL
             resourceMetadataUrl: mockWWWAuthenticateParams.resourceMetadataUrl,
             scope: mockWWWAuthenticateParams.scope,
+            resourceMetadataUrlSource: 'www-authenticate',
             fetchFn: mockFetch
         });
 
@@ -239,6 +242,64 @@ describe('withOAuth', () => {
         const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
         await expect(enhancedFetch('https://api.example.com/data')).rejects.toThrow('Failed to re-authenticate: Network error');
+    });
+
+    it('should rethrow DiscoveryUrlBlockedError from auth unwrapped so callers can branch on it', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'test-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('Unauthorized', { status: 401 }));
+        mockExtractWWWAuthenticateParams.mockReturnValue({});
+        const blocked = new DiscoveryUrlBlockedError(
+            {
+                purpose: 'authorization-server',
+                url: new URL('https://auth.example.com'),
+                producer: { url: new URL('https://api.example.com'), kind: 'mcp-server' },
+                source: 'protected-resource-metadata'
+            },
+            'the authorization server issuer does not match any trustedAuthorizationServers entry (RFC 9728 §7.6)'
+        );
+        mockAuth.mockRejectedValue(blocked);
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        const caught = await enhancedFetch('https://api.example.com/data').then(
+            () => undefined,
+            error => error as Error
+        );
+        // The typed rejection propagates as-is — not flattened into an
+        // UnauthorizedError message string — so its context stays available.
+        expect(caught).toBe(blocked);
+        expect(caught).toBeInstanceOf(DiscoveryUrlBlockedError);
+    });
+
+    it('should rethrow RedirectFilteredResponseError from auth unwrapped as well', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'test-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('Unauthorized', { status: 401 }));
+        mockExtractWWWAuthenticateParams.mockReturnValue({});
+        const filtered = new RedirectFilteredResponseError(
+            new URL('https://auth.example.com/token'),
+            'token-endpoint',
+            'redirected responses to this request are never followed, in any runtime (token responses are terminal, RFC 6749 §5); serve this endpoint without a redirect'
+        );
+        mockAuth.mockRejectedValue(filtered);
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        const caught = await enhancedFetch('https://api.example.com/data').then(
+            () => undefined,
+            error => error as Error
+        );
+        expect(caught).toBe(filtered);
+        expect(caught).toBeInstanceOf(RedirectFilteredResponseError);
     });
 
     it('should handle persistent 401 responses after auth', async () => {
@@ -368,6 +429,7 @@ describe('withOAuth', () => {
         expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
             serverUrl: 'https://api.example.com', // Should extract origin from URL object
             resourceMetadataUrl: undefined,
+            resourceMetadataUrlSource: 'www-authenticate',
             fetchFn: mockFetch
         });
     });
@@ -911,6 +973,7 @@ describe('Integration Tests', () => {
             serverUrl: 'https://mcp-server.example.com',
             resourceMetadataUrl: new URL('https://auth.example.com/.well-known/oauth-protected-resource'),
             scope: 'read',
+            resourceMetadataUrlSource: 'www-authenticate',
             fetchFn: mockFetch
         });
     });

@@ -6,7 +6,7 @@ import type {
     StoredOAuthClientInformation,
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
+import { DiscoveryUrlBlockedError, LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
@@ -543,7 +543,7 @@ describe('OAuth Authorization', () => {
 
             await expect(
                 discoverOAuthProtectedResourceMetadata('https://resource.example.com/path', {
-                    resourceMetadataUrl: 'https://custom.example.com/metadata'
+                    resourceMetadataUrl: 'https://resource.example.com/metadata'
                 })
             ).rejects.toThrow('Resource server does not implement OAuth 2.0 Protected Resource Metadata.');
 
@@ -551,7 +551,7 @@ describe('OAuth Authorization', () => {
             expect(calls.length).toBe(1); // Should not attempt fallback when explicit URL is provided
 
             const [url] = calls[0]!;
-            expect(url.toString()).toBe('https://custom.example.com/metadata');
+            expect(url.toString()).toBe('https://resource.example.com/metadata');
         });
 
         it('supports overriding the fetch function used for requests', async () => {
@@ -606,6 +606,26 @@ describe('OAuth Authorization', () => {
             expect(options.headers).toEqual({
                 'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
             });
+        });
+
+        it('applies the discovery URL policy and honors a per-call discoveryPolicy override', async () => {
+            // The URL policy runs before any request: a non-loopback http issuer
+            // fails closed by default...
+            await expect(discoverOAuthMetadata('http://as.example.com')).rejects.toThrow(DiscoveryUrlBlockedError);
+            expect(mockFetch).not.toHaveBeenCalled();
+
+            // ...and the per-call override permits it, like the sibling
+            // discoverAuthorizationServerMetadata.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validMetadata, issuer: 'http://as.example.com' })
+            });
+            const metadata = await discoverOAuthMetadata('http://as.example.com', {
+                discoveryPolicy: { allowHttpDiscovery: true }
+            });
+            expect(metadata?.issuer).toBe('http://as.example.com');
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe('http://as.example.com/.well-known/oauth-authorization-server');
         });
 
         it('returns metadata when discovery succeeds with path', async () => {
@@ -1434,7 +1454,10 @@ describe('OAuth Authorization', () => {
             });
 
             const result = await discoverOAuthServerInfo('https://resource.example.com', {
-                resourceMetadataUrl: overrideUrl
+                resourceMetadataUrl: overrideUrl,
+                // The override names a different origin than the server (RFC 9728 §3),
+                // so honoring it requires the explicit policy opt-out.
+                discoveryPolicy: { allowCrossOriginResourceMetadata: true }
             });
 
             expect(result.resourceMetadata).toEqual(validResourceMetadata);
@@ -1646,7 +1669,7 @@ describe('OAuth Authorization', () => {
         });
 
         it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
-            const cachedPrmUrl = 'https://custom.example.com/.well-known/oauth-protected-resource';
+            const cachedPrmUrl = 'https://resource.example.com/custom/.well-known/oauth-protected-resource';
             const provider = createMockProvider({
                 // Cache has auth server URL + resourceMetadataUrl but no resourceMetadata
                 // (simulates browser redirect where PRM URL was saved but metadata wasn't)

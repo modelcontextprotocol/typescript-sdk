@@ -21,8 +21,29 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
 }
 
 /**
+ * Sentinel `headers` value recognized by fetch functions created with
+ * {@linkcode createFetchWithInit}: a call whose `init.headers` is this exact
+ * object is sent with no headers at all — the base init's headers are
+ * suppressed instead of merged underneath or used as a fallback. The sentinel
+ * is passed through to the wrapped fetch unchanged, so it suppresses base
+ * headers at every level of a nested-wrapper chain; a terminal fetch treats it
+ * as an ordinary empty header set.
+ *
+ * Intended for callers that follow redirects manually: configured headers are
+ * scoped to the origin they were sent to, so once a hop leaves that origin the
+ * caller passes this sentinel to keep the wrapper from re-applying its base
+ * headers on the cross-origin request.
+ */
+export const OMIT_BASE_HEADERS: Readonly<Record<string, string>> = Object.freeze({});
+
+/**
  * Creates a fetch function that includes base `RequestInit` options.
  * This ensures requests inherit settings like credentials, mode, headers, etc. from the base init.
+ *
+ * Headers merge instead of replacing: per-call headers are laid over the base
+ * headers, and a call without headers falls back to the base headers. Passing
+ * the `OMIT_BASE_HEADERS` sentinel (internal barrel only) as the call's
+ * `headers` opts out of both — the request is sent with no headers.
  *
  * @param baseFetch - The base fetch function to wrap (defaults to global `fetch`)
  * @param baseInit - The base `RequestInit` to merge with each request
@@ -38,8 +59,16 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
         const mergedInit: RequestInit = {
             ...baseInit,
             ...init,
-            // Headers need special handling - merge instead of replace
-            headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+            // Headers need special handling - merge instead of replace. The
+            // OMIT_BASE_HEADERS sentinel suppresses the base headers and is passed
+            // through as-is so nested wrappers honor it too (a terminal fetch treats
+            // the frozen empty object as an ordinary empty header set).
+            headers:
+                init?.headers === OMIT_BASE_HEADERS
+                    ? OMIT_BASE_HEADERS
+                    : init?.headers
+                      ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) }
+                      : baseInit.headers
         };
         return baseFetch(url, mergedInit);
     };

@@ -1,7 +1,9 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import { DiscoveryUrlBlockedError } from '@modelcontextprotocol/core-internal';
 
 import type { OAuthClientProvider } from './auth';
 import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
+import { RedirectFilteredResponseError } from './authErrors';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -64,6 +66,12 @@ export const withOAuth =
                     const result = await auth(provider, {
                         serverUrl,
                         resourceMetadataUrl,
+                        // Relayed from the challenge: a URL the mechanical policy rejects — or
+                        // whose response is a redirect the runtime filters — is set aside with
+                        // a warning while discovery falls back to the well-known derivation; a
+                        // rejection from the provider's validateDiscoveryURL hook still fails
+                        // the flow. See {@linkcode ResourceMetadataUrlSource}.
+                        resourceMetadataUrlSource: 'www-authenticate',
                         scope,
                         fetchFn: next
                     });
@@ -80,6 +88,12 @@ export const withOAuth =
                     response = await makeRequest();
                 } catch (error) {
                     if (error instanceof UnauthorizedError) {
+                        throw error;
+                    }
+                    // The typed URL-policy and redirect-handling failures carry structured
+                    // context callers branch on — propagate them instead of flattening
+                    // them into an UnauthorizedError message string.
+                    if (error instanceof DiscoveryUrlBlockedError || error instanceof RedirectFilteredResponseError) {
                         throw error;
                     }
                     throw new UnauthorizedError(`Failed to re-authenticate: ${error instanceof Error ? error.message : String(error)}`);

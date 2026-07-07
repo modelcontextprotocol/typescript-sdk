@@ -6,7 +6,7 @@
  * the failure mode without string-matching messages.
  */
 
-import type { OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
+import type { DiscoveryUrlContext, DiscoveryUrlPurpose, OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
 import { brandedHasInstance, stampErrorBrands } from '@modelcontextprotocol/core-internal';
 
 /**
@@ -151,6 +151,53 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
                 `OAuth token requests MUST use TLS (localhost / 127.0.0.1 / ::1 are exempt).`
         );
         this.tokenEndpoint = tokenEndpoint;
+    }
+}
+
+/**
+ * Thrown by the discovery fetch path (`fetchDiscoveryUrl`) when a response is a
+ * redirect the runtime filtered — Fetch `Response.type === 'opaqueredirect'`
+ * (status 0, no readable `Location` header), the shape browser runtimes resolve
+ * a `redirect: 'manual'` request with when the response status is a redirect.
+ * The redirect target cannot be observed, so it can neither be checked nor
+ * followed; see `throwIfRedirectFiltered` in `auth.ts` for the mechanism and
+ * the per-purpose handling the discovery flows apply.
+ *
+ * The flows that can proceed without the redirected document handle this error
+ * internally (the SDK-derived well-known probes degrade exactly like a 404, and
+ * a challenge-relayed metadata URL falls back to the well-known derivation), so
+ * it surfaces to callers only where the request's outcome is required — a
+ * caller-configured metadata URL, or a token/registration POST (reached through
+ * `auth()`, the transports' 401/`finishAuth` flows, `exchangeAuthorization()`,
+ * `refreshAuthorization()`, `fetchToken()`, `registerClient()`, and the
+ * Cross-App Access token exchanges).
+ */
+export class RedirectFilteredResponseError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.RedirectFilteredResponseError' });
+    }
+
+    constructor(
+        /**
+         * The URL whose response was the filtered redirect. The redirect target
+         * itself is not observable and is never part of this error.
+         */
+        public readonly url: URL,
+        /**
+         * What the request was for. `'redirect-hop'` when the filtered response
+         * answered a followed redirect hop — {@linkcode RedirectFilteredResponseError.redirectHop | redirectHop}
+         * then carries the hop details, matching the context shape of other
+         * hop-stage rejections.
+         */
+        public readonly purpose: DiscoveryUrlPurpose,
+        detail: string,
+        /** Set when the filtered response answered a followed redirect hop. */
+        public readonly redirectHop?: NonNullable<DiscoveryUrlContext['redirectHop']>
+    ) {
+        super(
+            `The response to ${url.href} (purpose '${purpose}') is a redirect this runtime filters ` +
+                `(Fetch opaqueredirect: status 0, no readable Location header), so the redirect target cannot be observed: ${detail}`
+        );
     }
 }
 

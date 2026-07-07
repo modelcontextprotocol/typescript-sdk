@@ -58,6 +58,7 @@ describe('error brand conformance (client export surface)', () => {
     // errorSurfacePins.test.ts — this test only asserts the core re-export SET
     // so a rename there is not double-maintained here.
     const CORE_PINNED = new Set([
+        'DiscoveryUrlBlockedError',
         'MissingRequiredClientCapabilityError',
         'OAuthError',
         'ProtocolError',
@@ -80,6 +81,7 @@ describe('error brand conformance (client export surface)', () => {
             InsufficientScopeError: 'mcp.InsufficientScopeError',
             IssuerMismatchError: 'mcp.IssuerMismatchError',
             OAuthClientFlowError: 'mcp.OAuthClientFlowError',
+            RedirectFilteredResponseError: 'mcp.RedirectFilteredResponseError',
             RegistrationRejectedError: 'mcp.RegistrationRejectedError',
             SseError: 'mcp.SseError',
             UnauthorizedError: 'mcp.UnauthorizedError'

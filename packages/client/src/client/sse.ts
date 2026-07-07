@@ -103,8 +103,29 @@ export type SSEClientTransportOptions = {
 
     /**
      * Customizes recurring `POST` requests to the server.
+     *
+     * Request headers configured here are **not** applied to authorization requests
+     * (protected-resource metadata, authorization-server metadata, token, and client
+     * registration requests) — those may target a different origin than the MCP server,
+     * so connection-level headers do not carry over. Use
+     * {@linkcode SSEClientTransportOptions.oauthRequestInit | oauthRequestInit}
+     * to configure headers for those requests explicitly.
      */
     requestInit?: RequestInit;
+
+    /**
+     * Customizes the OAuth requests issued by the transport's authorization flow
+     * (protected-resource metadata, authorization-server metadata, token, and client
+     * registration requests). Headers from
+     * {@linkcode SSEClientTransportOptions.requestInit | requestInit} are never applied
+     * to these requests; set this option when they need extra configuration
+     * (e.g. gateway headers on well-known endpoints).
+     *
+     * Headers configured here do not follow cross-origin redirects: when a
+     * discovery request is redirected to a different origin, the redirected
+     * request is issued without them.
+     */
+    oauthRequestInit?: RequestInit;
 
     /**
      * Custom fetch implementation used for all network requests.
@@ -130,7 +151,13 @@ export class SSEClientTransport implements Transport {
     private _oauthProvider?: OAuthClientProvider;
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
-    private _fetchWithInit: FetchLike;
+    /**
+     * Fetch used for authorization requests. Deliberately does NOT merge
+     * `requestInit` — connection-level headers must not reach authorization
+     * endpoints on other origins. Only `oauthRequestInit` is merged, as the
+     * explicit opt-in.
+     */
+    private _authFetch: FetchLike;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -153,7 +180,7 @@ export class SSEClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
-        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
     }
 
     private _last401Response?: Response;
@@ -209,7 +236,7 @@ export class SSEClientTransport implements Transport {
                         const response = this._last401Response;
                         this._last401Response = undefined;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
+                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._authFetch }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
                             // onUnauthorized failed → not yet reported.
@@ -309,7 +336,7 @@ export class SSEClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._authFetch, resourceMetadataUrl: this._resourceMetadataUrl, resourceMetadataUrlSource: 'www-authenticate' }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -317,8 +344,12 @@ export class SSEClientTransport implements Transport {
             authorizationCode,
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
+            // `_resourceMetadataUrl` is only ever populated from a WWW-Authenticate
+            // challenge, so it is labeled as challenge-relayed: a URL-policy
+            // rejection falls back to well-known discovery instead of failing.
+            resourceMetadataUrlSource: 'www-authenticate',
             scope: this._scope,
-            fetchFn: this._fetchWithInit,
+            fetchFn: this._authFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
@@ -365,7 +396,7 @@ export class SSEClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._authFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice

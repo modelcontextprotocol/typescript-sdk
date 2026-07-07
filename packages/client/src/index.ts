@@ -15,7 +15,8 @@ export type {
     OAuthClientInformationContext,
     OAuthClientProvider,
     OAuthDiscoveryState,
-    OAuthServerInfo
+    OAuthServerInfo,
+    ResourceMetadataUrlSource
 } from './client/auth';
 export {
     assertSecureTokenEndpoint,
@@ -50,6 +51,7 @@ export {
     InsufficientScopeError,
     IssuerMismatchError,
     OAuthClientFlowError,
+    RedirectFilteredResponseError,
     RegistrationRejectedError
 } from './client/authErrors';
 export type {
@@ -99,6 +101,21 @@ export { StreamableHTTPClientTransport } from './client/streamableHttp';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema';
+
+// OAuth discovery URL policy (RFC 9728 §3 / §7.6, RFC 8414 §2): the mechanical
+// validator the client OAuth flow runs on every network-derived URL, its
+// failure type, and the context/option types the
+// OAuthClientProvider.validateDiscoveryURL hook is written against. Client-only
+// vocabulary, so it is exported here rather than from the shared core-internal
+// public barrel (which the server package re-exports).
+export type {
+    DiscoveryUrlContext,
+    DiscoveryUrlPolicyOptions,
+    DiscoveryUrlProducer,
+    DiscoveryUrlPurpose,
+    DiscoveryUrlSource
+} from '@modelcontextprotocol/core-internal';
+export { assertAllowedDiscoveryUrl, DiscoveryUrlBlockedError } from '@modelcontextprotocol/core-internal';
 
 // Multi-round-trip requests (protocol revision 2026-07-28): the client-side
 // auto-fulfilment knobs (ClientOptions.inputRequired) and the manual-mode

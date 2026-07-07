@@ -1,4 +1,4 @@
-import { createFetchWithInit, type FetchLike, normalizeHeaders } from '../../src/shared/transport';
+import { createFetchWithInit, type FetchLike, normalizeHeaders, OMIT_BASE_HEADERS } from '../../src/shared/transport';
 
 describe('normalizeHeaders', () => {
     test('returns empty object for undefined', () => {
@@ -157,6 +157,53 @@ describe('createFetchWithInit', () => {
                 method: 'POST',
                 credentials: 'include',
                 headers: { 'x-base': 'value' }
+            })
+        );
+    });
+
+    test('OMIT_BASE_HEADERS suppresses base headers and is passed through unchanged', async () => {
+        const mockFetch: FetchLike = vi.fn();
+        const baseInit: RequestInit = {
+            credentials: 'include',
+            headers: { 'x-base': 'base-value' }
+        };
+
+        const wrappedFetch = createFetchWithInit(mockFetch, baseInit);
+        await wrappedFetch('https://example.com', { method: 'GET', headers: OMIT_BASE_HEADERS });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+            'https://example.com',
+            expect.objectContaining({
+                method: 'GET',
+                credentials: 'include',
+                headers: OMIT_BASE_HEADERS
+            })
+        );
+    });
+
+    test('OMIT_BASE_HEADERS suppresses base headers at every level of a nested wrapper chain', async () => {
+        const mockFetch: FetchLike = vi.fn();
+        const inner = createFetchWithInit(mockFetch, { headers: { 'x-inner': 'inner-value' } });
+        const outer = createFetchWithInit(inner, { headers: { 'x-outer': 'outer-value' } });
+
+        await outer('https://example.com', { headers: OMIT_BASE_HEADERS });
+
+        expect(mockFetch).toHaveBeenCalledWith('https://example.com', expect.objectContaining({ headers: OMIT_BASE_HEADERS }));
+    });
+
+    test('a plain empty headers object is not the sentinel: base headers still apply', async () => {
+        const mockFetch: FetchLike = vi.fn();
+        const baseInit: RequestInit = {
+            headers: { 'x-base': 'base-value' }
+        };
+
+        const wrappedFetch = createFetchWithInit(mockFetch, baseInit);
+        await wrappedFetch('https://example.com', { headers: {} });
+
+        expect(mockFetch).toHaveBeenCalledWith(
+            'https://example.com',
+            expect.objectContaining({
+                headers: { 'x-base': 'base-value' }
             })
         );
     });

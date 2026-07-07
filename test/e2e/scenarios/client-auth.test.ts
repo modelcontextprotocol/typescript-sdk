@@ -19,6 +19,7 @@ import {
     createMiddleware,
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
+    DiscoveryUrlBlockedError,
     exchangeAuthorization,
     InsecureTokenEndpointError,
     InsufficientScopeError,
@@ -61,8 +62,8 @@ import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
 const ISSUER = 'https://auth.example.com';
-const MCP_URL = 'http://in-process/mcp';
-const RESOURCE = 'http://in-process/mcp';
+const MCP_URL = 'http://localhost/mcp';
+const RESOURCE = 'http://localhost/mcp';
 
 interface MockASConfig {
     tokenResponses?: Array<Partial<OAuthTokens>>;
@@ -2549,11 +2550,30 @@ verifies('client-auth:token-endpoint:https-guard', async (_args: TestArgs) => {
     ).rejects.toThrow(InsecureTokenEndpointError);
     expect(as.tokenCalls).toHaveLength(0);
 
-    // Loopback exemption: the in-process mock AS itself uses an https issuer; cover the exemption
-    // directly so a future tightening of the guard does not silently break local-dev / test setups.
-    const loopbackAs = createMockAuthorizationServer({ asMetadata: { token_endpoint: 'http://127.0.0.1:9001/token' } });
+    // Loopback exemption (RFC 8252 §7.3): a loopback authorization server may use an http
+    // token endpoint; cover the exemption directly so a future tightening of the guard does
+    // not silently break local-dev / test setups.
+    const loopbackIssuer = 'http://127.0.0.1:9001';
+    const loopbackAs = createMockAuthorizationServer({ asMetadata: { token_endpoint: `${loopbackIssuer}/token` } });
     // Route the loopback token URL to the mock.
     const loopbackFetch = (url: URL | string, init?: RequestInit) => loopbackAs.handleRequest(new Request(url, init));
+    await expect(
+        refreshAuthorization(loopbackIssuer, {
+            metadata: {
+                issuer: loopbackIssuer,
+                authorization_endpoint: `${loopbackIssuer}/authorize`,
+                token_endpoint: `${loopbackIssuer}/token`,
+                response_types_supported: ['code']
+            },
+            clientInformation: { client_id: 'https-guard-client' },
+            refreshToken: 'rt',
+            fetchFn: loopbackFetch
+        })
+    ).resolves.toBeDefined();
+
+    // Locality rule: a remote authorization server naming a loopback token endpoint is
+    // rejected before the request is sent — the loopback exemption applies only when the
+    // authorization server itself is local.
     await expect(
         refreshAuthorization(ISSUER, {
             metadata: {
@@ -2566,7 +2586,8 @@ verifies('client-auth:token-endpoint:https-guard', async (_args: TestArgs) => {
             refreshToken: 'rt',
             fetchFn: loopbackFetch
         })
-    ).resolves.toBeDefined();
+    ).rejects.toThrow(DiscoveryUrlBlockedError);
+    expect(loopbackAs.tokenCalls).toHaveLength(1); // only the loopback-issuer refresh above reached the endpoint
 });
 
 verifies('client-auth:refresh:rotation-handling', async (_args: TestArgs) => {

@@ -94,6 +94,7 @@ describe('SdkErrorCode', () => {
 describe('cross-bundle brand strings', () => {
     test('pins every core error brand (renaming one severs cross-version matching — must be deliberate)', async () => {
         const { OAuthError } = await import('../../src/auth/errors');
+        const { DiscoveryUrlBlockedError } = await import('../../src/shared/discoveryPolicy');
         const { SdkError, SdkHttpError } = await import('../../src/errors/sdkErrors');
         const {
             MissingRequiredClientCapabilityError,
@@ -111,6 +112,7 @@ describe('cross-bundle brand strings', () => {
         expect(brand(SdkError)).toBe('mcp.SdkError');
         expect(brand(SdkHttpError)).toBe('mcp.SdkHttpError');
         expect(brand(OAuthError)).toBe('mcp.OAuthError');
+        expect(brand(DiscoveryUrlBlockedError)).toBe('mcp.DiscoveryUrlBlockedError');
     });
 });
 
