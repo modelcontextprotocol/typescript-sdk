@@ -13,7 +13,7 @@ import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
 // Configuration
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:3000/mcp';
 const CALLBACK_PORT = 8090; // Use different port than auth server (3001)
-const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
+const CALLBACK_URL = `http://127.0.0.1:${CALLBACK_PORT}/callback`;
 
 /** Minimal HTML escaper for any user/query-derived value interpolated into an HTML response. */
 function escHtml(s: string): string {
@@ -128,8 +128,10 @@ class InteractiveOAuthClient {
                 }
             });
 
-            server.listen(CALLBACK_PORT, () => {
-                console.log(`OAuth callback server started on http://localhost:${CALLBACK_PORT}`);
+            // Bind loopback explicitly — the callback target only ever needs to be
+            // reachable from the local browser, matching the framework factories' defaults.
+            server.listen(CALLBACK_PORT, '127.0.0.1', () => {
+                console.log(`OAuth callback server started on ${CALLBACK_URL}`);
             });
         });
     }

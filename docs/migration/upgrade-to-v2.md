@@ -817,6 +817,18 @@ same as every released v1.x — only the import path changes. Framework-agnostic
 (`validateHostHeader`, `localhostAllowedHostnames`, `hostHeaderValidationResponse`) are
 in `@modelcontextprotocol/server`.
 
+Server entries validate the request `Content-Type` by its **parsed media type**, not a
+substring: every POST whose media type is not `application/json` answers
+`415 Unsupported Media Type`. Previously any value merely containing the substring
+passed (for example `text/plain; a=application/json`), case variants were wrongly
+rejected, and the 2026-07-28 entry did not inspect `Content-Type` at all — so
+hand-rolled clients that omit the header (or send a non-JSON type) must now set
+`Content-Type: application/json`. Parameters (`; charset=utf-8`) and unambiguous
+values with malformed parameter sections (`application/json;`) keep working; SDK
+clients always sent the correct header and are unaffected. Custom entries that
+compose `classifyInboundRequest` / `PerRequestHTTPServerTransport` directly must
+apply the same validation themselves — use the exported `isJsonContentType(header)`.
+
 ### Errors
 
 The SDK now distinguishes three error kinds:

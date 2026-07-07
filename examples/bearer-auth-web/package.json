@@ -1,5 +1,5 @@
 {
-    "name": "@mcp-examples/schema-validators",
+    "name": "@mcp-examples/bearer-auth-web",
     "private": true,
     "type": "module",
     "scripts": {
@@ -7,17 +7,21 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
         "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
-        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
-        "@valibot/to-json-schema": "catalog:devTools",
-        "arktype": "catalog:devTools",
-        "valibot": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
         "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "dual",
+        "path": "/mcp",
+        "//": "The web-standard twin of bearer-auth: requireBearerAuth from @modelcontextprotocol/server composed as one fetch handler (toNodeHandler bridges for the matrix); era-agnostic like its sibling."
     }
 }

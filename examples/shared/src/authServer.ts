@@ -316,9 +316,10 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
         }
     });
 
-    // Start the auth server
+    // Start the auth server, bound to loopback explicitly — this demo server is
+    // meant to be reached only from the same machine.
     const authPort = Number.parseInt(authServerUrl.port, 10);
-    authApp.listen(authPort, (error?: Error) => {
+    authApp.listen(authPort, '127.0.0.1', (error?: Error) => {
         if (error) {
             console.error('Failed to start auth server:', error);
             // eslint-disable-next-line unicorn/no-process-exit

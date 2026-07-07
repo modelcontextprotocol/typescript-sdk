@@ -6,10 +6,9 @@
  * (when the server has the `logging` capability), and stops promptly when the
  * client cancels (`ctx.mcpReq.signal.aborted`). One binary, either transport.
  */
-import { createServer } from 'node:http';
-
+import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
@@ -65,7 +64,11 @@ if (transport === 'stdio') {
     console.error('[server] serving over stdio');
 } else {
     const handler = createMcpHandler(buildServer);
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` arms localhost host/origin validation by default;
+    // bind loopback explicitly to match.
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, hostname: '127.0.0.1', port }, () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

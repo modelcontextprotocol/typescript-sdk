@@ -16,10 +16,9 @@
  * so the client decides when to mutate (no timer race with the runner). The
  * canonical-shape transport branch below assigns `publish` per entry.
  */
-import { createServer } from 'node:http';
-
+import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import type { RegisteredTool, ServerEventBus, ServerNotifier } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -83,7 +82,11 @@ if (transport === 'stdio') {
     const notify: ServerNotifier = handler.notify;
     void bus; // (the typed publish facade `notify` wraps `bus.publish`)
     publish = () => notify.toolsChanged();
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` arms localhost host/origin validation by default;
+    // bind loopback explicitly to match.
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

@@ -9,10 +9,9 @@
  * on the handler's notifier for clients on other requests. One binary, either
  * transport — selected from argv below.
  */
-import { createServer } from 'node:http';
-
+import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -91,7 +90,11 @@ if (transport === 'stdio') {
     console.error('[server] serving over stdio');
 } else {
     const handler = createMcpHandler(reqCtx => buildServer(reqCtx, uri => handler.notify.resourceUpdated(uri)));
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` binds the endpoint behind localhost host/origin
+    // validation by default, matching the framework factories' defaults.
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

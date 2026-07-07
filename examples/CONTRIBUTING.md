@@ -26,10 +26,9 @@ it (HTTP-only auth, sessionful transports, framework adapters, etc.).
 ### `server.ts`
 
 ```ts
-import { createServer } from 'node:http';
-
+import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
@@ -46,11 +45,23 @@ if (transport === 'stdio') {
     console.error('[server] serving over stdio');
 } else {
     const handler = createMcpHandler(buildServer);
-    createServer(toNodeHandler(handler)).listen(port, () => {
+    // `createMcpHonoApp()` arms localhost Host/Origin validation by default.
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }
 ```
+
+The HTTP leg binds loopback explicitly and mounts the handler behind
+`createMcpHonoApp()`, which applies host/origin validation by default —
+matching the framework factories' defaults. A story whose point is the raw
+`node:http` wiring (e.g. `gateway/`, `elicitation/`) keeps
+`createServer` + `toNodeHandler` but must then bind
+`.listen(port, '127.0.0.1')` and compose the `localhostHostValidation()` /
+`localhostOriginValidation()` guards from `@modelcontextprotocol/node` in
+front of the handler. Either way, no example teaches an unguarded HTTP mount.
 
 ### `client.ts`
 

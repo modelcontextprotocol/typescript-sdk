@@ -16,6 +16,8 @@ pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/mcp
 
 Add `-- --legacy` to the client command for the 2025-era handshake.
 
+Every HTTP leg serves the handler behind host/origin validation — via `createMcpHonoApp()` (or another framework app factory, which arm the checks by default on localhost binds), or, for raw `node:http` stories, via the `localhostHostValidation()` / `localhostOriginValidation()` guards from `@modelcontextprotocol/node` composed in front of `toNodeHandler` on an explicit loopback bind. New stories follow the canonical skeleton — see [CONTRIBUTING.md](./CONTRIBUTING.md).
+
 The one exception to the generic commands is the reference pair: [`cli-client/`](./cli-client/README.md) and [`todos-server/`](./todos-server/README.md) have their own entry points (`pnpm --filter @mcp-examples/cli-client start`, `pnpm --filter @mcp-examples/todos-server start:http`) — see their READMEs.
 
 ## Start here
@@ -48,6 +50,7 @@ The one exception to the generic commands is the reference pair: [`cli-client/`]
 | [`parallel-calls/`](./parallel-calls/README.md)                     | Multiple clients / parallel tool calls, per-client notifications                                                                                            | stdio + http | dual           |
 | [`legacy-routing/`](./legacy-routing/README.md)                     | `isLegacyRequest` in front of an existing sessionful 1.x deployment + a strict modern entry on one port                                                     | http         | dual (in-body) |
 | [`bearer-auth/`](./bearer-auth/README.md)                           | Resource server with bearer token; `401` + `WWW-Authenticate`                                                                                               | http         | dual           |
+| [`bearer-auth-web/`](./bearer-auth-web/README.md)                   | Web-standard twin: host/origin guards + `requireBearerAuth` + `createMcpHandler` as one fetch handler                                                       | http         | dual           |
 | [`oauth/`](./oauth/README.md)                                       | OAuth `authorization_code`: in-repo AS (auto-consent) + headless redirect-following client                                                                  | http         | dual           |
 | [`oauth-client-credentials/`](./oauth-client-credentials/README.md) | OAuth `client_credentials` (machine-to-machine): in-repo AS + `ClientCredentialsProvider`                                                                   | http         | dual           |
 | [`scoped-tools/`](./scoped-tools/README.md)                         | Per-tool scope on `createMcpHandler` — bearer-verify gate + handler-level `ctx.http?.authInfo` checks                                                       | http         | modern         |

@@ -7,8 +7,9 @@
         "start:http": "tsx server.ts --http"
     },
     "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "@mcp-examples/shared": "workspace:*",
-        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "zod": "catalog:runtimeShared"
     },

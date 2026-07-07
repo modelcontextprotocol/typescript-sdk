@@ -8,7 +8,7 @@
  * the stateless legacy fallback unaffected.
  */
 import { check, parseExampleArgs } from '@mcp-examples/shared';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, isJsonContentType, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const { url } = parseExampleArgs();
 
@@ -39,7 +39,7 @@ const probe = await fetch(url, {
         }
     })
 });
-check.match(probe.headers.get('content-type') ?? '', /application\/json/);
+check.equal(isJsonContentType(probe.headers.get('content-type')), true);
 check.equal(probe.status, 200);
 
 // High-level: the regular Client works unchanged.
