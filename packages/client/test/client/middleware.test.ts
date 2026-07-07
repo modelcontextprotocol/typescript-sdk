@@ -158,6 +158,42 @@ describe('withOAuth', () => {
         expect(retryHeaders.get('Authorization')).toBe('Bearer new-token');
     });
 
+    it('should union stored token scope with 401 challenge scope when re-authenticating', async () => {
+        mockProvider.tokens
+            .mockResolvedValueOnce({
+                access_token: 'old-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            })
+            .mockResolvedValueOnce({
+                access_token: 'new-token',
+                token_type: 'Bearer',
+                scope: 'read write admin'
+            });
+
+        const unauthorizedResponse = new Response('Unauthorized', {
+            status: 401,
+            headers: { 'www-authenticate': 'Bearer realm="oauth", scope="admin"' }
+        });
+        const successResponse = new Response('success', { status: 200 });
+
+        mockFetch.mockResolvedValueOnce(unauthorizedResponse).mockResolvedValueOnce(successResponse);
+        mockExtractWWWAuthenticateParams.mockReturnValue({ scope: 'admin' });
+        mockAuth.mockResolvedValue('AUTHORIZED');
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        await enhancedFetch('https://api.example.com/data');
+
+        expect(mockAuth).toHaveBeenCalledWith(mockProvider, {
+            serverUrl: 'https://api.example.com',
+            resourceMetadataUrl: undefined,
+            scope: 'read write admin',
+            forceReauthorization: true,
+            fetchFn: mockFetch
+        });
+    });
+
     it('should retry request after successful auth on 401 response (without baseUrl)', async () => {
         mockProvider.tokens
             .mockResolvedValueOnce({
