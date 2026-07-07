@@ -199,6 +199,10 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
             );
         }
         result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io }) as Record<string, unknown>;
+        // zod 4.0–4.2 emits exhaustive records (z.record with enum/literal-union keys) without
+        // `required`, although validation demands every key (fixed in zod 4.3, which never takes
+        // this fallback). Patch the emission so advertised schemas match runtime validation.
+        addRequiredToExhaustiveRecords(schema, result);
     } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
@@ -227,6 +231,121 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         );
     }
     return { type: 'object', ...result };
+}
+
+/** Structural view of a Zod v4 schema's `_zod` internals — only the fields the record fixup reads. */
+interface ZodInternalsLike {
+    def?: Record<string, unknown>;
+    values?: unknown;
+}
+
+function zodInternalsOf(value: unknown): ZodInternalsLike | undefined {
+    if ((typeof value !== 'object' && typeof value !== 'function') || value === null) return undefined;
+    const internals = (value as { _zod?: unknown })._zod;
+    return typeof internals === 'object' && internals !== null ? (internals as ZodInternalsLike) : undefined;
+}
+
+/**
+ * Known emission gap in zod 4.0.x–4.2.x (fixed in 4.3): `z.toJSONSchema` converts
+ * `z.record(z.enum(['a','b']), value)` to
+ * `{type:'object', propertyNames:{enum:['a','b']}, additionalProperties:…}` with NO `required`,
+ * although runtime validation rejects objects missing any key (exhaustive records). A tool
+ * advertising that schema accepts inputs its own validation then refuses.
+ *
+ * `z.partialRecord` emits the *same* JSON shape but validates keys as optional, so the emitted
+ * JSON alone cannot distinguish the two. This fixup therefore walks the ZOD schema for record
+ * nodes whose key type carries a finite string key set (`keyType._zod.values` — the exact marker
+ * zod's own record parser uses to decide exhaustiveness; `partialRecord` clears it), then adds
+ * `required: [...keys]` to every emitted record-shaped JSON node whose `propertyNames` key set
+ * matches one of those exhaustive sets. Nodes that already carry `required` are left untouched,
+ * so the fixup is a no-op on zod versions that emit it themselves.
+ *
+ * Limitation: a partial record and an exhaustive record with the *identical* key set in the same
+ * schema are indistinguishable in the emitted JSON, so the partial one would also gain `required`.
+ * Affected users can upgrade to zod >=4.3, whose native emission never takes this fallback.
+ */
+export function addRequiredToExhaustiveRecords(schema: unknown, jsonSchema: Record<string, unknown>): void {
+    const exhaustiveKeySets: Array<ReadonlySet<string>> = [];
+    collectExhaustiveRecordKeySets(schema, exhaustiveKeySets, new Set());
+    if (exhaustiveKeySets.length === 0) return;
+    patchMatchingRecordNodes(jsonSchema, exhaustiveKeySets);
+}
+
+/** Walks a Zod schema tree, collecting the key set of every exhaustive (non-partial) record node. */
+function collectExhaustiveRecordKeySets(schema: unknown, keySets: Array<ReadonlySet<string>>, seen: Set<object>): void {
+    const internals = zodInternalsOf(schema);
+    if (internals === undefined || seen.has(schema as object)) return;
+    seen.add(schema as object);
+    const def = internals.def;
+    if (def === undefined || typeof def !== 'object') return;
+    if (def.type === 'record') {
+        const keyValues = zodInternalsOf(def.keyType)?.values;
+        if (keyValues instanceof Set && keyValues.size > 0) {
+            const keys = [...keyValues];
+            if (keys.every((k): k is string => typeof k === 'string')) keySets.push(new Set(keys));
+        }
+    }
+    if (def.type === 'lazy' && typeof def.getter === 'function') {
+        try {
+            collectExhaustiveRecordKeySets((def.getter as () => unknown)(), keySets, seen);
+        } catch {
+            // A throwing lazy getter means the subtree cannot be inspected; skip it.
+        }
+    }
+    for (const value of Object.values(def)) {
+        visitDefValue(value, keySets, seen);
+    }
+}
+
+/** Recurses into def entries that hold child schemas: schemas, arrays of schemas, and shape objects. */
+function visitDefValue(value: unknown, keySets: Array<ReadonlySet<string>>, seen: Set<object>): void {
+    if (value === null || typeof value !== 'object') return;
+    if (zodInternalsOf(value) !== undefined) {
+        collectExhaustiveRecordKeySets(value, keySets, seen);
+        return;
+    }
+    const children = Array.isArray(value) ? value : Object.values(value);
+    for (const child of children) {
+        if (zodInternalsOf(child) !== undefined) collectExhaustiveRecordKeySets(child, keySets, seen);
+    }
+}
+
+/** Extracts the string key set from a record emission's `propertyNames` (enum, const, or const union). */
+function keysFromPropertyNames(propertyNames: unknown): string[] | undefined {
+    if (propertyNames === null || typeof propertyNames !== 'object') return undefined;
+    const pn = propertyNames as Record<string, unknown>;
+    if (Array.isArray(pn.enum)) {
+        // Copy: the returned array is assigned to `required`, and must not alias `propertyNames.enum`.
+        return pn.enum.every((k): k is string => typeof k === 'string') ? [...pn.enum] : undefined;
+    }
+    if (typeof pn.const === 'string') return [pn.const];
+    for (const compositionKey of ['anyOf', 'oneOf'] as const) {
+        const members = pn[compositionKey];
+        if (Array.isArray(members) && members.length > 0) {
+            const consts = members.map(m => (m !== null && typeof m === 'object' ? (m as Record<string, unknown>).const : undefined));
+            if (consts.every((c): c is string => typeof c === 'string')) return consts;
+        }
+    }
+    return undefined;
+}
+
+/** Adds `required` to emitted record nodes whose propertyNames key set matches an exhaustive record. */
+function patchMatchingRecordNodes(node: unknown, keySets: ReadonlyArray<ReadonlySet<string>>): void {
+    if (node === null || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+        for (const item of node) patchMatchingRecordNodes(item, keySets);
+        return;
+    }
+    const obj = node as Record<string, unknown>;
+    if (obj.required === undefined && obj.propertyNames !== undefined && (obj.type === 'object' || obj.type === undefined)) {
+        const keys = keysFromPropertyNames(obj.propertyNames);
+        if (keys !== undefined && keySets.some(set => set.size === keys.length && keys.every(k => set.has(k)))) {
+            obj.required = keys;
+        }
+    }
+    for (const value of Object.values(obj)) {
+        patchMatchingRecordNodes(value, keySets);
+    }
 }
 
 /**
