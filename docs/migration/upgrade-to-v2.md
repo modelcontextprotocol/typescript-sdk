@@ -1673,10 +1673,13 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
 
 #### Wire tightening (every era)
 
-- **`CallToolResult.content` is required at the wire boundary.** The `content.default([])`
-  affordance was removed. Tool handlers MUST include `content` (the TypeScript surface
-  always required it; `content: []` is fine). A handler result without it is rejected
-  with `-32602`.
+- **`CallToolResult.content` keeps the v1 parse tolerance.** An inbound result without
+  `content` defaults to `[]` (deployed servers omit it alongside `structuredContent`).
+  Authoring is unchanged: the TypeScript surface requires `content` on handler results
+  (`content: []` is fine). One sharpening remains: on the 2025 era, a foreign
+  `resultType` body that carries no explicit `content` is still rejected after the
+  strip — a modern peer's `input_required` round can never surface as a silent empty
+  success.
 - **`ElicitResult.content` values are typed and validated as
   `string | number | boolean | string[]`.** v1's TypeScript surface accepted
   `Record<string, unknown>` content values; an elicitation handler returning arbitrary

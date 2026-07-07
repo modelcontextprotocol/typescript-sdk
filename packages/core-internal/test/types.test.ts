@@ -296,12 +296,17 @@ describe('Types', () => {
             }
         });
 
-        test('requires content: the empty-object result no longer parses (deliberate flip)', () => {
-            // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): content.default([])
-            // was removed from the wire schema (the T6 silent-empty-success
-            // masking root). Content is spec-required in every revision.
-            // Changeset: codec-split-wire-break.
-            expect(CallToolResultSchema.safeParse({}).success).toBe(false);
+        test('tolerates absent content: the empty-object result parses with content [] (v1 parity restored)', () => {
+            // BEHAVIOR MIGRATION (reversal, ledgered): content.default([]) is
+            // back on the neutral layer and the 2025 era — deployed servers
+            // omit content alongside structuredContent. The T6 masking root
+            // is closed by vocabulary guards in the 2025 codec and by the
+            // strict 2026-era schemas instead.
+            const empty = CallToolResultSchema.safeParse({});
+            expect(empty.success).toBe(true);
+            if (empty.success) {
+                expect(empty.data.content).toEqual([]);
+            }
             const result = CallToolResultSchema.safeParse({ content: [] });
             expect(result.success).toBe(true);
             if (result.success) {

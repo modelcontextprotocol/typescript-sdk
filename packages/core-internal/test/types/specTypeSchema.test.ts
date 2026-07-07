@@ -90,20 +90,24 @@ describe('isSpecType', () => {
         }
     });
 
-    it('CallToolResult requires content at the boundary (the wire default was removed)', () => {
-        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): CallToolResultSchema
-        // lost `content.default([])` — the silent-empty-success masking root.
-        // The guard's input shape now requires content, matching the spec in
-        // every revision. Changeset: codec-split-wire-break.
+    it('CallToolResult tolerates absent content at the boundary (default restored, v1 parity)', () => {
+        // BEHAVIOR MIGRATION (reversal, ledgered): content.default([]) is
+        // back for ecosystem parity (servers omit content alongside
+        // structuredContent). The guard consequently accepts a content-less
+        // body, exactly as v1's did; the task-husk leak the removal targeted
+        // is closed in the 2025 codec's strip arm instead.
         const empty: unknown = {};
-        expect(isSpecType.CallToolResult(empty)).toBe(false);
+        expect(isSpecType.CallToolResult(empty)).toBe(true);
         const v: unknown = { content: [] };
         expect(isSpecType.CallToolResult(v)).toBe(true);
         if (isSpecType.CallToolResult(v)) {
-            expectTypeOf(v.content).toEqualTypeOf<ContentBlock[]>();
-            expectTypeOf(v.content).not.toEqualTypeOf<ContentBlock[] | undefined>();
+            // The guard narrows to the INPUT type (before defaults), so
+            // content is honestly optional here — the default only
+            // materializes on parse.
+            expectTypeOf(v.content).toEqualTypeOf<ContentBlock[] | undefined>();
         }
-        void (0 as unknown as CallToolResult);
+        // The parsed/public type keeps content required (z.output).
+        expectTypeOf<CallToolResult['content']>().toEqualTypeOf<ContentBlock[]>();
     });
 
     it('JSONValue / JSONObject — narrows to the JSON type, not unknown', () => {

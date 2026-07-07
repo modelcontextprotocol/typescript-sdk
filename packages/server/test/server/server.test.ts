@@ -193,13 +193,17 @@ describe('Server', () => {
             return response;
         }
 
-        it('rejects a structured-only handler result (no content) with -32602 Invalid tools/call result', async () => {
+        it('defaults a structured-only handler result (no content) to content: [] on the wire (v1 parity)', async () => {
+            // The TypeScript surface requires `content`; at runtime a
+            // structured-only result (dynamic/JS callers) is defaulted rather
+            // than rejected, matching v1 — and the wire output is
+            // spec-valid: content is present as [].
             const response = await callToolOnServer({ structuredContent: { ok: true } } as unknown as CallToolResult);
 
-            const error = (response as { error?: { code: number; message: string } }).error;
-            expect(error).toBeDefined();
-            expect(error!.code).toBe(-32602);
-            expect(error!.message).toContain('Invalid tools/call result');
+            const result = (response as { result?: { content?: unknown; structuredContent?: unknown } }).result;
+            expect(result).toBeDefined();
+            expect(result!.content).toEqual([]);
+            expect(result!.structuredContent).toEqual({ ok: true });
         });
 
         it('passes an authored-content result through to the wire', async () => {

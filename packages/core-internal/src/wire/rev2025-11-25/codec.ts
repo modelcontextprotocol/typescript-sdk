@@ -26,6 +26,7 @@
  * 2026-vocabulary code path in the 2025 codec, it exists on the decode side
  * only, and it deletes — never reads, maps, or emits — the foreign value.
  */
+import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import type * as z from 'zod/v4';
 
 import type { CallToolResult, Result } from '../../types/types';
@@ -103,14 +104,40 @@ export const rev2025Codec: WireCodec = {
         return { ...withText, structuredContent: { result: sc } };
     },
 
-    decodeResult(_method: string, raw: unknown): DecodedResult {
+    decodeResult(method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
         // dropped before validation, whatever its value. There is no
         // discrimination on this era — `resultType` carries no meaning here.
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];
+            // V-1 (never a hollow success): the tools/call content default is
+            // wire tolerance for plain legacy results — a stripped foreign
+            // body (e.g. an input_required round from a modern peer) must
+            // still carry the era's members explicitly, or the default would
+            // surface the round as a silent empty success.
+            if (method === 'tools/call' && !('content' in stripped)) {
+                return {
+                    kind: 'invalid',
+                    error: new SdkError(
+                        SdkErrorCode.InvalidResult,
+                        'Invalid result for tools/call: a foreign resultType was stripped and no content remains',
+                        { resultType: (raw as Record<string, unknown>)['resultType'] }
+                    )
+                };
+            }
             return { kind: 'complete', result: toNeutralResult(stripped) };
+        }
+        // Same V-1 guard for the bare task shape: a body carrying `task` is
+        // modern task vocabulary, not a legacy server omitting content — the
+        // default must not mask it as an empty success.
+        if (method === 'tools/call' && isPlainObject(raw) && !('content' in raw) && 'task' in raw) {
+            return {
+                kind: 'invalid',
+                error: new SdkError(SdkErrorCode.InvalidResult, 'Invalid result for tools/call: a task-shaped body has no content', {
+                    violation: 'task-shaped-without-content'
+                })
+            };
         }
         return { kind: 'complete', result: toNeutralResult(raw) };
     },

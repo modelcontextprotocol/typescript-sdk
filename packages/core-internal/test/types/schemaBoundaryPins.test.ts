@@ -139,18 +139,20 @@ describe('typed result schemas are loose', () => {
         expect((parsed as Record<string, unknown>).ttlMs).toBe(5);
     });
 
-    test('CallToolResult requires content on the wire (the silent-empty-success default is gone)', () => {
-        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): `content.default([])`
-        // was removed from the wire schema. The default was the T6 width-leak
-        // root: a task-shaped (or otherwise content-less) body parsed as a
-        // silent `{content: []}` success. Content is required by the spec in
-        // every revision; a content-less body now fails the parse LOUDLY.
-        // Changeset: codec-split-wire-break; docs/migration/upgrade-to-v2.md
-        // "Wire tightening (every era)".
-        expect(CallToolResultSchema.safeParse({ structuredContent: { ok: true } }).success).toBe(false);
-        const parsed = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
+    test('CallToolResult tolerates absent content on the wire (defaults to [], v1 parity)', () => {
+        // BEHAVIOR MIGRATION (reversal, ledgered): `content.default([])` was
+        // removed in the codec split (T6 width-leak root: a task-shaped body
+        // parsed as a silent success), then RESTORED for ecosystem parity —
+        // real deployments omit `content` alongside `structuredContent`, and
+        // v1 tolerated that. The T6 leak stays closed at its actual source:
+        // the 2025 codec's strip-on-lift rejects a stripped foreign body with
+        // no explicit content (rawResultTypeFirst.test.ts), and the 2026 era
+        // discriminates task bodies on `resultType` before parse.
+        const parsed = CallToolResultSchema.parse({ structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);
         expect(parsed.structuredContent).toEqual({ ok: true });
+        const explicit = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
+        expect(explicit.content).toEqual([]);
     });
 
     test('CallToolResult preserves isError and sibling members through the parse', () => {

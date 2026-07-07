@@ -574,36 +574,28 @@ describe('T6 width-leak killed at both roots', () => {
         expect(decoded.kind).toBe('invalid');
     });
 
-    test('2025 era: with the content default gone, a bare task-shaped body fails the plain schema loudly', async () => {
+    test('2025 era: a bare task-shaped body is rejected at decode — the content default cannot mask it', async () => {
         const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
-        const { CallToolResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
-        expect(decoded.kind).toBe('complete');
-        if (decoded.kind === 'complete') {
-            // The plain schema (which IS the registry entry — the result map
-            // is aligned to the typed map, no task-widened union): no
-            // default([]) means no silent {content: []} masking.
-            expect(CallToolResultSchema.safeParse(decoded.result).success).toBe(false);
-        }
-        // The GENERIC path agrees: the registry serves the same plain schema,
-        // so even a fully conforming CreateTaskResult body is a loud schema
-        // failure (surfaced as a typed INVALID_RESULT — see
+        // With the v1-parity content default restored on this era's schema,
+        // the codec itself rejects modern task vocabulary that arrives
+        // without explicit content — no silent {content: []} masking.
+        expect(decoded.kind).toBe('invalid');
+        // The GENERIC path agrees: every inbound result crosses decodeResult
+        // before any schema, so even a fully conforming CreateTaskResult body
+        // is rejected there (surfaced as a typed INVALID_RESULT — see
         // test/shared/typedMapAlignment.test.ts). Task interop is the
         // explicit-schema overload, never a silent union member.
-        const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
-        const plain = getResultSchema('tools/call');
-        expect(plain).toBe(CallToolResultSchema);
-        expect(
-            plain!.safeParse({
-                task: {
-                    taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
-                    status: 'working',
-                    createdAt: '2025-11-25T10:30:00Z',
-                    lastUpdatedAt: '2025-11-25T10:30:05Z',
-                    ttl: 60000,
-                    pollInterval: 5000
-                }
-            }).success
-        ).toBe(false);
+        const decodedFull = rev2025Codec.decodeResult('tools/call', {
+            task: {
+                taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
+                status: 'working',
+                createdAt: '2025-11-25T10:30:00Z',
+                lastUpdatedAt: '2025-11-25T10:30:05Z',
+                ttl: 60000,
+                pollInterval: 5000
+            }
+        });
+        expect(decodedFull.kind).toBe('invalid');
     });
 });
