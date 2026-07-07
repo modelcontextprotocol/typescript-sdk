@@ -131,15 +131,21 @@ export const OpenIdProviderDiscoveryMetadataSchema = z.object({
 
 /**
  * OAuth 2.1 token response
+ *
+ * Some authorization servers serialize absent optional members as JSON `null`
+ * (not sanctioned by RFC 6749, but common in the wild), so null values are
+ * normalized to absent (`undefined`) rather than rejected. For `expires_in`,
+ * `null` must be normalized before coercion — `Number(null) === 0` would
+ * otherwise yield an instantly-expired token.
  */
 export const OAuthTokensSchema = z
     .object({
         access_token: z.string(),
-        id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
+        id_token: z.preprocess(value => value ?? undefined, z.string().optional()), // Optional for OAuth 2.1, but necessary in OpenID Connect
         token_type: z.string(),
-        expires_in: z.coerce.number().optional(),
-        scope: z.string().optional(),
-        refresh_token: z.string().optional()
+        expires_in: z.preprocess(value => value ?? undefined, z.coerce.number().optional()),
+        scope: z.preprocess(value => value ?? undefined, z.string().optional()),
+        refresh_token: z.preprocess(value => value ?? undefined, z.string().optional())
     })
     .strip();
 

@@ -1,6 +1,7 @@
 import {
     OAuthClientMetadataSchema,
     OAuthMetadataSchema,
+    OAuthTokensSchema,
     OpenIdProviderMetadataSchema,
     OptionalSafeUrlSchema,
     SafeUrlSchema
@@ -97,6 +98,76 @@ describe('OpenIdProviderMetadataSchema', () => {
         };
 
         expect(() => OpenIdProviderMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
+    });
+});
+
+describe('OAuthTokensSchema', () => {
+    it('parses a fully-populated token response unchanged', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access123',
+            id_token: 'id123',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'read write',
+            refresh_token: 'refresh123'
+        });
+
+        expect(tokens).toEqual({
+            access_token: 'access123',
+            id_token: 'id123',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'read write',
+            refresh_token: 'refresh123'
+        });
+    });
+
+    it('parses a token response with optional fields absent', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access123',
+            token_type: 'Bearer'
+        });
+
+        expect(tokens.access_token).toBe('access123');
+        expect(tokens.token_type).toBe('Bearer');
+        expect(tokens.id_token).toBeUndefined();
+        expect(tokens.expires_in).toBeUndefined();
+        expect(tokens.scope).toBeUndefined();
+        expect(tokens.refresh_token).toBeUndefined();
+    });
+
+    it.each(['refresh_token', 'scope', 'id_token'] as const)(
+        'treats a null %s as absent (some auth servers serialize absent members as null)',
+        field => {
+            const tokens = OAuthTokensSchema.parse({
+                access_token: 'access123',
+                token_type: 'Bearer',
+                [field]: null
+            });
+
+            expect(tokens[field]).toBeUndefined();
+        }
+    );
+
+    it('treats a null expires_in as absent rather than coercing it to 0', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access123',
+            token_type: 'Bearer',
+            expires_in: null
+        });
+
+        expect(tokens.expires_in).toBeUndefined();
+        expect(tokens.expires_in).not.toBe(0);
+    });
+
+    it('still coerces string expires_in values to numbers', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access123',
+            token_type: 'Bearer',
+            expires_in: '3600'
+        });
+
+        expect(tokens.expires_in).toBe(3600);
     });
 });
 

@@ -2005,6 +2005,37 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+        it('treats null optional fields as absent (some auth servers serialize absent members as null)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'access123',
+                    token_type: 'Bearer',
+                    expires_in: null,
+                    scope: null,
+                    refresh_token: null,
+                    id_token: null
+                })
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                resource: new URL('https://api.example.com/mcp-server')
+            });
+
+            expect(tokens.access_token).toBe('access123');
+            expect(tokens.token_type).toBe('Bearer');
+            // expires_in: null must not coerce to 0 (an instantly-expired token)
+            expect(tokens.expires_in).toBeUndefined();
+            expect(tokens.scope).toBeUndefined();
+            expect(tokens.refresh_token).toBeUndefined();
+            expect(tokens.id_token).toBeUndefined();
+        });
+
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
