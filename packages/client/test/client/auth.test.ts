@@ -217,8 +217,9 @@ describe('OAuth Authorization', () => {
     });
 
     describe('handleOAuthUnauthorized', () => {
-        it('uses stored token scope, accumulated context scope, and resource metadata when reauthorizing', async () => {
+        it('forces reauthorization with the full scope union instead of refreshing a narrower token', async () => {
             const resourceMetadataUrl = new URL('https://resource.example.com/custom-prm');
+            const tokenEndpoint = 'https://auth.example.com/token';
             const provider: OAuthClientProvider = {
                 get redirectUrl() {
                     return 'http://localhost:3000/callback';
@@ -230,7 +231,12 @@ describe('OAuth Authorization', () => {
                     };
                 },
                 clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
-                tokens: vi.fn().mockResolvedValue({ access_token: 'old-token', token_type: 'Bearer', scope: 'openid read' }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'old-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'refresh-token',
+                    scope: 'openid read'
+                }),
                 saveTokens: vi.fn(),
                 saveCodeVerifier: vi.fn(),
                 codeVerifier: vi.fn(),
@@ -256,9 +262,18 @@ describe('OAuth Authorization', () => {
                         Response.json({
                             issuer: 'https://auth.example.com',
                             authorization_endpoint: 'https://auth.example.com/authorize',
-                            token_endpoint: 'https://auth.example.com/token',
+                            token_endpoint: tokenEndpoint,
                             response_types_supported: ['code'],
                             code_challenge_methods_supported: ['S256']
+                        })
+                    );
+                }
+                if (urlString === tokenEndpoint) {
+                    return Promise.resolve(
+                        Response.json({
+                            access_token: 'refreshed-token',
+                            token_type: 'Bearer',
+                            scope: 'openid read'
                         })
                     );
                 }
@@ -276,6 +291,7 @@ describe('OAuth Authorization', () => {
             ).rejects.toBeInstanceOf(UnauthorizedError);
 
             expect(mockFetch.mock.calls[0]?.[0].toString()).toBe(resourceMetadataUrl.toString());
+            expect(mockFetch.mock.calls.some(([url]) => url.toString() === tokenEndpoint)).toBe(false);
             const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
             expect(authorizationUrl.searchParams.get('scope')).toBe('openid read write');
         });

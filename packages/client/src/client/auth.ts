@@ -185,10 +185,13 @@ export async function handleOAuthUnauthorized(
 ): Promise<void> {
     const challenge = extractWWWAuthenticateParams(ctx.response);
     const tokens = await provider.tokens();
+    const unionScope = computeScopeUnion(tokens?.scope, ctx.scope, challenge.scope);
+    const forceReauthorization = isStrictScopeSuperset(unionScope, tokens?.scope);
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl: challenge.resourceMetadataUrl ?? ctx.resourceMetadataUrl,
-        scope: computeScopeUnion(tokens?.scope, ctx.scope, challenge.scope),
+        scope: unionScope,
+        ...(forceReauthorization ? { forceReauthorization } : {}),
         fetchFn: ctx.fetchFn,
         ...extraAuthOptions
     });
