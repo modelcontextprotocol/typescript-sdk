@@ -157,6 +157,50 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
         expectRejection(validateStandardRequestHeaders(request, route), 'name-header-invalid-encoding');
     });
 
+    test('raw HTTP OWS is stripped from standard MCP header values', () => {
+        const { request } = modernPost(
+            'tools/call',
+            { name: 'echo', arguments: {} },
+            { mcpMethod: '\t tools/call  ', mcpName: '  echo \t' }
+        );
+        request.protocolVersionHeader = `  ${MODERN}\t`;
+        const classified = classifyInboundRequest(request);
+        expect(classified.kind).toBe('modern');
+        if (classified.kind !== 'modern') {
+            throw new Error(`expected a modern route, got ${classified.kind}`);
+        }
+        expect(validateStandardRequestHeaders(request, classified)).toBeUndefined();
+    });
+
+    test('long OWS runs are stripped without changing an encoded name', () => {
+        const ows = '\t '.repeat(50_000);
+        const name = ' echo ';
+        const { request } = modernPost(
+            'tools/call',
+            { name, arguments: {} },
+            {
+                mcpMethod: `${ows}tools/call${ows}`,
+                mcpName: `${ows}${encodeMcpParamValue(name)}${ows}`
+            }
+        );
+        request.protocolVersionHeader = `${ows}${MODERN}${ows}`;
+
+        const classified = classifyInboundRequest(request);
+        expect(classified.kind).toBe('modern');
+        if (classified.kind !== 'modern') {
+            throw new Error(`expected a modern route, got ${classified.kind}`);
+        }
+        expect(validateStandardRequestHeaders(request, classified)).toBeUndefined();
+    });
+
+    test('whitespace outside RFC 9110 OWS is not stripped', () => {
+        const { request } = modernPost('tools/call', { name: 'echo', arguments: {} }, { mcpMethod: 'tools/call', mcpName: 'echo' });
+        request.mcpMethodHeader = '\u00a0tools/call';
+        const classified = classifyInboundRequest(request);
+        expect(classified.kind).toBe('reject');
+        expect((classified as InboundLadderRejection).cell).toBe('method-header-mismatch');
+    });
+
     test('a matching Mcp-Name on a prompts/get passes', () => {
         const { request, route } = modernPost('prompts/get', { name: 'greeting' }, { mcpMethod: 'prompts/get', mcpName: 'greeting' });
         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
