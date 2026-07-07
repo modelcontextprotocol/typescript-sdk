@@ -126,17 +126,38 @@ export const OpenIdProviderDiscoveryMetadataSchema = z.object({
 
 /**
  * OAuth 2.1 token response
+ *
+ * Some authorization servers serialize absent optional members as JSON null
+ * (e.g. `"refresh_token": null`). RFC 6749 does not sanction null values, but
+ * to interoperate with such servers, null-valued optional members are
+ * normalized to absent before validation. The inferred output type is
+ * unchanged. Without this, `expires_in: null` would coerce to 0 (an
+ * instantly-expired token) and null string members would fail validation.
  */
-export const OAuthTokensSchema = z
-    .object({
-        access_token: z.string(),
-        id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
-        token_type: z.string(),
-        expires_in: z.coerce.number().optional(),
-        scope: z.string().optional(),
-        refresh_token: z.string().optional()
-    })
-    .strip();
+export const OAuthTokensSchema = z.preprocess(
+    data => {
+        if (data && typeof data === 'object' && !Array.isArray(data)) {
+            const normalized: Record<string, unknown> = { ...data };
+            for (const key of ['id_token', 'expires_in', 'scope', 'refresh_token']) {
+                if (normalized[key] === null) {
+                    delete normalized[key];
+                }
+            }
+            return normalized;
+        }
+        return data;
+    },
+    z
+        .object({
+            access_token: z.string(),
+            id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
+            token_type: z.string(),
+            expires_in: z.coerce.number().optional(),
+            scope: z.string().optional(),
+            refresh_token: z.string().optional()
+        })
+        .strip()
+);
 
 /**
  * OAuth 2.1 error response

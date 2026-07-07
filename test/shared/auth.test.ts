@@ -3,6 +3,7 @@ import {
     OAuthMetadataSchema,
     OpenIdProviderMetadataSchema,
     OAuthClientMetadataSchema,
+    OAuthTokensSchema,
     OptionalSafeUrlSchema
 } from '../../src/shared/auth.js';
 
@@ -97,6 +98,111 @@ describe('OpenIdProviderMetadataSchema', () => {
         };
 
         expect(() => OpenIdProviderMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
+    });
+});
+
+describe('OAuthTokensSchema', () => {
+    it('round-trips a fully-populated token response', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            id_token: 'id-456',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'read write',
+            refresh_token: 'refresh-789'
+        });
+
+        expect(tokens).toEqual({
+            access_token: 'access-123',
+            id_token: 'id-456',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            scope: 'read write',
+            refresh_token: 'refresh-789'
+        });
+    });
+
+    it('accepts a token response with optional fields absent', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer'
+        });
+
+        expect(tokens.access_token).toBe('access-123');
+        expect(tokens.token_type).toBe('Bearer');
+        expect(tokens.id_token).toBeUndefined();
+        expect(tokens.expires_in).toBeUndefined();
+        expect(tokens.scope).toBeUndefined();
+        expect(tokens.refresh_token).toBeUndefined();
+    });
+
+    it('treats null refresh_token as absent', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            refresh_token: null
+        });
+
+        expect(tokens.refresh_token).toBeUndefined();
+    });
+
+    it('treats null scope as absent', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            scope: null
+        });
+
+        expect(tokens.scope).toBeUndefined();
+    });
+
+    it('treats null id_token as absent', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            id_token: null
+        });
+
+        expect(tokens.id_token).toBeUndefined();
+    });
+
+    it('treats null expires_in as absent instead of coercing it to 0', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            expires_in: null
+        });
+
+        expect(tokens.expires_in).toBeUndefined();
+        expect(tokens.expires_in).not.toBe(0);
+    });
+
+    it('accepts a token response with all optional fields null', () => {
+        const tokens = OAuthTokensSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            id_token: null,
+            expires_in: null,
+            scope: null,
+            refresh_token: null
+        });
+
+        // toStrictEqual: the null members must be truly absent from the
+        // output, not present with an undefined value, so that spreads like
+        // `{ refresh_token: previous, ...tokens }` keep the previous value.
+        expect(tokens).toStrictEqual({
+            access_token: 'access-123',
+            token_type: 'Bearer'
+        });
+    });
+
+    it('still rejects a null access_token', () => {
+        expect(() =>
+            OAuthTokensSchema.parse({
+                access_token: null,
+                token_type: 'Bearer'
+            })
+        ).toThrow();
     });
 });
 
