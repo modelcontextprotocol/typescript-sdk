@@ -100,7 +100,13 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
         // (InputRequiredResultSchema lives alongside, never widening it).
         // Era-gated: only cells wired for the modern era opt in, so an
         // input_required on a 2025-era cell's wire is still flagged.
-        if (party === 'server' && opts.allowInputRequiredResults === true && isInputRequiredResult(result)) return;
+        if (party === 'server' && isInputRequiredResult(result)) {
+            if (opts.allowInputRequiredResults === true) return;
+            // Explicit flag: the neutral union no longer rejects this shape
+            // by strictness (CallToolResult.content defaults on the legacy
+            // era), so the era-gating is asserted here, by vocabulary.
+            fail(party, `input_required result on a cell not opted into multi-round-trip`, msg);
+        }
         const r = schemas.result.safeParse(result);
         if (!r.success) {
             // A result for a vendor-extension request legitimately won't match the spec union.
