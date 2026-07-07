@@ -24,7 +24,7 @@ class TestProtocolImpl extends Protocol<BaseContext> {
  * (the T6 guard lives in the codec, not the schema).
  */
 describe('CallToolResult content default (v1 parity)', () => {
-    async function respondWith(body: Record<string, unknown>) {
+    async function respondWith(body: Record<string, unknown>, resultSchema?: Parameters<Protocol<BaseContext>['request']>[1]) {
         const protocol = new TestProtocolImpl();
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         serverTransport.onmessage = message => {
@@ -39,7 +39,9 @@ describe('CallToolResult content default (v1 parity)', () => {
         await serverTransport.start();
         await protocol.connect(clientTransport);
         try {
-            return await protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } });
+            return resultSchema === undefined
+                ? await protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } })
+                : await protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } }, resultSchema);
         } finally {
             await protocol.close().catch(() => {});
         }
@@ -59,7 +61,28 @@ describe('CallToolResult content default (v1 parity)', () => {
         expect(result.content).toEqual([]);
     });
 
-    it('a task-shaped body without content still fails loudly (T6 guard)', async () => {
+    it('a task-shaped body without content still fails loudly (wire-seam guard)', async () => {
         await expect(respondWith({ task: { taskId: 't-1', status: 'working' } })).rejects.toBeInstanceOf(SdkError);
+    });
+
+    it('task interop via an explicit result schema still works — the guard never touches that overload', async () => {
+        const { CreateTaskResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
+        const body = {
+            task: {
+                taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
+                status: 'working',
+                createdAt: '2025-11-25T10:30:00Z',
+                lastUpdatedAt: '2025-11-25T10:30:05Z',
+                ttl: 60000,
+                pollInterval: 5000
+            }
+        };
+        const result = (await respondWith(body, CreateTaskResultSchema)) as { task: { taskId: string } };
+        expect(result.task.taskId).toBe('786af6b0-2779-48ed-9cc1-b8a8a25b8a86');
+    });
+
+    it('an input_required-shaped body without content still fails loudly (wire-seam guard)', async () => {
+        await expect(respondWith({ inputRequests: { r1: { method: 'elicitation/create' } } })).rejects.toBeInstanceOf(SdkError);
+        await expect(respondWith({ requestState: 'opaque-token' })).rejects.toBeInstanceOf(SdkError);
     });
 });

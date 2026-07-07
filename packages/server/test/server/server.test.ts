@@ -154,13 +154,14 @@ describe('Server', () => {
         });
     });
 
-    describe('tools/call handler-result validation (required content)', () => {
-        // Server-side pin for the documented wire break (docs/migration/upgrade-to-v2.md,
-        // "Wire tightening (every era)"): with the
-        // content.default([]) affordance removed, a handler result without
-        // `content` is rejected with -32602 `Invalid tools/call result` —
-        // never silently defaulted onto the wire — while an authored-content
-        // result passes through the wrapped handler untouched.
+    describe('tools/call handler-result validation (content default)', () => {
+        // Server-side pin for the v1-parity authoring affordance
+        // (docs/migration/upgrade-to-v2.md, "Wire tightening (every era)"):
+        // a handler result without `content` is normalized to `content: []`
+        // BEFORE era validation — era-independently, so the wire is
+        // spec-valid on every leg — while an authored-content result passes
+        // through the wrapped handler untouched. Task-shaped handler results
+        // are not normalized.
         async function callToolOnServer(result: CallToolResult): Promise<JSONRPCMessage> {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
             server.setRequestHandler('tools/call', () => result);

@@ -524,7 +524,19 @@ export class Server extends Protocol<ServerContext> {
                 return result;
             }
 
-            const validationResult = codec.validateResult('tools/call', result);
+            // v1-parity authoring affordance, era-independent: a handler
+            // result without content (typically structuredContent-only from
+            // dynamic/JS callers — the TypeScript surface requires content)
+            // is normalized to content: [] before era validation, so the
+            // wire is spec-valid on every leg. Task-shaped results are not
+            // normalized — that vocabulary must not masquerade as a tool
+            // result.
+            const normalizedResult =
+                result !== null && typeof result === 'object' && !('content' in result) && !('task' in result)
+                    ? { ...result, content: [] }
+                    : result;
+
+            const validationResult = codec.validateResult('tools/call', normalizedResult);
             if (!validationResult.ok) {
                 throw new ProtocolError(
                     validationResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,

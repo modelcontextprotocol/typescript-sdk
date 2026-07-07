@@ -97,14 +97,14 @@ describe('task-shaped result bodies against the narrowed runtime map', () => {
         // FLIPPED PIN (Q1 increment 2, ledgered with the content-default
         // removal — changeset: codec-split-wire-break). The previous "Honest
         // pin, not an endorsement" recorded that CallToolResultSchema's
-        // content.default([]) swallowed ANY object — including a task body —
-        // as a content-empty success, which made the old union member
-        // unreachable and the map narrowing observationally invisible for
-        // tools/call. With `content` now REQUIRED at the wire boundary the
-        // masking surface is gone: a task body has no `content`, fails the
-        // plain schema, and surfaces as the same typed invalid-result error
-        // as sampling/elicit. The result-schema-strictness question the old
-        // pin deferred is hereby resolved: loud rejection.
+        // A bare content.default([]) would swallow ANY object — including a
+        // task body — as a content-empty success. The wire-seam schema (the
+        // registry's tools/call entry) restores the v1 default for plain
+        // results but refuses to default a body carrying another result
+        // family's vocabulary: a task body has no `content`, fails the
+        // wire-seam schema, and surfaces as the same typed invalid-result
+        // error as sampling/elicit. Loud rejection, tolerant defaults —
+        // both at once.
         const protocol = await wireWithRawResult(CREATE_TASK_RESULT_BODY);
 
         const rejection = await protocol

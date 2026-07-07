@@ -574,28 +574,35 @@ describe('T6 width-leak killed at both roots', () => {
         expect(decoded.kind).toBe('invalid');
     });
 
-    test('2025 era: a bare task-shaped body is rejected at decode — the content default cannot mask it', async () => {
+    test('2025 era: a bare task-shaped body fails the wire-seam schema — the content default cannot mask it', async () => {
         const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
-        // With the v1-parity content default restored on this era's schema,
-        // the codec itself rejects modern task vocabulary that arrives
-        // without explicit content — no silent {content: []} masking.
-        expect(decoded.kind).toBe('invalid');
-        // The GENERIC path agrees: every inbound result crosses decodeResult
-        // before any schema, so even a fully conforming CreateTaskResult body
-        // is rejected there (surfaced as a typed INVALID_RESULT — see
+        // Decode is a pass-through for bodies without resultType (task is
+        // this era's own vocabulary — explicit-schema interop must work);
+        // the WIRE-SEAM schema (registry entry) refuses to default content
+        // for a body carrying another result family's keys.
+        expect(decoded.kind).toBe('complete');
+        // The registry's wire-seam schema (the plain per-method entry) then
+        // rejects the body: content is never defaulted for another result
+        // family's vocabulary — even a fully conforming CreateTaskResult
+        // (surfaced as a typed INVALID_RESULT — see
         // test/shared/typedMapAlignment.test.ts). Task interop is the
         // explicit-schema overload, never a silent union member.
-        const decodedFull = rev2025Codec.decodeResult('tools/call', {
-            task: {
-                taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
-                status: 'working',
-                createdAt: '2025-11-25T10:30:00Z',
-                lastUpdatedAt: '2025-11-25T10:30:05Z',
-                ttl: 60000,
-                pollInterval: 5000
-            }
-        });
-        expect(decodedFull.kind).toBe('invalid');
+        const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
+        const wireSeam = getResultSchema('tools/call');
+        expect(
+            wireSeam!.safeParse({
+                task: {
+                    taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
+                    status: 'working',
+                    createdAt: '2025-11-25T10:30:00Z',
+                    lastUpdatedAt: '2025-11-25T10:30:05Z',
+                    ttl: 60000,
+                    pollInterval: 5000
+                }
+            }).success
+        ).toBe(false);
+        // While a plain content-less tool result still defaults:
+        expect(wireSeam!.safeParse({ structuredContent: { ok: true } }).success).toBe(true);
     });
 });

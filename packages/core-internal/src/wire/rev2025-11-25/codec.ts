@@ -128,17 +128,6 @@ export const rev2025Codec: WireCodec = {
             }
             return { kind: 'complete', result: toNeutralResult(stripped) };
         }
-        // Same V-1 guard for the bare task shape: a body carrying `task` is
-        // modern task vocabulary, not a legacy server omitting content — the
-        // default must not mask it as an empty success.
-        if (method === 'tools/call' && isPlainObject(raw) && !('content' in raw) && 'task' in raw) {
-            return {
-                kind: 'invalid',
-                error: new SdkError(SdkErrorCode.InvalidResult, 'Invalid result for tools/call: a task-shaped body has no content', {
-                    violation: 'task-shaped-without-content'
-                })
-            };
-        }
         return { kind: 'complete', result: toNeutralResult(raw) };
     },
 
