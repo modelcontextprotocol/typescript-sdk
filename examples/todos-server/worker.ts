@@ -466,6 +466,21 @@ const defaultHandler = {
             });
         }
 
+        if (url.pathname === '/client-metadata.json') {
+            // A Client ID Metadata Document for the demo's own test client: any CIMD-capable
+            // client can use this URL as its client_id (the cli-client with a pinned
+            // --callback-port matches the registered redirect). Also doubles as the living
+            // proof that the /authorize CIMD lookup path works against a real document.
+            return Response.json({
+                client_id: `${url.origin}/client-metadata.json`,
+                client_name: 'todos demo client (CIMD)',
+                redirect_uris: ['http://127.0.0.1:33418/callback'],
+                grant_types: ['authorization_code', 'refresh_token'],
+                response_types: ['code'],
+                token_endpoint_auth_method: 'none'
+            });
+        }
+
         if (url.pathname === '/authorize' || url.pathname === '/authorize/approve') {
             return handleAuthorize(request, env.OAUTH_PROVIDER, env.TODOS_AUTO_CONSENT === '1', env.OAUTH_KV);
         }
