@@ -948,6 +948,57 @@ describe('StreamableHTTPClientTransport', () => {
         authSpy.mockRestore();
     });
 
+    it('does not refresh cached discovery on step-up without a fresh resource_metadata challenge', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+        const priorResourceMetadataUrl = new URL('http://example.com/original-resource-metadata');
+        (transport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl = priorResourceMetadataUrl;
+        mockAuthProvider.tokens.mockResolvedValue({
+            access_token: 'current-token',
+            token_type: 'Bearer',
+            scope: 'read'
+        });
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="write"'
+                }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        const authModule = await import('../../src/client/auth');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                resourceMetadataUrl: priorResourceMetadataUrl,
+                refreshCachedDiscovery: false,
+                scope: 'read write',
+                forceReauthorization: true
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
     it('caps step-up retries per send (bounded counter)', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
