@@ -4,8 +4,10 @@ import {
     OpenIdProviderMetadataSchema,
     OAuthClientMetadataSchema,
     OAuthTokensSchema,
+    OAuthTokenResponseSchema,
     OptionalSafeUrlSchema
 } from '../../src/shared/auth.js';
+import * as z from 'zod/v4';
 
 describe('SafeUrlSchema', () => {
     it('accepts valid HTTPS URLs', () => {
@@ -136,49 +138,68 @@ describe('OAuthTokensSchema', () => {
         expect(tokens.refresh_token).toBeUndefined();
     });
 
-    it('treats null refresh_token as absent', () => {
-        const tokens = OAuthTokensSchema.parse({
-            access_token: 'access-123',
-            token_type: 'Bearer',
-            refresh_token: null
-        });
-
-        expect(tokens.refresh_token).toBeUndefined();
+    // The strict schema is deliberately unchanged: null optional members are
+    // only normalized by OAuthTokenResponseSchema below.
+    it.each(['refresh_token', 'scope', 'id_token'])('still rejects a null %s', field => {
+        expect(() =>
+            OAuthTokensSchema.parse({
+                access_token: 'access-123',
+                token_type: 'Bearer',
+                [field]: null
+            })
+        ).toThrow();
     });
 
-    it('treats null scope as absent', () => {
-        const tokens = OAuthTokensSchema.parse({
+    it('remains an object schema usable with .shape and .extend', () => {
+        // Regression test: wrapping the exported schema (e.g. in
+        // z.preprocess) would change its class and break downstream
+        // consumers that call .extend() or introspect .shape.
+        expect(OAuthTokensSchema.shape.access_token).toBeDefined();
+
+        const extended = OAuthTokensSchema.extend({ example: z.string() });
+        const parsed = extended.parse({
             access_token: 'access-123',
             token_type: 'Bearer',
-            scope: null
+            example: 'value'
         });
-
-        expect(tokens.scope).toBeUndefined();
+        expect(parsed.example).toBe('value');
     });
+});
 
-    it('treats null id_token as absent', () => {
-        const tokens = OAuthTokensSchema.parse({
+describe('OAuthTokenResponseSchema', () => {
+    it.each(['refresh_token', 'scope', 'id_token'])('treats null %s as absent', field => {
+        const tokens = OAuthTokenResponseSchema.parse({
             access_token: 'access-123',
             token_type: 'Bearer',
-            id_token: null
+            [field]: null
         });
 
-        expect(tokens.id_token).toBeUndefined();
+        expect(field in tokens).toBe(false);
     });
 
     it('treats null expires_in as absent instead of coercing it to 0', () => {
-        const tokens = OAuthTokensSchema.parse({
+        const tokens = OAuthTokenResponseSchema.parse({
             access_token: 'access-123',
             token_type: 'Bearer',
             expires_in: null
         });
 
-        expect(tokens.expires_in).toBeUndefined();
+        expect('expires_in' in tokens).toBe(false);
         expect(tokens.expires_in).not.toBe(0);
     });
 
+    it('still coerces a string expires_in to a number', () => {
+        const tokens = OAuthTokenResponseSchema.parse({
+            access_token: 'access-123',
+            token_type: 'Bearer',
+            expires_in: '3600'
+        });
+
+        expect(tokens.expires_in).toBe(3600);
+    });
+
     it('accepts a token response with all optional fields null', () => {
-        const tokens = OAuthTokensSchema.parse({
+        const tokens = OAuthTokenResponseSchema.parse({
             access_token: 'access-123',
             token_type: 'Bearer',
             id_token: null,
@@ -189,7 +210,8 @@ describe('OAuthTokensSchema', () => {
 
         // toStrictEqual: the null members must be truly absent from the
         // output, not present with an undefined value, so that spreads like
-        // `{ refresh_token: previous, ...tokens }` keep the previous value.
+        // `{ ...tokens, refresh_token: tokens.refresh_token ?? previous }`
+        // (and plain spreads over defaults) keep the previous value.
         expect(tokens).toStrictEqual({
             access_token: 'access-123',
             token_type: 'Bearer'
@@ -198,11 +220,40 @@ describe('OAuthTokensSchema', () => {
 
     it('still rejects a null access_token', () => {
         expect(() =>
-            OAuthTokensSchema.parse({
+            OAuthTokenResponseSchema.parse({
                 access_token: null,
                 token_type: 'Bearer'
             })
         ).toThrow();
+    });
+
+    it('still rejects a missing token_type', () => {
+        expect(() =>
+            OAuthTokenResponseSchema.parse({
+                access_token: 'access-123'
+            })
+        ).toThrow();
+    });
+
+    it('treats null as absent for every optional member of OAuthTokensSchema', () => {
+        // Drift guard: if a new optional member is added to
+        // OAuthTokensSchema, it is automatically covered by the
+        // null-normalization without updating any field list.
+        const optionalFields = Object.entries(OAuthTokensSchema.shape)
+            .filter(([, fieldSchema]) => fieldSchema.safeParse(undefined).success)
+            .map(([field]) => field);
+
+        expect(optionalFields.length).toBeGreaterThan(0);
+
+        for (const field of optionalFields) {
+            const tokens = OAuthTokenResponseSchema.parse({
+                access_token: 'access-123',
+                token_type: 'Bearer',
+                [field]: null
+            });
+
+            expect(field in tokens).toBe(false);
+        }
     });
 });
 

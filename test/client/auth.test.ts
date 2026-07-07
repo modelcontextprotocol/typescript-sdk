@@ -1582,6 +1582,36 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+
+        it('accepts a token response with all optional fields null', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'access123',
+                    token_type: 'Bearer',
+                    id_token: null,
+                    expires_in: null,
+                    scope: null,
+                    refresh_token: null
+                })
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+            // The null members must be truly absent from the result, not
+            // present with an undefined value.
+            expect(tokens).toStrictEqual({
+                access_token: 'access123',
+                token_type: 'Bearer'
+            });
+        });
+
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -1830,6 +1860,30 @@ describe('OAuth Authorization', () => {
             });
 
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
+        });
+
+        it('keeps the existing refresh token if the server returns a null refresh_token', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'newaccess123',
+                    token_type: 'Bearer',
+                    refresh_token: null
+                })
+            });
+
+            const refreshToken = 'refresh123';
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken
+            });
+
+            expect(tokens).toStrictEqual({
+                access_token: 'newaccess123',
+                token_type: 'Bearer',
+                refresh_token: refreshToken
+            });
         });
 
         it('validates token response schema', async () => {

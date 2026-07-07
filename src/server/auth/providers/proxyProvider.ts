@@ -5,7 +5,7 @@ import {
     OAuthClientInformationFullSchema,
     OAuthTokenRevocationRequest,
     OAuthTokens,
-    OAuthTokensSchema
+    OAuthTokenResponseSchema
 } from '../../../shared/auth.js';
 import { AuthInfo } from '../types.js';
 import { AuthorizationParams, OAuthServerProvider } from '../provider.js';
@@ -188,7 +188,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokensSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(data);
     }
 
     async exchangeRefreshToken(
@@ -229,7 +229,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokensSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(data);
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {
