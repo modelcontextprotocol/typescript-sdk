@@ -1456,12 +1456,17 @@ drops `Protocol` (and `mergeCapabilities`) from the rewritten import and leaves 
 The default validator supports **JSON Schema 2020-12 only**. On Node it is now `Ajv2020`
 instead of draft-07 `Ajv`; the Cloudflare Workers default was already 2020-12. Schemas
 declaring a different `$schema` are rejected with `Error("…unsupported dialect…")`.
+Built-in validators also reject non-local `$ref` / `$dynamicRef` values and schemas over
+the SDK's depth or subschema-count limits before compilation. Same-document references
+continue to work; supply a custom validator or Ajv instance when you need a different
+reference or resource policy.
 
 `CallToolResult.structuredContent` is widened from `{ [k: string]: unknown }` to
 `unknown` (SEP-2106 lifts the `type:"object"` root restriction). The presence check is
-`!== undefined`, not falsy (`null` / `0` / `false` / `""` are legal values now). External
-`$ref` is not dereferenced (unchanged from v1; Ajv throws `MissingRefError` at compile,
-surfaced per-tool on `callTool`).
+`!== undefined`, not falsy (`null` / `0` / `false` / `""` are legal values now).
+`McpServer.registerTool()` now infers the handler's successful `structuredContent` from
+`outputSchema`; narrow or annotate dynamically produced values before returning them.
+`isError: true` results and tools without an `outputSchema` remain unrestricted.
 
 | v1 pattern                                                         | Mechanical fix                                                                                                                                                                                         |
 | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |

@@ -6,6 +6,7 @@ import { Ajv as Draft7Ajv } from 'ajv';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
+import { assertSchemaSafeToCompile } from './schemaBounds';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
@@ -111,6 +112,10 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
                     `The default validator supports JSON Schema 2020-12 only; pass a pre-configured ` +
                     `Ajv instance to AjvJsonSchemaValidator(ajv) to validate other dialects.`
             );
+        }
+
+        if (!this._userAjv) {
+            assertSchemaSafeToCompile(schema);
         }
 
         const ajvValidator =
