@@ -38,6 +38,7 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core-internal';
 import {
+    TOOL_RESULT_FOREIGN_FAMILY_KEYS,
     assertValidCacheHint,
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
@@ -528,11 +529,15 @@ export class Server extends Protocol<ServerContext> {
             // result without content (typically structuredContent-only from
             // dynamic/JS callers — the TypeScript surface requires content)
             // is normalized to content: [] before era validation, so the
-            // wire is spec-valid on every leg. Task-shaped results are not
-            // normalized — that vocabulary must not masquerade as a tool
-            // result.
+            // wire is spec-valid on every leg. Bodies carrying another
+            // result family's vocabulary (task / input_required) are not
+            // normalized — they must fail era validation loudly, never
+            // masquerade as an empty tool result.
             const normalizedResult =
-                result !== null && typeof result === 'object' && !('content' in result) && !('task' in result)
+                result !== null &&
+                typeof result === 'object' &&
+                !('content' in result) &&
+                !TOOL_RESULT_FOREIGN_FAMILY_KEYS.some(key => key in result)
                     ? { ...result, content: [] }
                     : result;
 

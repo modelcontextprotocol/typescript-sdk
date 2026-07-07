@@ -145,9 +145,9 @@ describe('typed result schemas are loose', () => {
         // parsed as a silent success), then RESTORED for ecosystem parity —
         // real deployments omit `content` alongside `structuredContent`, and
         // v1 tolerated that. The T6 leak stays closed at its actual source:
-        // the 2025 codec's strip-on-lift rejects a stripped foreign body with
-        // no explicit content (rawResultTypeFirst.test.ts), and the 2026 era
-        // discriminates task bodies on `resultType` before parse.
+        // the 2025 wire-seam schema (registry) refuses to default content
+        // for another result family's vocabulary (rawResultTypeFirst /
+        // typedMapAlignment), and the 2026 era stays strict.
         const parsed = CallToolResultSchema.parse({ structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);
         expect(parsed.structuredContent).toEqual({ ok: true });

@@ -207,6 +207,16 @@ describe('Server', () => {
             expect(result!.structuredContent).toEqual({ ok: true });
         });
 
+        it('does not normalize a body carrying another result family — rejected loudly', async () => {
+            const response = await callToolOnServer({
+                inputRequests: { r1: { method: 'elicitation/create' } }
+            } as unknown as CallToolResult);
+
+            const error = (response as { error?: { code: number; message: string } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
         it('passes an authored-content result through to the wire', async () => {
             const response = await callToolOnServer({
                 content: [{ type: 'text', text: 'hi' }],

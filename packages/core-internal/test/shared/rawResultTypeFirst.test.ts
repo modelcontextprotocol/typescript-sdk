@@ -140,10 +140,11 @@ describe('raw-first resultType handling — 2025 era (strip-on-lift, Q1-SD3 ii)'
         // BEHAVIOR MIGRATION (ledgered): pre-split, the era-blind funnel arm
         // rejected this with UnsupportedResultType on every leg. On the 2025
         // era resultType carries no meaning — the ruled posture strips the
-        // foreign key. With the content default restored (v1 parity), the
-        // schema alone would accept the stripped husk, so the strip arm
-        // itself rejects a foreign body with no explicit content — the V-1
-        // invariant (never a hollow success) holds by explicit guard.
+        // foreign key and validation judges the husk. With the content
+        // default restored (v1 parity), the wire-seam schema refuses to
+        // default a husk that carries input_required vocabulary
+        // (inputRequests/requestState) — the V-1 invariant (never a hollow
+        // success) holds at the seam.
         const protocol = await wireWithRawResult(INPUT_REQUIRED_BODY);
         const outcome = await settle(protocol);
 

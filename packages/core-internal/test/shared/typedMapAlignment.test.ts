@@ -93,10 +93,11 @@ describe('task-shaped result bodies against the narrowed runtime map', () => {
         await protocol.close();
     });
 
-    test('tools/call: a CreateTaskResult body is now a typed invalid-result error too (content-default removal flip)', async () => {
-        // FLIPPED PIN (Q1 increment 2, ledgered with the content-default
-        // removal — changeset: codec-split-wire-break). The previous "Honest
-        // pin, not an endorsement" recorded that CallToolResultSchema's
+    test('tools/call: a CreateTaskResult body on the plain path is a typed invalid-result error (wire-seam guard)', async () => {
+        // FLIPPED PIN, twice-ledgered: the codec split removed the content
+        // default (changeset: codec-split-wire-break); the restore brought it
+        // back with a wire-seam guard (changeset:
+        // calltoolresult-content-default).
         // A bare content.default([]) would swallow ANY object — including a
         // task body — as a content-empty success. The wire-seam schema (the
         // registry's tools/call entry) restores the v1 default for plain

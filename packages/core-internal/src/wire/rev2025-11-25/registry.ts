@@ -24,6 +24,7 @@
 import * as z from 'zod/v4';
 
 import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
+import { TOOL_RESULT_FOREIGN_FAMILY_KEYS } from '../codec';
 import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas';
 import {
     CallToolRequestSchema,
@@ -114,12 +115,11 @@ type Rev2025TypedRequestMethod = Extract<RequestMethod, Rev2025RequestMethod>;
  * key list is complete by construction. Task interop via an EXPLICIT result
  * schema is unaffected — that overload never consults this map.
  */
-const OTHER_RESULT_FAMILY_KEYS = ['task', 'inputRequests', 'requestState'] as const;
 export const CallToolResultWireSchema = z
     .unknown()
     .superRefine((value, ctx) => {
         if (typeof value !== 'object' || value === null || Array.isArray(value) || 'content' in value) return;
-        for (const key of OTHER_RESULT_FAMILY_KEYS) {
+        for (const key of TOOL_RESULT_FOREIGN_FAMILY_KEYS) {
             if (key in value) {
                 ctx.addIssue({
                     code: 'custom',

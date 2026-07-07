@@ -20,8 +20,9 @@ class TestProtocolImpl extends Protocol<BaseContext> {
  * v1 parse-parity for `CallToolResult.content` on the legacy era: deployed
  * servers omit `content` alongside `structuredContent`, and SDK v1 accepted
  * that for years. The result resolves with `content: []` instead of failing
- * the whole call — while task vocabulary without content stays a loud error
- * (the T6 guard lives in the codec, not the schema).
+ * the whole call — while another result family's vocabulary without content
+ * stays a loud error (the guard lives in the wire-seam schema, the
+ * registry's tools/call entry).
  */
 describe('CallToolResult content default (v1 parity)', () => {
     async function respondWith(body: Record<string, unknown>, resultSchema?: Parameters<Protocol<BaseContext>['request']>[1]) {
@@ -68,6 +69,23 @@ describe('CallToolResult content default (v1 parity)', () => {
     it('task interop via an explicit result schema still works — the guard never touches that overload', async () => {
         const { CreateTaskResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
         const body = {
+            task: {
+                taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
+                status: 'working',
+                createdAt: '2025-11-25T10:30:00Z',
+                lastUpdatedAt: '2025-11-25T10:30:05Z',
+                ttl: 60000,
+                pollInterval: 5000
+            }
+        };
+        const result = (await respondWith(body, CreateTaskResultSchema)) as { task: { taskId: string } };
+        expect(result.task.taskId).toBe('786af6b0-2779-48ed-9cc1-b8a8a25b8a86');
+    });
+
+    it('explicit-schema task interop resolves even when the body also stamps a foreign resultType', async () => {
+        const { CreateTaskResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
+        const body = {
+            resultType: 'complete',
             task: {
                 taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
                 status: 'working',

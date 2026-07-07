@@ -32,7 +32,7 @@ export * from './util/inMemory';
 export * from './util/schema';
 export * from './util/standardSchema';
 export * from './util/zodCompat';
-export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec';
+export { codecForVersion, MODERN_WIRE_REVISION, TOOL_RESULT_FOREIGN_FAMILY_KEYS } from './wire/codec';
 
 // Validator provider classes stay subpath-only. Re-exporting them here, even as
 // `type`, can make generated client/server root declarations advertise

@@ -95,7 +95,7 @@ describe('isSpecType', () => {
         // back for ecosystem parity (servers omit content alongside
         // structuredContent). The guard consequently accepts a content-less
         // body, exactly as v1's did; the task-husk leak the removal targeted
-        // is closed in the 2025 codec's strip arm instead.
+        // is closed at the 2025 wire-seam schema instead.
         const empty: unknown = {};
         expect(isSpecType.CallToolResult(empty)).toBe(true);
         const v: unknown = { content: [] };

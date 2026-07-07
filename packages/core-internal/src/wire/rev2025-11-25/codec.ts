@@ -26,7 +26,6 @@
  * 2026-vocabulary code path in the 2025 codec, it exists on the decode side
  * only, and it deletes — never reads, maps, or emits — the foreign value.
  */
-import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import type * as z from 'zod/v4';
 
 import type { CallToolResult, Result } from '../../types/types';
@@ -104,28 +103,18 @@ export const rev2025Codec: WireCodec = {
         return { ...withText, structuredContent: { result: sc } };
     },
 
-    decodeResult(method: string, raw: unknown): DecodedResult {
+    decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
         // dropped before validation, whatever its value. There is no
         // discrimination on this era — `resultType` carries no meaning here.
+        // Validation judges the husk: on the plain path the wire-seam schema
+        // (registry) refuses to default `content` for a body carrying another
+        // result family's vocabulary; explicit-schema callers own their own
+        // validation (task interop). A husk that was ONLY a resultType key
+        // defaults to an empty success — v1 parity for a payload-free body.
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];
-            // V-1 (never a hollow success): the tools/call content default is
-            // wire tolerance for plain legacy results — a stripped foreign
-            // body (e.g. an input_required round from a modern peer) must
-            // still carry the era's members explicitly, or the default would
-            // surface the round as a silent empty success.
-            if (method === 'tools/call' && !('content' in stripped)) {
-                return {
-                    kind: 'invalid',
-                    error: new SdkError(
-                        SdkErrorCode.InvalidResult,
-                        'Invalid result for tools/call: a foreign resultType was stripped and no content remains',
-                        { resultType: (raw as Record<string, unknown>)['resultType'] }
-                    )
-                };
-            }
             return { kind: 'complete', result: toNeutralResult(stripped) };
         }
         return { kind: 'complete', result: toNeutralResult(raw) };
