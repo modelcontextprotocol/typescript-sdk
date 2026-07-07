@@ -6,7 +6,7 @@ import { parseSchema } from '../util/schema';
 import type { StandardSchemaWithJSON } from '../util/standardSchema';
 import { isStandardSchemaWithJSON, standardSchemaToJsonSchema } from '../util/standardSchema';
 
-/** Input accepted by {@linkcode inputRequired.elicit}. */
+/** Input accepted by `inputRequired.elicit()`. */
 export type ElicitInputParams = Omit<ElicitRequestFormParams, 'mode' | 'requestedSchema'> & {
     mode?: 'form';
     requestedSchema: ElicitRequestFormParams['requestedSchema'] | StandardSchemaWithJSON;
