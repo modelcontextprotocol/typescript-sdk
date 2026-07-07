@@ -131,23 +131,44 @@ export const OpenIdProviderDiscoveryMetadataSchema = z.object({
 
 /**
  * OAuth 2.1 token response
- *
- * Some authorization servers serialize absent optional members as JSON `null`
- * (not sanctioned by RFC 6749, but common in the wild), so null values are
- * normalized to absent (`undefined`) rather than rejected. For `expires_in`,
- * `null` must be normalized before coercion — `Number(null) === 0` would
- * otherwise yield an instantly-expired token.
  */
 export const OAuthTokensSchema = z
     .object({
         access_token: z.string(),
-        id_token: z.preprocess(value => value ?? undefined, z.string().optional()), // Optional for OAuth 2.1, but necessary in OpenID Connect
+        id_token: z.string().optional(), // Optional for OAuth 2.1, but necessary in OpenID Connect
         token_type: z.string(),
-        expires_in: z.preprocess(value => value ?? undefined, z.coerce.number().optional()),
-        scope: z.preprocess(value => value ?? undefined, z.string().optional()),
-        refresh_token: z.preprocess(value => value ?? undefined, z.string().optional())
+        expires_in: z.coerce.number().optional(),
+        scope: z.string().optional(),
+        refresh_token: z.string().optional()
     })
     .strip();
+
+/**
+ * OAuth 2.1 token response as received over the wire from an authorization server.
+ *
+ * Some authorization servers serialize absent optional members as JSON `null`
+ * (nonconformant with RFC 6749 §5.1, but common in the wild). Null-valued
+ * optional members are normalized to absent — the key is removed, mirroring
+ * ElicitResult's `content` null normalization — before {@linkcode OAuthTokensSchema}
+ * validates, so valid-but-sloppy responses parse and `expires_in: null` never
+ * reaches `z.coerce.number()` (`Number(null) === 0` would yield an
+ * instantly-expired token). Removing the key (rather than mapping it to
+ * `undefined`) matters: callers such as `refreshAuthorization` spread the parsed
+ * response when merging with previously-stored tokens, and a present-but-undefined
+ * `refresh_token` key would clobber the preserved value.
+ */
+export const OAuthTokenResponseSchema = z.preprocess(value => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return value;
+    }
+    const normalized: Record<string, unknown> = { ...value };
+    for (const [key, memberSchema] of Object.entries(OAuthTokensSchema.shape)) {
+        if (normalized[key] === null && memberSchema.safeParse(undefined).success) {
+            delete normalized[key];
+        }
+    }
+    return normalized;
+}, OAuthTokensSchema);
 
 /**
  * RFC 8693 §2.2.1 Token Exchange response for ID-JAG tokens.
