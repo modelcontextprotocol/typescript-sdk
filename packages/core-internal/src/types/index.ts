@@ -4,6 +4,7 @@ export * from './constants';
 export * from './enums';
 export * from './errors';
 export * from './guards';
+export * from './listChangedOptions';
 export * from './schemas';
 export * from './specTypeSchema';
 export * from './types';

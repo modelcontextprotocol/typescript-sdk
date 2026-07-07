@@ -21,7 +21,7 @@ import * as schemas from './schemas';
  * Explicit allowlist of protocol Zod schemas that correspond to a public spec type in `types.ts`.
  *
  * This intentionally excludes internal helper schemas exported from `schemas.ts` that have no
- * matching public type (e.g. `ListChangedOptionsBaseSchema`, `BaseRequestParamsSchema`,
+ * matching public type (e.g. `BaseRequestParamsSchema`,
  * `NotificationsParamsSchema`, `ClientTasksCapabilitySchema`, `ServerTasksCapabilitySchema`).
  * Keeping the list explicit means new public spec types must be added here deliberately, and
  * internals never leak into `SpecTypeName`.

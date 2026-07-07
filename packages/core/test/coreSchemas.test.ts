@@ -37,7 +37,6 @@ describe('@modelcontextprotocol/core', () => {
         const SPEC_INTERNAL_HELPERS = [
             'BaseRequestParamsSchema',
             'ClientTasksCapabilitySchema',
-            'ListChangedOptionsBaseSchema',
             'NotificationsParamsSchema',
             'ServerTasksCapabilitySchema'
         ];
