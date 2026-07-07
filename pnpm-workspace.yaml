@@ -53,7 +53,13 @@ catalogs:
         content-type: ^1.0.5
         json-schema-typed: ^8.0.2
         pkce-challenge: ^5.0.0
-        zod: ^4.2.0
+        # zod is declared as BOTH a regular dependency and a peer dependency in the
+        # published packages (the v1.x pattern): the dependency guarantees a compatible
+        # copy is always installed, while the peer range lets hosts already on zod 4
+        # share a single copy instead of nesting one under each package. The used zod
+        # API surface is 4.0-compatible; the only 4.2 feature (`~standard.jsonSchema`)
+        # is capability-detected with a `z.toJSONSchema` fallback, so the floor is ^4.0.0.
+        zod: ^4.0.0
 
 enableGlobalVirtualStore: false
 

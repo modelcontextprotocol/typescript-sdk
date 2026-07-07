@@ -135,6 +135,9 @@
     "dependencies": {
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "zod": "catalog:runtimeShared"
+    },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
         "ajv": "catalog:runtimeShared",

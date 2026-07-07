@@ -140,6 +140,9 @@
         "pkce-challenge": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "zod": "catalog:runtimeShared"
+    },
     "devDependencies": {
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",

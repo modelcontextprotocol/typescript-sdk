@@ -51,6 +51,9 @@
     "dependencies": {
         "zod": "catalog:runtimeShared"
     },
+    "peerDependencies": {
+        "zod": "catalog:runtimeShared"
+    },
     "devDependencies": {
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core-internal": "workspace:^",
