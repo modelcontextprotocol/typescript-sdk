@@ -18,4 +18,8 @@ from the parsed output. The exported `OAuthTokensSchema` is unchanged — still 
 plain object schema that rejects nulls, with its `.shape`/`.extend` and input
 types intact. `refreshAuthorization` additionally hardens its merge with the
 previously-stored refresh token, so an explicitly `undefined` `refresh_token`
-in a parsed response can never clobber the preserved token.
+in a parsed response can never clobber the preserved token. Note that a
+stripped null `scope` is thereafter indistinguishable from an omitted `scope`
+— which RFC 6749 §5.1 defines as an assertion that the granted scope is
+identical to the requested scope — so consumers should not infer the granted
+scope from its absence.

@@ -156,6 +156,15 @@ export const OAuthTokensSchema = z
  * `undefined`) matters: callers such as `refreshAuthorization` spread the parsed
  * response when merging with previously-stored tokens, and a present-but-undefined
  * `refresh_token` key would clobber the preserved value.
+ *
+ * Per RFC 6749 §5.1, an absent `scope` member is a positive assertion that
+ * the granted scope is identical to the scope the client requested, so
+ * stripping `scope: null` converts a response with undefined semantics into
+ * that assertion. This has no bearing on enforcement — the SDK never uses
+ * `tokens.scope` for authorization decisions, and the resource server remains
+ * authoritative — but consumers must not derive granted-scope conclusions
+ * from the member's absence. Consumers that need the authoritative grant
+ * should use token introspection instead.
  */
 export const OAuthTokenResponseSchema = z.preprocess(value => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
