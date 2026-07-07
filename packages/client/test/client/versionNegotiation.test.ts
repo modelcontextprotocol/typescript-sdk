@@ -782,3 +782,116 @@ describe('probe send-error classification', () => {
         expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 });
+
+/* ------------------------------------------------------------------------- *
+ * Probe window handler preservation: handlers pre-set on the transport
+ * before connect() survive negotiation exactly as they survive a plain
+ * connect — Protocol.connect() must find and chain them after the window.
+ * ------------------------------------------------------------------------- */
+
+describe('probe window preserves pre-set transport handlers', () => {
+    test('pre-set onerror/onclose are restored after a modern negotiation and reachable through the Protocol chain', async () => {
+        const transport = new ScriptedTransport(modernServerScript());
+        const seenErrors: Error[] = [];
+        let closed = 0;
+        transport.onerror = error => {
+            seenErrors.push(error);
+        };
+        transport.onclose = () => {
+            closed++;
+        };
+
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(transport);
+
+        // The window restored the handler, so Protocol.connect chained it:
+        // post-connect transport errors still reach the pre-set observer.
+        const boom = new Error('post-connect transport error');
+        transport.onerror?.(boom);
+        expect(seenErrors).toContain(boom);
+
+        await client.close();
+        expect(closed).toBeGreaterThan(0);
+    });
+
+    test('pre-set onerror survives the legacy fallback path too', async () => {
+        const transport = new ScriptedTransport(legacyServerScript);
+        const seenErrors: Error[] = [];
+        transport.onerror = error => {
+            seenErrors.push(error);
+        };
+
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(transport);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+
+        const boom = new Error('post-fallback transport error');
+        transport.onerror?.(boom);
+        expect(seenErrors).toContain(boom);
+
+        await client.close();
+    });
+
+    test('failed negotiation (pin mode, no fallback) restores handlers via the detach path — onclose fires exactly once', async () => {
+        const transport = new ScriptedTransport(legacyServerScript);
+        const presetOnError = (_error: Error) => {};
+        let closes = 0;
+        transport.onerror = presetOnError;
+        transport.onclose = () => {
+            closes++;
+        };
+
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+        await expect(client.connect(transport)).rejects.toThrow();
+
+        // detach() restored the pre-set handlers, and Client's cleanup close
+        // delivered the close event exactly once.
+        expect(transport.onerror).toBe(presetOnError);
+        expect(closes).toBe(1);
+    });
+
+    test('a mid-probe transport close reaches the pre-set onclose exactly once (no re-delivery from cleanup close)', async () => {
+        const script: Script = (message, t) => {
+            if (!isJSONRPCRequest(message)) return;
+            if (message.method === 'server/discover') {
+                t.onclose?.();
+                return;
+            }
+            legacyServerScript(message, t);
+        };
+        const transport = new ScriptedTransport(script);
+        let closes = 0;
+        transport.onclose = () => {
+            closes++;
+        };
+
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(transport).catch(() => undefined);
+
+        expect(closes).toBe(1);
+    });
+
+    test('transport errors DURING the probe window are forwarded to the pre-set handler', async () => {
+        const duringProbe = new Error('mid-probe transport error');
+        const script: Script = (message, t) => {
+            if (!isJSONRPCRequest(message)) return;
+            if (message.method === 'server/discover') {
+                t.onerror?.(duringProbe);
+                t.reply({ jsonrpc: '2.0', id: message.id, error: { code: -32_601, message: 'Method not found' } });
+                return;
+            }
+            legacyServerScript(message, t);
+        };
+        const transport = new ScriptedTransport(script);
+        const seenErrors: Error[] = [];
+        transport.onerror = error => {
+            seenErrors.push(error);
+        };
+
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(transport);
+
+        expect(seenErrors).toContain(duringProbe);
+        await client.close();
+    });
+});
