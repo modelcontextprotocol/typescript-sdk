@@ -175,9 +175,13 @@ export type StreamableHTTPClientTransportOptions = {
     skipIssuerMetadataValidation?: boolean;
 
     /**
-     * Customizes HTTP requests to the server.
+     * Customizes HTTP requests to the MCP server. Not applied to OAuth requests —
+     * use {@linkcode StreamableHTTPClientTransportOptions.oauthRequestInit | oauthRequestInit} for those.
      */
     requestInit?: RequestInit;
+
+    /** Customizes the OAuth requests issued by the transport's authorization flow. */
+    oauthRequestInit?: RequestInit;
 
     /**
      * Custom fetch implementation used for all network requests.
@@ -313,7 +317,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _oauthProvider?: OAuthClientProvider;
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
-    private _fetchWithInit: FetchLike;
+    /** Fetch for OAuth requests — deliberately merges `oauthRequestInit`, never `requestInit`. */
+    private _authFetch: FetchLike;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
@@ -350,7 +355,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
-        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
@@ -414,7 +419,7 @@ export class StreamableHTTPClientTransport implements Transport {
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: unionScope,
             forceReauthorization,
-            fetchFn: this._fetchWithInit,
+            fetchFn: this._authFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
     }
@@ -545,7 +550,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._authFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -863,7 +868,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._authFetch, resourceMetadataUrl: this._resourceMetadataUrl }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -872,7 +877,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit,
+            fetchFn: this._authFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
@@ -994,7 +999,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._authFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice

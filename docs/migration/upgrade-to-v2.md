@@ -1112,6 +1112,14 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
 - **Metadata discovery falls through on 502.** `discoverAuthorizationServerMetadata()`
   treats `502 Bad Gateway` like 4xx — fall through to the next candidate URL instead of
   throwing (fixes path-aware discovery behind reverse proxies). Other 5xx still throw.
+- **Transport `requestInit` headers stay off OAuth requests.** Headers configured via
+  the `requestInit` option on `StreamableHTTPClientTransport` / `SSEClientTransport`
+  apply only to MCP requests; the OAuth requests the transport's authorization flow
+  issues (protected-resource metadata, authorization-server metadata, token, and client
+  registration requests) are sent without them — those may target a different origin
+  than the MCP server, so connection-level headers do not carry over. A deployment that
+  needs extra headers on those requests (e.g. gateway headers on well-known endpoints)
+  sets the new `oauthRequestInit` transport option.
 - **Scoped credential invalidation on `invalid_client` / `unauthorized_client`.** The
   `auth()` retry for these errors now issues two scoped calls —
   `invalidateCredentials('client')` then `invalidateCredentials('tokens')` — instead of
