@@ -201,6 +201,23 @@ describe('Server', () => {
             expect(result!.structuredContent).toEqual({ ok: true });
         });
 
+        it('does not normalize an array handler result — rejected loudly', async () => {
+            const response = await callToolOnServer([{ type: 'text', text: 'hi' }] as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('does not normalize a foreign-family body with an explicit content: undefined', async () => {
+            const response = await callToolOnServer({
+                task: { taskId: 't-1', status: 'working' },
+                content: undefined
+            } as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
         it('does not normalize a body carrying another result family — rejected loudly', async () => {
             const response = await callToolOnServer({
                 inputRequests: { r1: { method: 'elicitation/create' } }

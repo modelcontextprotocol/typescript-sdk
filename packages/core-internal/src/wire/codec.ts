@@ -131,12 +131,6 @@ export interface OutboundEnvelopeMaterial {
     readonly logLevel?: LoggingLevel;
 }
 
-/**
- * Result-family keys that must never default into a `{content: []}` tools/call
- * success. Shared by the 2025 wire-seam schema and server normalization.
- */
-export const TOOL_RESULT_FOREIGN_FAMILY_KEYS = ['task', 'inputRequests', 'requestState'] as const;
-
 /** Result decode outcomes — the raw-first discrimination (V-1) lives in `decodeResult`. */
 export type DecodedResult =
     | {

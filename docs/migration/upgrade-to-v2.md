@@ -1679,9 +1679,10 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
   unchanged and era-independent: the TypeScript surface requires `content` on handler
   results, and a content-less handler result is normalized to `content: []` before it
   reaches the wire. One sharpening remains: a content-less body carrying another
-  result family's vocabulary (a task handle, an `input_required` round, or a stripped
-  foreign `resultType`) is still rejected loudly — tolerance never turns a different
-  result kind into a silent empty success.
+  result family's vocabulary (a task handle or an `input_required` round) is still
+  rejected loudly — tolerance never turns a different result kind into a silent empty
+  success. A body whose only foreign key was `resultType` strips to an empty object
+  and defaults, exactly as v1 parsed a payload-free body.
 - **`ElicitResult.content` values are typed and validated as
   `string | number | boolean | string[]`.** v1's TypeScript surface accepted
   `Record<string, unknown>` content values; an elicitation handler returning arbitrary

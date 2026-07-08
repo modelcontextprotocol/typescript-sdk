@@ -16,6 +16,10 @@ import {
     isSpecType
 } from '@modelcontextprotocol/server';
 
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
 export type WireParty = 'client' | 'server';
 
 export interface SnifferOptions {
@@ -102,10 +106,18 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
         // input_required on a 2025-era cell's wire is still flagged.
         if (party === 'server' && isInputRequiredResult(result)) {
             if (opts.allowInputRequiredResults === true) return;
-            // Explicit flag: the neutral union no longer rejects this shape
-            // by strictness (CallToolResult.content defaults on the legacy
-            // era), so the era-gating is asserted here, by vocabulary.
             fail(party, `input_required result on a cell not opted into multi-round-trip`, msg);
+        }
+        // With content.default([]) restored, the neutral union accepts any
+        // object via the CallToolResult member — so union conformance below
+        // is a weak check. Era-gating for the other result families is
+        // asserted here explicitly, by vocabulary.
+        if (party === 'server' && isPlainRecord(result) && (result as Record<string, unknown>).content === undefined) {
+            for (const key of ['task', 'inputRequests', 'requestState']) {
+                if (key in result) {
+                    fail(party, `content-less result carrying '${key}' on a legacy cell`, msg);
+                }
+            }
         }
         const r = schemas.result.safeParse(result);
         if (!r.success) {

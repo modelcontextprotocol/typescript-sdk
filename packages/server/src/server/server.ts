@@ -531,7 +531,8 @@ export class Server extends Protocol<ServerContext> {
             const normalizedResult =
                 result !== null &&
                 typeof result === 'object' &&
-                !('content' in result) &&
+                !Array.isArray(result) &&
+                (result as { content?: unknown }).content === undefined &&
                 !TOOL_RESULT_FOREIGN_FAMILY_KEYS.some(key => key in result)
                     ? { ...result, content: [] }
                     : result;

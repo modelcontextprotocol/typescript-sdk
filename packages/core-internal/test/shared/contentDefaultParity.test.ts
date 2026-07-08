@@ -96,6 +96,12 @@ describe('CallToolResult content default (v1 parity)', () => {
         expect(result.task.taskId).toBe('786af6b0-2779-48ed-9cc1-b8a8a25b8a86');
     });
 
+    it('the wire-seam guard treats an explicit content: undefined like an absent key', async () => {
+        const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
+        const wireSeam = getResultSchema('tools/call')!;
+        expect(wireSeam.safeParse({ task: { taskId: 't-1', status: 'working' }, content: undefined }).success).toBe(false);
+    });
+
     it('an input_required-shaped body without content still fails loudly (wire-seam guard)', async () => {
         await expect(respondWith({ inputRequests: { r1: { method: 'elicitation/create' } } })).rejects.toBeInstanceOf(SdkError);
         await expect(respondWith({ requestState: 'opaque-token' })).rejects.toBeInstanceOf(SdkError);
