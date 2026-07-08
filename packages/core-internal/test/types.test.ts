@@ -298,10 +298,7 @@ describe('Types', () => {
 
         test('tolerates absent content: the empty-object result parses with content [] (v1 parity restored)', () => {
             // BEHAVIOR MIGRATION (reversal, ledgered): content.default([]) is
-            // back on the neutral layer and the 2025 era — deployed servers
-            // omit content alongside structuredContent. The T6 masking root
-            // is closed by vocabulary guards in the 2025 codec and by the
-            // strict 2026-era schemas instead.
+            // back on the neutral layer + 2025 era; T6 closed at the wire seam.
             const empty = CallToolResultSchema.safeParse({});
             expect(empty.success).toBe(true);
             if (empty.success) {

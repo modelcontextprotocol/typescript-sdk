@@ -143,11 +143,8 @@ describe('typed result schemas are loose', () => {
         // BEHAVIOR MIGRATION (reversal, ledgered): `content.default([])` was
         // removed in the codec split (T6 width-leak root: a task-shaped body
         // parsed as a silent success), then RESTORED for ecosystem parity —
-        // real deployments omit `content` alongside `structuredContent`, and
-        // v1 tolerated that. The T6 leak stays closed at its actual source:
-        // the 2025 wire-seam schema (registry) refuses to default content
-        // for another result family's vocabulary (rawResultTypeFirst /
-        // typedMapAlignment), and the 2026 era stays strict.
+        // real deployments omit `content` alongside `structuredContent`. The
+        // T6 leak stays closed at the 2025 wire-seam schema; 2026 stays strict.
         const parsed = CallToolResultSchema.parse({ structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);
         expect(parsed.structuredContent).toEqual({ ok: true });

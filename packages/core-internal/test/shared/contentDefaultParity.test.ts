@@ -17,12 +17,9 @@ class TestProtocolImpl extends Protocol<BaseContext> {
 }
 
 /**
- * v1 parse-parity for `CallToolResult.content` on the legacy era: deployed
- * servers omit `content` alongside `structuredContent`, and SDK v1 accepted
- * that for years. The result resolves with `content: []` instead of failing
- * the whole call — while another result family's vocabulary without content
- * stays a loud error (the guard lives in the wire-seam schema, the
- * registry's tools/call entry).
+ * v1 parse-parity for `CallToolResult.content` on the legacy era: absent
+ * content defaults to []; another result family's content-less body still
+ * fails loudly via the registry wire-seam schema.
  */
 describe('CallToolResult content default (v1 parity)', () => {
     async function respondWith(body: Record<string, unknown>, resultSchema?: Parameters<Protocol<BaseContext>['request']>[1]) {

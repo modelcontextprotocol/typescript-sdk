@@ -525,14 +525,9 @@ export class Server extends Protocol<ServerContext> {
                 return result;
             }
 
-            // v1-parity authoring affordance, era-independent: a handler
-            // result without content (typically structuredContent-only from
-            // dynamic/JS callers — the TypeScript surface requires content)
-            // is normalized to content: [] before era validation, so the
-            // wire is spec-valid on every leg. Bodies carrying another
-            // result family's vocabulary (task / input_required) are not
-            // normalized — they must fail era validation loudly, never
-            // masquerade as an empty tool result.
+            // v1-parity authoring affordance, era-independent: a content-less
+            // handler result normalizes to content: [] before era validation.
+            // Other result families' bodies stay un-normalized and fail loudly.
             const normalizedResult =
                 result !== null &&
                 typeof result === 'object' &&

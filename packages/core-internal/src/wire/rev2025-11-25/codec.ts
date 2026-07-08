@@ -105,13 +105,9 @@ export const rev2025Codec: WireCodec = {
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
-        // dropped before validation, whatever its value. There is no
-        // discrimination on this era — `resultType` carries no meaning here.
-        // Validation judges the husk: on the plain path the wire-seam schema
-        // (registry) refuses to default `content` for a body carrying another
-        // result family's vocabulary; explicit-schema callers own their own
-        // validation (task interop). A husk that was ONLY a resultType key
-        // defaults to an empty success — v1 parity for a payload-free body.
+        // dropped before validation, whatever its value. Validation judges the
+        // husk — the registry wire-seam schema on the plain path, the caller's
+        // schema on the explicit path (task interop).
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];

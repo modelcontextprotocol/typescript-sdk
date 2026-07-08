@@ -91,19 +91,15 @@ describe('isSpecType', () => {
     });
 
     it('CallToolResult tolerates absent content at the boundary (default restored, v1 parity)', () => {
-        // BEHAVIOR MIGRATION (reversal, ledgered): content.default([]) is
-        // back for ecosystem parity (servers omit content alongside
-        // structuredContent). The guard consequently accepts a content-less
-        // body, exactly as v1's did; the task-husk leak the removal targeted
-        // is closed at the 2025 wire-seam schema instead.
+        // BEHAVIOR MIGRATION (reversal, ledgered): the guard accepts a
+        // content-less body as v1's did; the task-husk leak is closed at the
+        // 2025 wire-seam schema instead.
         const empty: unknown = {};
         expect(isSpecType.CallToolResult(empty)).toBe(true);
         const v: unknown = { content: [] };
         expect(isSpecType.CallToolResult(v)).toBe(true);
         if (isSpecType.CallToolResult(v)) {
-            // The guard narrows to the INPUT type (before defaults), so
-            // content is honestly optional here — the default only
-            // materializes on parse.
+            // The guard narrows to the INPUT type: content optional pre-parse.
             expectTypeOf(v.content).toEqualTypeOf<ContentBlock[] | undefined>();
         }
         // The parsed/public type keeps content required (z.output).

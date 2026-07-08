@@ -155,13 +155,9 @@ describe('Server', () => {
     });
 
     describe('tools/call handler-result validation (content default)', () => {
-        // Server-side pin for the v1-parity authoring affordance
-        // (docs/migration/upgrade-to-v2.md, "Wire tightening (every era)"):
-        // a handler result without `content` is normalized to `content: []`
-        // BEFORE era validation — era-independently, so the wire is
-        // spec-valid on every leg — while an authored-content result passes
-        // through the wrapped handler untouched. Task-shaped handler results
-        // are not normalized.
+        // Pin for the v1-parity authoring affordance: content-less handler
+        // results normalize to content: [] before era validation, on every
+        // leg; other result families are not normalized.
         async function callToolOnServer(result: CallToolResult): Promise<JSONRPCMessage> {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
             server.setRequestHandler('tools/call', () => result);
@@ -195,10 +191,8 @@ describe('Server', () => {
         }
 
         it('defaults a structured-only handler result (no content) to content: [] on the wire (v1 parity)', async () => {
-            // The TypeScript surface requires `content`; at runtime a
-            // structured-only result (dynamic/JS callers) is defaulted rather
-            // than rejected, matching v1 — and the wire output is
-            // spec-valid: content is present as [].
+            // Runtime defaults structured-only results (v1 parity); the wire
+            // stays spec-valid with content: [].
             const response = await callToolOnServer({ structuredContent: { ok: true } } as unknown as CallToolResult);
 
             const result = (response as { result?: { content?: unknown; structuredContent?: unknown } }).result;

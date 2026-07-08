@@ -108,12 +108,9 @@ type Rev2025TypedRequestMethod = Extract<RequestMethod, Rev2025RequestMethod>;
 // 2025-11-25 wire vocabulary with no SDK runtime; callers needing task
 // interop pass an explicit schema).
 /**
- * Wire-seam guard for the tools/call content default: a content-less body
- * carrying another 2025 result family's vocabulary (task interop's `task`,
- * input_required's `inputRequests`/`requestState`) must fail loudly, never
- * default into a hollow `{content: []}` success. The era is frozen, so this
- * key list is complete by construction. Task interop via an EXPLICIT result
- * schema is unaffected — that overload never consults this map.
+ * Wire-seam guard: a content-less body carrying another result family's keys
+ * fails loudly instead of defaulting to `{content: []}`. The era is frozen so
+ * the key list is complete; explicit-schema task interop never consults this.
  */
 export const CallToolResultWireSchema = z
     .unknown()

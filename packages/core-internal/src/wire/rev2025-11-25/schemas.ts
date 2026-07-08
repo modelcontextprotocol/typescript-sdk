@@ -1227,9 +1227,8 @@ export const CallToolResultSchema = ResultSchema.extend({
      * If the `Tool` does not define an outputSchema, this field MUST be present in the result.
      * Required on the wire per the specification (it may be an empty array).
      *
-     * Parse-tolerant: an absent `content` defaults to `[]` (matching SDK v1),
-     * so results from servers that omit it — typically alongside
-     * `structuredContent` — don't fail the whole call.
+     * Parse-tolerant: absent `content` defaults to `[]` (v1 parity — deployed
+     * servers omit it alongside `structuredContent`).
      */
     content: z.array(ContentBlockSchema).default([]),
 

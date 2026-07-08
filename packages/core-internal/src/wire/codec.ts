@@ -132,10 +132,8 @@ export interface OutboundEnvelopeMaterial {
 }
 
 /**
- * Result-family vocabulary that must never ride a content-less body into a
- * defaulted `{content: []}` tools/call success: task interop's `task`, and
- * input_required's `inputRequests`/`requestState`. Shared by the 2025
- * wire-seam schema and the server's authoring normalization.
+ * Result-family keys that must never default into a `{content: []}` tools/call
+ * success. Shared by the 2025 wire-seam schema and server normalization.
  */
 export const TOOL_RESULT_FOREIGN_FAMILY_KEYS = ['task', 'inputRequests', 'requestState'] as const;
 

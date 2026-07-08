@@ -577,17 +577,12 @@ describe('T6 width-leak killed at both roots', () => {
     test('2025 era: a bare task-shaped body fails the wire-seam schema — the content default cannot mask it', async () => {
         const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
-        // Decode is a pass-through for bodies without resultType (task is
-        // this era's own vocabulary — explicit-schema interop must work);
-        // the WIRE-SEAM schema (registry entry) refuses to default content
-        // for a body carrying another result family's keys.
+        // Decode passes bodies without resultType through (explicit-schema
+        // task interop must work); the wire-seam schema does the refusing.
         expect(decoded.kind).toBe('complete');
-        // The registry's wire-seam schema (the plain per-method entry) then
-        // rejects the body: content is never defaulted for another result
-        // family's vocabulary — even a fully conforming CreateTaskResult
-        // (surfaced as a typed INVALID_RESULT — see
-        // test/shared/typedMapAlignment.test.ts). Task interop is the
-        // explicit-schema overload, never a silent union member.
+        // The wire-seam schema rejects even a fully conforming
+        // CreateTaskResult on the plain path (typed INVALID_RESULT); task
+        // interop is the explicit-schema overload only.
         const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
         const wireSeam = getResultSchema('tools/call');
         expect(

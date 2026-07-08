@@ -94,18 +94,10 @@ describe('task-shaped result bodies against the narrowed runtime map', () => {
     });
 
     test('tools/call: a CreateTaskResult body on the plain path is a typed invalid-result error (wire-seam guard)', async () => {
-        // FLIPPED PIN, twice-ledgered: the codec split removed the content
-        // default (changeset: codec-split-wire-break); the restore brought it
-        // back with a wire-seam guard (changeset:
-        // calltoolresult-content-default).
-        // A bare content.default([]) would swallow ANY object — including a
-        // task body — as a content-empty success. The wire-seam schema (the
-        // registry's tools/call entry) restores the v1 default for plain
-        // results but refuses to default a body carrying another result
-        // family's vocabulary: a task body has no `content`, fails the
-        // wire-seam schema, and surfaces as the same typed invalid-result
-        // error as sampling/elicit. Loud rejection, tolerant defaults —
-        // both at once.
+        // FLIPPED PIN, twice-ledgered (changesets: codec-split-wire-break,
+        // calltoolresult-content-default). The wire-seam schema restores the
+        // v1 default for plain results but refuses to default a body carrying
+        // another result family's keys — a task body fails it loudly.
         const protocol = await wireWithRawResult(CREATE_TASK_RESULT_BODY);
 
         const rejection = await protocol
