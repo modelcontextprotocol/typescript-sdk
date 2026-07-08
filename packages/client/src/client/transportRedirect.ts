@@ -1,5 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
-import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
+import { createFetchWithInit, normalizeHeaders, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 
 /**
  * Redirect handling for MCP requests. `'manual'` (default): GET redirects are
@@ -99,6 +99,90 @@ export async function fetchWithRedirectPolicy(args: TransportFetchArgs): Promise
     }
 
     return response;
+}
+
+export interface TransportHttpOptions {
+    url: URL;
+    fetch?: FetchLike;
+    requestInit?: RequestInit;
+    oauthRequestInit?: RequestInit;
+    redirectPolicy?: RedirectPolicy;
+}
+
+/**
+ * Sole holder of a client transport's HTTP configuration (endpoint URL,
+ * fetch, `requestInit`, redirect policy); transports issue requests through
+ * it rather than holding those as fields.
+ */
+export interface TransportHttp {
+    /** `POST` targets the message endpoint once set; `GET`/`DELETE` always target the configured URL. */
+    mcpRequest(
+        method: 'GET' | 'POST' | 'DELETE',
+        headers: Headers,
+        body?: string,
+        signal?: AbortSignal,
+        crossOriginHeaders?: Headers
+    ): Promise<Response>;
+    /** Merges `oauthRequestInit`, never `requestInit`. */
+    readonly oauthFetch: FetchLike;
+    /** Headers contributed by `requestInit`, for merging into derived request headers. */
+    requestInitHeaders(): Record<string, string>;
+    /** Legacy SSE only: where subsequent `POST`s go. Must share the configured URL's origin. */
+    setMessageEndpoint(endpoint: URL): void;
+    readonly messageEndpoint: URL | undefined;
+    /** `GET` for the EventSource integration, which supplies its own fetch and per-request init. */
+    eventSourceGet(args: {
+        fetchOverride?: FetchLike;
+        url: URL | string;
+        headers: Headers;
+        requestInit?: RequestInit;
+        signal?: AbortSignal;
+        crossOriginHeaders?: Headers;
+    }): Promise<Response>;
+}
+
+export function createTransportHttp(opts: TransportHttpOptions): TransportHttp {
+    const { url, requestInit } = opts;
+    const redirectPolicy = opts.redirectPolicy ?? 'manual';
+    let messageEndpoint: URL | undefined;
+    return {
+        mcpRequest(method, headers, body, signal, crossOriginHeaders) {
+            return fetchWithRedirectPolicy({
+                fetchFn: opts.fetch ?? fetch,
+                url: method === 'POST' ? (messageEndpoint ?? url) : url,
+                method,
+                headers,
+                requestInit,
+                body,
+                signal,
+                redirectPolicy,
+                crossOriginHeaders
+            });
+        },
+        oauthFetch: createFetchWithInit(opts.fetch, opts.oauthRequestInit),
+        requestInitHeaders: () => normalizeHeaders(requestInit?.headers),
+        setMessageEndpoint(endpoint) {
+            if (endpoint.origin !== url.origin) {
+                throw new Error(`Endpoint origin does not match connection origin: ${endpoint.origin}`);
+            }
+            messageEndpoint = endpoint;
+        },
+        get messageEndpoint() {
+            return messageEndpoint;
+        },
+        eventSourceGet(args) {
+            return fetchWithRedirectPolicy({
+                fetchFn: args.fetchOverride ?? opts.fetch ?? fetch,
+                url: args.url,
+                method: 'GET',
+                headers: args.headers,
+                requestInit: args.requestInit,
+                signal: args.signal,
+                redirectPolicy,
+                crossOriginHeaders: args.crossOriginHeaders
+            });
+        }
+    };
 }
 
 /**

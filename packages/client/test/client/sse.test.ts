@@ -1610,7 +1610,9 @@ describe('SSEClientTransport', () => {
         /** Exchanges a code (PRM + AS metadata + token) and then sends a data-plane POST. */
         const runAuthAndSend = async (transport: SSEClientTransport): Promise<void> => {
             await transport.finishAuth('test-auth-code');
-            (transport as unknown as { _endpoint?: URL })._endpoint = new URL('http://localhost:1234/messages');
+            (transport as unknown as { _http: { setMessageEndpoint(endpoint: URL): void } })._http.setMessageEndpoint(
+                new URL('http://localhost:1234/messages')
+            );
             await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'req-1' });
         };
 

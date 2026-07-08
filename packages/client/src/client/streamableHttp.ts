@@ -2,7 +2,6 @@ import type { ReadableWritablePair } from 'node:stream/web';
 
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
-    createFetchWithInit,
     encodeMcpParamValue,
     isInitializedNotification,
     isJSONRPCErrorResponse,
@@ -11,7 +10,6 @@ import {
     isModernProtocolVersion,
     JSONRPCMessageSchema,
     mediaTypeEssence,
-    normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
@@ -33,8 +31,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced via {@linkcode} in finishAuth JSDoc
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
-import type { RedirectPolicy } from './transportRedirect';
-import { fetchWithRedirectPolicy } from './transportRedirect';
+import type { RedirectPolicy, TransportHttp } from './transportRedirect';
+import { createTransportHttp } from './transportRedirect';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -322,14 +320,10 @@ export class StreamableHTTPClientTransport implements Transport {
     private _url: URL;
     private _resourceMetadataUrl?: URL;
     private _scope?: string;
-    private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
     private _skipIssuerMetadataValidation?: boolean;
-    private _fetch?: FetchLike;
-    private _redirectPolicy: RedirectPolicy;
-    /** Fetch for OAuth requests — deliberately merges `oauthRequestInit`, never `requestInit`. */
-    private _authFetch: FetchLike;
+    private readonly _http: TransportHttp;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
@@ -355,7 +349,6 @@ export class StreamableHTTPClientTransport implements Transport {
         this._url = url;
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
-        this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
@@ -365,9 +358,13 @@ export class StreamableHTTPClientTransport implements Transport {
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
-        this._redirectPolicy = opts?.redirectPolicy ?? 'manual';
-        this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
+        this._http = createTransportHttp({
+            url,
+            fetch: opts?.fetch,
+            requestInit: opts?.requestInit,
+            oauthRequestInit: opts?.oauthRequestInit,
+            redirectPolicy: opts?.redirectPolicy
+        });
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
@@ -431,7 +428,7 @@ export class StreamableHTTPClientTransport implements Transport {
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: unionScope,
             forceReauthorization,
-            fetchFn: this._authFetch,
+            fetchFn: this._http.oauthFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
     }
@@ -450,7 +447,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = this._http.requestInitHeaders();
 
         return new Headers({
             ...headers,
@@ -557,16 +554,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 requestSignal !== undefined && transportSignal !== undefined
                     ? anySignal(transportSignal, requestSignal)
                     : (requestSignal ?? transportSignal);
-            const response = await fetchWithRedirectPolicy({
-                fetchFn: this._fetch ?? fetch,
-                url: this._url,
-                method: 'GET',
-                headers,
-                requestInit: this._requestInit,
-                signal,
-                redirectPolicy: this._redirectPolicy,
-                crossOriginHeaders: this._crossOriginGetHeaders(resumptionToken)
-            });
+            const response = await this._http.mcpRequest('GET', headers, undefined, signal, this._crossOriginGetHeaders(resumptionToken));
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
@@ -582,7 +570,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._authFetch
+                            fetchFn: this._http.oauthFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -900,7 +888,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._authFetch, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._http.oauthFetch, resourceMetadataUrl: this._resourceMetadataUrl }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -909,7 +897,7 @@ export class StreamableHTTPClientTransport implements Transport {
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._authFetch,
+            fetchFn: this._http.oauthFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
@@ -1000,16 +988,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 options?.requestSignal !== undefined && transportSignal !== undefined
                     ? anySignal(transportSignal, options.requestSignal)
                     : (options?.requestSignal ?? transportSignal);
-            const response = await fetchWithRedirectPolicy({
-                fetchFn: this._fetch ?? fetch,
-                url: this._url,
-                method: 'POST',
-                headers,
-                requestInit: this._requestInit,
-                body: JSON.stringify(message),
-                signal,
-                redirectPolicy: this._redirectPolicy
-            });
+            const response = await this._http.mcpRequest('POST', headers, JSON.stringify(message), signal);
 
             // Handle session ID received during initialization
             const sessionId = response.headers.get('mcp-session-id');
@@ -1032,7 +1011,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._authFetch
+                            fetchFn: this._http.oauthFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -1194,15 +1173,7 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             const headers = await this._commonHeaders();
 
-            const response = await fetchWithRedirectPolicy({
-                fetchFn: this._fetch ?? fetch,
-                url: this._url,
-                method: 'DELETE',
-                headers,
-                requestInit: this._requestInit,
-                signal: this._abortController?.signal,
-                redirectPolicy: this._redirectPolicy
-            });
+            const response = await this._http.mcpRequest('DELETE', headers, undefined, this._abortController?.signal);
             await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,

@@ -12,7 +12,7 @@ import type { FetchLike } from '@modelcontextprotocol/core-internal';
 import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 
 import type { ClientAuthMethod } from './auth';
-import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
+import { applyClientAuthentication, assertNotRedirected, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.
@@ -155,12 +155,7 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         body: params.toString(),
         redirect: 'manual'
     });
-
-    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-        throw new Error(
-            `Token endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); token responses are terminal`
-        );
-    }
+    assertNotRedirected(response, 'Token');
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
@@ -289,12 +284,7 @@ export async function exchangeJwtAuthGrant(options: {
         body: params.toString(),
         redirect: 'manual'
     });
-
-    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
-        throw new Error(
-            `Token endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); token responses are terminal`
-        );
-    }
+    assertNotRedirected(response, 'Token');
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));

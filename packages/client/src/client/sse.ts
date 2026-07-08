@@ -1,9 +1,7 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     brandedHasInstance,
-    createFetchWithInit,
     JSONRPCMessageSchema,
-    normalizeHeaders,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -23,8 +21,8 @@ import {
 } from './auth';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
-import type { RedirectPolicy } from './transportRedirect';
-import { fetchWithRedirectPolicy } from './transportRedirect';
+import type { RedirectPolicy, TransportHttp } from './transportRedirect';
+import { createTransportHttp } from './transportRedirect';
 
 export class SseError extends Error {
     static {
@@ -133,20 +131,15 @@ export type SSEClientTransportOptions = {
  */
 export class SSEClientTransport implements Transport {
     private _eventSource?: EventSource;
-    private _endpoint?: URL;
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
     private _scope?: string;
     private _eventSourceInit?: EventSourceInit;
-    private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
     private _skipIssuerMetadataValidation?: boolean;
-    private _fetch?: FetchLike;
-    /** Fetch for OAuth requests — deliberately merges `oauthRequestInit`, never `requestInit`. */
-    private _authFetch: FetchLike;
-    private _redirectPolicy: RedirectPolicy;
+    private readonly _http: TransportHttp;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -158,7 +151,6 @@ export class SSEClientTransport implements Transport {
         this._resourceMetadataUrl = undefined;
         this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
-        this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
@@ -168,9 +160,13 @@ export class SSEClientTransport implements Transport {
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
-        this._redirectPolicy = opts?.redirectPolicy ?? 'manual';
-        this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
+        this._http = createTransportHttp({
+            url,
+            fetch: opts?.fetch,
+            requestInit: opts?.requestInit,
+            oauthRequestInit: opts?.oauthRequestInit,
+            redirectPolicy: opts?.redirectPolicy
+        });
     }
 
     private _last401Response?: Response;
@@ -185,7 +181,7 @@ export class SSEClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
+        const extraHeaders = this._http.requestInitHeaders();
 
         return new Headers({
             ...headers,
@@ -194,7 +190,6 @@ export class SSEClientTransport implements Transport {
     }
 
     private _startOrAuth(): Promise<void> {
-        const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
@@ -207,14 +202,12 @@ export class SSEClientTransport implements Transport {
                     }
                     let response: Response;
                     try {
-                        response = await fetchWithRedirectPolicy({
-                            fetchFn: fetchImpl,
+                        response = await this._http.eventSourceGet({
+                            fetchOverride: this._eventSourceInit?.fetch as FetchLike | undefined,
                             url,
-                            method: 'GET',
                             headers,
                             requestInit: init as RequestInit,
                             signal: (init as RequestInit | undefined)?.signal ?? undefined,
-                            redirectPolicy: this._redirectPolicy,
                             crossOriginHeaders
                         });
                     } catch (error) {
@@ -248,7 +241,7 @@ export class SSEClientTransport implements Transport {
                         const response = this._last401Response;
                         this._last401Response = undefined;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._authFetch }).then(
+                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._http.oauthFetch }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
                             // onUnauthorized failed → not yet reported.
@@ -278,10 +271,7 @@ export class SSEClientTransport implements Transport {
                 const messageEvent = event as MessageEvent;
 
                 try {
-                    this._endpoint = new URL(messageEvent.data, this._url);
-                    if (this._endpoint.origin !== this._url.origin) {
-                        throw new Error(`Endpoint origin does not match connection origin: ${this._endpoint.origin}`);
-                    }
+                    this._http.setMessageEndpoint(new URL(messageEvent.data, this._url));
                 } catch (error) {
                     reject(error);
                     this.onerror?.(error as Error);
@@ -348,7 +338,7 @@ export class SSEClientTransport implements Transport {
             iss,
             this._oauthProvider,
             this._url,
-            { fetchFn: this._authFetch, resourceMetadataUrl: this._resourceMetadataUrl }
+            { fetchFn: this._http.oauthFetch, resourceMetadataUrl: this._resourceMetadataUrl }
         );
 
         const result = await auth(this._oauthProvider, {
@@ -357,7 +347,7 @@ export class SSEClientTransport implements Transport {
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._authFetch,
+            fetchFn: this._http.oauthFetch,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
@@ -376,23 +366,14 @@ export class SSEClientTransport implements Transport {
     }
 
     private async _send(message: JSONRPCMessage, isAuthRetry: boolean): Promise<void> {
-        if (!this._endpoint) {
+        if (!this._http.messageEndpoint) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         try {
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            const response = await fetchWithRedirectPolicy({
-                fetchFn: this._fetch ?? fetch,
-                url: this._endpoint,
-                method: 'POST',
-                headers,
-                requestInit: this._requestInit,
-                body: JSON.stringify(message),
-                signal: this._abortController?.signal,
-                redirectPolicy: this._redirectPolicy
-            });
+            const response = await this._http.mcpRequest('POST', headers, JSON.stringify(message), this._abortController?.signal);
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
@@ -405,7 +386,7 @@ export class SSEClientTransport implements Transport {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._authFetch
+                            fetchFn: this._http.oauthFetch
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
