@@ -1172,7 +1172,8 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
   sets the new `oauthRequestInit` transport option.
 - **Token and registration endpoint redirects are not followed.** The token-exchange
   and client-registration POSTs (`exchangeAuthorization()` / `refreshAuthorization()` /
-  `fetchToken()` / `registerClient()`, transitively `auth()`) are issued with
+  `fetchToken()` / `registerClient()`, transitively `auth()`, and the cross-app access
+  token exchanges `requestJwtAuthorizationGrant()` / `exchangeJwtAuthGrant()`) are issued with
   `redirect: 'manual'`; a 3xx answer rejects with an error instead of re-sending the
   request to the redirect target. Token responses are terminal (RFC 6749 §5) — an
   authorization server that redirects these requests must be addressed at its final

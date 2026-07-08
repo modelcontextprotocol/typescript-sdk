@@ -152,8 +152,15 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: params.toString()
+        body: params.toString(),
+        redirect: 'manual'
     });
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error(
+            `Token endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); token responses are terminal`
+        );
+    }
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
@@ -279,8 +286,15 @@ export async function exchangeJwtAuthGrant(options: {
     const response = await fetchFn(tokenUrl, {
         method: 'POST',
         headers,
-        body: params.toString()
+        body: params.toString(),
+        redirect: 'manual'
     });
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error(
+            `Token endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); token responses are terminal`
+        );
+    }
 
     if (!response.ok) {
         const errorBody = await response.json().catch(() => ({}));
