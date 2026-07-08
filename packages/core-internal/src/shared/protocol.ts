@@ -723,7 +723,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        if (notification.params.requestId == null) {
             return;
         }
         // Handle request cancellation
