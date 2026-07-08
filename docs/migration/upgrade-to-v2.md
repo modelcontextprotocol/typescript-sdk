@@ -811,6 +811,56 @@ value to the spec-required `application/json, text/event-stream` (v1 let it repl
 them). The required media types are always present; additional types are kept for
 proxy/gateway routing.
 
+#### Redirect (3xx) responses on MCP requests
+
+`StreamableHTTPClientTransport` and `SSEClientTransport` no longer delegate redirect
+handling on their MCP requests to the `fetch` implementation (v1 let the platform
+follow up to 20 hops with every header riding along). Data-plane requests — `POST`
+message sends, the `GET` that opens or resumes an SSE stream, the session-terminating
+`DELETE` — now go out with `redirect: 'manual'` and the transport applies RFC 9110
+redirect semantics itself:
+
+- **`GET`** redirects are followed, bounded at **3 hops**. A same-origin `Location`
+  target is requested with the original headers. A hop that leaves the endpoint's
+  origin is requested with only the headers that describe the request itself
+  (`Accept`, `MCP-Protocol-Version`, and — on `StreamableHTTPClientTransport`
+  stream resumption — `Last-Event-ID`: what the target needs to negotiate the
+  media type, parse the request, and resume the stream). Headers
+  configured for the _connection_ — `requestInit` headers, the auth provider's
+  `Authorization`, the server-issued `Mcp-Session-Id` — are scoped to the configured
+  origin and are not applied across origins. Once a chain has left the origin,
+  the reduced header set applies to every remaining hop, including one that
+  returns to the original origin.
+- **`POST` / `DELETE`** requests are **never re-sent** to a `Location` target
+  (RFC 9110 leaves redirecting a request with a body to the sender's discretion). A
+  redirect answer surfaces as `SdkHttpError` with the new code
+  `SdkErrorCode.ClientHttpRedirectNotFollowed`; an MCP endpoint that answers `POST`
+  with a redirect is a configuration to fix by pointing the transport at the new
+  endpoint URL. A redirect response also can no longer supply the `mcp-session-id`
+  value the transport adopts — session ids are only read off responses the
+  configured endpoint answered directly.
+
+The escape hatch is the new `redirectPolicy` transport option (both transports):
+
+```ts
+const transport = new StreamableHTTPClientTransport(url, {
+    redirectPolicy: 'follow' // default: 'manual'
+});
+```
+
+`'follow'` restores the v1 request shape exactly — no `redirect` field is set, so
+`requestInit.redirect` or the platform default (`'follow'`) applies and every
+request's headers ride along to wherever the chain ends. Set it for deployments
+behind redirecting infrastructure that requires the configured headers on the
+redirect target, and for browser runtimes: a browser `fetch` answers
+`redirect: 'manual'` with an opaque redirect (Fetch `opaqueredirect`: status 0, no
+readable `Location` header), so the transport cannot observe the redirect target to
+apply the rules above. Under the default `'manual'` policy any redirect answer —
+initial or on a followed hop, any method — therefore fails there with
+`ClientHttpRedirectNotFollowed` (`status` is the literal `0`), its message naming the
+two ways out: set `redirectPolicy: 'follow'`, or serve the MCP endpoint without
+redirects.
+
 `hostHeaderValidation()` and `localhostHostValidation()` moved to
 `@modelcontextprotocol/express`. The `(allowedHostnames: string[])` signature is the
 same as every released v1.x — only the import path changes. Framework-agnostic helpers
@@ -848,7 +898,7 @@ hierarchy also exposes the same check as an explicit static guard
 TypeScript — use whichever style your codebase prefers; both read the same brand.
 Fine print (applies equally to `instanceof` and `isInstance`):
 
-- **Version skew** — matching needs *both* copies at a brand-aware release; against an
+- **Version skew** — matching needs _both_ copies at a brand-aware release; against an
   older copy, behavior degrades to plain prototype `instanceof` (false across bundles).
   During mixed-version rollouts, recognize errors without class identity: match
   `error.name` plus the class's discriminant field (`code`, `status`), or reconstruct

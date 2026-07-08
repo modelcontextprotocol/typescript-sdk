@@ -23,6 +23,8 @@ import {
 } from './auth';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
+import type { RedirectPolicy } from './transportRedirect';
+import { fetchWithRedirectPolicy } from './transportRedirect';
 
 export class SseError extends Error {
     static {
@@ -114,6 +116,14 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * How the transport reacts to redirect (3xx) responses on its MCP requests.
+     * See {@linkcode RedirectPolicy}.
+     *
+     * @default 'manual'
+     */
+    redirectPolicy?: RedirectPolicy;
 };
 
 /**
@@ -136,6 +146,7 @@ export class SSEClientTransport implements Transport {
     private _fetch?: FetchLike;
     /** Fetch for OAuth requests — deliberately merges `oauthRequestInit`, never `requestInit`. */
     private _authFetch: FetchLike;
+    private _redirectPolicy: RedirectPolicy;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -158,6 +169,7 @@ export class SSEClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
+        this._redirectPolicy = opts?.redirectPolicy ?? 'manual';
         this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
     }
 
@@ -189,10 +201,32 @@ export class SSEClientTransport implements Transport {
                 fetch: async (url, init) => {
                     const headers = await this._commonHeaders();
                     headers.set('Accept', 'text/event-stream');
-                    const response = await fetchImpl(url, {
-                        ...init,
-                        headers
-                    });
+                    const crossOriginHeaders = new Headers({ accept: 'text/event-stream' });
+                    if (this._protocolVersion) {
+                        crossOriginHeaders.set('mcp-protocol-version', this._protocolVersion);
+                    }
+                    let response: Response;
+                    try {
+                        response = await fetchWithRedirectPolicy({
+                            fetchFn: fetchImpl,
+                            url,
+                            method: 'GET',
+                            headers,
+                            requestInit: init as RequestInit,
+                            signal: (init as RequestInit | undefined)?.signal ?? undefined,
+                            redirectPolicy: this._redirectPolicy,
+                            crossOriginHeaders
+                        });
+                    } catch (error) {
+                        if (error instanceof SdkHttpError && error.code === SdkErrorCode.ClientHttpRedirectNotFollowed) {
+                            // Terminal, not transient: close so the EventSource does not
+                            // schedule reconnects against the same redirecting endpoint.
+                            reject(error);
+                            this.onerror?.(error);
+                            void this.close();
+                        }
+                        throw error;
+                    }
 
                     if (response.status === 401) {
                         this._last401Response = response;
@@ -349,15 +383,16 @@ export class SSEClientTransport implements Transport {
         try {
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            const init = {
-                ...this._requestInit,
+            const response = await fetchWithRedirectPolicy({
+                fetchFn: this._fetch ?? fetch,
+                url: this._endpoint,
                 method: 'POST',
                 headers,
+                requestInit: this._requestInit,
                 body: JSON.stringify(message),
-                signal: this._abortController?.signal
-            };
-
-            const response = await (this._fetch ?? fetch)(this._endpoint, init);
+                signal: this._abortController?.signal,
+                redirectPolicy: this._redirectPolicy
+            });
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {

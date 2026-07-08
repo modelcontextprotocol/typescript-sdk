@@ -33,6 +33,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced via {@linkcode} in finishAuth JSDoc
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
+import type { RedirectPolicy } from './transportRedirect';
+import { fetchWithRedirectPolicy } from './transportRedirect';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -189,6 +191,14 @@ export type StreamableHTTPClientTransportOptions = {
     fetch?: FetchLike;
 
     /**
+     * How the transport reacts to redirect (3xx) responses on its MCP requests.
+     * See {@linkcode RedirectPolicy}.
+     *
+     * @default 'manual'
+     */
+    redirectPolicy?: RedirectPolicy;
+
+    /**
      * Options to configure the reconnection behavior.
      */
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -317,6 +327,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _oauthProvider?: OAuthClientProvider;
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
+    private _redirectPolicy: RedirectPolicy;
     /** Fetch for OAuth requests — deliberately merges `oauthRequestInit`, never `requestInit`. */
     private _authFetch: FetchLike;
     private _sessionId?: string;
@@ -355,6 +366,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
+        this._redirectPolicy = opts?.redirectPolicy ?? 'manual';
         this._authFetch = createFetchWithInit(opts?.fetch, opts?.oauthRequestInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
@@ -447,6 +459,22 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
+     * Headers a followed `GET` redirect carries to another origin —
+     * connection-scoped headers (`Authorization`, `Mcp-Session-Id`,
+     * `requestInit`) are deliberately omitted.
+     */
+    private _crossOriginGetHeaders(resumptionToken?: string): Headers {
+        const headers = new Headers({ accept: 'text/event-stream' });
+        if (this._protocolVersion) {
+            headers.set('mcp-protocol-version', this._protocolVersion);
+        }
+        if (resumptionToken) {
+            headers.set('last-event-id', resumptionToken);
+        }
+        return headers;
+    }
+
+    /**
      * Body-derived per-request headers: when an outgoing request carries a
      * protocol-version claim in its `_meta` envelope (the version negotiation
      * probe is the first such sender), `MCP-Protocol-Version` and `Mcp-Method`
@@ -529,11 +557,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 requestSignal !== undefined && transportSignal !== undefined
                     ? anySignal(transportSignal, requestSignal)
                     : (requestSignal ?? transportSignal);
-            const response = await (this._fetch ?? fetch)(this._url, {
-                ...this._requestInit,
+            const response = await fetchWithRedirectPolicy({
+                fetchFn: this._fetch ?? fetch,
+                url: this._url,
                 method: 'GET',
                 headers,
-                signal
+                requestInit: this._requestInit,
+                signal,
+                redirectPolicy: this._redirectPolicy,
+                crossOriginHeaders: this._crossOriginGetHeaders(resumptionToken)
             });
 
             if (!response.ok) {
@@ -968,15 +1000,16 @@ export class StreamableHTTPClientTransport implements Transport {
                 options?.requestSignal !== undefined && transportSignal !== undefined
                     ? anySignal(transportSignal, options.requestSignal)
                     : (options?.requestSignal ?? transportSignal);
-            const init = {
-                ...this._requestInit,
+            const response = await fetchWithRedirectPolicy({
+                fetchFn: this._fetch ?? fetch,
+                url: this._url,
                 method: 'POST',
                 headers,
+                requestInit: this._requestInit,
                 body: JSON.stringify(message),
-                signal
-            };
-
-            const response = await (this._fetch ?? fetch)(this._url, init);
+                signal,
+                redirectPolicy: this._redirectPolicy
+            });
 
             // Handle session ID received during initialization
             const sessionId = response.headers.get('mcp-session-id');
@@ -1161,14 +1194,15 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             const headers = await this._commonHeaders();
 
-            const init = {
-                ...this._requestInit,
+            const response = await fetchWithRedirectPolicy({
+                fetchFn: this._fetch ?? fetch,
+                url: this._url,
                 method: 'DELETE',
                 headers,
-                signal: this._abortController?.signal
-            };
-
-            const response = await (this._fetch ?? fetch)(this._url, init);
+                requestInit: this._requestInit,
+                signal: this._abortController?.signal,
+                redirectPolicy: this._redirectPolicy
+            });
             await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,

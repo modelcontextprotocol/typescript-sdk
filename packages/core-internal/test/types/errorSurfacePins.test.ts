@@ -86,7 +86,8 @@ describe('SdkErrorCode', () => {
             ClientHttpForbidden: 'CLIENT_HTTP_FORBIDDEN',
             ClientHttpUnexpectedContent: 'CLIENT_HTTP_UNEXPECTED_CONTENT',
             ClientHttpFailedToOpenStream: 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
-            ClientHttpFailedToTerminateSession: 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
+            ClientHttpFailedToTerminateSession: 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION',
+            ClientHttpRedirectNotFollowed: 'CLIENT_HTTP_REDIRECT_NOT_FOLLOWED'
         });
     });
 });
