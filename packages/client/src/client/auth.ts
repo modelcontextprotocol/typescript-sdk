@@ -2090,8 +2090,16 @@ export async function executeTokenRequest(
     const response = await (fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
-        body: tokenRequestParams
+        body: tokenRequestParams,
+        // Token responses are terminal (RFC 6749 §5): a redirect is not followed.
+        redirect: 'manual'
     });
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error(
+            `Token endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); token responses are terminal`
+        );
+    }
 
     if (!response.ok) {
         throw await parseErrorResponse(response);
@@ -2365,8 +2373,16 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(submittedMetadata)
+        body: JSON.stringify(submittedMetadata),
+        // Registration responses are terminal (RFC 7591 §3.2): a redirect is not followed.
+        redirect: 'manual'
     });
+
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error(
+            `Registration endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); registration responses are terminal`
+        );
+    }
 
     if (!response.ok) {
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });

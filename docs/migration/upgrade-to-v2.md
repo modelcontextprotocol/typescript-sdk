@@ -1120,6 +1120,13 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
   than the MCP server, so connection-level headers do not carry over. A deployment that
   needs extra headers on those requests (e.g. gateway headers on well-known endpoints)
   sets the new `oauthRequestInit` transport option.
+- **Token and registration endpoint redirects are not followed.** The token-exchange
+  and client-registration POSTs (`exchangeAuthorization()` / `refreshAuthorization()` /
+  `fetchToken()` / `registerClient()`, transitively `auth()`) are issued with
+  `redirect: 'manual'`; a 3xx answer rejects with an error instead of re-sending the
+  request to the redirect target. Token responses are terminal (RFC 6749 §5) — an
+  authorization server that redirects these requests must be addressed at its final
+  endpoint URL (via its metadata document).
 - **Scoped credential invalidation on `invalid_client` / `unauthorized_client`.** The
   `auth()` retry for these errors now issues two scoped calls —
   `invalidateCredentials('client')` then `invalidateCredentials('tokens')` — instead of
