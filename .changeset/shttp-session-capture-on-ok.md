@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/client': patch
+---
+
+`StreamableHTTPClientTransport` no longer captures the `Mcp-Session-Id` header from error responses. Previously the header was stored from any response before the status check, so a session id on an error reply became the connection's session state — most visibly in `versionNegotiation: { mode: 'auto' }`, where a legacy server answering the probe with a 404-plus-session-id made the fallback `initialize` present a session id the server never issued; spec-conforming stateful servers reject that, failing a connect that would otherwise succeed. Session ids are now only captured from successful responses, matching the spec's assignment point; error responses contribute nothing to session state. Additionally, a 404 to a POST that carried the session id now clears the stored id (per spec, the session is gone and the client must start a new one) — previously the dead id was re-presented forever, and a retry `connect()` on the same transport took the session-resuming branch and skipped the handshake entirely.

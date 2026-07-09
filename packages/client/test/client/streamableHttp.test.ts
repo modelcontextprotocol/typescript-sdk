@@ -122,6 +122,100 @@ describe('StreamableHTTPClientTransport', () => {
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
 
+    it('should NOT store a session ID from an error response', async () => {
+        // Regression: a session header on a 404 probe reply used to carry
+        // over into the legacy fallback initialize.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers({ 'mcp-session-id': 'from-error-reply-123' }),
+            text: () => Promise.resolve('not found')
+        });
+
+        await expect(transport.send({ jsonrpc: '2.0', method: 'server/discover', id: 'probe-id' } as JSONRPCMessage)).rejects.toThrow();
+
+        expect(transport.sessionId).toBeUndefined();
+
+        // The next request must go out session-less.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+
+        const lastSend = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+        expect(lastSend[1].headers.get('mcp-session-id')).toBeNull();
+    });
+
+    it('should still store the session ID assigned by a successful response after an earlier error response', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers({ 'mcp-session-id': 'from-error-reply-123' }),
+            text: () => Promise.resolve('not found')
+        });
+        await expect(transport.send({ jsonrpc: '2.0', method: 'server/discover', id: 'probe-id' } as JSONRPCMessage)).rejects.toThrow();
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'real-session' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-id'
+        } as JSONRPCMessage);
+
+        expect(transport.sessionId).toBe('real-session');
+
+        // Any successful status captures — 202 (accepted notification)
+        // included. Not notifications/initialized: that one fire-and-forgets
+        // the standalone GET, which would fall through the fetch mock.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers({ 'mcp-session-id': 'rotated-session' })
+        });
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
+        expect(transport.sessionId).toBe('rotated-session');
+    });
+
+    it('should clear the session ID on a 404 to a request that carried it', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'expired-later' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-id'
+        } as JSONRPCMessage);
+        expect(transport.sessionId).toBe('expired-later');
+
+        // Server expired the session: 404 to a request that presented it.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers(),
+            text: () => Promise.resolve('session not found')
+        });
+        await expect(transport.send({ jsonrpc: '2.0', method: 'test', id: 'r1' } as JSONRPCMessage)).rejects.toThrow();
+        expect(transport.sessionId).toBeUndefined();
+
+        // Next request goes out session-less (fresh handshake possible).
+        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBeNull();
+    });
+
     it('should accept protocolVersion constructor option and include it in request headers', async () => {
         // When reconnecting with a preserved sessionId, users need to also preserve the
         // negotiated protocol version so the required mcp-protocol-version header is sent.

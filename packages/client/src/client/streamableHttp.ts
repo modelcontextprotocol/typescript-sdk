@@ -973,13 +973,24 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Handle session ID received during initialization
-            const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId) {
-                this._sessionId = sessionId;
+            // Capture the session id only from successful responses — the
+            // spec assigns it on the InitializeResult response. An error
+            // reply (e.g. a 404 to a probe) contributes nothing to session state.
+            if (response.ok) {
+                const sessionId = response.headers.get('mcp-session-id');
+                if (sessionId) {
+                    this._sessionId = sessionId;
+                }
             }
 
             if (!response.ok) {
+                // Spec: a 404 to a POST that carried the session id means the
+                // session is gone — drop it so the next attempt can start a
+                // fresh handshake. POST only: SSE reconnect GETs can 404 for
+                // transient infra reasons while the session is still live.
+                if (response.status === 404 && headers.get('mcp-session-id') !== null) {
+                    this._sessionId = undefined;
+                }
                 if (response.status === 401 && this._authProvider) {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
