@@ -5,6 +5,7 @@ import {
     createFetchWithInit,
     encodeMcpParamValue,
     isInitializedNotification,
+    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -936,6 +937,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             this._applyBodyDerivedHeaders(headers, message);
+            // A new session starts "without a session ID attached" (2025-11-25 transports §Session Management).
+            const isHandshake = Array.isArray(message) ? message.some(m => isInitializeRequest(m)) : isInitializeRequest(message);
+            if (isHandshake) {
+                headers.delete('mcp-session-id');
+            }
             // Per-request additional headers (the Client passes SEP-2243
             // `Mcp-Param-*` here on a 2026-07-28 connection). Reserved
             // standard/auth header names are skipped so a caller cannot
@@ -973,10 +979,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Handle session ID received during initialization
-            const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId) {
-                this._sessionId = sessionId;
+            // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
+            if (isHandshake && response.ok) {
+                const sessionId = response.headers.get('mcp-session-id');
+                if (sessionId) {
+                    this._sessionId = sessionId;
+                }
             }
 
             if (!response.ok) {
