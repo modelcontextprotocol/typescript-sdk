@@ -180,6 +180,32 @@ test('should restore negotiated protocol version on transport when reconnecting 
 });
 
 /***
+ * Test: Session resumption on a FRESH client adopts the transport-carried protocol version.
+ * After close() (or on a brand-new Client) the instance holds no negotiated version; a
+ * resuming transport constructed with `{ sessionId, protocolVersion }` supplies it instead.
+ */
+test('resuming with a fresh client adopts the protocol version carried by the transport', async () => {
+    const setProtocolVersion = vi.fn();
+    const resumeTransport: Transport = {
+        start: vi.fn().mockResolvedValue(undefined),
+        close: vi.fn().mockResolvedValue(undefined),
+        setProtocolVersion,
+        send: vi.fn().mockResolvedValue(undefined),
+        sessionId: 'existing-session-id',
+        protocolVersion: LATEST_PROTOCOL_VERSION
+    };
+
+    const client = new Client({ name: 'test client', version: '1.0' });
+    await client.connect(resumeTransport);
+
+    // Resumption: no initialize, and the carried version lands on the header
+    // hook and on the client's own negotiated state.
+    expect(resumeTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
+    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+});
+
+/***
  * Test: The negotiated protocol version (and with it the wire era) is connection state — it must
  * not survive into a fresh connect. A client whose previous connection negotiated the modern
  * revision (2026-07-28) via server/discover must still be able to run a FRESH legacy initialize

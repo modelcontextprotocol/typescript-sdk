@@ -171,6 +171,9 @@ export interface Transport {
      */
     setProtocolVersion?: ((version: string) => void) | undefined;
 
+    /** The negotiated protocol version, when the transport already carries one (e.g. a session-resuming transport constructed with a saved version). */
+    readonly protocolVersion?: string | undefined;
+
     /**
      * Sets the supported protocol versions for header validation (called during connect).
      * This allows the server to pass its supported versions to the transport.
