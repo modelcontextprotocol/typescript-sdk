@@ -40,6 +40,7 @@ import type {
     ReadResourceRequest,
     ReadResourceResult,
     RequestMethod,
+    ResultTypeMap,
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
     Result,
@@ -74,6 +75,7 @@ import {
     scanXMcpHeaderDeclarations,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
@@ -926,6 +928,56 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
+    private _sessionReinit?: Promise<void>;
+
+    override request<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]>;
+    override request<T extends StandardSchemaV1>(
+        request: { method: string; params?: Record<string, unknown> },
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>>;
+    override async request(
+        request: { method: string; params?: Record<string, unknown> },
+        schemaOrOptions?: StandardSchemaV1 | RequestOptions,
+        maybeOptions?: RequestOptions
+    ): Promise<unknown> {
+        try {
+            return await super.request(request as never, schemaOrOptions as never, maybeOptions);
+        } catch (error) {
+            // Spec (Session Management): a 404 to a request that carried the
+            // session id means the session is gone — start a new one with a
+            // fresh InitializeRequest, then retry the failed request once.
+            if (request.method === 'initialize' || !this._isSessionTerminated(error)) throw error;
+            this._sessionReinit ??= this._reinitializeSession().finally(() => {
+                this._sessionReinit = undefined;
+            });
+            await this._sessionReinit;
+            return await super.request(request as never, schemaOrOptions as never, maybeOptions);
+        }
+    }
+
+    private _isSessionTerminated(error: unknown): boolean {
+        return (
+            error instanceof SdkHttpError &&
+            error.data.status === 404 &&
+            error.data['sessionTerminated'] === true &&
+            // Legacy era only: the 2026-07-28 handshake is discover-based.
+            this._negotiatedProtocolVersion !== undefined &&
+            legacyProtocolVersions([this._negotiatedProtocolVersion]).length === 1
+        );
+    }
+
+    private async _reinitializeSession(): Promise<void> {
+        const transport = this.transport;
+        if (transport === undefined) {
+            throw new SdkError(SdkErrorCode.ConnectionClosed, 'Cannot reinitialize: not connected');
+        }
+        await this._legacyHandshake(transport);
+    }
+
     override async connect(transport: Transport, options?: ConnectOptions): Promise<void> {
         if (options?.prior !== undefined) {
             // Zero-round-trip reconnect from a previously-obtained

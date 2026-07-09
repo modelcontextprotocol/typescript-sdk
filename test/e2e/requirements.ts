@@ -1884,21 +1884,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
 
     'client-transport:http:404-surfaces': {
         source: 'sdk',
-        behavior: 'A 404 (session expired) on a request surfaces as an error to the caller.',
+        behavior:
+            'When a 404 (session expired) is followed by a failed session re-establishment, the failure surfaces as an error to the caller.',
         transports: ['streamableHttp'],
-        note: 'Session-id continuity testing requires the per-session host (404 is session-not-found).'
+        note: 'Session-id continuity testing requires the per-session host (404 is session-not-found). The recovered path is client-transport:http:session-404-reinitialize.'
     },
     'client-transport:http:session-404-reinitialize': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior:
             'A 404 in response to a request carrying a session ID makes the client start a new session with a fresh InitializeRequest and no session ID attached.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'On a 404 for an existing session the transport clears the dead session id but never auto-re-initializes — recovery still requires a new host-driven connect (a fresh session-less InitializeRequest is not sent automatically).'
-            }
-        ]
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:accept-header-get': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',

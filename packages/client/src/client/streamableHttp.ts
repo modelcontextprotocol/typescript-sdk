@@ -971,22 +971,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal
             };
 
-            // Snapshot of the id this request went out with — responses are
-            // interpreted against what THIS request presented, not whatever
-            // `_sessionId` holds by the time the response lands (a late
-            // response from a previous session must neither install its
-            // stale id nor wipe a newer one).
+            // Responses are judged against the id this request carried —
+            // late replies from an older session race `_sessionId`.
             const sentSessionId = headers.get('mcp-session-id');
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Capture the session id only from successful responses — the
-            // spec assigns it on the InitializeResult response. An error
-            // reply (e.g. a 404 to a probe) contributes nothing to session
-            // state. Guard against late arrivals: a request that carried no
-            // id (the initialize) may always install the assignment; a
-            // request that carried an id may only refresh it while that id
-            // is still the current one.
+            // Session ids come only from successful replies whose request
+            // carried no id or the still-current one.
             if (response.ok) {
                 const sessionId = response.headers.get('mcp-session-id');
                 if (sessionId && (sentSessionId === null || sentSessionId === this._sessionId)) {
@@ -995,15 +987,12 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             if (!response.ok) {
-                // Spec: a 404 to a POST that carried the session id means the
-                // session is gone — drop it so the next attempt can start a
-                // fresh handshake. POST only: SSE reconnect GETs can 404 for
-                // transient infra reasons while the session is still live.
-                // Only when the id this request carried is still the current
-                // one: a late 404 from a previous session must not wipe a
-                // newer session's id.
+                // 404 to the current session id: session is gone (spec) —
+                // drop it. POSTs only; SSE reconnect GETs 404 transiently.
+                let sessionTerminated = false;
                 if (response.status === 404 && sentSessionId !== null && sentSessionId === this._sessionId) {
                     this._sessionId = undefined;
+                    sessionTerminated = true;
                 }
                 if (response.status === 401 && this._authProvider) {
                     // Store WWW-Authenticate params for interactive finishAuth() path
@@ -1085,7 +1074,8 @@ export class StreamableHTTPClientTransport implements Transport {
                 throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
                     statusText: response.statusText,
-                    text
+                    text,
+                    ...(sessionTerminated ? { sessionTerminated: true } : {})
                 });
             }
 
@@ -1191,12 +1181,8 @@ export class StreamableHTTPClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});
 
-            // We specifically handle 405 as a valid response according to the spec,
-            // meaning the server does not support explicit session termination.
-            // 404 likewise terminates locally: the session is already gone on
-            // the server (expired or evicted — the exact race termination is
-            // prone to), which is the outcome termination seeks; the stored id
-            // must still be dropped rather than left dead.
+            // 405: server does not support explicit termination (spec).
+            // 404: session already gone — the goal state; still drop the id.
             if (!response.ok && response.status !== 405 && response.status !== 404) {
                 throw new SdkHttpError(
                     SdkErrorCode.ClientHttpFailedToTerminateSession,

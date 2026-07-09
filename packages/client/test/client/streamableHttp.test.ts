@@ -123,8 +123,6 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should NOT store a session ID from an error response', async () => {
-        // Regression: a session header on a 404 probe reply used to carry
-        // over into the legacy fallback initialize.
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: false,
             status: 404,
@@ -173,9 +171,8 @@ describe('StreamableHTTPClientTransport', () => {
 
         expect(transport.sessionId).toBe('real-session');
 
-        // Any successful status captures — 202 (accepted notification)
-        // included. Not notifications/initialized: that one fire-and-forgets
-        // the standalone GET, which would fall through the fetch mock.
+        // 202 captures too; notifications/initialized would fire the
+        // standalone GET past the fetch mock.
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
@@ -302,8 +299,7 @@ describe('StreamableHTTPClientTransport', () => {
         } as JSONRPCMessage);
         expect(transport.sessionId).toBe('gone-session');
 
-        // Server already expired the session — exactly the race termination
-        // is prone to. The goal state (no server session) is achieved.
+        // Session already gone server-side — termination goal state.
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: false,
             status: 404,

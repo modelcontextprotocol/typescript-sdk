@@ -363,6 +363,11 @@ verifies('client-transport:http:404-surfaces', async (_args: TestArgs) => {
                 if (sid && sid === sessionIdToBreak) {
                     return Response.json({ error: 'Session not found' }, { status: 404 });
                 }
+                // Once the session is broken, refuse re-establishment too:
+                // the automatic session-less InitializeRequest gets a 500.
+                if (sessionIdToBreak !== undefined && !sid && req.method === 'POST') {
+                    return new Response('unavailable', { status: 500 });
+                }
                 return handle.handleRequest(req);
             }
         });
