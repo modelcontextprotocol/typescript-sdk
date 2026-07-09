@@ -5,6 +5,7 @@ import {
     createFetchWithInit,
     encodeMcpParamValue,
     isInitializedNotification,
+    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -975,17 +976,17 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal
             };
 
-            // Responses are judged against the id this request carried —
-            // late replies from an older session race `_sessionId`.
+            // 404s are judged against the id this request carried — late
+            // replies from an older session race `_sessionId`.
             const sentSessionId = headers.get('mcp-session-id');
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Session ids come only from successful replies whose request
-            // carried no id or the still-current one.
-            if (response.ok) {
+            // Spec: the session id is assigned "at initialization time ... on the HTTP
+            // response containing the InitializeResult" — non-handshake echoes are ignored.
+            if (response.ok && (Array.isArray(message) ? message.some(m => isInitializeRequest(m)) : isInitializeRequest(message))) {
                 const sessionId = response.headers.get('mcp-session-id');
-                if (sessionId && (sentSessionId === null || sentSessionId === this._sessionId)) {
+                if (sessionId) {
                     this._sessionId = sessionId;
                     this._terminatedSessionId = undefined;
                 }

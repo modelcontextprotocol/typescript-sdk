@@ -93,7 +93,8 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
-                protocolVersion: '2025-03-26'
+                protocolVersion: '2025-03-26',
+                capabilities: {}
             },
             id: 'init-id'
         };
@@ -165,21 +166,64 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
 
         expect(transport.sessionId).toBe('real-session');
+    });
 
-        // 202 captures too; notifications/initialized would fire the
-        // standalone GET past the fetch mock.
+    it('stores the session ID when the initialize request is part of a batch', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'batch-session' })
+        });
+        await transport.send([
+            {
+                jsonrpc: '2.0',
+                method: 'initialize',
+                params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
+                id: 'init-id'
+            },
+            { jsonrpc: '2.0', method: 'other', id: 'other-id' }
+        ] as JSONRPCMessage[]);
+        expect(transport.sessionId).toBe('batch-session');
+    });
+
+    it('ignores a session id on a successful non-initialize response', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'handshake-session' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
+            id: 'init-id'
+        } as JSONRPCMessage);
+        expect(transport.sessionId).toBe('handshake-session');
+
+        // Spec: the session id is assigned "at initialization time ... on the
+        // HTTP response containing the InitializeResult" — the spec is silent on
+        // the header elsewhere, so the client ignores it on any other response.
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
-            headers: new Headers({ 'mcp-session-id': 'rotated-session' })
+            headers: new Headers({ 'mcp-session-id': 'unrelated-session' })
         });
         await transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
-        expect(transport.sessionId).toBe('rotated-session');
+        expect(transport.sessionId).toBe('handshake-session');
+
+        // A same-id echo on a request's response is equally inert.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers({ 'mcp-session-id': 'handshake-session' })
+        });
+        await transport.send({ jsonrpc: '2.0', method: 'test', id: 'r1' } as JSONRPCMessage);
+        expect(transport.sessionId).toBe('handshake-session');
     });
 
     it('marks raced 404s of the same dead session until a new one is assigned', async () => {
@@ -191,7 +235,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
 
@@ -233,7 +277,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-2'
         } as JSONRPCMessage);
         resolveLate!({
@@ -257,7 +301,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
         expect(transport.sessionId).toBe('expired-later');
@@ -279,40 +323,6 @@ describe('StreamableHTTPClientTransport', () => {
         expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBeNull();
     });
 
-    it('does not let a late success from an old session overwrite a newer session id', async () => {
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: true,
-            status: 200,
-            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'old-session' })
-        });
-        await transport.send({
-            jsonrpc: '2.0',
-            method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
-            id: 'init-id'
-        } as JSONRPCMessage);
-        expect(transport.sessionId).toBe('old-session');
-
-        // Request A goes out under old-session but its response is delayed.
-        let resolveLate!: (r: unknown) => void;
-        (globalThis.fetch as Mock).mockImplementationOnce(() => new Promise(r => (resolveLate = r)));
-        const late = transport.send({ jsonrpc: '2.0', method: 'test', id: 'late' } as JSONRPCMessage);
-
-        // Meanwhile the server rotates the session on request B.
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: true,
-            status: 202,
-            headers: new Headers({ 'mcp-session-id': 'new-session' })
-        });
-        await transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
-        expect(transport.sessionId).toBe('new-session');
-
-        // A's late echo of the old id must not clobber the rotated id.
-        resolveLate({ ok: true, status: 202, headers: new Headers({ 'mcp-session-id': 'old-session' }) });
-        await late;
-        expect(transport.sessionId).toBe('new-session');
-    });
-
     it('does not let a late 404 from an old session wipe a newer session id', async () => {
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
@@ -322,21 +332,38 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
         expect(transport.sessionId).toBe('first-session');
 
+        // Request A goes out under first-session but its response is delayed.
         let resolveLate!: (r: unknown) => void;
         (globalThis.fetch as Mock).mockImplementationOnce(() => new Promise(r => (resolveLate = r)));
         const late = transport.send({ jsonrpc: '2.0', method: 'test', id: 'late' } as JSONRPCMessage);
 
+        // Meanwhile request B hits a 404 — first-session is dead — and a
+        // fresh handshake establishes second-session.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers(),
+            text: () => Promise.resolve('session not found')
+        });
+        await expect(transport.send({ jsonrpc: '2.0', method: 'test', id: 'b' } as JSONRPCMessage)).rejects.toThrow();
+        expect(transport.sessionId).toBeUndefined();
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
-            status: 202,
-            headers: new Headers({ 'mcp-session-id': 'second-session' })
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'second-session' })
         });
-        await transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
+            id: 'init-2'
+        } as JSONRPCMessage);
         expect(transport.sessionId).toBe('second-session');
 
         // The late 404 was for first-session; second-session is still live.
@@ -360,7 +387,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
 
@@ -397,7 +424,7 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({
             jsonrpc: '2.0',
             method: 'initialize',
-            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26', capabilities: {} },
             id: 'init-id'
         } as JSONRPCMessage);
         expect(transport.sessionId).toBe('gone-session');
@@ -448,7 +475,8 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
-                protocolVersion: '2025-03-26'
+                protocolVersion: '2025-03-26',
+                capabilities: {}
             },
             id: 'init-id'
         };
@@ -488,7 +516,8 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
-                protocolVersion: '2025-03-26'
+                protocolVersion: '2025-03-26',
+                capabilities: {}
             },
             id: 'init-id'
         };

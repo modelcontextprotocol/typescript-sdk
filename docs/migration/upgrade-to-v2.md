@@ -1560,6 +1560,15 @@ rewrite required unless noted.
   open is benign (the client proceeds without the stream), and a `405` answering the
   session DELETE resolves `terminateSession()` normally — stateless-topology servers
   that decline both verbs keep working without changes, as in v1.
+- **Changed: session-id capture is handshake-only.** The `Mcp-Session-Id` response
+  header is stored only from a successful response to a POST that carried an
+  `InitializeRequest` — the spec assigns the id "at initialization time ... on the
+  HTTP response containing the `InitializeResult`". v1 captured the header from any
+  response (including error replies), so a server that (re)assigned session ids on
+  ordinary responses could silently rotate the client's session. The spec defines
+  that single assignment point and is silent on the header elsewhere, so the client
+  now ignores it on every other response — a server that wants a session must
+  assign the id on the `initialize` response, as SDK servers always have.
 - **Changed: session `404` handling.** A `404` answering the session DELETE now
   resolves `terminateSession()` (v1 threw) — the session is gone either way, and the
   stored id is cleared. A `404` to a POST that carried the current session id clears
