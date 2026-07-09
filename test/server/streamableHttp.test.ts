@@ -3272,3 +3272,214 @@ describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
         await storeTransport.close();
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport - Duplicate request IDs', () => {
+    let transport: WebStandardStreamableHTTPServerTransport;
+    let mcpServer: McpServer;
+    let slowToolStarted: Promise<void>;
+    let releaseSlowTool: () => void;
+
+    /** Shorthand to build a Web Standard Request for direct transport testing. */
+    function req(method: string, opts?: { body?: unknown; headers?: Record<string, string> }): Request {
+        const headers: Record<string, string> = { ...opts?.headers };
+        if (method === 'POST') {
+            headers['Accept'] ??= 'application/json, text/event-stream';
+            headers['Content-Type'] ??= 'application/json';
+        } else if (method === 'GET') {
+            headers['Accept'] ??= 'text/event-stream';
+        }
+        return new Request('http://localhost/mcp', {
+            method,
+            headers,
+            body: opts?.body !== undefined ? (typeof opts.body === 'string' ? opts.body : JSON.stringify(opts.body)) : undefined
+        });
+    }
+
+    function withSession(sessionId: string, extra?: Record<string, string>): Record<string, string> {
+        return { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', ...extra };
+    }
+
+    /** Extract the JSON-RPC payload from a single SSE `data:` line. */
+    function parseSSEData(raw: string): unknown {
+        const dataLine = raw.split('\n').find(line => line.startsWith('data:'));
+        if (!dataLine) {
+            throw new Error(`No SSE data line found in: ${raw}`);
+        }
+        return JSON.parse(dataLine.slice('data:'.length).trim());
+    }
+
+    function callTool(name: string, id: string): JSONRPCMessage {
+        return {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: { name, arguments: {} },
+            id
+        } as JSONRPCMessage;
+    }
+
+    function setupServer(options?: { enableJsonResponse?: boolean }): void {
+        mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+        mcpServer.tool(
+            'greet',
+            'Greeting tool',
+            async (): Promise<CallToolResult> => ({ content: [{ type: 'text', text: 'Hello, Test!' }] })
+        );
+
+        let started!: () => void;
+        slowToolStarted = new Promise<void>(resolve => {
+            started = resolve;
+        });
+        const gate = new Promise<void>(resolve => {
+            releaseSlowTool = resolve;
+        });
+        mcpServer.tool('slow', 'A tool that blocks until released by the test', async (): Promise<CallToolResult> => {
+            started();
+            await gate;
+            return { content: [{ type: 'text', text: 'slow-done' }] };
+        });
+
+        transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: options?.enableJsonResponse ?? false
+        });
+    }
+
+    beforeEach(async () => {
+        setupServer();
+        await mcpServer.connect(transport);
+    });
+
+    afterEach(async () => {
+        releaseSlowTool();
+        await transport.close();
+    });
+
+    async function initializeServer(): Promise<string> {
+        const response = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(response.status).toBe(200);
+        const newSessionId = response.headers.get('mcp-session-id');
+        expect(newSessionId).toBeDefined();
+        return newSessionId as string;
+    }
+
+    it('should reject a request whose ID collides with one still in flight', async () => {
+        const sessionId = await initializeServer();
+
+        // First request occupies the ID and blocks inside the tool handler
+        const firstResponse = await transport.handleRequest(
+            req('POST', { body: callTool('slow', 'dup-1'), headers: withSession(sessionId) })
+        );
+        expect(firstResponse.status).toBe(200);
+        await slowToolStarted;
+
+        // Concurrent request reusing the same ID must be rejected, not cross-wired
+        const secondResponse = await transport.handleRequest(
+            req('POST', { body: callTool('greet', 'dup-1'), headers: withSession(sessionId) })
+        );
+        expect(secondResponse.status).toBe(400);
+        const errorData = await secondResponse.json();
+        expectErrorResponse(errorData, -32600, /already in flight/);
+
+        // The original request must still receive its own response
+        releaseSlowTool();
+        const eventData = parseSSEData(await readSSEEvent(firstResponse));
+        expect(eventData).toMatchObject({
+            jsonrpc: '2.0',
+            result: { content: [{ type: 'text', text: 'slow-done' }] },
+            id: 'dup-1'
+        });
+    });
+
+    it('should reject duplicate request IDs within a single batch', async () => {
+        const sessionId = await initializeServer();
+
+        const batch: JSONRPCMessage[] = [callTool('greet', 'batch-dup'), callTool('greet', 'batch-dup')];
+        const response = await transport.handleRequest(req('POST', { body: batch, headers: withSession(sessionId) }));
+
+        expect(response.status).toBe(400);
+        const errorData = await response.json();
+        expectErrorResponse(errorData, -32600, /already in flight/);
+    });
+
+    it('should allow sequential reuse of a request ID after the response is delivered', async () => {
+        const sessionId = await initializeServer();
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const response = await transport.handleRequest(
+                req('POST', { body: callTool('greet', 'reuse-1'), headers: withSession(sessionId) })
+            );
+            expect(response.status).toBe(200);
+
+            const eventData = parseSSEData(await readSSEEvent(response));
+            expect(eventData).toMatchObject({
+                jsonrpc: '2.0',
+                result: { content: [{ type: 'text', text: 'Hello, Test!' }] },
+                id: 'reuse-1'
+            });
+        }
+    });
+
+    it('should allow reuse of a request ID after the original request was cancelled', async () => {
+        const sessionId = await initializeServer();
+
+        const firstResponse = await transport.handleRequest(
+            req('POST', { body: callTool('slow', 'cancel-1'), headers: withSession(sessionId) })
+        );
+        expect(firstResponse.status).toBe(200);
+        await slowToolStarted;
+
+        const cancelNotification: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'notifications/cancelled',
+            params: { requestId: 'cancel-1', reason: 'test cancellation' }
+        };
+        const cancelResponse = await transport.handleRequest(req('POST', { body: cancelNotification, headers: withSession(sessionId) }));
+        expect(cancelResponse.status).toBe(202);
+
+        // The cancelled request will never produce a response, so its ID must be reusable
+        const secondResponse = await transport.handleRequest(
+            req('POST', { body: callTool('greet', 'cancel-1'), headers: withSession(sessionId) })
+        );
+        expect(secondResponse.status).toBe(200);
+
+        const eventData = parseSSEData(await readSSEEvent(secondResponse));
+        expect(eventData).toMatchObject({
+            jsonrpc: '2.0',
+            result: { content: [{ type: 'text', text: 'Hello, Test!' }] },
+            id: 'cancel-1'
+        });
+    });
+
+    it('should reject duplicate in-flight request IDs in JSON response mode', async () => {
+        await transport.close();
+        setupServer({ enableJsonResponse: true });
+        await mcpServer.connect(transport);
+
+        const sessionId = await initializeServer();
+
+        // In JSON mode handleRequest resolves only when the response is ready - do not await
+        const firstResponsePromise = transport.handleRequest(
+            req('POST', { body: callTool('slow', 'dup-json'), headers: withSession(sessionId) })
+        );
+        await slowToolStarted;
+
+        const secondResponse = await transport.handleRequest(
+            req('POST', { body: callTool('greet', 'dup-json'), headers: withSession(sessionId) })
+        );
+        expect(secondResponse.status).toBe(400);
+        const errorData = await secondResponse.json();
+        expectErrorResponse(errorData, -32600, /already in flight/);
+
+        // The original request must still resolve with its own result
+        releaseSlowTool();
+        const firstResponse = await firstResponsePromise;
+        expect(firstResponse.status).toBe(200);
+        const data = await firstResponse.json();
+        expect(data).toMatchObject({
+            jsonrpc: '2.0',
+            result: { content: [{ type: 'text', text: 'slow-done' }] },
+            id: 'dup-json'
+        });
+    });
+});
