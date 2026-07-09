@@ -17,12 +17,12 @@
  * discriminator, and hand-built result literals are equally legal — the
  * server seam re-checks the at-least-one rule for them.
  */
+import { ProtocolError } from '../types/errors';
 import { isInputRequiredResult } from '../types/guards';
 import type {
     CreateMessageRequestParams,
     CreateMessageResult,
     CreateMessageResultWithTools,
-    ElicitRequestFormParams,
     ElicitRequestURLParams,
     InputRequest,
     InputRequests,
@@ -31,6 +31,10 @@ import type {
     Root
 } from '../types/types';
 import type { StandardSchemaV1 } from '../util/standardSchema';
+import type { ElicitInputParams } from './elicitation';
+import { normalizeElicitInputParams } from './elicitation';
+
+export type { ElicitInputParams } from './elicitation';
 
 /** The shape accepted by {@linkcode inputRequired}. */
 export interface InputRequiredSpec {
@@ -57,8 +61,15 @@ interface InputRequiredBuilder {
      */
     (spec: InputRequiredSpec): InputRequiredResult;
 
-    /** Builds an embedded form-mode elicitation request (`elicitation/create`). */
-    elicit(params: Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' }): InputRequest;
+    /**
+     * Builds an embedded form-mode elicitation request (`elicitation/create`).
+     *
+     * A Standard Schema `requestedSchema` is converted to the restricted wire shape;
+     * shapes it cannot express throw a `TypeError` before anything is sent. Responses
+     * are not validated against it — pass the same schema to `acceptedContent()` on
+     * re-entry for validated, typed content.
+     */
+    elicit(params: ElicitInputParams): InputRequest;
 
     /**
      * Builds an embedded URL-mode elicitation request (`elicitation/create`).
@@ -118,8 +129,12 @@ function buildInputRequired(spec: InputRequiredSpec): InputRequiredResult {
  * ```
  */
 export const inputRequired: InputRequiredBuilder = Object.assign(buildInputRequired, {
-    elicit(params: Omit<ElicitRequestFormParams, 'mode'> & { mode?: 'form' }): InputRequest {
-        return { method: 'elicitation/create', params: { ...params, mode: 'form' } };
+    elicit(params: ElicitInputParams): InputRequest {
+        try {
+            return { method: 'elicitation/create', params: normalizeElicitInputParams(params) };
+        } catch (error) {
+            throw error instanceof ProtocolError ? new TypeError(error.message, { cause: error }) : error;
+        }
     },
     elicitUrl(params: Omit<ElicitRequestURLParams, 'mode' | 'elicitationId'>): InputRequest {
         // The neutral ElicitRequestURLParams keeps `elicitationId` (it is required on the
