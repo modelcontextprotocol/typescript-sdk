@@ -323,6 +323,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _pendingReconnectOptions?: StartSSEOptions;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -653,6 +654,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
+            this._pendingReconnectOptions = undefined;
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
@@ -675,6 +677,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const handle = setTimeout(reconnect, delay);
             this._cancelReconnection = () => clearTimeout(handle);
         }
+        this._pendingReconnectOptions = options;
     }
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
@@ -1000,6 +1003,14 @@ export class StreamableHTTPClientTransport implements Transport {
                     this._terminatedSessionId = sentSessionId;
                     this._sessionId = undefined;
                     this._protocolVersion = undefined;
+                    // A reconnect pending for the dead session's SSE stream
+                    // would fire into the new session with a stale
+                    // last-event-id — drop it, and settle any per-request
+                    // caller waiting on that stream (it is definitively gone).
+                    this._cancelReconnection?.();
+                    this._cancelReconnection = undefined;
+                    this._pendingReconnectOptions?.onRequestStreamEnd?.();
+                    this._pendingReconnectOptions = undefined;
                     sessionTerminated = true;
                 } else if (response.status === 404 && sentSessionId !== null && sentSessionId === this._terminatedSessionId) {
                     sessionTerminated = true;
@@ -1170,8 +1181,9 @@ export class StreamableHTTPClientTransport implements Transport {
      * HTTP `DELETE` to the MCP endpoint with the `Mcp-Session-Id` header to explicitly
      * terminate the session.
      *
-     * The server MAY respond with HTTP `405 Method Not Allowed`, indicating that
-     * the server does not allow clients to terminate sessions.
+     * A `405 Method Not Allowed` (server does not allow client termination)
+     * or `404 Not Found` (session already expired) response also resolves;
+     * the stored session id is cleared in every resolving case.
      */
     async terminateSession(): Promise<void> {
         if (!this._sessionId) {

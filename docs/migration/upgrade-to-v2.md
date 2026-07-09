@@ -1560,6 +1560,14 @@ rewrite required unless noted.
   open is benign (the client proceeds without the stream), and a `405` answering the
   session DELETE resolves `terminateSession()` normally — stateless-topology servers
   that decline both verbs keep working without changes, as in v1.
+- **Changed: session `404` handling.** A `404` answering the session DELETE now
+  resolves `terminateSession()` (v1 threw) — the session is gone either way, and the
+  stored id is cleared. A `404` to a POST that carried the current session id clears
+  `transport.sessionId`, and on a pre-2026 connection the client re-initializes
+  automatically and retries the failed request once (pagination continuations are not
+  retried, and server-side per-session state such as subscriptions or log level does
+  not carry over). Host code keyed off that `404` now only sees it when the automatic
+  recovery has also failed, at which point the client is closed.
 
 #### stdio transport
 
@@ -1614,7 +1622,9 @@ rewrite required unless noted.
   request body no longer enable it.
 - Session-ID mismatch still responds `404` with JSON-RPC `-32001` (`Session not found`),
   unchanged from v1. This `-32001` is an SDK convention, not spec-assigned; client code
-  should key off the HTTP `404` status, not `-32001`.
+  should key off the HTTP `404` status, not `-32001`. The v2 client handles this `404`
+  itself on pre-2026 connections (see the session `404` bullet under the client
+  Streamable HTTP section above) — hosts only observe it when that recovery fails.
 
 #### Server (deprecated accessors and app-factory Origin validation)
 

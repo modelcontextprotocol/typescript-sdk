@@ -59,7 +59,7 @@ app.get('/mcp', route);
 app.delete('/mcp', route);
 ```
 
-The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
+The map cleans itself up: `transport.onclose` fires when the session ends, whether the client sent `DELETE` or you called `transport.close()`. A request with an unknown `Mcp-Session-Id` gets the `404` above, which tells the client to start a new session (the v2 client does this automatically on pre-2026 connections, re-initializing and retrying the failed request once); a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
 
 ::: tip
 On shutdown, close every stored transport — `for (const [, transport] of sessions) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.

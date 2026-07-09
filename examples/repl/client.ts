@@ -531,23 +531,17 @@ async function terminateSession(): Promise<void> {
 
     try {
         console.log('Terminating session with ID:', transport.sessionId);
+        // terminateSession() also resolves on 405 (server declines DELETE)
+        // and 404 (session already gone), clearing the session id in every
+        // resolving case — the outcome is not distinguishable here.
         await transport.terminateSession();
-        console.log('Session terminated successfully');
+        console.log('Session terminated; session ID cleared');
+        sessionId = undefined;
 
-        // Check if sessionId was cleared after termination
-        if (transport.sessionId) {
-            console.log('Server responded with 405 Method Not Allowed (session termination not supported)');
-            console.log('Session ID is still active:', transport.sessionId);
-        } else {
-            console.log('Session ID has been cleared');
-            sessionId = undefined;
-
-            // Also close the transport and clear client objects
-            await transport.close();
-            console.log('Transport closed after session termination');
-            client = null;
-            transport = null;
-        }
+        await transport.close();
+        console.log('Transport closed after session termination');
+        client = null;
+        transport = null;
     } catch (error) {
         console.error('Error terminating session:', error);
     }

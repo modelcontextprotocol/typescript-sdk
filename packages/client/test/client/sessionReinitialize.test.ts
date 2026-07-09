@@ -42,11 +42,22 @@ function isRequest(m: JSONRPCMessage): m is JSONRPCMessage & { id: number | stri
     return 'method' in m && 'id' in m;
 }
 
-function echoScript(opts: { failNthToolCall?: number[]; failReinit?: boolean }) {
+function echoScript(opts: { failNthToolCall?: number[]; failReinit?: boolean; failFirstRootsNotification?: boolean }) {
     let toolCalls = 0;
     let initCount = 0;
+    let rootsNotifications = 0;
     return (message: JSONRPCMessage, t: ScriptedTransport) => {
-        if (!isRequest(message)) return;
+        if (!isRequest(message)) {
+            if (
+                'method' in message &&
+                message.method === 'notifications/roots/list_changed' &&
+                opts.failFirstRootsNotification &&
+                ++rootsNotifications === 1
+            ) {
+                throw terminated404();
+            }
+            return;
+        }
         if (message.method === 'initialize') {
             initCount++;
             if (opts.failReinit && initCount > 1) {
@@ -113,15 +124,55 @@ describe('session re-initialization after a terminated-session 404', () => {
         expect(reported.some(e => e instanceof SdkHttpError && e.data.status === 500)).toBe(true);
     });
 
-    it('does not retry pagination continuations', async () => {
+    it('recovers the session on a pagination continuation but does not retry it', async () => {
         const transport = new ScriptedTransport(echoScript({ failNthToolCall: [1] }));
         const client = new Client({ name: 'c', version: '0' }, {});
         await client.connect(transport);
 
         const rejection = await client.request({ method: 'tools/list', params: { cursor: 'stale' } }).catch((e: unknown) => e);
         expect(rejection).toBeInstanceOf(SdkHttpError);
+        expect((rejection as SdkHttpError).data.status).toBe(404);
+        // The session is re-established (so later requests work), but the
+        // dead session's cursor is not replayed into the new one.
         const methods = transport.sent.filter(isRequest).map(m => m.method);
-        expect(methods).toEqual(['initialize', 'tools/list']);
+        expect(methods).toEqual(['initialize', 'tools/list', 'initialize']);
+
+        const result = await client.request({ method: 'tools/list' });
+        expect(result.tools).toEqual([]);
+        await client.close();
+    });
+
+    it('recovers and resends a notification that hit a terminated session', async () => {
+        const transport = new ScriptedTransport(echoScript({ failFirstRootsNotification: true }));
+        const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
+        await client.connect(transport);
+
+        await client.sendRootsListChanged();
+
+        const methods = transport.sent.map(m => ('method' in m ? m.method : '')).filter(m => m !== '');
+        expect(methods).toEqual([
+            'initialize',
+            'notifications/initialized',
+            'notifications/roots/list_changed',
+            'initialize',
+            'notifications/initialized',
+            'notifications/roots/list_changed'
+        ]);
+        await client.close();
+    });
+
+    it('runs the recovery handshake without the failing request options', async () => {
+        const transport = new ScriptedTransport(echoScript({ failNthToolCall: [1] }));
+        const client = new Client({ name: 'c', version: '0' }, {});
+        await client.connect(transport);
+
+        await client.callTool({ name: 'echo', arguments: {} }, { onprogress: () => {} });
+
+        const inits = transport.sent.filter(isRequest).filter(m => m.method === 'initialize');
+        expect(inits).toHaveLength(2);
+        // The caller's onprogress must not decorate the shared recovery
+        // initialize with a progress token.
+        expect((inits[1] as unknown as { params: { _meta?: unknown } }).params._meta).toBeUndefined();
         await client.close();
     });
 });

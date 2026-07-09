@@ -351,6 +351,43 @@ describe('StreamableHTTPClientTransport', () => {
         expect(transport.sessionId).toBe('second-session');
     });
 
+    it('cancels a pending SSE reconnection when a 404 terminates the session', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'doomed' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-id'
+        } as JSONRPCMessage);
+
+        // A reconnect scheduled for the dead session's stream must not fire
+        // into the recovered session with a stale last-event-id.
+        const cancel = vi.fn();
+        const onRequestStreamEnd = vi.fn();
+        const internals = transport as unknown as {
+            _cancelReconnection?: () => void;
+            _pendingReconnectOptions?: { onRequestStreamEnd?: () => void };
+        };
+        internals._cancelReconnection = cancel;
+        internals._pendingReconnectOptions = { onRequestStreamEnd };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers(),
+            text: () => Promise.resolve('session not found')
+        });
+        await expect(transport.send({ jsonrpc: '2.0', method: 'test', id: 'r1' } as JSONRPCMessage)).rejects.toThrow();
+        expect(cancel).toHaveBeenCalledTimes(1);
+        // A per-request caller waiting on that stream's resume settles.
+        expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+    });
+
     it('treats a 404 to the termination DELETE as successful termination and drops the id', async () => {
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,

@@ -34,16 +34,18 @@ import type {
     LoggingLevel,
     MessageExtraInfo,
     NonCompleteResultFlow,
+    Notification,
     NotificationMethod,
+    NotificationOptions,
     ProtocolEra,
     ProtocolOptions,
     ReadResourceRequest,
     ReadResourceResult,
     RequestMethod,
-    ResultTypeMap,
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
     Result,
+    ResultTypeMap,
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
@@ -76,7 +78,6 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError,
-    isStandardSchema,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
@@ -922,29 +923,46 @@ export class Client extends Protocol<ClientContext> {
             // Spec (Session Management): a 404 to a request that carried the
             // session id means the session is gone — start a new one with a
             // fresh InitializeRequest, then retry the failed request once.
-            // Pagination continuations are not retried: a cursor minted by
-            // the dead session is meaningless to the new one.
-            if (
-                request.method === 'initialize' ||
-                !this._isSessionTerminated(error) ||
-                (request.params !== undefined && 'cursor' in request.params)
-            ) {
+            if (request.method === 'initialize' || !this._isSessionTerminated(error)) {
                 throw error;
             }
-            const options = isStandardSchema(schemaOrOptions) ? maybeOptions : schemaOrOptions;
-            this._sessionReinit ??= this._reinitializeSession(options).finally(() => {
-                this._sessionReinit = undefined;
-            });
-            try {
-                await this._sessionReinit;
-            } catch (reinitError) {
-                // Re-establishment failed (the client is closed at this
-                // point): surface the request's own 404; the handshake
-                // failure goes to onerror.
-                this.onerror?.(reinitError instanceof Error ? reinitError : new Error(String(reinitError)));
+            await this._recoverSession(error);
+            // A cursor minted by the dead session is meaningless to the new
+            // one: the session is recovered, but the 404 surfaces so the
+            // caller restarts pagination.
+            if (request.params !== undefined && 'cursor' in request.params) {
                 throw error;
             }
             return await super.request(request as never, schemaOrOptions as never, maybeOptions);
+        }
+    }
+
+    override async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        try {
+            return await super.notification(notification, options);
+        } catch (error) {
+            // `notifications/initialized` is part of the recovery handshake
+            // itself — recovering on it would await the in-flight recovery.
+            if (notification.method === 'notifications/initialized' || !this._isSessionTerminated(error)) {
+                throw error;
+            }
+            await this._recoverSession(error);
+            return await super.notification(notification, options);
+        }
+    }
+
+    private async _recoverSession(cause: unknown): Promise<void> {
+        this._sessionReinit ??= this._reinitializeSession().finally(() => {
+            this._sessionReinit = undefined;
+        });
+        try {
+            await this._sessionReinit;
+        } catch (reinitError) {
+            // Re-establishment failed (the client is closed at this
+            // point): surface the request's own 404; the handshake
+            // failure goes to onerror.
+            this.onerror?.(reinitError instanceof Error ? reinitError : new Error(String(reinitError)));
+            throw cause;
         }
     }
 
@@ -959,12 +977,14 @@ export class Client extends Protocol<ClientContext> {
         );
     }
 
-    private async _reinitializeSession(options?: RequestOptions): Promise<void> {
+    private async _reinitializeSession(): Promise<void> {
         const transport = this.transport;
         if (transport === undefined) {
             throw new SdkError(SdkErrorCode.ConnectionClosed, 'Cannot reinitialize: not connected');
         }
-        await this._legacyHandshake(transport, options);
+        // No caller options: the handshake is shared connection state, so no
+        // single request's signal/timeout/onprogress may govern it.
+        await this._legacyHandshake(transport);
     }
 
     /**
