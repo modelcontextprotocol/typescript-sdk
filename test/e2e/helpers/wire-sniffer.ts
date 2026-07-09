@@ -112,7 +112,7 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
         // object via the CallToolResult member — so union conformance below
         // is a weak check. Era-gating for the other result families is
         // asserted here explicitly, by vocabulary.
-        if (party === 'server' && isPlainRecord(result) && (result as Record<string, unknown>).content === undefined) {
+        if (party === 'server' && isPlainRecord(result) && result.content === undefined) {
             for (const key of ['task', 'inputRequests', 'requestState']) {
                 if (key in result) {
                     fail(party, `content-less result carrying '${key}' on a legacy cell`, msg);
