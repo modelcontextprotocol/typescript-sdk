@@ -62,10 +62,12 @@ class SessionfulTransport {
 }
 
 describe('r4: session resume after close()', () => {
-    // close() wipes the instance's negotiated state, so the resume branches
-    // fall back to the version the resuming transport itself carries
-    // (Transport.protocolVersion) and re-push it. Pinned here so the
-    // connection-state consolidation must preserve it.
+    // The resume branch seeds the new connection from the session-resumption
+    // record or, after close() cleared it, from the version the resuming
+    // transport itself carries — so setProtocolVersion is pushed either way.
+    // (It used to read the negotiated version, which close() had reset, and
+    // silently skip the push: the resumed session's HTTP requests went out
+    // without the required mcp-protocol-version header.)
     test('reconnecting after close() with a carried sessionId + protocolVersion pushes the version onto the new transport', async () => {
         const client = new Client({ name: 'resume-client', version: '1.0.0' });
         const first = new SessionfulTransport();

@@ -518,6 +518,18 @@ export class Client extends Protocol<ClientContext> {
     private _autoOpenedSubscription?: McpSubscription;
     /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
     private _discoverResult?: DiscoverResult;
+    /**
+     * The protocol version to restore when resuming a server session on a new
+     * transport. Written when a connection establishes (the negotiated
+     * version must outlive the connection — a transport drop does not end the
+     * server session); cleared by {@linkcode _resetConnectionState}
+     * (close / fresh connect). The resume branches also fall back to the
+     * version the resuming transport itself carries
+     * ({@linkcode Transport.protocolVersion}), so resuming AFTER close() —
+     * where the consumer persisted sessionId + protocolVersion — still pushes
+     * the header.
+     */
+    private _sessionResumption?: { version: string };
 
     /**
      * Clears every per-connection field in one place. Called at the start of
@@ -527,6 +539,7 @@ export class Client extends Protocol<ClientContext> {
      */
     private _resetConnectionState(): void {
         this._negotiatedProtocolVersion = undefined;
+        this._sessionResumption = undefined;
         this._serverCapabilities = undefined;
         this._serverVersion = undefined;
         this._instructions = undefined;
@@ -945,10 +958,15 @@ export class Client extends Protocol<ClientContext> {
         // the originally negotiated version — from this instance, or from the
         // transport itself after close() wiped the instance's copy.
         if (transport.sessionId !== undefined) {
-            const version = this._negotiatedProtocolVersion ?? transport.protocolVersion;
-            if (version !== undefined) {
-                this._negotiatedProtocolVersion = version;
-                transport.setProtocolVersion?.(version);
+            // Resuming keeps the original negotiation: the version recorded
+            // when the session's connection established (or, after close(),
+            // carried by the resuming transport itself) seeds the new
+            // connection's era and is pushed onto the transport again.
+            const negotiatedProtocolVersion = this._sessionResumption?.version ?? transport.protocolVersion;
+            if (negotiatedProtocolVersion !== undefined) {
+                this._negotiatedProtocolVersion = negotiatedProtocolVersion;
+                this._sessionResumption = { version: negotiatedProtocolVersion };
+                transport.setProtocolVersion?.(negotiatedProtocolVersion);
             }
             return;
         }
@@ -1020,6 +1038,10 @@ export class Client extends Protocol<ClientContext> {
             // EXCHANGE is the legacy handshake by definition and completes on
             // that era.
             this._negotiatedProtocolVersion = result.protocolVersion;
+            // Recorded for later session-resuming reconnects: the negotiated
+            // version must outlive this connection (a transport drop does not
+            // end the server session), but not a close()/fresh handshake.
+            this._sessionResumption = { version: result.protocolVersion };
 
             // Set up list changed handlers now that we know server capabilities
             if (this._listChangedConfig) {
@@ -1046,10 +1068,16 @@ export class Client extends Protocol<ClientContext> {
         // this instance or, after close() wiped it, from the transport itself.
         if (transport.sessionId !== undefined) {
             await super.connect(transport);
-            const version = this._negotiatedProtocolVersion ?? transport.protocolVersion;
-            if (version !== undefined) {
-                this._negotiatedProtocolVersion = version;
-                transport.setProtocolVersion?.(version);
+            // Same restore as the legacy resume branch: recorded at session
+            // establishment, or carried by the resuming transport after a
+            // close().
+            const negotiatedProtocolVersion = this._sessionResumption?.version ?? transport.protocolVersion;
+            if (negotiatedProtocolVersion !== undefined) {
+                this._negotiatedProtocolVersion = negotiatedProtocolVersion;
+                this._sessionResumption = { version: negotiatedProtocolVersion };
+                if (transport.setProtocolVersion) {
+                    transport.setProtocolVersion(negotiatedProtocolVersion);
+                }
             }
             return;
         }
@@ -1090,6 +1118,7 @@ export class Client extends Protocol<ClientContext> {
         this._discoverResult = result.discover;
         // Modern selection: the same connection state the legacy handshake completion sets.
         this._negotiatedProtocolVersion = result.version;
+        this._sessionResumption = { version: result.version };
         // The single setProtocolVersion call site on this path, mirroring the legacy path after initialize.
         if (transport.setProtocolVersion) {
             transport.setProtocolVersion(result.version);
@@ -1210,6 +1239,7 @@ export class Client extends Protocol<ClientContext> {
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = prior.instructions;
         this._negotiatedProtocolVersion = version;
+        this._sessionResumption = { version };
         transport.setProtocolVersion?.(version);
 
         // No auto-opened listen stream on this path (request-only workers).

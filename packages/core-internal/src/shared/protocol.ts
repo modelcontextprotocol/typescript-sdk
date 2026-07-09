@@ -538,6 +538,14 @@ class Connection {
     requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     pendingDebouncedNotifications = new Set<string>();
 
+    /**
+     * The protocol version negotiated on THIS connection (`undefined` before
+     * negotiation completes) — connection state, so a stale era can never
+     * leak onto a successor connection.
+     */
+    negotiatedProtocolVersion?: string;
+
+    private _disposed = false;
     private _originalOnClose?: Transport['onclose'];
     private _originalOnError?: Transport['onerror'];
     private _originalOnMessage?: Transport['onmessage'];
@@ -546,43 +554,137 @@ class Connection {
         this.transport = transport;
     }
 
+    /** `true` once {@linkcode dispose} ran: sends reject, transport events no-op. */
+    get disposed(): boolean {
+        return this._disposed;
+    }
+
     /**
-     * Wraps the transport's callbacks so its events also feed the owning
-     * Protocol, preserving any callbacks the transport already had (they run
-     * first).
+     * Sends on this connection's transport; rejects with the typed
+     * ConnectionClosed error once the connection is disposed, so senders that
+     * captured this connection fail structurally instead of writing onto
+     * whatever connection replaced it.
      */
-    installCallbacks(hooks: {
-        onclose: () => void;
-        onerror: (error: Error) => void;
-        onmessage: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
-    }): void {
+    send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+        if (this._disposed || this.transport === undefined) {
+            return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+        }
+        return this.transport.send(message, options);
+    }
+
+    /**
+     * Atomically brings the connection up: installs the wrapped callbacks and
+     * starts the transport, or — when start() rejects — fully unwinds
+     * (restores the transport's own callbacks and disposes this connection so
+     * late events from the failed transport are inert).
+     */
+    async open(
+        hooks: {
+            onclose: () => void;
+            onerror: (error: Error) => void;
+            onmessage: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+        },
+        supportedProtocolVersions: string[]
+    ): Promise<void> {
         const transport = this.transport;
         if (!transport) {
             return;
         }
+        this._installCallbacks(transport, hooks);
+
+        // Pass supported protocol versions to transport for header validation
+        transport.setSupportedProtocolVersions?.(supportedProtocolVersions);
+
+        try {
+            await transport.start();
+        } catch (error) {
+            // A transport that failed to start was never connected: unwind so
+            // the instance can retry connect(). Restore the transport's own
+            // callbacks and dispose — a late event from the failed transport
+            // (e.g. a child process 'close' after a failed spawn) must not
+            // tear down whatever connection a successful retry established.
+            this.restoreCallbacks();
+            this.dispose();
+            throw error;
+        }
+    }
+
+    /**
+     * Tears down this connection's state exactly once. Returns the response
+     * handlers and in-flight handler abort controllers for the caller to
+     * settle (in that order), or `undefined` when already disposed.
+     */
+    dispose():
+        | {
+              responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void>;
+              requestHandlerAbortControllers: Map<RequestId, AbortController>;
+          }
+        | undefined {
+        if (this._disposed) {
+            return undefined;
+        }
+        this._disposed = true;
+
+        const responseHandlers = this.responseHandlers;
+        this.responseHandlers = new Map();
+        this.progressHandlers.clear();
+        this.pendingDebouncedNotifications.clear();
+
+        for (const info of this.timeoutInfo.values()) {
+            clearTimeout(info.timeoutId);
+        }
+        this.timeoutInfo.clear();
+
+        const requestHandlerAbortControllers = this.requestHandlerAbortControllers;
+        this.requestHandlerAbortControllers = new Map();
+
+        return { responseHandlers, requestHandlerAbortControllers };
+    }
+
+    /**
+     * Wraps the transport's callbacks so its events also feed the owning
+     * Protocol, preserving any callbacks the transport already had (they run
+     * first). A disposed connection's events never reach the Protocol hooks —
+     * a stale transport cannot tear down or write into a successor
+     * connection.
+     */
+    private _installCallbacks(
+        transport: Transport,
+        hooks: {
+            onclose: () => void;
+            onerror: (error: Error) => void;
+            onmessage: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+        }
+    ): void {
         const _onclose = (this._originalOnClose = transport.onclose);
         transport.onclose = () => {
             try {
                 _onclose?.();
             } finally {
-                hooks.onclose();
+                if (!this._disposed) {
+                    hooks.onclose();
+                }
             }
         };
 
         const _onerror = (this._originalOnError = transport.onerror);
         transport.onerror = (error: Error) => {
             _onerror?.(error);
-            hooks.onerror(error);
+            if (!this._disposed) {
+                hooks.onerror(error);
+            }
         };
 
         const _onmessage = (this._originalOnMessage = transport.onmessage);
         transport.onmessage = (message, extra) => {
             _onmessage?.(message, extra);
-            hooks.onmessage(message, extra);
+            if (!this._disposed) {
+                hooks.onmessage(message, extra);
+            }
         };
     }
 
-    /** Undoes {@linkcode installCallbacks}: puts the transport's own callbacks back. */
+    /** Puts the transport's own callbacks back. */
     restoreCallbacks(): void {
         if (!this.transport) {
             return;
@@ -686,12 +788,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
 
     /**
+     * Seed for the negotiated protocol version written BEFORE a connection
+     * exists (the serving entries bind a factory instance to an era before
+     * connecting it); {@linkcode Protocol.connect | connect()} copies it onto
+     * each new connection.
+     */
+    private _pendingNegotiatedProtocolVersion?: string;
+
+    /**
      * The protocol version negotiated for the current connection (`undefined`
      * before negotiation completes), which determines the wire era this
      * instance speaks. Set by the SDK's negotiation and initialize paths
-     * (`Client.connect`, `Server._oninitialize`).
+     * (`Client.connect`, `Server._oninitialize`). Lives on the connection:
+     * writes before connect() land on the pending seed the next connection
+     * starts from; reads without a live connection fall back to that seed.
      */
-    protected _negotiatedProtocolVersion?: string;
+    protected get _negotiatedProtocolVersion(): string | undefined {
+        return this._connection === undefined ? this._pendingNegotiatedProtocolVersion : this._connection.negotiatedProtocolVersion;
+    }
+
+    protected set _negotiatedProtocolVersion(version: string | undefined) {
+        if (this._connection === undefined) {
+            this._pendingNegotiatedProtocolVersion = version;
+        } else {
+            this._connection.negotiatedProtocolVersion = version;
+        }
+    }
 
     static {
         writeNegotiatedProtocolVersion = (instance, version) => {
@@ -873,45 +995,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.assertNotConnected();
 
         const connection = new Connection(transport);
+        // An era bound before connect() (serving entries, the package-internal
+        // write channel) seeds the new connection.
+        connection.negotiatedProtocolVersion = this._pendingNegotiatedProtocolVersion;
         this._connection = connection;
-        connection.installCallbacks({
-            onclose: () => {
-                // Identity guard: close() may have already torn this
-                // connection down (and a replacement may be live) by the time
-                // a transport fires a deferred onclose.
-                if (this._connection === connection) {
-                    this._onclose();
-                }
-            },
-            onerror: error => this._onerror(error),
-            onmessage: (message, extra) => {
-                if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                    this._onresponse(message);
-                } else if (isJSONRPCRequest(message)) {
-                    this._onrequest(message, extra);
-                } else if (isJSONRPCNotification(message)) {
-                    this._onnotification(message, extra);
-                } else {
-                    this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
-                }
-            }
-        });
-
-        // Pass supported protocol versions to transport for header validation
-        transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
-
         try {
-            await transport.start();
+            await connection.open(
+                {
+                    onclose: () => this._onclose(),
+                    onerror: error => this._onerror(error),
+                    onmessage: (message, extra) => {
+                        if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+                            this._onresponse(message);
+                        } else if (isJSONRPCRequest(message)) {
+                            this._onrequest(message, extra);
+                        } else if (isJSONRPCNotification(message)) {
+                            this._onnotification(message, extra);
+                        } else {
+                            this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+                        }
+                    }
+                },
+                this._supportedProtocolVersions
+            );
         } catch (error) {
-            // A transport that failed to start was never connected: unwind so
-            // the instance can retry connect() — the reuse guard above would
-            // otherwise lock the instance onto a transport that never carried
-            // traffic. Restore the transport's own callbacks too: leaving the
-            // wrapped closures installed would let a late event from the
-            // failed transport (e.g. a child process 'close' after a failed
-            // spawn) tear down whatever connection a successful retry
-            // established.
-            connection.restoreCallbacks();
+            // A transport that failed to start was never connected — open()
+            // fully unwound the connection; free the slot so the instance can
+            // retry connect().
             this._connection = undefined;
             throw error;
         }
@@ -923,33 +1033,23 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * timeout clearing, in-flight request abort) does not run otherwise.
      */
     protected _onclose(): void {
-        const connection = this._conn;
-        const responseHandlers = connection.responseHandlers;
-        connection.responseHandlers = new Map();
-        connection.progressHandlers.clear();
-        connection.pendingDebouncedNotifications.clear();
-
-        for (const info of connection.timeoutInfo.values()) {
-            clearTimeout(info.timeoutId);
-        }
-        connection.timeoutInfo.clear();
-
-        const requestHandlerAbortControllers = connection.requestHandlerAbortControllers;
-        connection.requestHandlerAbortControllers = new Map();
+        const connection = this._connection;
+        this._connection = undefined;
+        const captured = connection?.dispose();
 
         const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
-
-        this._connection = undefined;
 
         try {
             this.onclose?.();
         } finally {
-            for (const handler of responseHandlers.values()) {
-                handler(error);
-            }
+            if (captured !== undefined) {
+                for (const handler of captured.responseHandlers.values()) {
+                    handler(error);
+                }
 
-            for (const controller of requestHandlerAbortControllers.values()) {
-                controller.abort(error);
+                for (const controller of captured.requestHandlerAbortControllers.values()) {
+                    controller.abort(error);
+                }
             }
         }
     }
@@ -1126,40 +1226,45 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        // The connection that delivered this request. Per-request senders
+        // capture it and send through it, so a handler that outlives its
+        // connection fails structurally (requests reject ConnectionClosed,
+        // notifications no-op) instead of writing onto whatever connection
+        // replaced it.
+        const capturedConnection = this._conn;
+
         const abortController = new AbortController();
-        this._conn.requestHandlerAbortControllers.set(request.id, abortController);
+        capturedConnection.requestHandlerAbortControllers.set(request.id, abortController);
 
         // Related sends resolve through the SAME instance era as every other
         // sender (the per-request/instance asymmetry is deliberately gone):
         // the codec is resolved at send time from the connection state.
-        //
-        // Once this request's handler has been aborted (connection closed or
-        // request cancelled), its related sends must not reach the transport:
-        // the transport is read live at send time, so a handler still
-        // running after close() could otherwise write onto a transport
-        // connected later. Notifications no-op; requests reject with
-        // ConnectionClosed.
         const sendNotification = (notification: Notification, options?: NotificationOptions): Promise<void> => {
-            if (abortController.signal.aborted) {
-                return Promise.resolve();
-            }
-            return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
-                ...options,
-                relatedRequestId: request.id
-            });
+            return this._notificationViaCodec(
+                this._resolveOutboundCodec(notification.method),
+                notification,
+                {
+                    ...options,
+                    relatedRequestId: request.id
+                },
+                capturedConnection
+            );
         };
         const sendRequest = <U extends StandardSchemaV1>(
             r: Request,
             resultSchema: U,
             options?: RequestOptions
         ): Promise<StandardSchemaV1.InferOutput<U>> => {
-            if (abortController.signal.aborted) {
-                return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
-            }
-            return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
-                ...options,
-                relatedRequestId: request.id
-            });
+            return this._requestWithSchemaViaCodec(
+                this._resolveOutboundCodec(r.method),
+                r,
+                resultSchema,
+                {
+                    ...options,
+                    relatedRequestId: request.id
+                },
+                capturedConnection
+            );
         };
 
         // Multi-round-trip retry material: only BARE response objects are
@@ -1192,10 +1297,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
-                    // Abort guard FIRST, before era/codec resolution: an
-                    // aborted handler gets ConnectionClosed, never an era
-                    // throw evaluated against a replacement connection.
-                    if (abortController.signal.aborted) {
+                    // The disposed-connection check comes FIRST — before
+                    // era/codec resolution — so a handler that outlived its
+                    // connection always gets the documented ConnectionClosed
+                    // rejection, never a synchronous era throw evaluated
+                    // against whatever connection replaced this request's.
+                    if (capturedConnection.disposed) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     // Related requests resolve through the instance era at
@@ -1279,8 +1386,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             )
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
-                if (this._conn.requestHandlerAbortControllers.get(request.id) === abortController) {
-                    this._conn.requestHandlerAbortControllers.delete(request.id);
+                if (capturedConnection.requestHandlerAbortControllers.get(request.id) === abortController) {
+                    capturedConnection.requestHandlerAbortControllers.delete(request.id);
                 }
             });
     }
@@ -1346,16 +1453,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Opaque liveness token for the connection serving the current dispatch.
+     * Role classes capture it when building per-request context senders
+     * (e.g. the Server's `ctx.mcpReq.elicitInput`), so a sender used after
+     * the delivering connection is gone rejects structurally instead of
+     * writing onto a successor connection.
+     */
+    protected _liveConnectionState(): { readonly disposed: boolean } {
+        return this._conn;
+    }
+
+    /**
      * Closes the connection.
      */
     async close(): Promise<void> {
         const connection = this._connection;
-        await connection?.transport?.close();
-        // A transport whose close() resolves without firing onclose would
-        // otherwise leave the instance wedged (still "connected" per the
-        // connect() guard). Run the teardown ourselves if it hasn't happened.
-        if (connection !== undefined && this._connection === connection) {
-            this._onclose();
+        if (connection === undefined) {
+            return;
+        }
+        try {
+            await connection.transport?.close();
+        } finally {
+            // A transport whose close() resolves without ever firing onclose
+            // must not wedge the instance: run teardown directly (a no-op
+            // when the transport's onclose callback already ran it).
+            if (!connection.disposed) {
+                this._onclose();
+            }
         }
     }
 
@@ -1495,7 +1619,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
         codec: WireCodec,
         request: Request,
         resultSchema: T,
-        options?: RequestOptions
+        options?: RequestOptions,
+        connection: Connection = this._conn
     ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
@@ -1512,7 +1637,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 reject(error);
             };
 
-            if (!this.transport) {
+            // A caller holding a disposed connection (a handler that
+            // outlived the request's connection) fails structurally with the
+            // typed ConnectionClosed — never a write onto a successor
+            // connection's transport.
+            if (connection.disposed) {
+                earlyReject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+                return;
+            }
+
+            if (!connection.transport) {
                 earlyReject(new Error('Not connected'));
                 return;
             }
@@ -1547,7 +1681,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // combination — legacy era on any transport, modern era on stdio /
             // in-memory — keeps today's `notifications/cancelled` POST path
             // unchanged.
-            const streamCloseCancels = codec.era === MODERN_WIRE_REVISION && this.transport?.hasPerRequestStream === true;
+            const streamCloseCancels = codec.era === MODERN_WIRE_REVISION && connection.transport?.hasPerRequestStream === true;
             const requestAbort = streamCloseCancels ? new AbortController() : undefined;
 
             const messageId = this._requestMessageId++;
@@ -1559,7 +1693,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
 
             if (options?.onprogress) {
-                this._conn.progressHandlers.set(messageId, options.onprogress);
+                connection.progressHandlers.set(messageId, options.onprogress);
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
@@ -1581,22 +1715,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (responseReceived) {
                     return;
                 }
-                this._conn.progressHandlers.delete(messageId);
+                connection.progressHandlers.delete(messageId);
 
                 if (requestAbort === undefined) {
-                    this.transport
-                        ?.send(
-                            this._envelopeOutbound({
-                                jsonrpc: '2.0',
-                                method: 'notifications/cancelled',
-                                params: {
-                                    requestId: messageId,
-                                    reason: String(reason)
-                                }
-                            }),
-                            { relatedRequestId, resumptionToken, onresumptiontoken }
-                        )
-                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    // A disposed connection swallows the cancellation
+                    // notification: there is nothing left to cancel on a dead
+                    // connection, and it must never reach a successor's
+                    // transport.
+                    if (!connection.disposed) {
+                        connection
+                            .send(
+                                this._envelopeOutbound({
+                                    jsonrpc: '2.0',
+                                    method: 'notifications/cancelled',
+                                    params: {
+                                        requestId: messageId,
+                                        reason: String(reason)
+                                    }
+                                }),
+                                { relatedRequestId, resumptionToken, onresumptiontoken }
+                            )
+                            .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    }
                 } else {
                     // Modern-era per-request-stream transport: aborting the
                     // request's underlying stream IS the spec cancel signal.
@@ -1611,7 +1751,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 reject(error);
             };
 
-            this._conn.responseHandlers.set(messageId, response => {
+            connection.responseHandlers.set(messageId, response => {
                 if (options?.signal?.aborted) {
                     return;
                 }
@@ -1665,7 +1805,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                 codec,
                                 params === undefined ? { method: request.method } : { method: request.method, params },
                                 resultSchema,
-                                legOptions
+                                legOptions,
+                                connection
                             )
                     };
                     return resolve(this._resolveNonCompleteResult(decoded, flow) as Promise<StandardSchemaV1.InferOutput<T>>);
@@ -1687,18 +1828,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
-            this._conn.setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
+            connection.setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this.transport!.send(outbound, {
-                relatedRequestId,
-                resumptionToken,
-                onresumptiontoken,
-                headers,
-                requestSignal: requestAbort?.signal
-            }).catch(error => {
-                this._conn.progressHandlers.delete(messageId);
-                reject(error);
-            });
+            connection
+                .send(outbound, {
+                    relatedRequestId,
+                    resumptionToken,
+                    onresumptiontoken,
+                    headers,
+                    requestSignal: requestAbort?.signal
+                })
+                .catch(error => {
+                    connection.progressHandlers.delete(messageId);
+                    reject(error);
+                });
         }).finally(() => {
             // Per-request cleanup that must run on every exit path. Consolidated
             // here so new exit paths added to the promise body can't forget it.
@@ -1708,8 +1851,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 options?.signal?.removeEventListener('abort', onAbort);
             }
             if (cleanupMessageId !== undefined) {
-                this._conn.responseHandlers.delete(cleanupMessageId);
-                this._conn.cleanupTimeout(cleanupMessageId);
+                connection.responseHandlers.delete(cleanupMessageId);
+                connection.cleanupTimeout(cleanupMessageId);
             }
         });
     }
@@ -1726,8 +1869,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * direct sends and related notifications (`ctx.mcpReq.notify`) alike
      * resolve through the instance's negotiated era at send time.
      */
-    private async _notificationViaCodec(codec: WireCodec, notification: Notification, options?: NotificationOptions): Promise<void> {
-        if (!this.transport) {
+    private async _notificationViaCodec(
+        codec: WireCodec,
+        notification: Notification,
+        options?: NotificationOptions,
+        connection: Connection = this._conn
+    ): Promise<void> {
+        // A caller holding a disposed connection (a handler that outlived the
+        // request's connection) no-ops: the notification dies with its
+        // connection instead of reaching a successor's transport.
+        if (connection.disposed) {
+            return;
+        }
+
+        if (!connection.transport) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
@@ -1752,34 +1907,37 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
-            if (this._conn.pendingDebouncedNotifications.has(notification.method)) {
+            if (connection.pendingDebouncedNotifications.has(notification.method)) {
                 return;
             }
 
             // Mark this notification type as pending.
-            this._conn.pendingDebouncedNotifications.add(notification.method);
+            connection.pendingDebouncedNotifications.add(notification.method);
 
             // Schedule the actual send to happen in the next microtask.
             // This allows all synchronous calls in the current event loop tick to be coalesced.
             Promise.resolve().then(() => {
                 // Un-mark the notification so the next one can be scheduled.
-                this._conn.pendingDebouncedNotifications.delete(notification.method);
+                connection.pendingDebouncedNotifications.delete(notification.method);
 
-                // SAFETY CHECK: If the connection was closed while this was pending, abort.
-                if (!this.transport) {
+                // SAFETY CHECK: the send is bound to the connection it was
+                // scheduled on — if that connection was closed (or replaced)
+                // while this was pending, abort rather than send on whatever
+                // connection exists now.
+                if (connection.disposed) {
                     return;
                 }
 
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this.transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                connection.send(jsonrpcNotification, options).catch(error => this._onerror(error));
             });
 
             // Return immediately.
             return;
         }
 
-        await this.transport!.send(jsonrpcNotification, options);
+        await connection.send(jsonrpcNotification, options);
     }
 
     /**

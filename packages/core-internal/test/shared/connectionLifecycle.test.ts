@@ -257,10 +257,10 @@ describe('g4: teardown ordering', () => {
 });
 
 describe('r1: close() on a transport that never fires onclose (pin)', () => {
-    // close() runs the teardown itself when the transport's onclose callback
-    // has not (it used to rely on the onclose round-trip alone, wedging the
-    // instance on the AlreadyConnected guard). Pinned here so the teardown
-    // consolidation must preserve it.
+    // close() disposes the connection directly after transport.close()
+    // settles, so a transport that resolves close() without firing onclose
+    // cannot wedge the instance (it used to: `_transport` stayed set forever
+    // and every subsequent connect() threw AlreadyConnected).
     test('after await close(), the instance accepts a new connect() even when the transport never fired onclose', async () => {
         const protocol = createProtocol();
         const transportA = new MockTransport('A');
@@ -310,33 +310,29 @@ describe('r2: late events from a failed transport cannot torpedo a later connect
 });
 
 describe('r3: debounced notifications are connection-scoped', () => {
-    // DEFECT (today): the debounce microtask checks transport PRESENCE
-    // (`if (!this._transport) return`), not identity. A debounced
-    // notification scheduled on connection A, with close()+connect(B) both
-    // landing inside the microtask window, is delivered on B — a connection
-    // it was never sent on.
-    test.fails(
-        'a notification debounced on connection A must not be sent on a connection B established inside the microtask window',
-        async () => {
-            const protocol = createProtocol({ debouncedNotificationMethods: ['test/debounced'] });
-            const transportA = new MockTransport('A');
-            const transportB = new MockTransport('B');
+    // The debounce microtask captures the connection it was scheduled on and
+    // aborts when that connection is disposed (it used to check transport
+    // PRESENCE, not identity, so a close()+connect(B) inside the microtask
+    // window delivered A's notification on B).
+    test('a notification debounced on connection A must not be sent on a connection B established inside the microtask window', async () => {
+        const protocol = createProtocol({ debouncedNotificationMethods: ['test/debounced'] });
+        const transportA = new MockTransport('A');
+        const transportB = new MockTransport('B');
 
-            await protocol.connect(transportA);
+        await protocol.connect(transportA);
 
-            // Schedules the send as a microtask on connection A...
-            void protocol.notification({ method: 'test/debounced' });
-            // ...and replaces the connection before that microtask runs.
-            // MockTransport.close() fires onclose synchronously, so close() has
-            // already torn A down when connect(B) installs the new transport;
-            // both happen before the debounce microtask fires.
-            const closing = protocol.close();
-            const connecting = protocol.connect(transportB);
-            await Promise.all([closing, connecting]);
-            await flushMicrotasks();
+        // Schedules the send as a microtask on connection A...
+        void protocol.notification({ method: 'test/debounced' });
+        // ...and replaces the connection before that microtask runs.
+        // MockTransport.close() fires onclose synchronously, so close() has
+        // already torn A down when connect(B) installs the new transport;
+        // both happen before the debounce microtask fires.
+        const closing = protocol.close();
+        const connecting = protocol.connect(transportB);
+        await Promise.all([closing, connecting]);
+        await flushMicrotasks();
 
-            expect(transportA.sentMessages).toHaveLength(0);
-            expect(transportB.sentMessages).toHaveLength(0);
-        }
-    );
+        expect(transportA.sentMessages).toHaveLength(0);
+        expect(transportB.sentMessages).toHaveLength(0);
+    });
 });

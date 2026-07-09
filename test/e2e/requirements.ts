@@ -60,13 +60,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'lifecycle:version:reject-unsupported': {
         entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
-        behavior: 'When server returns a protocolVersion the client does not support, connect rejects and the transport is closed.',
-        knownFailures: [
-            {
-                transport: 'stdio',
-                note: 'connect rejects but client.transport is not cleared on stdio (other transports clear it)'
-            }
-        ]
+        behavior: 'When server returns a protocolVersion the client does not support, connect rejects and the transport is closed.'
     },
     'lifecycle:capability:experimental-passthrough': {
         transports: STATEFUL_TRANSPORTS,
@@ -189,13 +183,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'typescript:protocol:error:connection-closed': {
         source: 'sdk',
-        behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.',
-        knownFailures: [
-            {
-                transport: 'stdio',
-                note: 'in-process stdio does not fire client.onclose after close()'
-            }
-        ]
+        behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.'
     },
     'protocol:error:internal-error': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',

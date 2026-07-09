@@ -360,6 +360,10 @@ export class Server extends Protocol<ServerContext> {
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        // The connection serving this dispatch: the per-request senders below
+        // capture it so they fail structurally once it is gone (see the gate
+        // replacement on elicitInput/requestSampling).
+        const connection = this._liveConnectionState();
         return {
             ...ctx,
             mcpReq: {
@@ -400,16 +404,19 @@ export class Server extends Protocol<ServerContext> {
                     // session-wide stream to deliver it on.
                     return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                 },
-                // Same abort gate as `ctx.mcpReq.send`: an aborted handler's
-                // senders must not reach a possibly-replaced transport.
+                // Same structural posture as `ctx.mcpReq.send`: once the
+                // connection this request arrived on is gone, its per-request
+                // senders must not reach the transport — `this.elicitInput` /
+                // `this.createMessage` read the live transport at send time,
+                // which may belong to a later connection.
                 elicitInput: (params, options) => {
-                    if (ctx.mcpReq.signal.aborted) {
+                    if (connection.disposed) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     return this.elicitInput(params, options);
                 },
                 requestSampling: (params, options) => {
-                    if (ctx.mcpReq.signal.aborted) {
+                    if (connection.disposed) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     return this.createMessage(params, options);
