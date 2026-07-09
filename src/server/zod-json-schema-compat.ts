@@ -30,10 +30,31 @@ function mapMiniTarget(t: CommonOpts['target'] | undefined): 'draft-7' | 'draft-
 
 export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): JsonSchema {
     if (isZ4Schema(schema)) {
-        // v4 branch — use Mini's built-in toJSONSchema
+        // v4 branch — use Mini's built-in toJSONSchema.
+        //
+        // `io` is always 'input' here, regardless of `opts.pipeStrategy`: the server
+        // never runs a tool's `structuredContent` through the schema's output
+        // transform/default-injection, it ships the tool's raw object as-is. So the
+        // advertised schema — for both input *and* output — must describe that raw
+        // shape: fields with `.default()` are optional (the caller/tool may omit
+        // them), matching zod's 'input' semantics rather than 'output' (which would
+        // mark them required, as if defaults had already been applied).
+        //
+        // `unrepresentable: 'any'` + the `override` below keep a single
+        // unsupported field (e.g. `z.date()`, which v4 refuses to represent by
+        // default) from crashing the entire `tools/list` response; `z.date()`
+        // specifically is rewritten to the RFC 3339 string format that
+        // `JSON.stringify` actually produces on the wire for a `Date`.
         return z4mini.toJSONSchema(schema as z4c.$ZodType, {
             target: mapMiniTarget(opts?.target),
-            io: opts?.pipeStrategy ?? 'input'
+            io: 'input',
+            unrepresentable: 'any',
+            override: ctx => {
+                if ((ctx.zodSchema as unknown as { _zod?: { def?: { type?: string } } })._zod?.def?.type === 'date') {
+                    ctx.jsonSchema.type = 'string';
+                    ctx.jsonSchema.format = 'date-time';
+                }
+            }
         }) as JsonSchema;
     }
 
