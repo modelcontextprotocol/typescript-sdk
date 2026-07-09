@@ -30,12 +30,13 @@ export * from './util/inMemory';
 // reach the wire layer ONLY through `codecForVersion`'s function-only
 // `WireCodec` surface. Sole exemption: the shared result-family ruling
 // (`wire/resultFamilies.ts`), era-independent by design — the server's
-// authoring normalization applies the same ruling as the 2025 wire seam.
+// authoring normalization and the e2e wire sniffer apply the same ruling
+// (and name the same vocabulary) as the 2025 wire seam.
 export * from './util/schema';
 export * from './util/standardSchema';
 export * from './util/zodCompat';
 export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec';
-export { normalizeContentlessToolResult } from './wire/resultFamilies';
+export { normalizeContentlessToolResult, TOOL_RESULT_FOREIGN_FAMILY_KEYS } from './wire/resultFamilies';
 
 // Validator provider classes stay subpath-only. Re-exporting them here, even as
 // `type`, can make generated client/server root declarations advertise

@@ -4,7 +4,8 @@ import {
     ClientResultSchema,
     ServerNotificationSchema,
     ServerRequestSchema,
-    ServerResultSchema
+    ServerResultSchema,
+    TOOL_RESULT_FOREIGN_FAMILY_KEYS
 } from '@modelcontextprotocol/core-internal';
 import type { Transport } from '@modelcontextprotocol/server';
 import {
@@ -110,12 +111,19 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
         }
         // With content.default([]) restored, the neutral union accepts any
         // object via the CallToolResult member — so union conformance below
-        // is a weak check. Era-gating for the other result families is
-        // asserted here explicitly, by vocabulary.
-        if (party === 'server' && isPlainRecord(result) && result.content === undefined) {
-            for (const key of ['task', 'inputRequests', 'requestState']) {
+        // is a weak check, and the other result families are asserted here
+        // explicitly, by vocabulary. Cells that opt into vendor-extension
+        // methods skip this check (the sniffer is method-blind for results;
+        // before the default was restored these bodies failed the union parse
+        // and were excused by the same flag).
+        if (party === 'server' && !opts.allowCustomMethods && isPlainRecord(result) && result.content === undefined) {
+            for (const key of TOOL_RESULT_FOREIGN_FAMILY_KEYS) {
                 if (key in result) {
-                    fail(party, `content-less result carrying '${key}' on a legacy cell`, msg);
+                    fail(
+                        party,
+                        `content-less result carrying '${key}' — another result family must not read as an empty tools/call success`,
+                        msg
+                    );
                 }
             }
         }
