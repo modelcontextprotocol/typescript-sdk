@@ -315,6 +315,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _sessionId?: string;
+    private _terminatedSessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
     private _onInsufficientScope: 'reauthorize' | 'throw';
@@ -983,15 +984,24 @@ export class StreamableHTTPClientTransport implements Transport {
                 const sessionId = response.headers.get('mcp-session-id');
                 if (sessionId && (sentSessionId === null || sentSessionId === this._sessionId)) {
                     this._sessionId = sessionId;
+                    this._terminatedSessionId = undefined;
                 }
             }
 
             if (!response.ok) {
                 // 404 to the current session id: session is gone (spec) —
                 // drop it. POSTs only; SSE reconnect GETs 404 transiently.
+                // `_terminatedSessionId` marks raced in-flight requests of the
+                // same dead session until a new one is assigned; the stale
+                // version header is dropped so the recovery initialize goes
+                // out like a fresh connect.
                 let sessionTerminated = false;
                 if (response.status === 404 && sentSessionId !== null && sentSessionId === this._sessionId) {
+                    this._terminatedSessionId = sentSessionId;
                     this._sessionId = undefined;
+                    this._protocolVersion = undefined;
+                    sessionTerminated = true;
+                } else if (response.status === 404 && sentSessionId !== null && sentSessionId === this._terminatedSessionId) {
                     sessionTerminated = true;
                 }
                 if (response.status === 401 && this._authProvider) {

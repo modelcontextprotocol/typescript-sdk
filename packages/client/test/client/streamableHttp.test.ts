@@ -182,6 +182,72 @@ describe('StreamableHTTPClientTransport', () => {
         expect(transport.sessionId).toBe('rotated-session');
     });
 
+    it('marks raced 404s of the same dead session until a new one is assigned', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'doomed' })
+        });
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-id'
+        } as JSONRPCMessage);
+
+        const mock404 = () =>
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                headers: new Headers(),
+                text: () => Promise.resolve('gone')
+            });
+
+        // First 404: terminates the session — marked.
+        mock404();
+        const first = await transport.send({ jsonrpc: '2.0', method: 'a', id: 1 } as JSONRPCMessage).catch((e: unknown) => e);
+        expect((first as SdkHttpError).data['sessionTerminated']).toBe(true);
+        expect(transport.sessionId).toBeUndefined();
+
+        // A raced sibling that also went out under 'doomed' — still marked.
+        mock404();
+        // Simulate: the sibling's request carried the dead id.
+        (transport as unknown as { _sessionId?: string })._sessionId = 'doomed';
+        const sibling = await transport.send({ jsonrpc: '2.0', method: 'b', id: 2 } as JSONRPCMessage).catch((e: unknown) => e);
+        expect((sibling as SdkHttpError).data['sessionTerminated']).toBe(true);
+
+        // A request that went out under 'doomed', answered 404 only AFTER a
+        // fresh session was assigned: no longer marked.
+        (transport as unknown as { _sessionId?: string })._sessionId = 'doomed';
+        let resolveLate: (r: unknown) => void;
+        (globalThis.fetch as Mock).mockImplementationOnce(() => new Promise(resolve => (resolveLate = resolve)));
+        const latePromise = transport.send({ jsonrpc: '2.0', method: 'c', id: 3 } as JSONRPCMessage).catch((e: unknown) => e);
+        // Rotation completes while the late request is in flight.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'fresh' })
+        });
+        (transport as unknown as { _sessionId?: string })._sessionId = undefined;
+        await transport.send({
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test-client', version: '1.0' }, protocolVersion: '2025-03-26' },
+            id: 'init-2'
+        } as JSONRPCMessage);
+        resolveLate!({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers(),
+            text: () => Promise.resolve('gone')
+        });
+        const late = await latePromise;
+        expect((late as SdkHttpError).data['sessionTerminated']).toBeUndefined();
+        expect(transport.sessionId).toBe('fresh');
+    });
+
     it('should clear the session ID on a 404 to a request that carried it', async () => {
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
