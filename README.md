@@ -38,7 +38,7 @@ This repository contains the TypeScript SDK implementation of the MCP specificat
 
 - MCP **server** libraries (tools/resources/prompts, Streamable HTTP, stdio, auth helpers)
 - MCP **client** libraries (transports, high-level helpers, OAuth helpers)
-- Optional **middleware packages** for specific runtimes/frameworks (Express, Hono, Node.js HTTP)
+- Optional **middleware packages** for specific runtimes/frameworks (Express, Hono, Fastify, Node.js HTTP)
 - Runnable **examples** (under [`examples/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples))
 
 ## Packages
@@ -59,6 +59,7 @@ They are intentionally thin adapters: they should not introduce new MCP function
 - **`@modelcontextprotocol/node`**: Node.js Streamable HTTP transport wrapper for `IncomingMessage` / `ServerResponse`
 - **`@modelcontextprotocol/express`**: Express helpers (app defaults + Host header validation)
 - **`@modelcontextprotocol/hono`**: Hono helpers (app defaults + JSON body parsing hook + Host header validation)
+- **`@modelcontextprotocol/fastify`**: Fastify helpers (app defaults + Host header validation)
 
 ## Installation
 
@@ -97,6 +98,9 @@ npm install @modelcontextprotocol/express express
 
 # Hono integration:
 npm install @modelcontextprotocol/hono hono
+
+# Fastify integration:
+npm install @modelcontextprotocol/fastify fastify
 ```
 
 ## Getting Started
