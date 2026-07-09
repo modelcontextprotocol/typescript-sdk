@@ -775,10 +775,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Throws if this instance is already bound to a transport. Called by
-     * {@linkcode Protocol.connect} and, earlier, by subclass connect
-     * overrides whose pre-connect work mutates per-connection state (see
-     * `Client.connect()`): the check must run before any of that work.
+     * Throws if already bound to a transport. Subclass connect overrides that
+     * mutate per-connection state before `super.connect()` must call this first.
      */
     protected assertNotConnected(): void {
         if (this._transport) {
@@ -803,7 +801,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
             try {
                 _onclose?.();
             } finally {
-                this._onclose();
+                // Identity guard: close() may have already torn this
+                // connection down (and a replacement may be live) by the time
+                // a transport fires a deferred onclose.
+                if (this._transport === transport) {
+                    this._onclose();
+                }
             }
         };
 
@@ -833,14 +836,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         try {
             await this._transport.start();
         } catch (error) {
-            // A transport that failed to start was never connected: unwind so
-            // the instance can retry connect() — the reuse guard above would
-            // otherwise lock the instance onto a transport that never carried
-            // traffic. Restore the transport's own callbacks too: leaving the
-            // wrapped closures installed would let a late event from the
-            // failed transport (e.g. a child process 'close' after a failed
-            // spawn) tear down whatever connection a successful retry
-            // established.
+            // Unwind a failed start so connect() can be retried: restore the
+            // transport's own callbacks — a late event from the failed
+            // transport must not tear down a successful retry's connection.
             transport.onclose = _onclose;
             transport.onerror = _onerror;
             transport.onmessage = _onmessage;
@@ -1064,12 +1062,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // sender (the per-request/instance asymmetry is deliberately gone):
         // the codec is resolved at send time from the connection state.
         //
-        // Once this request's handler has been aborted (connection closed or
-        // request cancelled), its related sends must not reach the transport:
-        // `this._transport` is read live at send time, so a handler still
-        // running after close() could otherwise write onto a transport
-        // connected later. Notifications no-op; requests reject with
-        // ConnectionClosed.
+        // After the handler aborts, related sends must not reach the transport
+        // (read live at send time, it may belong to a later connection):
+        // notifications no-op, requests reject with ConnectionClosed.
         const sendNotification = (notification: Notification, options?: NotificationOptions): Promise<void> => {
             if (abortController.signal.aborted) {
                 return Promise.resolve();
@@ -1123,11 +1118,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
-                    // The abort guard comes FIRST — before era/codec
-                    // resolution — so an aborted handler always gets the
-                    // documented ConnectionClosed rejection, never a
-                    // synchronous era throw evaluated against whatever
-                    // connection replaced this request's.
+                    // Abort guard FIRST, before era/codec resolution: an
+                    // aborted handler gets ConnectionClosed, never an era
+                    // throw evaluated against a replacement connection.
                     if (abortController.signal.aborted) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
@@ -1282,7 +1275,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Closes the connection.
      */
     async close(): Promise<void> {
-        await this._transport?.close();
+        const transport = this._transport;
+        await transport?.close();
+        // A transport whose close() resolves without firing onclose would
+        // otherwise leave the instance wedged (still "connected" per the
+        // connect() guard). Run the teardown ourselves if it hasn't happened.
+        if (transport !== undefined && this._transport === transport) {
+            this._onclose();
+        }
     }
 
     /**

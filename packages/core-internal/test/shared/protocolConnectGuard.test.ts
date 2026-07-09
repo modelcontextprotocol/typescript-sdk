@@ -129,6 +129,33 @@ describe('Protocol.connect() reuse guard', () => {
         expect(transportB.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: {} });
     });
 
+    test('close() frees the instance even when the transport never fires onclose', async () => {
+        const protocol = createProtocol();
+        const silent = new MockTransport('silent');
+        // Some transports resolve close() without invoking onclose;
+        // Protocol.close() must not depend on that round-trip.
+        silent.close = async (): Promise<void> => {};
+
+        await protocol.connect(silent);
+        await protocol.close();
+        expect(protocol.transport).toBeUndefined();
+
+        const transportB = new MockTransport('B');
+        await protocol.connect(transportB);
+        expect(protocol.transport).toBe(transportB);
+
+        // A deferred onclose from the old transport (e.g. a stdio child's
+        // 'close' event arriving after close() resolved) must not tear down
+        // the replacement connection or re-fire the user-facing onclose.
+        let sawClose = false;
+        protocol.onclose = () => {
+            sawClose = true;
+        };
+        silent.onclose?.();
+        expect(protocol.transport).toBe(transportB);
+        expect(sawClose).toBe(false);
+    });
+
     test('transport-initiated close also frees the instance for a new connect()', async () => {
         const protocol = createProtocol();
         const transportA = new MockTransport('A');
