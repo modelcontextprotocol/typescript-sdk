@@ -51,6 +51,95 @@ describe('inputRequired() builder', () => {
         });
         expect(inputRequired.listRoots()).toEqual({ method: 'roots/list' });
     });
+
+    test('elicit converts a Standard Schema to the restricted wire schema', () => {
+        const request = inputRequired.elicit({
+            message: 'Registration details?',
+            requestedSchema: z.object({
+                email: z.string().meta({ title: 'Email', format: 'email' }),
+                count: z.number().min(1).max(5),
+                role: z.enum(['admin', 'member'])
+            })
+        });
+
+        expect(request).toEqual({
+            method: 'elicitation/create',
+            params: {
+                mode: 'form',
+                message: 'Registration details?',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: {
+                        email: { type: 'string', title: 'Email', format: 'email' },
+                        count: { type: 'number', minimum: 1, maximum: 5 },
+                        role: { type: 'string', enum: ['admin', 'member'] }
+                    },
+                    required: ['email', 'count', 'role']
+                }
+            }
+        });
+    });
+
+    test('elicit drops annotation-only metadata from Standard Schema properties', () => {
+        const request = inputRequired.elicit({
+            message: 'Name?',
+            requestedSchema: z.object({
+                name: z.string().meta({
+                    title: 'Name',
+                    examples: ['Ada Lovelace'],
+                    deprecated: false,
+                    readOnly: true,
+                    'x-ui-order': 1
+                })
+            })
+        });
+
+        expect(request).toEqual({
+            method: 'elicitation/create',
+            params: {
+                mode: 'form',
+                message: 'Name?',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: { name: { type: 'string', title: 'Name' } },
+                    required: ['name']
+                }
+            }
+        });
+    });
+
+    test('elicit rejects non-object Standard Schema roots as a local type error', () => {
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.string()
+            })
+        ).toThrow(TypeError);
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Name?',
+                requestedSchema: z.string()
+            })
+        ).toThrow(/Elicitation requestedSchema must describe an object/);
+    });
+
+    test('elicit rejects validation constraints the restricted wire schema cannot express', () => {
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Code?',
+                requestedSchema: z.object({ code: z.string().regex(/^[A-Z]{3}$/) })
+            })
+        ).toThrow(/properties\.code\.pattern/);
+
+        expect(() =>
+            inputRequired.elicit({
+                message: 'Address?',
+                requestedSchema: z.object({ address: z.object({ city: z.string() }) })
+            })
+        ).toThrow(/flat primitive properties/);
+    });
 });
 
 describe('acceptedContent()', () => {

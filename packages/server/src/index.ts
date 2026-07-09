@@ -96,7 +96,7 @@ export type { CacheHint, CacheScope } from '@modelcontextprotocol/core-internal'
 // helpers a handler uses to request additional client input by returning an
 // input-required result instead of sending a server→client request, and the
 // typed readers for the responses a retried request carries back.
-export type { InputRequiredSpec, InputResponseView } from '@modelcontextprotocol/core-internal';
+export type { ElicitInputParams, InputRequiredSpec, InputResponseView } from '@modelcontextprotocol/core-internal';
 export { acceptedContent, inputRequired, inputResponse } from '@modelcontextprotocol/core-internal';
 
 // re-export curated public API from core
