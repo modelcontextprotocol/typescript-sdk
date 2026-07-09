@@ -52,12 +52,9 @@ export interface CacheKey {
 }
 
 /**
- * One cached response body. `value` is the JSON-serialized result document
- * (the cache serializes on write and parses on read — mcp.d's
- * `toJson`/`fromJson` boundary), so a store is a dumb string carrier: an
- * in-memory store holds the string, a persistent store (Redis, disk) persists
- * it verbatim with no extra serialization step, and both behave identically.
- * `stamp` is the store-generated monotonically increasing write counter —
+ * One cached response body. `value` is the JSON-serialized result document —
+ * a store is a dumb string carrier and persists it verbatim; the cache owns
+ * both codec halves. `stamp` is the store-generated monotonically increasing write counter —
  * opaque to callers. Derived views (e.g. a `name → Tool` index) memoize
  * against it and re-derive only when it changes. `expiresAt` (absolute ms
  * epoch, `now + ttlMs`) and `scope` are the client-computed freshness
@@ -414,16 +411,25 @@ export class ClientResponseCache {
      */
     async evict(method: string): Promise<void> {
         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
+        await this._deleteBoth(method, '');
+    }
+
+    /**
+     * Guarded two-partition delete of `{method, params}`: each partition's
+     * `delete` is independently wrapped so a custom store's failure on one is
+     * reported and does not skip the other, and the call always resolves.
+     */
+    private async _deleteBoth(method: string, params: string): Promise<void> {
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
         try {
-            await this._store.delete({ method, params: '', partition: ownPartition });
+            await this._store.delete({ method, params, partition: ownPartition });
         } catch (error) {
             this._reportError(error);
         }
         if (sharedPartition !== ownPartition) {
             try {
-                await this._store.delete({ method, params: '', partition: sharedPartition });
+                await this._store.delete({ method, params, partition: sharedPartition });
             } catch (error) {
                 this._reportError(error);
             }
@@ -454,20 +460,7 @@ export class ClientResponseCache {
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
-        const ownPartition = this._partitionFor('private');
-        const sharedPartition = this._partitionFor('public');
-        try {
-            await this._store.delete({ method, params, partition: ownPartition });
-        } catch (error) {
-            this._reportError(error);
-        }
-        if (sharedPartition !== ownPartition) {
-            try {
-                await this._store.delete({ method, params, partition: sharedPartition });
-            } catch (error) {
-                this._reportError(error);
-            }
-        }
+        await this._deleteBoth(method, params);
     }
 
     /**
@@ -492,17 +485,14 @@ export class ClientResponseCache {
      * overwriting the eviction with the stale aggregate would lose the
      * invalidation.
      *
-     * The value is stored as its JSON-serialized document (mcp.d's `toJson`
-     * half): serialization is simultaneously the mutation barrier — a caller
-     * mutating the aggregate it was returned (e.g. `result.tools.sort(...)`)
-     * cannot reach the cache or the stamp-memoized indices derived from it —
-     * and the exact representation a persistent store needs. A value that is
-     * not JSON-serializable (only reachable via in-process transports handing
-     * over non-wire objects) fails the write loudly into the `reportError`
-     * sink rather than silently disabling the cache. A custom store whose
-     * `set()` throws or rejects is routed to the same sink and the write
-     * resolves — cache bookkeeping never costs the caller a result it
-     * already fetched (consistent with the eviction path).
+     * The value is stored as its JSON-serialized document; serialization
+     * doubles as the mutation barrier, so a caller mutating the returned
+     * aggregate cannot reach the cache or its derived indices. A value that
+     * is not JSON-serializable (reachable only via in-process transports)
+     * fails the write loudly into the `reportError` sink. A custom store
+     * whose `set()` throws or rejects is routed to the same sink and the
+     * write resolves — cache bookkeeping never costs the caller a result it
+     * already fetched.
      *
      * `freshness` carries the client-computed `expiresAt` (absolute ms epoch,
      * `now + ttlMs`) and the server-reported `cacheScope`. The storage
@@ -560,12 +550,13 @@ export class ClientResponseCache {
      * Serve the fresh cached result for `{method, params}`, or `undefined`.
      * Lookup is the two-probe order (own-partition then this server's shared
      * partition, gated on `scope === 'public'`); freshness is
-     * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh — the
-     * retain-for-schema posture), checked BEFORE decoding so stale entries
-     * cost no parse. The returned value is freshly parsed from the stored
-     * document (mcp.d's `fromJson` half), so every hit hands the caller an
-     * aggregate it owns outright. An entry whose document does not parse
-     * (a corrupted external store) is reported and treated as a miss.
+     * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh),
+     * checked BEFORE decoding so stale entries cost no parse. Every hit is
+     * freshly parsed, so the caller owns the value outright. An entry whose
+     * document does not parse (corrupted external store) is reported,
+     * deleted, and treated as a miss — deleted because a fresh-but-corrupt
+     * entry would otherwise re-parse and re-report on every read until its
+     * `expiresAt` passes.
      */
     async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
         const entry = await this._probe(method, params);
@@ -574,6 +565,7 @@ export class ClientResponseCache {
             return { value: JSON.parse(entry.value) };
         } catch (error) {
             this._reportError(error);
+            await this._deleteBoth(method, params ?? '');
             return undefined;
         }
     }
@@ -665,13 +657,16 @@ export class ClientResponseCache {
     }
 
     /** Parse a held `tools/list` document for the index builders; a document
-     * that does not parse (corrupted external store) is reported and treated
-     * as if nothing were held. Callers memoize the outcome against the
-     * entry's stamp, so a corrupt document costs one parse + report per
-     * stamp, not per lookup. */
+     * that does not parse OR parses to something without a `tools` array
+     * (both mean a corrupted external store) is reported and treated as if
+     * nothing were held. Callers memoize the outcome against the entry's
+     * stamp, so a corrupt document costs one parse + report per stamp, not
+     * per lookup. */
     private _decodeListTools(entry: CacheEntry): ListToolsResult | undefined {
         try {
-            return JSON.parse(entry.value) as ListToolsResult;
+            const parsed = JSON.parse(entry.value) as ListToolsResult | null;
+            if (!Array.isArray(parsed?.tools)) throw new TypeError('cached tools/list document has no tools array');
+            return parsed;
         } catch (error) {
             this._reportError(error);
             return undefined;
@@ -680,18 +675,19 @@ export class ClientResponseCache {
 }
 
 /**
- * Serialize a result for storage. Legal wire results are JSON-serializable by
- * construction. Non-wire values are only reachable via in-process transports
- * handing over live objects: the non-serializable ones (cycles, functions,
- * BigInt) throw a TypeError the write path reports, while JSON-representable
- * ones (Date, Map, NaN, explicit-undefined properties) are silently
- * normalized to their JSON forms — the same shapes a real wire transport
- * would have produced.
+ * Serialize a result for storage; throws TypeError for anything without a
+ * JSON representation (legal wire results always have one). Two failure
+ * modes need folding into that one throw: `JSON.stringify` throws on cycles
+ * and BigInt, but silently returns `undefined` (not a string) for a
+ * top-level function, symbol, or `undefined`.
  */
 function encodeCacheValue(value: unknown): string {
+    let json: string | undefined;
     try {
-        return JSON.stringify(value);
+        json = JSON.stringify(value);
     } catch (error) {
         throw new TypeError(`cache value is not JSON-serializable: ${error instanceof Error ? error.message : String(error)}`);
     }
+    if (typeof json !== 'string') throw new TypeError('cache value is not JSON-serializable: it has no JSON representation');
+    return json;
 }

@@ -466,8 +466,8 @@ describe('Client response-cache substrate', () => {
         // Common previously-harmless caller patterns.
         result.tools.sort((x, y) => y.name.localeCompare(x.name));
         result.tools.length = 0;
-        // ClientResponseCache.write stored a structuredClone, so neither the
-        // backing entry nor the stamp-memoized name → Tool index moved.
+        // The cache serialized the value on write, so neither the backing
+        // entry nor the stamp-memoized name → Tool index moved.
         expect((await toolDef(client, 'a'))?.name).toBe('a');
         expect((await toolDef(client, 'b'))?.name).toBe('b');
     });
@@ -649,7 +649,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         const second = await client.listTools();
         expect(second.tools.map(t => t.name)).toEqual(['a', 'b']);
         expect(listCount()).toBe(1);
-        // Clone-on-serve: hit is a fresh copy, not the stored object.
+        // Parse-on-serve: hit is a fresh copy, not the stored object.
         expect(second).not.toBe(first);
 
         // After TTL → stale, refetch.

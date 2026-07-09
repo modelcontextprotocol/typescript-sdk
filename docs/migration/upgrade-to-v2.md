@@ -1587,7 +1587,7 @@ rewrite required unless noted.
   instead of sending the request. Set `enforceStrictCapabilities: true` in `ClientOptions`
   to restore the v1 throw.
 - Called **without a `cursor`**, the same methods now **auto-aggregate every page** and
-  return `nextCursor: undefined`. Passing `{ cursor }` still fetches one page. Manual
+  return an aggregate with no `nextCursor`. Passing `{ cursor }` still fetches one page. Manual
   pagination loops keep working (the first iteration returns everything); replace them
   with the bare no-arg call. The walk is capped at `ClientOptions.listMaxPages` (default
   64); overrun throws `SdkError(ListPaginationExceeded)`. There is no way to fetch only
@@ -1605,6 +1605,9 @@ rewrite required unless noted.
   trip. Per-call override: `{ cacheMode: 'refresh' | 'bypass' }`. New `ClientOptions`:
   `cachePartition`, `defaultCacheTtlMs`. `ResponseCacheStore` gained `delete(key)`;
   `InMemoryResponseCacheStore` is now bounded (`{ maxEntries }`, default 512).
+  `CacheEntry.value` (and the `set()` entry value) is the JSON-serialized result
+  document (`string`, not `unknown`): persist and return it verbatim, `JSON.parse`
+  it to inspect.
 
 #### Server (Streamable HTTP transport)
 

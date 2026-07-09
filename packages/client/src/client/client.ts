@@ -1475,7 +1475,7 @@ export class Client extends Protocol<ClientContext> {
      * Lists available prompts.
      *
      * Called without a `cursor` (the common case), this walks every page and
-     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * returns the complete aggregated list with no `nextCursor`; the
      * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
      * explicit `{ cursor }` to fetch a single page and walk pagination
      * yourself — the per-page path returns the server's raw page (with
@@ -1515,7 +1515,7 @@ export class Client extends Protocol<ClientContext> {
      * Lists available resources.
      *
      * Called without a `cursor` (the common case), this walks every page and
-     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * returns the complete aggregated list with no `nextCursor`; the
      * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
      * explicit `{ cursor }` to fetch a single page and walk pagination
      * yourself — the per-page path returns the server's raw page (with
@@ -1557,7 +1557,7 @@ export class Client extends Protocol<ClientContext> {
      * Lists available resource URI templates for dynamic resources.
      *
      * Called without a `cursor`, this walks every page and returns the
-     * complete aggregated list with `nextCursor: undefined`; the aggregate is
+     * complete aggregated list with no `nextCursor`; the aggregate is
      * also written to the {@linkcode ResponseCacheStore}. Pass an explicit
      * `{ cursor }` to fetch a single page — see
      * {@linkcode listResources | listResources()} for the per-page contract.
@@ -1642,10 +1642,9 @@ export class Client extends Protocol<ClientContext> {
             cursor = page.nextCursor;
             pages++;
         }
-        // delete (not `= undefined`): the aggregate round-trips through the
-        // cache's JSON codec, which drops explicit-undefined properties — a
-        // deleted key keeps `'nextCursor' in result` identical between the
-        // network response and a cache hit.
+        // delete, not `= undefined`: the cache's JSON codec drops
+        // explicit-undefined properties, so only absence keeps
+        // `'nextCursor' in result` identical between wire and cache hit.
         delete acc.nextCursor;
         finalize?.(acc);
         if (bypass) return acc;
@@ -1688,10 +1687,8 @@ export class Client extends Protocol<ClientContext> {
      * read half): under `cacheMode: 'use'` (the default), a fresh held entry
      * is served and the round trip is skipped. `'refresh'` and `'bypass'`
      * always fetch (the caller decides whether to write). Freshness and
-     * decoding live in {@linkcode ClientResponseCache.read}: the served value
-     * is freshly parsed from the stored document, so the caller owns it
-     * outright — mutating it (e.g. `result.tools.sort(...)`) cannot reach the
-     * cache or the stamp-memoized indices derived from it. A custom store
+     * decoding live in {@linkcode ClientResponseCache.read}; every hit is
+     * freshly parsed, so the caller owns it outright. A custom store
      * whose `get()` rejects is routed to `onerror` and treated as a miss —
      * cache bookkeeping never blocks a request from reaching the wire.
      */
@@ -2372,7 +2369,7 @@ export class Client extends Protocol<ClientContext> {
      * Lists available tools.
      *
      * Called without a `cursor` (the common case), this walks every page and
-     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * returns the complete aggregated list with no `nextCursor`; the
      * aggregate is also written to the {@linkcode ResponseCacheStore} (the
      * source for {@linkcode callTool | callTool()}'s output-schema validation
      * and SEP-2243 `Mcp-Param-*` header mirroring). Pass an explicit

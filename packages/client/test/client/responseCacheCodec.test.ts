@@ -2,7 +2,7 @@ import type { JSONRPCRequest } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, test } from 'vitest';
 import { Client } from '../../src/client/client';
-import type { ResponseCacheStore } from '../../src/client/responseCache';
+import type { CacheEntry, CacheKey, ResponseCacheStore } from '../../src/client/responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore } from '../../src/client/responseCache';
 
 const savedStructuredClone = globalThis.structuredClone;
@@ -146,5 +146,70 @@ describe('response cache document codec', () => {
         expect(await cache.read('tools/list')).toBeUndefined();
         expect(await cache.toolDefinition('a')).toBeUndefined();
         expect(reported.length).toBeGreaterThan(0);
+    });
+
+    test('a value JSON.stringify silently cannot represent (top-level undefined) fails the write loudly, not as a stored "undefined"', async () => {
+        const reported: unknown[] = [];
+        const sets: unknown[] = [];
+        const store = new InMemoryResponseCacheStore();
+        const originalSet = store.set.bind(store);
+        store.set = (key, entry) => {
+            sets.push(entry.value);
+            return originalSet(key, entry);
+        };
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        await cache.write('tools/list', undefined, cache.captureGeneration('tools/list'), {
+            expiresAt: Date.now() + 60_000,
+            scope: 'private'
+        });
+        expect(reported).toHaveLength(1);
+        expect(String(reported[0])).toMatch(/not JSON-serializable/);
+        expect(sets).toHaveLength(0);
+        expect(await cache.read('tools/list')).toBeUndefined();
+    });
+
+    test('a fresh undecodable entry is dropped on read, so it is reported once, not on every read until expiry', async () => {
+        const reported: unknown[] = [];
+        const deletes: CacheKey[] = [];
+        let entry: CacheEntry | undefined = { value: '{ not json', stamp: 1, expiresAt: Date.now() + 60_000, scope: 'private' };
+        const store: ResponseCacheStore = {
+            get: () => entry,
+            set: () => 1,
+            delete: key => {
+                deletes.push(key);
+                entry = undefined;
+            },
+            evict: () => {},
+            clear: () => {}
+        };
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        expect(await cache.read('resources/read', 'file:///a')).toBeUndefined();
+        expect(reported).toHaveLength(1);
+        expect(deletes.length).toBeGreaterThan(0);
+        expect(deletes[0]).toMatchObject({ method: 'resources/read', params: 'file:///a' });
+        // Entry gone: the next read is a clean miss, no second report.
+        expect(await cache.read('resources/read', 'file:///a')).toBeUndefined();
+        expect(reported).toHaveLength(1);
+    });
+
+    test('a valid-JSON but wrong-shape tools/list document is reported once per stamp and treated as absent, not thrown', async () => {
+        for (const document of ['null', '{}', '[]']) {
+            const reported: unknown[] = [];
+            const store: ResponseCacheStore = {
+                get: () => ({ value: document, stamp: 7, scope: 'private' as const }),
+                set: () => 1,
+                delete: () => {},
+                evict: () => {},
+                clear: () => {}
+            };
+            const cache = new ClientResponseCache(store, true, error => reported.push(error));
+            await expect(cache.toolDefinition('a')).resolves.toBeUndefined();
+            await expect(cache.toolDefinition('a')).resolves.toBeUndefined();
+            await expect(cache.outputValidator('a', () => undefined)).resolves.toBeUndefined();
+            // Memoized against the unchanged stamp: one report for the tool
+            // index, one for the validator index — not one per lookup.
+            expect(reported).toHaveLength(2);
+            expect(String(reported[0])).toMatch(/no tools array/);
+        }
     });
 });
