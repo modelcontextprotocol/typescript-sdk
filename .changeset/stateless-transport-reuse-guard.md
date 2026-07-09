@@ -2,6 +2,7 @@
 '@modelcontextprotocol/server': patch
 '@modelcontextprotocol/core-internal': minor
 '@modelcontextprotocol/client': patch
+'@modelcontextprotocol/node': patch
 ---
 
 Restores two v1 transport lifecycle invariants dropped in the v2 rewrite. Both throw typed errors — `SdkError` with `SdkErrorCode.StatelessTransportReuse` (new) and `SdkErrorCode.AlreadyConnected` — while keeping the message strings byte-identical to v1.x, so structured handling can use the code and existing message matching keeps working:

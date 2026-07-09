@@ -214,9 +214,8 @@ export interface HandleRequestOptions {
  *
  * @example Stateless setup
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_stateless"
- * // A stateless transport serves exactly one request: construct a fresh
- * // transport + server pair per request — reusing a stateless transport
- * // across requests throws.
+ * // A stateless transport serves exactly one request — reuse throws.
+ * // Construct a fresh transport + server pair per request.
  * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
  *
  * const transport = new WebStandardStreamableHTTPServerTransport({
@@ -372,20 +371,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
-     * Returns a `Response` object (Web Standard)
-     */
-    /**
-     * Throws when a stateless transport has already handled its single
-     * request exchange. This is the same check `handleRequest()` performs on
-     * entry; exposed so wrapping adapters (e.g. the Node middleware) can fail
-     * fast before committing anything to their own response stream.
+     * The single-use check `handleRequest()` performs on entry, exposed so
+     * wrapping adapters can fail fast before writing to their own response.
      *
      * @internal
      */
     assertNotReused(): void {
-        // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
-        // Reusing a stateless transport causes message ID collisions between clients.
+        // Stateless reuse would collide JSON-RPC message ids across clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
             throw new SdkError(
                 SdkErrorCode.StatelessTransportReuse,
@@ -394,6 +386,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
     }
 
+    /**
+     * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
+     * Returns a `Response` object (Web Standard)
+     */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         this.assertNotReused();
         this._hasHandledRequest = true;

@@ -986,6 +986,7 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 | ------------------------------------- | -------------------------------------------------------------------------- |
 | `NotConnected`                        | Transport is not connected                                                 |
 | `AlreadyConnected`                    | Transport is already connected                                             |
+| `StatelessTransportReuse`             | Stateless transport reused across requests                                |
 | `NotInitialized`                      | Protocol is not initialized                                                |
 | `CapabilityNotSupported`              | Required capability is not supported                                       |
 | `RequestTimeout`                      | Request timed out waiting for response                                     |
@@ -1649,6 +1650,16 @@ to a new transport, or use a separate Protocol instance per connection."`) inste
   silently rebinding `this._transport`.
   Sequential `close()` then `connect()` keeps working. `Client.connect()` performs the
   same check up front, before any per-connection state is reset.
+  To resume a Streamable HTTP session across that sequence, carry both the session ID
+  and the negotiated protocol version onto the new transport — `close()` wipes the
+  client's copy, and the resuming connect reads it back from the transport:
+
+    ```typescript
+    const sessionId = transport.sessionId;
+    const protocolVersion = client.getNegotiatedProtocolVersion();
+    await client.close();
+    await client.connect(new StreamableHTTPClientTransport(url, { sessionId, protocolVersion }));
+    ```
 
 - **Aborted request handlers cannot write to a replacement transport.** After the
   handler's `ctx.mcpReq.signal` aborts (connection closed or request cancelled),

@@ -62,9 +62,8 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  *
  * @example Stateless setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateless"
- * // A stateless transport serves exactly one request: construct a fresh
- * // transport + server pair per request — reusing a stateless transport
- * // across requests throws.
+ * // A stateless transport serves exactly one request — reuse throws.
+ * // Construct a fresh transport + server pair per request.
  * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
  *
  * const transport = new NodeStreamableHTTPServerTransport({
@@ -196,11 +195,8 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
-        // Fail fast before delegating: once getRequestListener is invoked, a
-        // rejected dispatch is committed to `res` as an empty 500 before the
-        // rejection can surface, leaving the caller unable to shape its own
-        // error response. Checking up front rejects with nothing written to
-        // `res`. The check lives on the wrapped transport (single source).
+        // Check before delegating: getRequestListener may swallow a
+        // mid-dispatch rejection after bytes are written to `res`.
         this._webStandardTransport.assertNotReused();
 
         // Store context for this request to pass through auth and parsedBody
@@ -230,15 +226,9 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // including proper SSE streaming support
         await handler(req, res);
 
-        // Backstop for concurrent calls racing the up-front check (the
-        // single-use flag is set inside the wrapped handleRequest, after the
-        // request conversion): getRequestListener absorbs a rejected dispatch
-        // into a generic 500, which would swallow the single-use throw.
-        // Re-raise it so the documented behavior (reusing a stateless
-        // transport across requests throws at the call site) holds on this
-        // path too. Other dispatch errors keep the existing 500-response
-        // behavior. Matched by code, not `instanceof`, so the check also
-        // holds if bundling ever yields two copies of the error class.
+        // Backstop for concurrent calls racing the up-front check.
+        // getRequestListener absorbs rejections into a 500; re-raise the
+        // single-use throw (matched by code, robust to dual bundling).
         if (dispatchError instanceof Error && (dispatchError as { code?: unknown }).code === SdkErrorCode.StatelessTransportReuse) {
             throw dispatchError;
         }

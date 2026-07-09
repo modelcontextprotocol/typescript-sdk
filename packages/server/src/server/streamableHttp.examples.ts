@@ -30,9 +30,8 @@ async function WebStandardStreamableHTTPServerTransport_stateful() {
  */
 async function WebStandardStreamableHTTPServerTransport_stateless(request: Request) {
     //#region WebStandardStreamableHTTPServerTransport_stateless
-    // A stateless transport serves exactly one request: construct a fresh
-    // transport + server pair per request — reusing a stateless transport
-    // across requests throws.
+    // A stateless transport serves exactly one request — reuse throws.
+    // Construct a fresh transport + server pair per request.
     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
     const transport = new WebStandardStreamableHTTPServerTransport({
