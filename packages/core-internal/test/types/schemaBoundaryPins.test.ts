@@ -34,6 +34,8 @@ import {
     ListToolsResultSchema as Wire2026ListToolsResultSchema,
     RequestMetaEnvelopeSchema
 } from '../../src/wire/rev2026-07-28/schemas';
+import { getResultSchema as getRev2025ResultSchema } from '../../src/wire/rev2025-11-25/registry';
+import { CallToolResultSchema as Wire2025CallToolResultSchema } from '../../src/wire/rev2025-11-25/schemas';
 import type {
     CallToolResult,
     CompleteResult,
@@ -163,6 +165,15 @@ describe('typed result schemas are loose', () => {
         expect(parsed.structuredContent).toEqual({ ok: true });
         expect(parsed._meta).toEqual({ example: 'value' });
         expect(parsed.content).toEqual([{ type: 'text', text: 'ok' }]);
+    });
+});
+
+describe('2025 wire layering: era file spec-strict, era seam tolerant', () => {
+    test('the era-schema file rejects a content-less tools/call result; the registry seam defaults it', () => {
+        // Layering rule: wire era-schema files stay spec-verbatim (the 2025-11-25 twin requires content); the v1-parity tolerance lives at the era-registry seam.
+        expect(Wire2025CallToolResultSchema.safeParse({ structuredContent: {} }).success).toBe(false);
+        const seamParsed = getRev2025ResultSchema('tools/call')!.parse({ structuredContent: {} }) as { content: unknown };
+        expect(seamParsed.content).toEqual([]);
     });
 });
 

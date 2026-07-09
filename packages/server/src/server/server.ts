@@ -38,7 +38,6 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core-internal';
 import {
-    TOOL_RESULT_FOREIGN_FAMILY_KEYS,
     assertValidCacheHint,
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
@@ -53,6 +52,7 @@ import {
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
     modernProtocolVersions,
+    normalizeContentlessToolResult,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -528,14 +528,7 @@ export class Server extends Protocol<ServerContext> {
             // v1-parity authoring affordance, era-independent: a content-less
             // handler result normalizes to content: [] before era validation.
             // Other result families' bodies stay un-normalized and fail loudly.
-            const normalizedResult =
-                result !== null &&
-                typeof result === 'object' &&
-                !Array.isArray(result) &&
-                (result as { content?: unknown }).content === undefined &&
-                !TOOL_RESULT_FOREIGN_FAMILY_KEYS.some(key => key in result)
-                    ? { ...result, content: [] }
-                    : result;
+            const normalizedResult = normalizeContentlessToolResult(result);
 
             const validationResult = codec.validateResult('tools/call', normalizedResult);
             if (!validationResult.ok) {

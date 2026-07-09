@@ -745,8 +745,6 @@ export const PaginatedResultSchema = wireResult({
 });
 
 export const CallToolResultSchema = wireResult({
-    // Strict on this era: 2026-07-28 servers have no legacy excuse — the
-    // v1-parity content default applies to the 2025 era and neutral layer only.
     content: z.array(ContentBlockSchema),
     structuredContent: z.unknown().optional(),
     isError: z.boolean().optional()
@@ -1072,7 +1070,6 @@ function liftedResult<T extends z.core.$ZodLooseShape>(shape: T) {
 
 export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.ZodType } = {
     'tools/call': liftedResult({
-        // Strict on this era (see CallToolResultSchema above).
         content: z.array(ContentBlockSchema),
         structuredContent: z.unknown().optional(),
         isError: z.boolean().optional()

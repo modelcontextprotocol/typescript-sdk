@@ -24,7 +24,7 @@
 import * as z from 'zod/v4';
 
 import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
-import { TOOL_RESULT_FOREIGN_FAMILY_KEYS } from '../resultFamilies';
+import { normalizeContentlessToolResult, TOOL_RESULT_FOREIGN_FAMILY_KEYS } from '../resultFamilies';
 import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas';
 import {
     CallToolRequestSchema,
@@ -108,9 +108,9 @@ type Rev2025TypedRequestMethod = Extract<RequestMethod, Rev2025RequestMethod>;
 // 2025-11-25 wire vocabulary with no SDK runtime; callers needing task
 // interop pass an explicit schema).
 /**
- * Wire-seam guard: a content-less body carrying another result family's keys
- * fails loudly instead of defaulting to `{content: []}`. The era is frozen so
- * the key list is complete; explicit-schema task interop never consults this.
+ * Wire seam: owns both halves of the v1-parity ruling — the guard (a content-less body
+ * carrying another result family's keys fails loudly; the era is frozen so the key list is
+ * complete) and the tolerance (`content` defaults to `[]`). The era file stays twin-conformant.
  */
 export const CallToolResultWireSchema = z
     .unknown()
@@ -129,6 +129,7 @@ export const CallToolResultWireSchema = z
             }
         }
     })
+    .transform(normalizeContentlessToolResult)
     .pipe(CallToolResultSchema);
 
 const resultSchemas: { readonly [M in Rev2025TypedRequestMethod]: z.ZodType<ResultTypeMap[M]> } = {
