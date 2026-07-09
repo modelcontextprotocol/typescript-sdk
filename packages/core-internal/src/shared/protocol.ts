@@ -811,6 +811,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (this._connection === undefined) {
             this._pendingNegotiatedProtocolVersion = version;
         } else {
+            // A connection that negotiates its own version supersedes the seed:
+            // clear it so a post-close read cannot resurrect a stale pre-connect
+            // value over what the connection actually negotiated.
+            this._pendingNegotiatedProtocolVersion = undefined;
             this._connection.negotiatedProtocolVersion = version;
         }
     }
@@ -1239,7 +1243,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Related sends resolve through the SAME instance era as every other
         // sender (the per-request/instance asymmetry is deliberately gone):
         // the codec is resolved at send time from the connection state.
+        //
+        // Two independent exits gate them: the delivering connection being
+        // gone (disposed — the structural check), and THIS request having
+        // been cancelled (`notifications/cancelled` aborts the handler while
+        // the connection stays live). Either way the sends must not reach
+        // the wire: notifications no-op, requests reject ConnectionClosed.
         const sendNotification = (notification: Notification, options?: NotificationOptions): Promise<void> => {
+            if (capturedConnection.disposed || abortController.signal.aborted) {
+                return Promise.resolve();
+            }
             return this._notificationViaCodec(
                 this._resolveOutboundCodec(notification.method),
                 notification,
@@ -1255,6 +1268,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             resultSchema: U,
             options?: RequestOptions
         ): Promise<StandardSchemaV1.InferOutput<U>> => {
+            if (capturedConnection.disposed || abortController.signal.aborted) {
+                return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+            }
             return this._requestWithSchemaViaCodec(
                 this._resolveOutboundCodec(r.method),
                 r,
@@ -1297,12 +1313,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
-                    // The disposed-connection check comes FIRST — before
-                    // era/codec resolution — so a handler that outlived its
-                    // connection always gets the documented ConnectionClosed
-                    // rejection, never a synchronous era throw evaluated
-                    // against whatever connection replaced this request's.
-                    if (capturedConnection.disposed) {
+                    // The disposed-connection / cancelled-request check comes
+                    // FIRST — before era/codec resolution — so a handler that
+                    // outlived its connection, or whose request was cancelled
+                    // on a still-live connection, always gets the documented
+                    // ConnectionClosed rejection, never a synchronous era
+                    // throw evaluated against whatever connection replaced
+                    // this request's.
+                    if (capturedConnection.disposed || abortController.signal.aborted) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     // Related requests resolve through the instance era at

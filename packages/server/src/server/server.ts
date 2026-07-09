@@ -404,19 +404,21 @@ export class Server extends Protocol<ServerContext> {
                     // session-wide stream to deliver it on.
                     return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
                 },
-                // Same structural posture as `ctx.mcpReq.send`: once the
-                // connection this request arrived on is gone, its per-request
-                // senders must not reach the transport — `this.elicitInput` /
-                // `this.createMessage` read the live transport at send time,
-                // which may belong to a later connection.
+                // Same double gate as `ctx.mcpReq.send`: once the connection
+                // this request arrived on is gone (disposed), OR this request
+                // was cancelled while the connection stayed live, its
+                // per-request senders must not reach the transport —
+                // `this.elicitInput` / `this.createMessage` read the live
+                // transport at send time, which may belong to a later
+                // connection.
                 elicitInput: (params, options) => {
-                    if (connection.disposed) {
+                    if (connection.disposed || ctx.mcpReq.signal.aborted) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     return this.elicitInput(params, options);
                 },
                 requestSampling: (params, options) => {
-                    if (connection.disposed) {
+                    if (connection.disposed || ctx.mcpReq.signal.aborted) {
                         return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
                     }
                     return this.createMessage(params, options);
