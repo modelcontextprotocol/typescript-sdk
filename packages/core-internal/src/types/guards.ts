@@ -84,7 +84,9 @@ export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse => J
  * @returns True if the value is a valid {@linkcode CallToolResult}, false otherwise.
  */
 export const isCallToolResult = (value: unknown): value is CallToolResult => {
-    if (typeof value !== 'object' || value === null || !('content' in value)) return false;
+    // content === undefined covers an explicit undefined key too: the schema's
+    // .default([]) would parse it, but the narrowed type requires the array.
+    if (typeof value !== 'object' || value === null || (value as { content?: unknown }).content === undefined) return false;
     return CallToolResultSchema.safeParse(value).success;
 };
 

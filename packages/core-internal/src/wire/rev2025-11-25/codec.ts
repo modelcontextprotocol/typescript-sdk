@@ -105,8 +105,9 @@ export const rev2025Codec: WireCodec = {
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
-        // dropped before validation, whatever its value. There is no
-        // discrimination on this era — `resultType` carries no meaning here.
+        // dropped before validation, whatever its value. Validation judges the
+        // husk — the registry wire-seam schema on the plain path, the caller's
+        // schema on the explicit path (task interop).
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];

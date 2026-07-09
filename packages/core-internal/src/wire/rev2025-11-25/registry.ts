@@ -21,9 +21,10 @@
  * shells, `resultType`, the `_meta` envelope) has NO entry and NO code path
  * here — the inverse-leak guarantee is physical absence, not discipline.
  */
-import type * as z from 'zod/v4';
+import * as z from 'zod/v4';
 
 import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
+import { normalizeContentlessToolResult, TOOL_RESULT_FOREIGN_FAMILY_KEYS } from '../resultFamilies';
 import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas';
 import {
     CallToolRequestSchema,
@@ -106,6 +107,31 @@ type Rev2025TypedRequestMethod = Extract<RequestMethod, Rev2025RequestMethod>;
 // no key may fall outside it (no `tasks/*` entries — the task methods are
 // 2025-11-25 wire vocabulary with no SDK runtime; callers needing task
 // interop pass an explicit schema).
+/**
+ * Wire seam: owns both halves of the v1-parity ruling — the guard (a content-less body
+ * carrying another result family's keys fails loudly; the era is frozen so the key list is
+ * complete) and the tolerance (`content` defaults to `[]`). The era file stays twin-conformant.
+ */
+export const CallToolResultWireSchema = z
+    .unknown()
+    .superRefine((value, ctx) => {
+        // content === undefined covers both an absent key and an explicit
+        // undefined from server-side authoring objects.
+        if (typeof value !== 'object' || value === null || Array.isArray(value) || (value as Record<string, unknown>).content !== undefined)
+            return;
+        for (const key of TOOL_RESULT_FOREIGN_FAMILY_KEYS) {
+            if (key in value) {
+                ctx.addIssue({
+                    code: 'custom',
+                    message: `content is required when the body carries '${key}' — another result family cannot default into an empty tools/call success`
+                });
+                return;
+            }
+        }
+    })
+    .transform(normalizeContentlessToolResult)
+    .pipe(CallToolResultSchema);
+
 const resultSchemas: { readonly [M in Rev2025TypedRequestMethod]: z.ZodType<ResultTypeMap[M]> } = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
@@ -118,7 +144,7 @@ const resultSchemas: { readonly [M in Rev2025TypedRequestMethod]: z.ZodType<Resu
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': CallToolResultSchema,
+    'tools/call': CallToolResultWireSchema,
     'tools/list': ListToolsResultSchema,
     'sampling/createMessage': CreateMessageResultWithToolsSchema,
     'elicitation/create': ElicitResultSchema,

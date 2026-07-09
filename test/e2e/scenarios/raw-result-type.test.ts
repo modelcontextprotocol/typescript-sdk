@@ -14,10 +14,10 @@
  *    ABSENT `resultType` is a spec violation surfaced as a typed error
  *    naming it.
  *  - Negotiated legacy (2025 era): `resultType` is FOREIGN vocabulary —
- *    strip-on-lift (Q1-SD3 ii; a deliberate, ledgered change from the
- *    pre-split era-blind rejection — changeset: codec-split-wire-break). The
- *    stripped body then fails the (default-free) result schema loudly
- *    because it has no content.
+ *    strip-on-lift (Q1-SD3 ii). The stripped husk still carries the
+ *    input_required family keys, so the wire-seam schema rejects it loudly
+ *    (a content-less body without family keys would default to content: []
+ *    — changeset: calltoolresult-content-default).
  *
  * Either way the V-1 invariant holds: never an empty-content success.
  */
@@ -115,8 +115,8 @@ verifies('typescript:client:raw-result-type-first', async ({ transport }: TestAr
 
         try {
             const outcome = await callToolOutcome(client);
-            // Strip-on-lift (Q1-SD3 ii, ledgered): the foreign resultType is
-            // dropped; the body has no content, so validation fails LOUDLY.
+            // Strip-on-lift: the foreign resultType is dropped; the husk's
+            // input_required family keys fail the wire-seam schema LOUDLY.
             // Never an empty-content success.
             expect('resolved' in outcome, `must not resolve: ${JSON.stringify(outcome)}`).toBe(false);
             const rejection = (outcome as { rejected: unknown }).rejected;

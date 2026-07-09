@@ -34,6 +34,8 @@ import {
     ListToolsResultSchema as Wire2026ListToolsResultSchema,
     RequestMetaEnvelopeSchema
 } from '../../src/wire/rev2026-07-28/schemas';
+import { getResultSchema as getRev2025ResultSchema } from '../../src/wire/rev2025-11-25/registry';
+import { CallToolResultSchema as Wire2025CallToolResultSchema } from '../../src/wire/rev2025-11-25/schemas';
 import type {
     CallToolResult,
     CompleteResult,
@@ -139,18 +141,17 @@ describe('typed result schemas are loose', () => {
         expect((parsed as Record<string, unknown>).ttlMs).toBe(5);
     });
 
-    test('CallToolResult requires content on the wire (the silent-empty-success default is gone)', () => {
-        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): `content.default([])`
-        // was removed from the wire schema. The default was the T6 width-leak
-        // root: a task-shaped (or otherwise content-less) body parsed as a
-        // silent `{content: []}` success. Content is required by the spec in
-        // every revision; a content-less body now fails the parse LOUDLY.
-        // Changeset: codec-split-wire-break; docs/migration/upgrade-to-v2.md
-        // "Wire tightening (every era)".
-        expect(CallToolResultSchema.safeParse({ structuredContent: { ok: true } }).success).toBe(false);
-        const parsed = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
+    test('CallToolResult tolerates absent content on the wire (defaults to [], v1 parity)', () => {
+        // BEHAVIOR MIGRATION (reversal, ledgered): `content.default([])` was
+        // removed in the codec split (T6 width-leak root: a task-shaped body
+        // parsed as a silent success), then RESTORED for ecosystem parity —
+        // real deployments omit `content` alongside `structuredContent`. The
+        // T6 leak stays closed at the 2025 wire-seam schema; 2026 stays strict.
+        const parsed = CallToolResultSchema.parse({ structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);
         expect(parsed.structuredContent).toEqual({ ok: true });
+        const explicit = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
+        expect(explicit.content).toEqual([]);
     });
 
     test('CallToolResult preserves isError and sibling members through the parse', () => {
@@ -164,6 +165,15 @@ describe('typed result schemas are loose', () => {
         expect(parsed.structuredContent).toEqual({ ok: true });
         expect(parsed._meta).toEqual({ example: 'value' });
         expect(parsed.content).toEqual([{ type: 'text', text: 'ok' }]);
+    });
+});
+
+describe('2025 wire layering: era file spec-strict, era seam tolerant', () => {
+    test('the era-schema file rejects a content-less CallToolResult body; the registry seam defaults it', () => {
+        // Layering rule: era-schema files stay spec-verbatim (the CallToolResult twin requires content); the seam's v1-parity tolerance defaults CallToolResult-family bodies only — foreign-family results (task/inputRequests/requestState) are never defaulted.
+        expect(Wire2025CallToolResultSchema.safeParse({ structuredContent: {} }).success).toBe(false);
+        const seamParsed = getRev2025ResultSchema('tools/call')!.parse({ structuredContent: {} }) as { content: unknown };
+        expect(seamParsed.content).toEqual([]);
     });
 });
 

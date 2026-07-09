@@ -574,27 +574,19 @@ describe('T6 width-leak killed at both roots', () => {
         expect(decoded.kind).toBe('invalid');
     });
 
-    test('2025 era: with the content default gone, a bare task-shaped body fails the plain schema loudly', async () => {
+    test('2025 era: a bare task-shaped body fails the wire-seam schema — the content default cannot mask it', async () => {
         const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
-        const { CallToolResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
+        // Decode passes bodies without resultType through (explicit-schema
+        // task interop must work); the wire-seam schema does the refusing.
         expect(decoded.kind).toBe('complete');
-        if (decoded.kind === 'complete') {
-            // The plain schema (which IS the registry entry — the result map
-            // is aligned to the typed map, no task-widened union): no
-            // default([]) means no silent {content: []} masking.
-            expect(CallToolResultSchema.safeParse(decoded.result).success).toBe(false);
-        }
-        // The GENERIC path agrees: the registry serves the same plain schema,
-        // so even a fully conforming CreateTaskResult body is a loud schema
-        // failure (surfaced as a typed INVALID_RESULT — see
-        // test/shared/typedMapAlignment.test.ts). Task interop is the
-        // explicit-schema overload, never a silent union member.
+        // The wire-seam schema rejects even a fully conforming
+        // CreateTaskResult on the plain path (typed INVALID_RESULT); task
+        // interop is the explicit-schema overload only.
         const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
-        const plain = getResultSchema('tools/call');
-        expect(plain).toBe(CallToolResultSchema);
+        const wireSeam = getResultSchema('tools/call');
         expect(
-            plain!.safeParse({
+            wireSeam!.safeParse({
                 task: {
                     taskId: '786af6b0-2779-48ed-9cc1-b8a8a25b8a86',
                     status: 'working',
@@ -605,5 +597,7 @@ describe('T6 width-leak killed at both roots', () => {
                 }
             }).success
         ).toBe(false);
+        // While a plain content-less tool result still defaults:
+        expect(wireSeam!.safeParse({ structuredContent: { ok: true } }).success).toBe(true);
     });
 });

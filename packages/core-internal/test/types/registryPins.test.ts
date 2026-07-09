@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest';
 
 // Post-relocation home (Q1 increment-2 step 1): the pinned contents are
 // unchanged — only the module housing the registries moved.
-import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
+import { getNotificationSchema, getRequestSchema, CallToolResultWireSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
 // The 2025 wire schemas are fully self-contained in the era's schema module:
 // every per-method schema the registry serves is a FROZEN 2025-11-25 copy so
 // the public/neutral layer can evolve (e.g. SEP-2106 widening) without
@@ -130,7 +130,9 @@ const EXPECTED_RESULT_SCHEMAS = {
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': CallToolResultSchema,
+    // The wire-seam wrapper (content-default guard) IS the pinned entry —
+    // identity to the wrapper, which pipes into the plain schema.
+    'tools/call': CallToolResultWireSchema,
     'tools/list': ListToolsResultSchema,
     'sampling/createMessage': CreateMessageResultWithToolsSchema,
     'elicitation/create': ElicitResultSchema,
