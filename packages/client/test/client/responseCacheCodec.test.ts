@@ -1,0 +1,150 @@
+import type { JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { afterEach, describe, expect, test } from 'vitest';
+import { Client } from '../../src/client/client';
+import type { ResponseCacheStore } from '../../src/client/responseCache';
+import { ClientResponseCache, InMemoryResponseCacheStore } from '../../src/client/responseCache';
+
+const savedStructuredClone = globalThis.structuredClone;
+
+afterEach(() => {
+    globalThis.structuredClone = savedStructuredClone;
+});
+
+// Scripted server over a raw linked transport pair (the sibling
+// responseCache.test.ts pattern) — the client package's tests must not
+// depend on @modelcontextprotocol/server.
+async function connectedPair() {
+    const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+    serverTx.onmessage = m => {
+        const r = m as JSONRPCRequest;
+        if (r.id === undefined) return;
+        if (r.method === 'server/discover') {
+            void serverTx.send({
+                jsonrpc: '2.0',
+                id: r.id,
+                result: {
+                    resultType: 'complete',
+                    supportedVersions: ['2026-07-28'],
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 's', version: '1.0.0' }
+                }
+            });
+        } else if (r.method === 'tools/list') {
+            void serverTx.send({
+                jsonrpc: '2.0',
+                id: r.id,
+                result: {
+                    resultType: 'complete',
+                    ttlMs: 60_000,
+                    cacheScope: 'private',
+                    tools: [{ name: 'echo', description: 'echo', inputSchema: { type: 'object' } }]
+                }
+            });
+        }
+    };
+    await serverTx.start();
+    const client = new Client({ name: 'c', version: '1.0.0' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
+    await client.connect(clientTx);
+    const server = { close: () => serverTx.close() };
+    return { client, server };
+}
+
+describe('response cache document codec', () => {
+    test('the cache does not depend on structuredClone existing (jest-jsdom / Node < 17)', async () => {
+        // Pre-codec, both cache edges called the global: environments without
+        // it threw every write into the store-error swallow, silently
+        // disabling caching. The codec (JSON round-trip) has no environment
+        // dependency; this pins that the global is never required again.
+        // @ts-expect-error simulating environments without the global
+        delete globalThis.structuredClone;
+
+        const { client, server } = await connectedPair();
+        const errors: unknown[] = [];
+        client.onerror = e => errors.push(e);
+        const first = await client.listTools();
+        const second = await client.listTools();
+        expect(first.tools.map(t => t.name)).toEqual(['echo']);
+        expect(second.tools.map(t => t.name)).toEqual(['echo']);
+        expect(errors).toEqual([]);
+        await client.close();
+        await server.close();
+    });
+
+    test('served results are caller-owned: mutating one hit cannot reach the next', async () => {
+        const { client, server } = await connectedPair();
+        const first = await client.listTools();
+        first.tools.length = 0;
+        const second = await client.listTools();
+        expect(second.tools.map(t => t.name)).toEqual(['echo']);
+        await client.close();
+        await server.close();
+    });
+
+    test('custom stores receive the serialized document, not a live object graph', async () => {
+        const seen: unknown[] = [];
+        const store = new InMemoryResponseCacheStore();
+        const originalSet = store.set.bind(store);
+        store.set = (key, entry) => {
+            seen.push(entry.value);
+            return originalSet(key, entry);
+        };
+        const cache = new ClientResponseCache(store, true);
+        await cache.write(
+            'tools/list',
+            { tools: [{ name: 'a', inputSchema: { type: 'object' } }] },
+            cache.captureGeneration('tools/list'),
+            {
+                expiresAt: Date.now() + 60_000,
+                scope: 'private'
+            }
+        );
+        expect(seen).toHaveLength(1);
+        expect(typeof seen[0]).toBe('string');
+        expect(JSON.parse(seen[0] as string).tools[0].name).toBe('a');
+    });
+
+    test('a non-JSON-serializable value fails the write loudly and does not poison later calls', async () => {
+        const reported: unknown[] = [];
+        const store = new InMemoryResponseCacheStore();
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        const cyclic: { tools: unknown[]; self?: unknown } = { tools: [] };
+        cyclic.self = cyclic;
+
+        await cache.write('tools/list', cyclic, cache.captureGeneration('tools/list'), {
+            expiresAt: Date.now() + 60_000,
+            scope: 'private'
+        });
+        // Reported (TypeError naming the cause), nothing stored, read is a miss.
+        expect(reported).toHaveLength(1);
+        expect(String(reported[0])).toMatch(/not JSON-serializable/);
+        expect(await cache.read('tools/list')).toBeUndefined();
+
+        // The cache stays functional for well-formed values afterwards.
+        await cache.write(
+            'tools/list',
+            { tools: [{ name: 'b', inputSchema: { type: 'object' } }] },
+            cache.captureGeneration('tools/list'),
+            {
+                expiresAt: Date.now() + 60_000,
+                scope: 'private'
+            }
+        );
+        expect(((await cache.read('tools/list'))?.value as { tools: { name: string }[] }).tools[0]?.name).toBe('b');
+    });
+
+    test('a corrupted document in an external store reads as a miss, not a crash', async () => {
+        const reported: unknown[] = [];
+        const store: ResponseCacheStore = {
+            get: () => ({ value: '{ definitely not json', stamp: 1, expiresAt: Date.now() + 60_000, scope: 'private' as const }),
+            set: () => 1,
+            delete: () => {},
+            evict: () => {},
+            clear: () => {}
+        };
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        expect(await cache.read('tools/list')).toBeUndefined();
+        expect(await cache.toolDefinition('a')).toBeUndefined();
+        expect(reported.length).toBeGreaterThan(0);
+    });
+});

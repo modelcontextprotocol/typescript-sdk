@@ -1642,7 +1642,11 @@ export class Client extends Protocol<ClientContext> {
             cursor = page.nextCursor;
             pages++;
         }
-        acc.nextCursor = undefined;
+        // delete (not `= undefined`): the aggregate round-trips through the
+        // cache's JSON codec, which drops explicit-undefined properties — a
+        // deleted key keeps `'nextCursor' in result` identical between the
+        // network response and a cache hit.
+        delete acc.nextCursor;
         finalize?.(acc);
         if (bypass) return acc;
         // The aggregate is ALWAYS written: even when the resolved TTL is ≤0
@@ -1681,12 +1685,15 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The cache-serving front of every cacheable verb (mcp.d's `cachedFetch`
-     * read half): under `cacheMode: 'use'` (the default), a held entry whose
-     * `expiresAt` is in the future is returned as a `structuredClone` and the
-     * round trip is skipped. `'refresh'` and `'bypass'` always fetch (the
-     * caller decides whether to write). A custom store whose `get()` rejects
-     * is routed to `onerror` and treated as a miss — cache bookkeeping never
-     * blocks a request from reaching the wire.
+     * read half): under `cacheMode: 'use'` (the default), a fresh held entry
+     * is served and the round trip is skipped. `'refresh'` and `'bypass'`
+     * always fetch (the caller decides whether to write). Freshness and
+     * decoding live in {@linkcode ClientResponseCache.read}: the served value
+     * is freshly parsed from the stored document, so the caller owns it
+     * outright — mutating it (e.g. `result.tools.sort(...)`) cannot reach the
+     * cache or the stamp-memoized indices derived from it. A custom store
+     * whose `get()` rejects is routed to `onerror` and treated as a miss —
+     * cache bookkeeping never blocks a request from reaching the wire.
      */
     private async _serveFromCache<R>(
         method: string,
@@ -1694,8 +1701,8 @@ export class Client extends Protocol<ClientContext> {
         options: CacheableRequestOptions | undefined
     ): Promise<R | undefined> {
         if (options?.cacheMode === 'bypass' || options?.cacheMode === 'refresh') return undefined;
-        const entry = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
-        if (entry?.expiresAt !== undefined && entry.expiresAt > this._cache.now()) {
+        const hit = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
+        if (hit !== undefined) {
             // A pre-aborted caller signal must reject the same way it would on
             // the wire path (`Protocol.request()` wraps an already-aborted
             // signal as `SdkError(RequestTimeout, reason)`); without this guard
@@ -1705,11 +1712,7 @@ export class Client extends Protocol<ClientContext> {
                 const reason = options.signal.reason;
                 throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
             }
-            // Clone on the way out so a caller mutating the returned aggregate
-            // (e.g. `result.tools.sort(...)`) cannot reach the cache or the
-            // stamp-memoized indices derived from it — the same invariant
-            // `_cache.write` upholds on the way in.
-            return structuredClone(entry.value) as R;
+            return hit.value as R;
         }
         return undefined;
     }

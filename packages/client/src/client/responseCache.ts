@@ -52,16 +52,21 @@ export interface CacheKey {
 }
 
 /**
- * One cached response body. `value` is the verbatim decoded result; `stamp` is
- * the store-generated monotonically increasing write counter — opaque to
- * callers. Derived views (e.g. a `name → Tool` index) memoize against it and
- * re-derive only when it changes. `expiresAt` (absolute ms epoch, `now +
- * ttlMs`) and `scope` are the client-computed freshness metadata; the store
- * MUST persist them and hand them back on `get` so the read path can decide
- * freshness and gate the shared-partition fallback on `scope === 'public'`.
+ * One cached response body. `value` is the JSON-serialized result document
+ * (the cache serializes on write and parses on read — mcp.d's
+ * `toJson`/`fromJson` boundary), so a store is a dumb string carrier: an
+ * in-memory store holds the string, a persistent store (Redis, disk) persists
+ * it verbatim with no extra serialization step, and both behave identically.
+ * `stamp` is the store-generated monotonically increasing write counter —
+ * opaque to callers. Derived views (e.g. a `name → Tool` index) memoize
+ * against it and re-derive only when it changes. `expiresAt` (absolute ms
+ * epoch, `now + ttlMs`) and `scope` are the client-computed freshness
+ * metadata; the store MUST persist them and hand them back on `get` so the
+ * read path can decide freshness and gate the shared-partition fallback on
+ * `scope === 'public'`.
  */
 export interface CacheEntry {
-    readonly value: unknown;
+    readonly value: string;
     readonly stamp: number;
     readonly expiresAt?: number;
     readonly scope?: CacheScope;
@@ -96,7 +101,7 @@ export interface ResponseCacheStore {
      * `scope` (the client-computed freshness metadata); the store MUST persist
      * them and hand them back on `get`.
      */
-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
+    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
     /**
      * Drop the single entry under `key` (no-op if absent). Called for both
      * `notifications/resources/updated` (per-URI) and the `list_changed`
@@ -175,7 +180,7 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
         return this._entries.get(keyOf(key));
     }
 
-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): number {
+    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): number {
         const k = keyOf(key);
         const exempt = CAP_EXEMPT_METHODS.has(key.method);
         const isNew = !this._entries.has(k);
@@ -487,13 +492,17 @@ export class ClientResponseCache {
      * overwriting the eviction with the stale aggregate would lose the
      * invalidation.
      *
-     * The stored value is a `structuredClone` of `value`, so a caller
+     * The value is stored as its JSON-serialized document (mcp.d's `toJson`
+     * half): serialization is simultaneously the mutation barrier — a caller
      * mutating the aggregate it was returned (e.g. `result.tools.sort(...)`)
-     * cannot reach the cache or the stamp-memoized indices derived from it. A
-     * custom store whose `set()` throws or rejects is routed to the
-     * `reportError` sink and the write resolves — cache bookkeeping never
-     * costs the caller a result it already fetched (consistent with the
-     * eviction path).
+     * cannot reach the cache or the stamp-memoized indices derived from it —
+     * and the exact representation a persistent store needs. A value that is
+     * not JSON-serializable (only reachable via in-process transports handing
+     * over non-wire objects) fails the write loudly into the `reportError`
+     * sink rather than silently disabling the cache. A custom store whose
+     * `set()` throws or rejects is routed to the same sink and the write
+     * resolves — cache bookkeeping never costs the caller a result it
+     * already fetched (consistent with the eviction path).
      *
      * `freshness` carries the client-computed `expiresAt` (absolute ms epoch,
      * `now + ttlMs`) and the server-reported `cacheScope`. The storage
@@ -529,7 +538,7 @@ export class ClientResponseCache {
         try {
             await this._store.set(
                 { method, params, partition },
-                { value: structuredClone(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
+                { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
             );
         } catch (error) {
             this._reportError(error);
@@ -548,13 +557,25 @@ export class ClientResponseCache {
     }
 
     /**
-     * Read the cached entry for `{method, params}` via the two-probe lookup
-     * (own-partition then this server's shared partition, gated on
-     * `scope === 'public'`). The caller owns the freshness check
-     * (`entry.expiresAt > now()`); a missing `expiresAt` is never fresh.
+     * Serve the fresh cached result for `{method, params}`, or `undefined`.
+     * Lookup is the two-probe order (own-partition then this server's shared
+     * partition, gated on `scope === 'public'`); freshness is
+     * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh — the
+     * retain-for-schema posture), checked BEFORE decoding so stale entries
+     * cost no parse. The returned value is freshly parsed from the stored
+     * document (mcp.d's `fromJson` half), so every hit hands the caller an
+     * aggregate it owns outright. An entry whose document does not parse
+     * (a corrupted external store) is reported and treated as a miss.
      */
-    async read(method: string, params?: string): Promise<CacheEntry | undefined> {
-        return this._probe(method, params);
+    async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
+        const entry = await this._probe(method, params);
+        if (entry?.expiresAt === undefined || entry.expiresAt <= this.now()) return undefined;
+        try {
+            return { value: JSON.parse(entry.value) };
+        } catch (error) {
+            this._reportError(error);
+            return undefined;
+        }
     }
 
     /**
@@ -592,8 +613,12 @@ export class ClientResponseCache {
             return undefined;
         }
         if (this._toolIndex?.stamp !== entry.stamp) {
+            const list = this._decodeListTools(entry);
             const byName = new Map<string, Tool>();
-            for (const tool of (entry.value as ListToolsResult).tools) byName.set(tool.name, tool);
+            if (list !== undefined) for (const tool of list.tools) byName.set(tool.name, tool);
+            // A failed decode memoizes an EMPTY index under the same stamp, so
+            // the corrupt document is parsed (and reported) once per stamp —
+            // not once per callTool — and a later rewrite re-derives.
             this._toolIndex = { stamp: entry.stamp, byName };
         }
         return this._toolIndex.byName.get(name);
@@ -628,13 +653,45 @@ export class ClientResponseCache {
             return undefined;
         }
         if (this._toolOutputValidatorIndex?.stamp !== entry.stamp) {
+            const list = this._decodeListTools(entry) ?? { tools: [] };
             const byName = new Map<string, unknown>();
-            for (const tool of (entry.value as ListToolsResult).tools) {
+            for (const tool of list.tools) {
                 const compiled = compile(tool);
                 if (compiled !== undefined) byName.set(tool.name, compiled);
             }
             this._toolOutputValidatorIndex = { stamp: entry.stamp, byName };
         }
         return this._toolOutputValidatorIndex.byName.get(name) as V | undefined;
+    }
+
+    /** Parse a held `tools/list` document for the index builders; a document
+     * that does not parse (corrupted external store) is reported and treated
+     * as if nothing were held. Callers memoize the outcome against the
+     * entry's stamp, so a corrupt document costs one parse + report per
+     * stamp, not per lookup. */
+    private _decodeListTools(entry: CacheEntry): ListToolsResult | undefined {
+        try {
+            return JSON.parse(entry.value) as ListToolsResult;
+        } catch (error) {
+            this._reportError(error);
+            return undefined;
+        }
+    }
+}
+
+/**
+ * Serialize a result for storage. Legal wire results are JSON-serializable by
+ * construction. Non-wire values are only reachable via in-process transports
+ * handing over live objects: the non-serializable ones (cycles, functions,
+ * BigInt) throw a TypeError the write path reports, while JSON-representable
+ * ones (Date, Map, NaN, explicit-undefined properties) are silently
+ * normalized to their JSON forms — the same shapes a real wire transport
+ * would have produced.
+ */
+function encodeCacheValue(value: unknown): string {
+    try {
+        return JSON.stringify(value);
+    } catch (error) {
+        throw new TypeError(`cache value is not JSON-serializable: ${error instanceof Error ? error.message : String(error)}`);
     }
 }

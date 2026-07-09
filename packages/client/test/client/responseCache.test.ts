@@ -33,25 +33,25 @@ const PRE = JSON.stringify(['', '']);
 describe('InMemoryResponseCacheStore', () => {
     it('get/set/evict/clear round-trip; evict is method-scoped; set returns the store-generated stamp', () => {
         const store = new InMemoryResponseCacheStore();
-        const s1 = store.set({ method: 'tools/list' }, { value: 1 });
-        const s2 = store.set({ method: 'prompts/list' }, { value: 2 });
-        const s3 = store.set({ method: 'resources/read', params: 'file:///a' }, { value: 3, expiresAt: 123, scope: 'private' });
+        const s1 = store.set({ method: 'tools/list' }, { value: '1' });
+        const s2 = store.set({ method: 'prompts/list' }, { value: '2' });
+        const s3 = store.set({ method: 'resources/read', params: 'file:///a' }, { value: '3', expiresAt: 123, scope: 'private' });
         // Store owns the stamp counter: monotonic, opaque to callers, surfaced on the entry.
         expect(s2).toBeGreaterThan(s1);
         expect(s3).toBeGreaterThan(s2);
-        expect(store.get({ method: 'tools/list' })).toEqual({ value: 1, stamp: s1 });
+        expect(store.get({ method: 'tools/list' })).toEqual({ value: '1', stamp: s1 });
         // Store persists caller-supplied freshness metadata.
         expect(store.get({ method: 'resources/read', params: 'file:///a' })).toEqual({
-            value: 3,
+            value: '3',
             stamp: s3,
             expiresAt: 123,
             scope: 'private'
         });
-        expect(store.get({ method: 'tools/list', params: '', partition: '' })?.value).toBe(1);
+        expect(store.get({ method: 'tools/list', params: '', partition: '' })?.value).toBe('1');
         store.evict('tools/list');
         expect(store.get({ method: 'tools/list' })).toBeUndefined();
-        expect(store.get({ method: 'prompts/list' })?.value).toBe(2);
-        expect(store.get({ method: 'resources/read', params: 'file:///a' })?.value).toBe(3);
+        expect(store.get({ method: 'prompts/list' })?.value).toBe('2');
+        expect(store.get({ method: 'resources/read', params: 'file:///a' })?.value).toBe('3');
         store.clear();
         expect(store.get({ method: 'prompts/list' })).toBeUndefined();
     });
@@ -75,10 +75,10 @@ describe('InMemoryResponseCacheStore', () => {
         // A NUL in `partition` cannot smuggle into `params` (and vice versa) —
         // the `[partition, params]` JSON-array encoding escapes every control
         // and quote character.
-        store.set({ method: 'resources/read', partition: 'a\0b', params: 'c' }, { value: 1 });
-        store.set({ method: 'resources/read', partition: 'a', params: 'b\0c' }, { value: 2 });
-        expect(store.get({ method: 'resources/read', partition: 'a\0b', params: 'c' })?.value).toBe(1);
-        expect(store.get({ method: 'resources/read', partition: 'a', params: 'b\0c' })?.value).toBe(2);
+        store.set({ method: 'resources/read', partition: 'a\0b', params: 'c' }, { value: '1' });
+        store.set({ method: 'resources/read', partition: 'a', params: 'b\0c' }, { value: '2' });
+        expect(store.get({ method: 'resources/read', partition: 'a\0b', params: 'c' })?.value).toBe('1');
+        expect(store.get({ method: 'resources/read', partition: 'a', params: 'b\0c' })?.value).toBe('2');
         // Same for the partition's own JSON-shaped content: the outer
         // JSON.stringify escapes the inner quotes.
         store.set({ method: 'tools/list', partition: '["x",""]' }, { value: 'real' });
@@ -104,7 +104,7 @@ describe('InMemoryResponseCacheStore', () => {
 
         // 0 disables the bound.
         const unbounded = new InMemoryResponseCacheStore({ maxEntries: 0 });
-        for (let i = 0; i < 1000; i++) unbounded.set({ method: 'resources/read', params: String(i) }, { value: i });
+        for (let i = 0; i < 1000; i++) unbounded.set({ method: 'resources/read', params: String(i) }, { value: String(i) });
         expect(unbounded.size).toBe(1000);
     });
 
@@ -119,7 +119,7 @@ describe('InMemoryResponseCacheStore', () => {
         // Five exempt entries already exceed maxEntries=3; a resources/read
         // write does NOT evict any of them — the cap counts only non-exempt
         // keys.
-        for (let i = 0; i < 5; i++) store.set({ method: 'resources/read', params: String(i) }, { value: i });
+        for (let i = 0; i < 5; i++) store.set({ method: 'resources/read', params: String(i) }, { value: String(i) });
         expect(store.get({ method: 'tools/list' })?.value).toBe('T');
         expect(store.get({ method: 'prompts/list' })?.value).toBe('P');
         expect(store.get({ method: 'resources/list' })?.value).toBe('R');
@@ -128,21 +128,21 @@ describe('InMemoryResponseCacheStore', () => {
         // Only 3 resources/read entries survive (oldest two evicted).
         expect(store.get({ method: 'resources/read', params: '0' })).toBeUndefined();
         expect(store.get({ method: 'resources/read', params: '1' })).toBeUndefined();
-        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe(2);
-        expect(store.get({ method: 'resources/read', params: '4' })?.value).toBe(4);
+        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe('2');
+        expect(store.get({ method: 'resources/read', params: '4' })?.value).toBe('4');
         expect(store.size).toBe(8);
         // An exempt-method write at capacity never evicts a resources/read entry.
         store.set({ method: 'tools/list', partition: 'p2' }, { value: 'T2' });
-        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe(2);
+        expect(store.get({ method: 'resources/read', params: '2' })?.value).toBe('2');
     });
 
     it('delete(key) drops the single entry; no-op when absent', () => {
         const store = new InMemoryResponseCacheStore();
-        store.set({ method: 'resources/read', params: 'a', partition: 'p' }, { value: 1 });
-        store.set({ method: 'resources/read', params: 'b', partition: 'p' }, { value: 2 });
+        store.set({ method: 'resources/read', params: 'a', partition: 'p' }, { value: '1' });
+        store.set({ method: 'resources/read', params: 'b', partition: 'p' }, { value: '2' });
         store.delete({ method: 'resources/read', params: 'a', partition: 'p' });
         expect(store.get({ method: 'resources/read', params: 'a', partition: 'p' })).toBeUndefined();
-        expect(store.get({ method: 'resources/read', params: 'b', partition: 'p' })?.value).toBe(2);
+        expect(store.get({ method: 'resources/read', params: 'b', partition: 'p' })?.value).toBe('2');
         // Absent key: no-op.
         store.delete({ method: 'resources/read', params: 'a', partition: 'p' });
     });
@@ -194,12 +194,11 @@ describe('ClientResponseCache', () => {
         await cache.write('tools/list', value, cache.captureGeneration('tools/list'));
         // Mutate the caller's reference (the same object _listAllPages returns).
         value.tools.length = 0;
-        // The cached entry is a structuredClone, so the store and the
+        // The cache serialized the value on write, so the store and the
         // stamp-memoized index are unaffected.
-        expect((store.get({ method: 'tools/list', partition: PRE })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
-            'a',
-            'b'
-        ]);
+        expect(
+            (JSON.parse(store.get({ method: 'tools/list', partition: PRE })!.value) as { tools: Tool[] }).tools.map(t => t.name)
+        ).toEqual(['a', 'b']);
         expect((await cache.toolDefinition('a'))?.name).toBe('a');
         expect((await cache.toolDefinition('b'))?.name).toBe('b');
     });
@@ -212,17 +211,25 @@ describe('ClientResponseCache', () => {
         // keyed per URI).
         const gen = cache.captureGeneration('resources/read', 'res://a');
         await cache.evictKey('resources/read', 'res://a');
-        await cache.write('resources/read', { contents: [] }, gen, { expiresAt: 1e9, scope: 'private', params: 'res://a' });
+        await cache.write('resources/read', { contents: [] }, gen, { expiresAt: Date.now() + 60_000, scope: 'private', params: 'res://a' });
         expect(store.get({ method: 'resources/read', params: 'res://a', partition: PRE })).toBeUndefined();
         // A sibling URI's generation is independent: evictKey('a') does not
         // suppress a write for 'b'.
         const genB = cache.captureGeneration('resources/read', 'res://b');
         await cache.evictKey('resources/read', 'res://a');
-        await cache.write('resources/read', { contents: [] }, genB, { expiresAt: 1e9, scope: 'private', params: 'res://b' });
+        await cache.write('resources/read', { contents: [] }, genB, {
+            expiresAt: Date.now() + 60_000,
+            scope: 'private',
+            params: 'res://b'
+        });
         expect(store.get({ method: 'resources/read', params: 'res://b', partition: PRE })).toBeDefined();
         // A fresh capture after the evictKey writes through.
         const gen2 = cache.captureGeneration('resources/read', 'res://a');
-        await cache.write('resources/read', { contents: [] }, gen2, { expiresAt: 1e9, scope: 'private', params: 'res://a' });
+        await cache.write('resources/read', { contents: [] }, gen2, {
+            expiresAt: Date.now() + 60_000,
+            scope: 'private',
+            params: 'res://a'
+        });
         expect(store.get({ method: 'resources/read', params: 'res://a', partition: PRE })).toBeDefined();
     });
 
@@ -264,7 +271,7 @@ describe('ClientResponseCache', () => {
         };
         const cache = new ClientResponseCache(store, true);
         await cache.write('tools/list', { tools: [TOOL_A] }, cache.captureGeneration('tools/list'), {
-            expiresAt: 1e9,
+            expiresAt: Date.now() + 60_000,
             scope: 'private'
         });
         // The read path finds the entry the write path stored.
@@ -292,7 +299,7 @@ describe('ClientResponseCache', () => {
         const cache = new ClientResponseCache(store, true);
         expect(await cache.toolDefinition('a')).toBeUndefined();
 
-        store.set({ method: 'tools/list', partition: PRE }, { value: { tools: [TOOL_A, TOOL_B] } });
+        store.set({ method: 'tools/list', partition: PRE }, { value: JSON.stringify({ tools: [TOOL_A, TOOL_B] }) });
         const hit = await cache.toolDefinition('a');
         expect(hit?.name).toBe('a');
         // Same backing entry → identical reference (memoized index, not re-derived).
@@ -300,7 +307,7 @@ describe('ClientResponseCache', () => {
 
         // A fresh write bumps the store stamp → the index re-derives (the new
         // entry's tool instance is what comes back, not the memoized one).
-        store.set({ method: 'tools/list', partition: PRE }, { value: { tools: [{ ...TOOL_A }, { ...TOOL_B }] } });
+        store.set({ method: 'tools/list', partition: PRE }, { value: JSON.stringify({ tools: [{ ...TOOL_A }, { ...TOOL_B }] }) });
         const hit2 = await cache.toolDefinition('a');
         expect(hit2?.name).toBe('a');
         expect(hit2).not.toBe(hit);
@@ -426,7 +433,7 @@ describe('Client response-cache substrate', () => {
         expect(listCount()).toBe(3);
 
         const entry = store.get({ method: 'tools/list', partition: part() });
-        expect((entry?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+        expect((JSON.parse(entry!.value) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
     });
 
     it('the auto-aggregate path threads caller params (e.g. _meta trace context) into every page request', async () => {

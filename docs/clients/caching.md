@@ -64,7 +64,7 @@ const store = new InMemoryResponseCacheStore({ maxEntries: 2048 });
 const client = new Client({ name: 'my-client', version: '1.0.0' }, { responseCacheStore: store });
 ```
 
-Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
+Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. `CacheEntry.value` is the JSON-serialized result document — a persistent store persists the string verbatim, no extra serialization step, and behaves identically to the in-memory default. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
 
 ## Partition the store per user
 
