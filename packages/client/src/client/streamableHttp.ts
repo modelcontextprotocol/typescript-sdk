@@ -971,14 +971,25 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal
             };
 
+            // Snapshot of the id this request went out with — responses are
+            // interpreted against what THIS request presented, not whatever
+            // `_sessionId` holds by the time the response lands (a late
+            // response from a previous session must neither install its
+            // stale id nor wipe a newer one).
+            const sentSessionId = headers.get('mcp-session-id');
+
             const response = await (this._fetch ?? fetch)(this._url, init);
 
             // Capture the session id only from successful responses — the
             // spec assigns it on the InitializeResult response. An error
-            // reply (e.g. a 404 to a probe) contributes nothing to session state.
+            // reply (e.g. a 404 to a probe) contributes nothing to session
+            // state. Guard against late arrivals: a request that carried no
+            // id (the initialize) may always install the assignment; a
+            // request that carried an id may only refresh it while that id
+            // is still the current one.
             if (response.ok) {
                 const sessionId = response.headers.get('mcp-session-id');
-                if (sessionId) {
+                if (sessionId && (sentSessionId === null || sentSessionId === this._sessionId)) {
                     this._sessionId = sessionId;
                 }
             }
@@ -988,7 +999,10 @@ export class StreamableHTTPClientTransport implements Transport {
                 // session is gone — drop it so the next attempt can start a
                 // fresh handshake. POST only: SSE reconnect GETs can 404 for
                 // transient infra reasons while the session is still live.
-                if (response.status === 404 && headers.get('mcp-session-id') !== null) {
+                // Only when the id this request carried is still the current
+                // one: a late 404 from a previous session must not wipe a
+                // newer session's id.
+                if (response.status === 404 && sentSessionId !== null && sentSessionId === this._sessionId) {
                     this._sessionId = undefined;
                 }
                 if (response.status === 401 && this._authProvider) {
@@ -1178,8 +1192,12 @@ export class StreamableHTTPClientTransport implements Transport {
             await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,
-            // meaning the server does not support explicit session termination
-            if (!response.ok && response.status !== 405) {
+            // meaning the server does not support explicit session termination.
+            // 404 likewise terminates locally: the session is already gone on
+            // the server (expired or evicted — the exact race termination is
+            // prone to), which is the outcome termination seeks; the stored id
+            // must still be dropped rather than left dead.
+            if (!response.ok && response.status !== 405 && response.status !== 404) {
                 throw new SdkHttpError(
                     SdkErrorCode.ClientHttpFailedToTerminateSession,
                     `Failed to terminate session: ${response.statusText}`,

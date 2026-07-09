@@ -1896,7 +1896,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'On a 404 for an existing session the transport throws StreamableHTTPError (streamableHttp.ts:551) and never re-initializes — no session recovery is attempted.'
+                note: 'On a 404 for an existing session the transport clears the dead session id but never auto-re-initializes — recovery still requires a new host-driven connect (a fresh session-less InitializeRequest is not sent automatically).'
             }
         ]
     },
