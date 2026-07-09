@@ -20,6 +20,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Client } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
+
+/** White-box probe: pending response handlers on the client's live connection (0 when disconnected). */
+function responseHandlerCount(client: unknown): number {
+    const connection = (client as { _conn?: { responseHandlers: Map<unknown, unknown> } })._conn;
+    return connection?.responseHandlers.size ?? 0;
+}
 const flush = () => new Promise(r => setTimeout(r, 10));
 
 async function scriptedModern(onListen?: (id: number | string, filter: unknown, send: (m: JSONRPCMessage) => void) => void) {
@@ -374,7 +380,7 @@ describe('Client.listen()', () => {
         // registered before send threw; listen() never registers in
         // Protocol's `_responseHandlers` so there is nothing to leak there.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
-        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        expect(responseHandlerCount(client)).toBe(0);
         clientTx.send = realSend;
         await client.close();
     });
@@ -739,7 +745,7 @@ describe('Client.listen()', () => {
         expect(error).toBeInstanceOf(Error);
         expect(Date.now() - t0).toBeLessThan(1000);
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
-        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        expect(responseHandlerCount(client)).toBe(0);
     });
 
     it("transport closes WHILE the subscription is open: closed resolves 'remote'; close() is a no-op", async () => {
@@ -991,7 +997,7 @@ describe('Client.listen() — ack timeout (fake timers)', () => {
         expect(cancelled).toMatchObject({ params: { requestId: listenId } });
         // No leaked state.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
-        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        expect(responseHandlerCount(client)).toBe(0);
         // Restore real timers before close to avoid hanging on transport timers.
         vi.useRealTimers();
         await client.close();

@@ -1170,3 +1170,41 @@ describe('inbound protocol-version mismatch (−32022): the error data lists eve
         await protocol.close();
     });
 });
+
+describe('outbound _meta envelope attach', () => {
+    // Exercises the base-class attach seam directly (the Client's modern-era
+    // override is covered in the client package): the envelope merges into
+    // existing params with user `_meta` keys winning, and materializes
+    // `params._meta` from nothing when the message carried no params.
+    class EnvelopeProtocol extends TestProtocolImpl {
+        protected override _outboundMetaEnvelope(): Readonly<Record<string, unknown>> | undefined {
+            return { 'io.modelcontextprotocol/test-key': 'envelope' };
+        }
+    }
+
+    test('envelope keys merge under user _meta and materialize params when absent', async () => {
+        const protocol = new EnvelopeProtocol();
+        const transport = new MockTransport();
+        const sent: JSONRPCMessage[] = [];
+        transport.send = async message => {
+            sent.push(message);
+        };
+        await protocol.connect(transport);
+
+        await protocol.notification({
+            method: 'test/withParams',
+            params: { value: 1, _meta: { 'io.modelcontextprotocol/test-key': 'user' } }
+        });
+        await protocol.notification({ method: 'test/bare' });
+
+        expect((sent[0] as JSONRPCNotification).params).toEqual({
+            value: 1,
+            _meta: { 'io.modelcontextprotocol/test-key': 'user' }
+        });
+        expect((sent[1] as JSONRPCNotification).params).toEqual({
+            _meta: { 'io.modelcontextprotocol/test-key': 'envelope' }
+        });
+
+        await protocol.close();
+    });
+});
