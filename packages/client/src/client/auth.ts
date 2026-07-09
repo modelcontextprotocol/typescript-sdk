@@ -22,7 +22,7 @@ import {
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema,
+    OAuthTokenResponseSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
     stampErrorBrands
@@ -2100,7 +2100,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(json);
+        return OAuthTokenResponseSchema.parse(json);
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2215,7 +2215,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
 }
 
 /**

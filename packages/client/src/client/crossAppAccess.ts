@@ -9,7 +9,7 @@
  */
 
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
-import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
+import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokenResponseSchema } from '@modelcontextprotocol/core-internal';
 
 import type { ClientAuthMethod } from './auth';
 import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
@@ -298,7 +298,7 @@ export async function exchangeJwtAuthGrant(options: {
     const responseBody = await response.json();
 
     // Validate response using core schema
-    const parseResult = OAuthTokensSchema.safeParse(responseBody);
+    const parseResult = OAuthTokenResponseSchema.safeParse(responseBody);
     if (!parseResult.success) {
         throw new Error(`Invalid token response: ${parseResult.error.message}`);
     }

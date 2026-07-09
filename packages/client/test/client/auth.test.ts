@@ -2005,6 +2005,39 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+        it('treats null optional fields as absent (some auth servers serialize absent members as null)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'access123',
+                    token_type: 'Bearer',
+                    expires_in: null,
+                    scope: null,
+                    refresh_token: null,
+                    id_token: null
+                })
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                resource: new URL('https://api.example.com/mcp-server')
+            });
+
+            // toStrictEqual pins the null-valued members as strictly ABSENT keys, not
+            // present-but-undefined: refreshAuthorization spreads the parsed response
+            // when merging with stored tokens, so a present `refresh_token: undefined`
+            // key would clobber the preserved refresh token. It also pins that
+            // expires_in: null did not coerce to 0 (an instantly-expired token).
+            expect(tokens).toStrictEqual({
+                access_token: 'access123',
+                token_type: 'Bearer'
+            });
+        });
+
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2255,6 +2288,26 @@ describe('OAuth Authorization', () => {
             });
 
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
+        });
+
+        it('keeps the existing refresh token when the server returns refresh_token: null', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validTokens, refresh_token: null })
+            });
+
+            const refreshToken = 'refresh123';
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken
+            });
+
+            // The null must not clobber the preserved token when the parsed response
+            // is merged with the previously-stored tokens (it would then be persisted
+            // via saveTokens, silently destroying the stored refresh token).
+            expect(tokens.refresh_token).toBe(refreshToken);
+            expect(tokens).toStrictEqual({ ...validTokens, refresh_token: refreshToken });
         });
 
         it('validates token response schema', async () => {
