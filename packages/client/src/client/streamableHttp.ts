@@ -980,11 +980,9 @@ export class StreamableHTTPClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._url, init);
 
             // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
+            // Clients include only an id "returned by the server during initialization", so a sessionless handshake clears any stale id.
             if (isHandshake && response.ok) {
-                const sessionId = response.headers.get('mcp-session-id');
-                if (sessionId) {
-                    this._sessionId = sessionId;
-                }
+                this._sessionId = response.headers.get('mcp-session-id') || undefined;
             }
 
             if (!response.ok) {

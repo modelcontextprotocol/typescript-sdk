@@ -158,18 +158,8 @@ describe('StreamableHTTPClientTransport', () => {
         expect(transport.sessionId).toBe('real-session-id');
     });
 
-    it('should not attach the session ID header to a POST containing an initialize request', async () => {
-        const staleTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
-            sessionId: 'stale-session-id'
-        });
-
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: true,
-            status: 202,
-            headers: new Headers()
-        });
-
-        await staleTransport.send({
+    it('should not attach a session ID to an initialize POST, clear a stale ID on a sessionless handshake, and adopt a newly returned one', async () => {
+        const initMessage: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'initialize',
             params: {
@@ -178,12 +168,25 @@ describe('StreamableHTTPClientTransport', () => {
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
-        } as JSONRPCMessage);
+        };
+
+        const staleTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+
+        // Sessionless handshake: the response carries no session ID
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' })
+        });
+
+        await staleTransport.send(initMessage);
 
         const initCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
         expect(initCall[1].headers.get('mcp-session-id')).toBeNull();
 
-        // An ordinary request still carries the session ID
+        // The sessionless handshake cleared the stale ID, so an ordinary request carries none
         (globalThis.fetch as Mock).mockResolvedValueOnce({
             ok: true,
             status: 202,
@@ -191,11 +194,33 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         await staleTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
-
-        const ordinaryCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
-        expect(ordinaryCall[1].headers.get('mcp-session-id')).toBe('stale-session-id');
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBeNull();
 
         await staleTransport.close().catch(() => {});
+
+        // When the handshake DOES return a new ID, subsequent requests carry it instead of the preset
+        const replacedTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preset-session-id'
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'new-session-id' })
+        });
+
+        await replacedTransport.send(initMessage);
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await replacedTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBe('new-session-id');
+
+        await replacedTransport.close().catch(() => {});
     });
 
     it('should ignore a session ID on a successful non-initialize response', async () => {
