@@ -950,7 +950,10 @@ export class McpServer {
      * );
      * ```
      */
-    registerTool<OutputArgs extends StandardSchemaWithJSON, InputArgs extends StandardSchemaWithJSON | undefined = undefined>(
+    registerTool<
+        OutputArgs extends StandardSchemaWithJSON | undefined = undefined,
+        InputArgs extends StandardSchemaWithJSON | undefined = undefined
+    >(
         name: string,
         config: {
             title?: string;
@@ -961,7 +964,7 @@ export class McpServer {
             icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<InputArgs>
+        cb: ToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool;
     /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
     registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
@@ -975,7 +978,7 @@ export class McpServer {
             icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
-        cb: LegacyToolCallback<InputArgs>
+        cb: LegacyToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool;
     registerTool(
         name: string,
@@ -988,7 +991,9 @@ export class McpServer {
             icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
+        cb:
+            | ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON | ZodRawShape | undefined>
+            | LegacyToolCallback<ZodRawShape, StandardSchemaWithJSON | ZodRawShape | undefined>
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -1006,7 +1011,7 @@ export class McpServer {
             icons,
             undefined,
             _meta,
-            cb as ToolCallback<StandardSchemaWithJSON | undefined>
+            cb as ToolCallback<StandardSchemaWithJSON | undefined, StandardSchemaWithJSON | ZodRawShape | undefined>
         );
     }
 
@@ -1218,13 +1223,38 @@ export type ZodRawShape = Record<string, z.ZodType>;
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
+/**
+ * A {@link CallToolResult} whose `structuredContent` is typed to a known output shape.
+ * Used when a tool's declared `outputSchema` lets callers know the structured result type.
+ */
+export type CallToolResultWithStructuredContent<T> = CallToolResult & { structuredContent: T };
+
+/**
+ * Maps a tool's declared `outputSchema` to the precise {@link CallToolResult} its handler returns.
+ *
+ * When an `outputSchema` is present, `structuredContent` is typed to the schema's inferred output, so
+ * the value the handler returns is checked against the schema at compile time. Tools without an
+ * `outputSchema` return a plain {@link CallToolResult} whose `structuredContent` may be any JSON value
+ * (per SEP-2106).
+ *
+ * @typeParam Output - the tool's `outputSchema`: a Standard Schema, a {@linkcode ZodRawShape}, or `undefined`.
+ */
+export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | undefined> = Output extends StandardSchemaWithJSON
+    ? CallToolResultWithStructuredContent<StandardSchemaWithJSON.InferOutput<Output>> | (CallToolResult & { isError: true })
+    : Output extends ZodRawShape
+      ? CallToolResultWithStructuredContent<InferRawShape<Output>> | (CallToolResult & { isError: true })
+      : CallToolResult;
+
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
-export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+export type LegacyToolCallback<
+    Args extends ZodRawShape | undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = Args extends ZodRawShape
     ? (
           args: InferRawShape<Args>,
           ctx: ServerContext
-      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
-    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
+      ) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>
+    : (ctx: ServerContext) => ToolResultFor<Output> | InputRequiredResult | Promise<ToolResultFor<Output> | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
@@ -1244,12 +1274,14 @@ export type BaseToolCallback<
 
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
+ *
+ * When the tool declares an `outputSchema`, pass it as `Output` so the handler's returned
+ * `structuredContent` is checked against the schema's inferred output type at compile time.
  */
-export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult | InputRequiredResult,
-    ServerContext,
-    Args
->;
+export type ToolCallback<
+    Args extends StandardSchemaWithJSON | undefined = undefined,
+    Output extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
+> = BaseToolCallback<ToolResultFor<Output> | InputRequiredResult, ServerContext, Args>;
 
 /**
  * Tool handler callback type.

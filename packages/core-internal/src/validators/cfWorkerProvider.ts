@@ -10,6 +10,7 @@
 
 import { Validator } from '@cfworker/json-schema';
 
+import { assertSchemaSafeToCompile } from './schemaBounds';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
@@ -91,6 +92,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
         }
 
         const draft = this.draft ?? '2020-12';
+        assertSchemaSafeToCompile(schema);
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
         const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
 

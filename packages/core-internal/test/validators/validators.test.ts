@@ -624,6 +624,40 @@ describe('Missing dependencies', () => {
     });
 });
 
+describe('schema compilation safety', () => {
+    describe.each(validators)('$name', ({ provider }) => {
+        it('rejects non-local references before compiling', () => {
+            const schema = {
+                type: 'object',
+                properties: { value: { $ref: 'https://schemas.example.com/value.json' } }
+            } as JsonSchemaType;
+            expect(() => provider.getValidator(schema)).toThrow(/non-local/i);
+        });
+
+        it('continues to compile same-document references', () => {
+            const schema = {
+                type: 'object',
+                $defs: { Value: { type: 'string' } },
+                properties: { value: { $ref: '#/$defs/Value' } }
+            } as JsonSchemaType;
+            expect(() => provider.getValidator(schema)).not.toThrow();
+        });
+    });
+
+    it('allows caller-supplied Ajv-compatible engines to own reference policy', () => {
+        const validate = Object.assign(
+            vi.fn(() => true),
+            { errors: undefined }
+        );
+        const custom = new AjvJsonSchemaValidator({
+            compile: vi.fn(() => validate),
+            getSchema: vi.fn(() => undefined),
+            errorsText: vi.fn(() => '')
+        });
+        expect(() => custom.getValidator({ $ref: 'https://schemas.example.com/value.json' } as JsonSchemaType)).not.toThrow();
+    });
+});
+
 /**
  * SEP-1613 declares JSON Schema 2020-12 the dialect for tool schemas. The built-in providers
  * validate as 2020-12 only: a schema with no `$schema` (or `$schema: …2020-12…`) compiles; a

@@ -20,6 +20,7 @@ export { createMcpHandler, isLegacyRequest, legacyStatelessFallback } from './se
 export type {
     AnyToolHandler,
     BaseToolCallback,
+    CallToolResultWithStructuredContent,
     CompleteResourceTemplateCallback,
     ListResourcesCallback,
     PromptCallback,

@@ -138,8 +138,8 @@ verifies('standardschema:tool:output-schema-validation', async ({ transport }: T
         s.registerTool(
             'get-server-status-corrupt',
             { inputSchema: type({}), outputSchema },
-            // intentionally nonconforming structuredContent (server-side output validation must reject it)
-            () => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] })
+            // Deliberately bypass the compile-time output check to exercise the runtime validation guard.
+            (() => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] })) as never
         );
         return s;
     };
