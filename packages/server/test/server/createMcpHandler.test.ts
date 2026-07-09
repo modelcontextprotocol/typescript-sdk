@@ -761,6 +761,21 @@ describe('createMcpHandler — responseMode', () => {
         expect(text).toContain('json only');
     });
 
+    it("routes the responseMode: 'json' warning to the configured logger", () => {
+        const { factory } = testFactory();
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            createMcpHandler(factory, { responseMode: 'json', logger: { warn } });
+        } finally {
+            consoleWarn.mockRestore();
+        }
+
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("responseMode: 'json' drops mid-call notifications"));
+        expect(consoleWarn).not.toHaveBeenCalled();
+    });
+
     it("responseMode: 'sse' streams even when the handler emits nothing before its result", async () => {
         const { factory } = testFactory();
         const handler = createMcpHandler(factory, { responseMode: 'sse' });

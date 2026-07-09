@@ -51,6 +51,7 @@ import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
 import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
+import type { SdkLogger } from './logger';
 import type { Transport, TransportSendOptions } from './transport';
 
 /**
@@ -87,6 +88,14 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
 };
 
 /**
@@ -580,6 +589,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     protected _supportedProtocolVersions: string[];
+    protected _logger: SdkLogger;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -607,6 +617,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._logger = _options?.logger ?? console;
 
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
