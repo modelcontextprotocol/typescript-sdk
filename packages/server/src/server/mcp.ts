@@ -1233,13 +1233,19 @@ export type ToolCallback<
     OutputArgs extends StandardSchemaWithJSON | ZodRawShape | undefined = undefined
 > = BaseToolCallback<
     | (OutputArgs extends StandardSchemaWithJSON
-          ? Omit<CallToolResult, 'structuredContent'> & {
-                structuredContent?: StandardSchemaWithJSON.InferOutput<OutputArgs>;
-            }
+          ?
+                | (Omit<CallToolResult, 'isError' | 'structuredContent'> & {
+                      isError?: false;
+                      structuredContent: StandardSchemaWithJSON.InferOutput<OutputArgs>;
+                  })
+                | (Omit<CallToolResult, 'isError'> & { isError: true })
           : OutputArgs extends ZodRawShape
-            ? Omit<CallToolResult, 'structuredContent'> & {
-                  structuredContent?: InferRawShape<OutputArgs>;
-              }
+            ?
+                  | (Omit<CallToolResult, 'isError' | 'structuredContent'> & {
+                        isError?: false;
+                        structuredContent: InferRawShape<OutputArgs>;
+                    })
+                  | (Omit<CallToolResult, 'isError'> & { isError: true })
             : CallToolResult)
     | InputRequiredResult,
     ServerContext,
