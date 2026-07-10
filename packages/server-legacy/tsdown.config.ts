@@ -21,5 +21,9 @@ export default defineConfig({
             }
         }
     },
-    noExternal: ['@modelcontextprotocol/core-internal']
+    noExternal: ['@modelcontextprotocol/core-internal'],
+    // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
+    // bundled core-internal shims import them via the './internal' subpath, which must stay an
+    // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
+    external: ['@modelcontextprotocol/core/internal']
 });

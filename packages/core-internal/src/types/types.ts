@@ -175,10 +175,8 @@ import type {
     UntitledSingleSelectEnumSchemaSchema
 } from './schemas';
 
-/* JSON types */
-export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-export type JSONObject = { [key: string]: JSONValue };
-export type JSONArray = JSONValue[];
+/* JSON types — moved to @modelcontextprotocol/core (packages/core/src/types.ts). */
+export type { JSONArray, JSONObject, JSONValue } from '@modelcontextprotocol/core/internal';
 
 /**
  * Utility types

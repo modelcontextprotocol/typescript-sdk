@@ -133,6 +133,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
+        "@modelcontextprotocol/core": "workspace:^",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
