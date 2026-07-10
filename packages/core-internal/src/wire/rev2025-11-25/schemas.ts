@@ -87,6 +87,14 @@ export const GetPromptRequestSchema = s.GetPromptRequestSchema;
 export const TextContentSchema = s.TextContentSchema;
 export const ImageContentSchema = s.ImageContentSchema;
 export const AudioContentSchema = s.AudioContentSchema;
+/**
+ * A tool call request from an assistant (LLM).
+ * Represents the assistant's request to use a tool.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const ToolUseContentSchema = s.ToolUseContentSchema;
 export const EmbeddedResourceSchema = s.EmbeddedResourceSchema;
 export const ResourceLinkSchema = s.ResourceLinkSchema;
@@ -103,21 +111,139 @@ export const CallToolResultSchema = s.CallToolResultSchema;
 export const CallToolRequestParamsSchema = s.CallToolRequestParamsSchema;
 export const CallToolRequestSchema = s.CallToolRequestSchema;
 export const ToolListChangedNotificationSchema = s.ToolListChangedNotificationSchema;
+/**
+ * The severity of a log message.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export const LoggingLevelSchema = s.LoggingLevelSchema;
+/**
+ * Parameters for a `logging/setLevel` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export const SetLevelRequestParamsSchema = s.SetLevelRequestParamsSchema;
+/**
+ * A request from the client to the server, to enable or adjust logging.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export const SetLevelRequestSchema = s.SetLevelRequestSchema;
+/**
+ * Parameters for a `notifications/message` notification.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export const LoggingMessageNotificationParamsSchema = s.LoggingMessageNotificationParamsSchema;
+/**
+ * Notification of a log message passed from server to client. If no `logging/setLevel` request has been sent from the client, the server MAY decide which messages to send automatically.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export const LoggingMessageNotificationSchema = s.LoggingMessageNotificationSchema;
+/**
+ * Hints to use for model selection.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const ModelHintSchema = s.ModelHintSchema;
+/**
+ * The server's preferences for model selection, requested of the client during sampling.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const ModelPreferencesSchema = s.ModelPreferencesSchema;
+/**
+ * Controls tool usage behavior in sampling requests.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const ToolChoiceSchema = s.ToolChoiceSchema;
+/**
+ * The result of a tool execution, provided by the user (server).
+ * Represents the outcome of invoking a tool requested via `ToolUseContent`.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const ToolResultContentSchema = s.ToolResultContentSchema;
+/**
+ * Basic content types for sampling responses (without tool use).
+ * Used for backwards-compatible {@linkcode CreateMessageResult} when tools are not used.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const SamplingContentSchema = s.SamplingContentSchema;
+/**
+ * Content block types allowed in sampling messages.
+ * This includes text, image, audio, tool use requests, and tool results.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const SamplingMessageContentBlockSchema = s.SamplingMessageContentBlockSchema;
+/**
+ * Describes a message issued to or received from an LLM API.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const SamplingMessageSchema = s.SamplingMessageSchema;
+/**
+ * Parameters for a `sampling/createMessage` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const CreateMessageRequestParamsSchema = s.CreateMessageRequestParamsSchema;
+/**
+ * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const CreateMessageRequestSchema = s.CreateMessageRequestSchema;
+/**
+ * The client's response to a `sampling/create_message` request from the server.
+ * This is the backwards-compatible version that returns single content (no arrays).
+ * Used when the request does not include tools.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const CreateMessageResultSchema = s.CreateMessageResultSchema;
+/**
+ * The client's response to a `sampling/create_message` request when tools were provided.
+ * This version supports array content for tool use flows.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export const CreateMessageResultWithToolsSchema = s.CreateMessageResultWithToolsSchema;
 export const BooleanSchemaSchema = s.BooleanSchemaSchema;
 export const StringSchemaSchema = s.StringSchemaSchema;
@@ -143,9 +269,37 @@ export const PromptReferenceSchema = s.PromptReferenceSchema;
 export const CompleteRequestParamsSchema = s.CompleteRequestParamsSchema;
 export const CompleteRequestSchema = s.CompleteRequestSchema;
 export const CompleteResultSchema = s.CompleteResultSchema;
+/**
+ * Represents a root directory or file that the server can operate on.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export const RootSchema = s.RootSchema;
+/**
+ * Sent from the server to request a list of root URIs from the client.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export const ListRootsRequestSchema = s.ListRootsRequestSchema;
+/**
+ * The client's response to a `roots/list` request from the server.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export const ListRootsResultSchema = s.ListRootsResultSchema;
+/**
+ * A notification from the client to the server, informing it that the list of roots has changed.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export const RootsListChangedNotificationSchema = s.RootsListChangedNotificationSchema;
 /** @deprecated Task wire vocabulary (SEP-1686) — deprecated; see the task types in `types/types.ts`. */
 export const TaskCreationParamsSchema = s.TaskCreationParamsSchema;
