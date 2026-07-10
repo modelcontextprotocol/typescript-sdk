@@ -20,11 +20,11 @@ const DIST_SENTINELS: Record<string, string[]> = {
 };
 
 /** The build is killed after this long; execFile's kill still runs our finally. */
-const BUILD_TIMEOUT_MS = 180_000;
+const BUILD_TIMEOUT_MS = 60_000;
 /** How long a waiter polls for another worker's build — outlasts BUILD_TIMEOUT_MS. */
-const WAIT_DEADLINE_MS = 210_000;
+const WAIT_DEADLINE_MS = 90_000;
 /** A lock older than this belongs to a dead worker (finally never ran) — steal it. */
-const STALE_LOCK_MS = 240_000;
+const STALE_LOCK_MS = 120_000;
 
 /**
  * Build a package's dist on demand, safely across parallel vitest workers.
