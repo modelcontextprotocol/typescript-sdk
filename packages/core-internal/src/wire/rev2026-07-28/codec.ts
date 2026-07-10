@@ -32,6 +32,7 @@ import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY,
 import type { CallToolResult, Result } from '../../types/types';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
+import { buildSchemas2026 } from './buildSchemas';
 import { fillCacheFields, stampResultType } from './encodeContract';
 import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired';
 import {
@@ -41,18 +42,6 @@ import {
     hasNotificationMethod2026,
     hasRequestMethod2026
 } from './registry';
-import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    DiscoverResultSchema,
-    GetPromptResultSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
-    ReadResourceResultSchema,
-    RequestMetaEnvelopeSchema
-} from './schemas';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -146,7 +135,7 @@ export const rev2026Codec: WireCodec & {
         for (const key of REQUIRED_ENVELOPE_KEYS) {
             if (!(key in meta)) issues.push({ key, problem: 'missing' });
         }
-        const parsed = RequestMetaEnvelopeSchema.safeParse(meta);
+        const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta);
         if (!parsed.success) {
             for (const issue of parsed.error.issues) {
                 const path = issue.path.map(String);
@@ -244,7 +233,8 @@ export const rev2026Codec: WireCodec & {
         // Own-key lookup: `method` is peer-influenced on related-request
         // paths, and a prototype-chain hit (e.g. 'constructor') must not
         // masquerade as a schema and throw out of the decode hop.
-        const wireSchema = Object.hasOwn(WIRE_RESULT_SCHEMAS, method) ? WIRE_RESULT_SCHEMAS[method] : undefined;
+        const wireResultSchemas = getWireResultSchemas();
+        const wireSchema = Object.hasOwn(wireResultSchemas, method) ? wireResultSchemas[method] : undefined;
         if (wireSchema !== undefined) {
             const parsed = wireSchema.safeParse(raw);
             if (!parsed.success) {
@@ -280,7 +270,7 @@ export const rev2026Codec: WireCodec & {
                 '(io.modelcontextprotocol/protocolVersion, io.modelcontextprotocol/clientInfo, io.modelcontextprotocol/clientCapabilities)'
             );
         }
-        const parsed = RequestMetaEnvelopeSchema.safeParse(material.envelope);
+        const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(material.envelope);
         if (!parsed.success) {
             return `Invalid _meta envelope for protocol revision 2026-07-28: ${parsed.error.issues.map(issue => issue.message).join('; ')}`;
         }
@@ -288,15 +278,23 @@ export const rev2026Codec: WireCodec & {
     }
 };
 
-/** Wire-true result wrappers consulted by decode step 2, keyed by method. */
-const WIRE_RESULT_SCHEMAS: Record<string, z.ZodType> = {
-    'tools/call': CallToolResultSchema,
-    'tools/list': ListToolsResultSchema,
-    'prompts/get': GetPromptResultSchema,
-    'prompts/list': ListPromptsResultSchema,
-    'resources/list': ListResourcesResultSchema,
-    'resources/templates/list': ListResourceTemplatesResultSchema,
-    'resources/read': ReadResourceResultSchema,
-    'completion/complete': CompleteResultSchema,
-    'server/discover': DiscoverResultSchema
-};
+/** Wire-true result wrappers consulted by decode step 2, keyed by method —
+ * built once through the era's schema memo on the first decode. */
+let wireResultSchemasMemo: Record<string, z.ZodType> | undefined;
+
+function getWireResultSchemas(): Record<string, z.ZodType> {
+    if (wireResultSchemasMemo) return wireResultSchemasMemo;
+    const s = buildSchemas2026();
+    wireResultSchemasMemo = {
+        'tools/call': s.CallToolResultSchema,
+        'tools/list': s.ListToolsResultSchema,
+        'prompts/get': s.GetPromptResultSchema,
+        'prompts/list': s.ListPromptsResultSchema,
+        'resources/list': s.ListResourcesResultSchema,
+        'resources/templates/list': s.ListResourceTemplatesResultSchema,
+        'resources/read': s.ReadResourceResultSchema,
+        'completion/complete': s.CompleteResultSchema,
+        'server/discover': s.DiscoverResultSchema
+    };
+    return wireResultSchemasMemo;
+}
