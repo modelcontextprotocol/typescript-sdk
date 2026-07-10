@@ -101,7 +101,9 @@ function schemaServer(): McpServer {
         })
     );
     s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
-        content: [{ type: 'text', text: 'handler-body-no-structured' }]
+        content: [{ type: 'text', text: 'handler-body-no-structured' }],
+        // @ts-expect-error intentionally missing structuredContent (tests server-side validation rejects it)
+        structuredContent: undefined
     }));
     s.registerTool('structured-error-skip', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         isError: true,
