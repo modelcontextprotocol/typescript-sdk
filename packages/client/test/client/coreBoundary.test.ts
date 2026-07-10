@@ -101,7 +101,7 @@ describe('@modelcontextprotocol/client ↔ core schema boundary', () => {
     beforeAll(async () => {
         await ensureBuilt(corePkgDir);
         await ensureBuilt(clientPkgDir);
-    }, 480_000);
+    }, 240_000);
 
     test('every name the client dist imports from core resolves against core’s built exports', () => {
         let sawCoreImport = false;

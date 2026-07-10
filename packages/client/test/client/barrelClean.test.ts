@@ -40,7 +40,7 @@ function rootExportBlockOf(content: string): string {
 describe('@modelcontextprotocol/client root entry is browser-safe', () => {
     beforeAll(async () => {
         await ensureBuilt(pkgDir);
-    }, 480_000);
+    }, 180_000);
 
     test('dist/index.mjs contains no process-spawning runtime imports', () => {
         const entry = join(distDir, 'index.mjs');
