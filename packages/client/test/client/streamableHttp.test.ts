@@ -702,6 +702,42 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('OAuth-derived Authorization overrides a stale caller-supplied Authorization', async () => {
+        // Regression test for #2208: the SDK-derived common headers must be
+        // merged on top of caller-supplied headers, so OAuth-derived tokens
+        // (or any SDK-computed value) win over a stale placeholder the
+        // caller might have set in `requestInit.headers` (e.g. an env-var
+        // API key that's no longer valid).
+        const tokens: OAuthTokens = {
+            access_token: 'oauth-access-token',
+            token_type: 'Bearer'
+        };
+        mockAuthProvider.tokens.mockResolvedValue(tokens);
+        const requestInit = {
+            headers: {
+                Authorization: 'Bearer stale-placeholder',
+                'X-Caller-Header': 'preserved'
+            }
+        };
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit,
+            authProvider: mockAuthProvider
+        });
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        // OAuth-derived token wins over the stale placeholder.
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        // Caller-supplied non-auth headers still pass through.
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+    });
+
     it('should always send specified custom headers (Headers class)', async () => {
         const requestInit = {
             headers: new Headers({
