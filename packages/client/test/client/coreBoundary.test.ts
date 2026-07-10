@@ -17,12 +17,13 @@
  * chunks are parsed; the CJS build is produced from the same module graph, so
  * skew shows up identically in both.
  */
-import { execFileSync } from 'node:child_process';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, test } from 'vitest';
+
+import { ensureBuilt } from '../helpers/ensureBuilt';
 
 const clientPkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const clientDistDir = join(clientPkgDir, 'dist');
@@ -46,12 +47,6 @@ const CORE_ENTRIES: Record<string, string> = {
  */
 const IMPORTED_SENTINELS = ['OAuthMetadataSchema', 'JSONRPCMessageSchema'];
 const NEVER_DEFINED_SENTINELS = [...IMPORTED_SENTINELS, 'SafeUrlSchema'];
-
-function buildIfMissing(pkgDir: string, sentinelFile: string): void {
-    if (!existsSync(join(pkgDir, 'dist', sentinelFile))) {
-        execFileSync('pnpm', ['build'], { cwd: pkgDir, stdio: 'inherit' });
-    }
-}
 
 function clientChunks(): string[] {
     return readdirSync(clientDistDir).filter(f => f.endsWith('.mjs'));
@@ -103,10 +98,10 @@ function coreImportsOf(chunkSource: string): Map<string, Set<string>> {
 }
 
 describe('@modelcontextprotocol/client ↔ core schema boundary', () => {
-    beforeAll(() => {
-        buildIfMissing(corePkgDir, 'internal.mjs');
-        buildIfMissing(clientPkgDir, 'index.mjs');
-    }, 240_000);
+    beforeAll(async () => {
+        await ensureBuilt(corePkgDir);
+        await ensureBuilt(clientPkgDir);
+    }, 480_000);
 
     test('every name the client dist imports from core resolves against core’s built exports', () => {
         let sawCoreImport = false;
