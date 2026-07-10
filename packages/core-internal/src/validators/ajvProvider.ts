@@ -79,7 +79,7 @@ function createDefaultAjvInstance(): AjvLike {
  * ```
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
-    private readonly _ajv: AjvLike;
+    private _ajv: AjvLike | undefined;
     /** True iff the constructor received a caller-supplied engine; the `$schema` check is skipped. */
     private readonly _userAjv: boolean;
 
@@ -88,12 +88,19 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * used for **every** schema regardless of its declared `$schema` (the caller owns dialect
      * choice). When omitted, the provider constructs a single `Ajv2020` instance with
      * `strict: false`, `validateFormats: true`, `validateSchema: false`, `allErrors: true`, and
-     * `ajv-formats` registered. The parameter is typed structurally so consumers who don't pass an
-     * instance need not have `ajv` installed.
+     * `ajv-formats` registered — **lazily, on the first {@linkcode getValidator} call**, so
+     * constructing the provider (e.g. as the default validator of a `Client`/`Server` that never
+     * validates a JSON Schema) does not pay the ajv + ajv-formats instantiation cost. The parameter
+     * is typed structurally so consumers who don't pass an instance need not have `ajv` installed.
      */
     constructor(ajv?: AjvLike) {
         this._userAjv = ajv !== undefined;
-        this._ajv = ajv ?? createDefaultAjvInstance();
+        this._ajv = ajv;
+    }
+
+    /** The underlying engine — the default instance is created on first use. */
+    private get ajv(): AjvLike {
+        return (this._ajv ??= createDefaultAjvInstance());
     }
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
@@ -113,10 +120,11 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
             );
         }
 
+        const engine = this.ajv;
         const ajvValidator =
             '$id' in schema && typeof schema.$id === 'string'
-                ? (this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema))
-                : this._ajv.compile(schema);
+                ? (engine.getSchema(schema.$id) ?? engine.compile(schema))
+                : engine.compile(schema);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
@@ -130,7 +138,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
                 : {
                       valid: false,
                       data: undefined,
-                      errorMessage: this._ajv.errorsText(ajvValidator.errors)
+                      errorMessage: engine.errorsText(ajvValidator.errors)
                   };
         };
     }
