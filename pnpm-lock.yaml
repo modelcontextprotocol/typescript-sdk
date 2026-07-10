@@ -1291,7 +1291,7 @@ importers:
   packages/client:
     dependencies:
       '@modelcontextprotocol/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       cross-spawn:
         specifier: catalog:runtimeClientOnly
@@ -1480,7 +1480,7 @@ importers:
   packages/core-internal:
     dependencies:
       '@modelcontextprotocol/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       content-type:
         specifier: catalog:runtimeShared
@@ -1782,7 +1782,7 @@ importers:
   packages/server:
     dependencies:
       '@modelcontextprotocol/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       zod:
         specifier: catalog:runtimeShared
@@ -1852,7 +1852,7 @@ importers:
   packages/server-legacy:
     dependencies:
       '@modelcontextprotocol/core':
-        specifier: workspace:^
+        specifier: workspace:*
         version: link:../core
       content-type:
         specifier: catalog:runtimeShared

@@ -133,7 +133,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:*",
         "cross-spawn": "catalog:runtimeClientOnly",
         "eventsource": "catalog:runtimeClientOnly",
         "eventsource-parser": "catalog:runtimeClientOnly",
