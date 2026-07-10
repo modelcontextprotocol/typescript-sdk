@@ -83,7 +83,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:*",
         "zod": "catalog:runtimeShared",
         "raw-body": "catalog:runtimeServerOnly",
         "content-type": "catalog:runtimeShared",

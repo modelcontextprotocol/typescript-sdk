@@ -51,7 +51,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:*",
         "content-type": "catalog:runtimeShared",
         "json-schema-typed": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
