@@ -42,6 +42,13 @@
             }
         }
     },
+    "typesVersions": {
+        "*": {
+            "internal": [
+                "dist/internal.d.mts"
+            ]
+        }
+    },
     "main": "./dist/index.cjs",
     "types": "./dist/index.d.mts",
     "files": [
