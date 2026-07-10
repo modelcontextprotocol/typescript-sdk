@@ -30,6 +30,16 @@
                 "types": "./dist/index.d.cts",
                 "default": "./dist/index.cjs"
             }
+        },
+        "./internal": {
+            "import": {
+                "types": "./dist/internal.d.mts",
+                "default": "./dist/internal.mjs"
+            },
+            "require": {
+                "types": "./dist/internal.d.cts",
+                "default": "./dist/internal.cjs"
+            }
         }
     },
     "main": "./dist/index.cjs",
@@ -53,7 +63,6 @@
     },
     "devDependencies": {
         "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
