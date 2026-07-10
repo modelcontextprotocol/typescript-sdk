@@ -49,7 +49,9 @@ const IMPORTED_SENTINELS = ['OAuthMetadataSchema', 'JSONRPCMessageSchema'];
 const NEVER_DEFINED_SENTINELS = [...IMPORTED_SENTINELS, 'SafeUrlSchema'];
 
 function clientChunks(): string[] {
-    return readdirSync(clientDistDir).filter(f => f.endsWith('.mjs'));
+    return readdirSync(clientDistDir, { recursive: true })
+        .map(String)
+        .filter(f => f.endsWith('.mjs'));
 }
 
 /** Exported names of a built core entry (its trailing `export { a, b as c };` blocks). */
@@ -123,6 +125,11 @@ describe('@modelcontextprotocol/client ↔ core schema boundary', () => {
                 source,
                 `client dist/${chunk} uses a non-named import/re-export of @modelcontextprotocol/core — update this test to cover it`
             ).not.toMatch(/(?:import|export)\s+(?!\{)[^;]*?from\s*["']@modelcontextprotocol\/core(?:\/internal)?["']/);
+            // Bare side-effect imports have no `from` clause and would dodge the pattern above.
+            expect(
+                source,
+                `client dist/${chunk} uses a bare side-effect import of @modelcontextprotocol/core — update this test to cover it`
+            ).not.toMatch(/import\s*["']@modelcontextprotocol\/core(?:\/internal)?["']/);
         }
         expect(sawCoreImport, 'no client chunk imports @modelcontextprotocol/core at all — external wiring changed?').toBe(true);
     });
