@@ -1236,14 +1236,14 @@ export type ToolCallback<
           ?
                 | (Omit<CallToolResult, 'isError' | 'structuredContent'> & {
                       isError?: false;
-                      structuredContent: StandardSchemaWithJSON.InferOutput<OutputArgs>;
+                      structuredContent?: StandardSchemaWithJSON.InferOutput<OutputArgs>;
                   })
                 | (Omit<CallToolResult, 'isError'> & { isError: true })
           : OutputArgs extends ZodRawShape
             ?
                   | (Omit<CallToolResult, 'isError' | 'structuredContent'> & {
                         isError?: false;
-                        structuredContent: InferRawShape<OutputArgs>;
+                        structuredContent?: InferRawShape<OutputArgs>;
                     })
                   | (Omit<CallToolResult, 'isError'> & { isError: true })
             : CallToolResult)
