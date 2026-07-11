@@ -819,6 +819,52 @@ describe('protocol tests', () => {
             // Verify the request was aborted
             expect(wasAborted).toBe(true);
         });
+
+        test('should abort request handler for request id 0', async () => {
+            await protocol.connect(transport);
+
+            let handlerStarted!: () => void;
+            const started = new Promise<void>(resolve => {
+                handlerStarted = resolve;
+            });
+            let handlerAborted!: () => void;
+            const aborted = new Promise<void>(resolve => {
+                handlerAborted = resolve;
+            });
+            let abortReason: unknown;
+
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                handlerStarted();
+                ctx.mcpReq.signal.addEventListener('abort', () => {
+                    abortReason = ctx.mcpReq.signal.reason;
+                    handlerAborted();
+                });
+                await aborted;
+                return {};
+            });
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 0,
+                method: 'ping',
+                params: {}
+            });
+
+            await started;
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: {
+                    requestId: 0,
+                    reason: 'User cancelled'
+                }
+            });
+
+            await aborted;
+
+            expect(abortReason).toBe('User cancelled');
+        });
     });
 
     // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
