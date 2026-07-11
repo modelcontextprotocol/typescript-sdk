@@ -1,14 +1,19 @@
 import type {
     BaseContext,
+    CacheableResultMethod,
+    CacheHint,
+    CallToolResult,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    EmptyResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
@@ -16,6 +21,7 @@ import type {
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
@@ -32,24 +38,39 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core-internal';
 import {
-    CallToolRequestSchema,
-    CallToolResultSchema,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
+    assertValidCacheHint,
+    attachCacheHintFallback,
+    CLIENT_CAPABILITIES_META_KEY,
+    codecForVersion,
+    isInputRequiredResult,
+    isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
-    ListRootsResultSchema,
+    legacyProtocolVersions,
+    LOG_LEVEL_META_KEY,
     LoggingLevelSchema,
     mergeCapabilities,
+    missingClientCapabilities,
+    MissingRequiredClientCapabilityError,
+    modernProtocolVersions,
+    normalizeContentlessToolResult,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+
+import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+
+/**
+ * The request methods whose 2026-07-28 result vocabulary includes
+ * `input_required` (the multi round-trip methods). Returning an
+ * input-required result from any other handler is a server bug.
+ */
+const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -78,7 +99,145 @@ export type ServerOptions = ProtocolOptions & {
      * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Cache hints for the cacheable results of the 2026-07-28 protocol
+     * revision (`ttlMs` / `cacheScope`), keyed by operation. The cacheable
+     * operations are `tools/list`, `prompts/list`, `resources/list`,
+     * `resources/templates/list`, `resources/read` and `server/discover`. The
+     * hint is used when the result for that operation does not provide its own
+     * cache fields — most useful for the list results and `server/discover`,
+     * which the SDK builds itself. A hint registered with an individual
+     * resource (`registerResource(..., { cacheHint })`) takes precedence for
+     * that resource's `resources/read` results, field by field: a field the
+     * per-resource hint leaves unset still falls back to the per-operation
+     * hint configured here.
+     *
+     * Absent hints (or omitting this option entirely) keep today's behavior:
+     * cacheable 2026-07-28 results are emitted with `ttlMs: 0` and
+     * `cacheScope: 'private'`. Responses to 2025-era requests are never
+     * affected. Invalid values throw a `RangeError` at construction time.
+     */
+    cacheHints?: Partial<Record<CacheableResultMethod, CacheHint>>;
+
+    /**
+     * Multi-round-trip serving knobs. On 2026-era requests the client
+     * fulfils `input_required` returns; on 2025-era connections the SDK's
+     * legacy shim fulfils them server-side (real server→client requests +
+     * handler re-entry), so handlers are written once and serve both eras.
+     */
+    inputRequired?: {
+        /**
+         * Handler re-entries per originating request before the shim fails
+         * (tools/call: `isError` result; prompts/resources: JSON-RPC error).
+         * @default 8
+         */
+        maxRounds?: number;
+
+        /**
+         * Per-leg timeout (ms) for the shim's embedded server→client
+         * requests, sent with `resetTimeoutOnProgress: true`. Human-paced —
+         * deliberately far above the 60s protocol default.
+         * @default 600_000
+         */
+        roundTimeoutMs?: number;
+
+        /**
+         * `false` disables the shim: an `input_required` return on a
+         * 2025-era request fails loudly (the pre-shim behavior).
+         * @default true
+         */
+        legacyShim?: boolean;
+    };
+
+    /**
+     * Multi-round-trip `requestState` integrity hook (protocol revision
+     * 2026-07-28).
+     */
+    requestState?: {
+        /**
+         * Called on every multi-round-trip request round whose echoed
+         * `requestState` is a string (i.e. whenever
+         * `ctx.mcpReq.requestState()` would return one), BEFORE the handler
+         * runs — including the legacy shim's in-process rounds. Throw or
+         * reject to refuse the request: the seam answers with a wire-level
+         * `-32602` Invalid Params error whose message is frozen to
+         * `"Invalid or expired requestState"` and whose `data.reason` is
+         * `'invalid_request_state'` — the thrown reason is surfaced via the
+         * server's `onerror` callback only and never reaches the wire.
+         *
+         * This is the place to put HMAC or AEAD verification of
+         * `requestState`. The spec MUST for integrity-protecting state that
+         * influences authorization, resource access, or business logic is on
+         * the server author (basic/patterns/mrtr, server requirements 4–5);
+         * the SDK provides NO default verification —
+         * {@linkcode server/requestStateCodec.createRequestStateCodec | createRequestStateCodec}
+         * is the SDK-provided HMAC helper whose `verify` drops in here
+         * directly. Leaving this option unconfigured keeps the passthrough
+         * behavior — `ctx.mcpReq.requestState()` returns the raw wire string,
+         * which MUST be treated as attacker-controlled input.
+         *
+         * The resolved value is LOAD-BEARING: when the hook resolves with a
+         * non-`undefined` value — as
+         * {@linkcode server/requestStateCodec.RequestStateCodec | RequestStateCodec}`.verify`
+         * does (the decoded payload) — the seam hands THAT value to the
+         * handler via the typed `ctx.mcpReq.requestState<T>()` accessor, so a
+         * codec-using handler reads its verified state with no second decode
+         * call. A verifier that is not also the decoder should resolve
+         * `undefined` (return nothing) to keep the accessor on the raw wire
+         * string — resolving an incidental value (e.g. a boolean
+         * verification flag) would replace what the handler reads.
+         */
+        verify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
+    };
 };
+
+/*
+ * Package-internal hooks for the 2026-07-28 serving entries (the per-request
+ * HTTP entry `createMcpHandler` and the connection-pinned stdio entry
+ * `serveStdio`).
+ *
+ * The connection-scoped client-identity fields and the modern-only handler set are
+ * private to `Server`; the serving entries in this package need to write/install
+ * them on the fresh instance they get from a consumer factory. The static initializer
+ * below hands these module-scoped closures privileged access; the exported wrappers
+ * are imported by sibling modules in this package only and are deliberately NOT
+ * re-exported from the package index (they are not public API).
+ */
+let writeClientIdentity: (server: Server, identity: PerRequestClientIdentity) => void;
+let installDiscoverHandler: (server: Server, servedModernVersions: readonly string[]) => void;
+
+/** Connection-scoped client-identity fields backfilled per request from a validated `_meta` envelope. */
+export interface PerRequestClientIdentity {
+    /** The client's name/version information, when the envelope carried it. */
+    clientInfo?: Implementation;
+    /** The client's declared capabilities, when the envelope carried them. */
+    clientCapabilities?: ClientCapabilities;
+}
+
+/**
+ * Package-internal: backfills the connection-scoped client-identity fields of a
+ * per-request server instance from the request's validated `_meta` envelope, so the
+ * (deprecated) {@linkcode Server.getClientCapabilities} / {@linkcode Server.getClientVersion}
+ * accessors keep answering on instances that never see an `initialize` handshake.
+ * Not public API.
+ */
+export function seedClientIdentityFromEnvelope(server: Server, identity: PerRequestClientIdentity): void {
+    writeClientIdentity(server, identity);
+}
+
+/**
+ * Package-internal: installs the modern-only `server/discover` handler on an instance
+ * the HTTP entry has marked as serving the 2026-07-28 era, and makes sure the modern
+ * revisions the entry serves appear in the instance's supported-versions list (so the
+ * discover advertisement and version-mismatch errors name them). Idempotent.
+ * Hand-constructed instances are unaffected: nothing else calls this, so they keep
+ * answering `-32601` unless their own supported-versions list opts into a modern
+ * revision. Not public API.
+ */
+export function installModernOnlyHandlers(server: Server, servedModernVersions: readonly string[]): void {
+    installDiscoverHandler(server, servedModernVersions);
+}
 
 /**
  * An MCP server on top of a pluggable transport.
@@ -90,10 +249,46 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
+
+    static {
+        writeClientIdentity = (server, identity) => {
+            if (identity.clientCapabilities !== undefined) {
+                server._clientCapabilities = identity.clientCapabilities;
+            }
+            if (identity.clientInfo !== undefined) {
+                server._clientVersion = identity.clientInfo;
+            }
+        };
+        installDiscoverHandler = (server, servedModernVersions) => {
+            const missing = servedModernVersions.filter(version => !server._supportedProtocolVersions.includes(version));
+            if (missing.length > 0) {
+                // Never mutate the existing array in place: the default supported-versions
+                // list is a shared module constant.
+                server._supportedProtocolVersions = [...server._supportedProtocolVersions, ...missing];
+            }
+            server.setRequestHandler('server/discover', () => server._ondiscover());
+        };
+    }
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _cacheHints?: ServerOptions['cacheHints'];
+    private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
+    private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
+    private _legacyShim?: LegacyInputRequiredShim;
+
+    /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
+    private _legacyInputRequiredShim(): LegacyInputRequiredShim {
+        return (this._legacyShim ??= new LegacyInputRequiredShim({
+            maxRounds: this._inputRequiredServing.maxRounds,
+            roundTimeoutMs: this._inputRequiredServing.roundTimeoutMs,
+            resolvedClientCapabilities: ctx => this._inputRequestCapabilityView(ctx),
+            verifyRequestState: (state, ctx, method) => this._verifyRequestState(state, ctx, method),
+            sendElicitation: (params, options) => this._sendElicitationLeg(params, options, { validateAcceptedContent: false }),
+            sendSampling: (params, options) => this.createMessage(params, options),
+            listRoots: (params, options) => this.listRoots(params, options)
+        }));
+    }
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -111,9 +306,32 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._requestStateVerify = options?.requestState?.verify;
+
+        this._inputRequiredServing = resolveLegacyShimOptions(options?.inputRequired);
+
+        // Configured cache hints fail loudly at construction time (before any
+        // handler registration consults them).
+        if (options?.cacheHints !== undefined) {
+            for (const [operation, hint] of Object.entries(options.cacheHints)) {
+                if (hint !== undefined) {
+                    assertValidCacheHint(hint, `cacheHints['${operation}']`);
+                }
+            }
+            this._cacheHints = options.cacheHints;
+        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+
+        // server/discover is installed only when the supported-versions list
+        // carries a modern revision: a legacy-only server keeps answering -32601.
+        // A hand-constructed instance is never era-bound, so the handler stays
+        // unreachable behind the era gate until a serving entry (createMcpHandler,
+        // serveStdio) marks the instance as serving the 2026-07-28 era.
+        if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
+            this.setRequestHandler('server/discover', () => this._ondiscover());
+        }
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
@@ -150,7 +368,39 @@ export class Server extends Protocol<ServerContext> {
                 // Deprecated as of protocol version 2026-07-28 (SEP-2577): `log` and
                 // `requestSampling` remain functional during the deprecation window
                 // (at least twelve months). See ServerContext for migration guidance.
-                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
+                log: (level, data, logger) => {
+                    if (!this._capabilities.logging) {
+                        return Promise.resolve();
+                    }
+                    // Level filter: on a 2026-era request the client declares its
+                    // threshold per request via the `_meta.logLevel` envelope key
+                    // (the modern equivalent of `logging/setLevel`, which is not a
+                    // request method on that revision). The spec at 2026-07-28
+                    // says an absent key means the server MUST NOT send
+                    // `notifications/message` for the request — so an absent key
+                    // suppresses, it does not mean "send everything". On
+                    // 2025-era connections the session-scoped level set via
+                    // `logging/setLevel` applies exactly as before (an absent
+                    // session level there continues to mean no filter).
+                    let threshold: LoggingLevel | undefined;
+                    if (this._servedModernEra()) {
+                        threshold = ctx.mcpReq.envelope?.[LOG_LEVEL_META_KEY] as LoggingLevel | undefined;
+                        if (threshold === undefined) {
+                            return Promise.resolve();
+                        }
+                    } else {
+                        threshold = this._loggingLevels.get(ctx.sessionId) ?? this._loggingLevels.get(undefined);
+                    }
+                    if (threshold !== undefined && this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(threshold)!) {
+                        return Promise.resolve();
+                    }
+                    // Emit request-related (like progress and `ctx.mcpReq.notify`)
+                    // so the notification rides the in-flight exchange. Without the
+                    // related-request stamp, per-request hosting (`createMcpHandler`,
+                    // either era) silently drops the message because it has no
+                    // session-wide stream to deliver it on.
+                    return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
+                },
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
@@ -195,34 +445,297 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Enforces server-side validation for `tools/call` results regardless of how the
-     * handler was registered.
+     * handler was registered, attaches the configured per-operation cache hint
+     * (when one exists) so the 2026-07-28 encode seam can fill `ttlMs`/`cacheScope`
+     * for results that do not provide their own, and owns the multi-round-trip
+     * seam: on the methods whose 2026-07-28 result vocabulary includes
+     * `input_required` (`tools/call`, `prompts/get`, `resources/read`) an
+     * input-required return skips result-schema validation and is checked
+     * against the served era, the at-least-one rule, and the request's own
+     * declared client capabilities; on every other method an input-required
+     * return is a server bug and fails loudly. The hint rides a symbol-keyed
+     * property that is never serialized, so 2025-era responses are unaffected.
      */
     protected override _wrapHandler(
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
         if (method !== 'tools/call') {
-            return handler;
+            const cacheHint = (this._cacheHints as Record<string, CacheHint | undefined> | undefined)?.[method];
+            const isInputRequiredCapable = INPUT_REQUIRED_CAPABLE_METHODS.has(method);
+            if (cacheHint === undefined && !isInputRequiredCapable) {
+                // Server-bug guard: an input-required return from a method
+                // whose result vocabulary does not include it is never
+                // mis-typed onto the wire.
+                return async (request, ctx) => {
+                    const result = await handler(request, ctx);
+                    if (isInputRequiredResult(result)) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
+                            `Handler for ${method} returned an input-required result, but only tools/call, prompts/get and ` +
+                                `resources/read support input_required (protocol revision 2026-07-28)`
+                        );
+                    }
+                    return result;
+                };
+            }
+            return async (request, ctx) => {
+                const result = isInputRequiredCapable
+                    ? await this._invokeInputRequiredCapableHandler(method, handler, request, ctx)
+                    : await handler(request, ctx);
+                if (isInputRequiredResult(result)) {
+                    if (!isInputRequiredCapable) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
+                            `Handler for ${method} returned an input-required result, but only tools/call, prompts/get and ` +
+                                `resources/read support input_required (protocol revision 2026-07-28)`
+                        );
+                    }
+                    // Never cache-stamped (the encode contract skips
+                    // non-complete results); the hint is not attached.
+                    return result;
+                }
+                return cacheHint === undefined ? result : attachCacheHintFallback(result, cacheHint);
+            };
         }
         return async (request, ctx) => {
-            const validatedRequest = parseSchema(CallToolRequestSchema, request);
-            if (!validatedRequest.success) {
-                const errorMessage =
-                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+            // Era-exact validation via the function-only WireCodec contract:
+            // resolved from the instance era at dispatch time (the era gate
+            // guarantees tools/call exists on the serving era, so the
+            // `not-in-era` arm is an internal error). The era registry entry
+            // IS the plain CallToolResult schema (the result map is aligned
+            // to the typed map — no widened unions), so no narrower surface
+            // is needed.
+            const codec = codecForVersion(this._negotiatedProtocolVersion);
+            const validatedRequest = codec.validateRequest('tools/call', request);
+            if (!validatedRequest.ok) {
+                throw new ProtocolError(
+                    validatedRequest.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                    validatedRequest.reason === 'not-in-era'
+                        ? 'No wire schema for tools/call in the resolved era'
+                        : `Invalid tools/call request: ${validatedRequest.message}`
+                );
             }
 
-            const result = await handler(request, ctx);
-
-            const validationResult = parseSchema(CallToolResultSchema, result);
-            if (!validationResult.success) {
-                const errorMessage =
-                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+            const result = await this._invokeInputRequiredCapableHandler('tools/call', handler, request, ctx);
+            if (isInputRequiredResult(result)) {
+                // Already checked by the seam; the CallToolResult schema does
+                // not apply to it (no widening — InputRequiredResult travels
+                // alongside).
+                return result;
             }
 
-            return validationResult.data;
+            // v1-parity authoring affordance, era-independent: a content-less
+            // handler result normalizes to content: [] before era validation.
+            // Other result families' bodies stay un-normalized and fail loudly.
+            const normalizedResult = normalizeContentlessToolResult(result);
+
+            const validationResult = codec.validateResult('tools/call', normalizedResult);
+            if (!validationResult.ok) {
+                throw new ProtocolError(
+                    validationResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                    validationResult.reason === 'not-in-era'
+                        ? 'No wire schema for tools/call in the resolved era'
+                        : `Invalid tools/call result: ${validationResult.message}`
+                );
+            }
+
+            return validationResult.value;
         };
+    }
+
+    /**
+     * Whether this instance is bound to a 2026-07-28-or-later protocol
+     * revision. Era is instance state — a serving entry (`createMcpHandler`,
+     * `serveStdio`) marks the instance modern at construction; a 2025-era
+     * `initialize` handshake binds it legacy. The multi-round-trip seam reads
+     * this directly: there is no per-request era consult.
+     */
+    private _servedModernEra(): boolean {
+        return this._negotiatedProtocolVersion !== undefined && isModernProtocolVersion(this._negotiatedProtocolVersion);
+    }
+
+    /**
+     * Invokes a handler for one of the multi-round-trip methods and applies
+     * the input-required seam:
+     *
+     * - a `UrlElicitationRequiredError` (or any 2025-style server→client
+     *   request idiom) escaping the handler on a request served on the
+     *   2026-07-28 era fails LOUDLY with a clear steer to
+     *   `inputRequired.elicitUrl(...)` — the `-32042` error never reaches the
+     *   2026-07-28 wire and the throw is not silently converted. Requests
+     *   served on the 2025 era keep today's `-32042` behavior byte-exact (the
+     *   error is rethrown unchanged).
+     * - an input-required RETURN toward a 2026-07-28 request must satisfy
+     *   the at-least-one rule, and every embedded request must be covered by
+     *   the capabilities declared on the request's envelope (violations
+     *   answer the typed `-32021` error). Toward a 2025-era request the
+     *   return is fulfilled by the default-on legacy shim, whose own gate
+     *   consults the initialize-declared capabilities and surfaces
+     *   violations per family; `inputRequired.legacyShim: false` restores
+     *   the pre-shim loud failure.
+     */
+    private async _invokeInputRequiredCapableHandler(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>,
+        request: JSONRPCRequest,
+        ctx: ServerContext
+    ): Promise<Result> {
+        const servedModern = this._servedModernEra();
+
+        // The configured requestState.verify hook runs above the handler (and
+        // therefore above the McpServer tools/call funnel), so a rejection
+        // reaches the wire as a real JSON-RPC error rather than an `isError`
+        // tool result. The wire message is FROZEN — the thrown reason is
+        // surfaced via `onerror` only. A non-string `requestState` value (the
+        // wire field is `string | undefined`) is treated as invalid regardless
+        // of whether a hook is configured, so a malformed value cannot bypass
+        // verification.
+        const rawRequestState: unknown = ctx.mcpReq.requestState();
+        if (rawRequestState !== undefined && typeof rawRequestState !== 'string') {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid or expired requestState', {
+                reason: 'invalid_request_state'
+            });
+        }
+        let ctxForHandler = ctx;
+        if (typeof rawRequestState === 'string') {
+            const decoded = await this._verifyRequestState(rawRequestState, ctx, method);
+            if (decoded !== undefined) {
+                ctxForHandler = withRequestStateValue(ctx, decoded);
+            }
+        }
+
+        let result: Result;
+        try {
+            result = await handler(request, ctxForHandler);
+        } catch (error) {
+            if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                if (!servedModern) {
+                    // 2025-era behavior is frozen: the error reaches the wire
+                    // exactly as it does today.
+                    throw error;
+                }
+                // 2026-era requests do not carry the -32042 surface. A
+                // 2025-style throw fails loudly with a clear steer rather than
+                // being converted: the handler should return
+                // inputRequired.elicitUrl(...) instead.
+                throw new ProtocolError(
+                    ProtocolErrorCode.InternalError,
+                    `URL elicitation cannot be signalled by throwing UrlElicitationRequiredError on protocol revision ` +
+                        `${this._negotiatedProtocolVersion}: return inputRequired({ inputRequests: { …: inputRequired.elicitUrl(...) } }) ` +
+                        `from the handler instead. The urlElicitationRequired error (-32042) of earlier revisions is not ` +
+                        `available on this revision.`
+                );
+            }
+            throw error;
+        }
+
+        if (!isInputRequiredResult(result)) {
+            return result;
+        }
+
+        if (!servedModern) {
+            if (!this._inputRequiredServing.legacyShim) {
+                // The escape hatch (`inputRequired.legacyShim: false`)
+                // restores the pre-shim posture: the 2025-era wire has no
+                // input_required vocabulary, so fail loudly rather than
+                // putting a mis-typed result on the wire.
+                throw new ProtocolError(
+                    ProtocolErrorCode.InternalError,
+                    `Handler for ${method} returned an input-required result, but this request is served on protocol revision ` +
+                        `${this._negotiatedProtocolVersion ?? LATEST_PROTOCOL_VERSION}, which has no input_required vocabulary`
+                );
+            }
+            // Write-once handlers served to deployed 2025 clients.
+            return await this._legacyInputRequiredShim().fulfill(method, handler, request, ctxForHandler, result);
+        }
+
+        // F7 at-least-one re-check (hand-built results are legal; the rule is
+        // re-checked at the seam).
+        const inputRequests = result.inputRequests as Record<string, unknown> | null | undefined;
+        const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
+        const hasRequestState = typeof result.requestState === 'string';
+        if (!hasInputRequests && !hasRequestState) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InternalError,
+                `Handler for ${method} returned an input-required result with neither inputRequests nor requestState ` +
+                    `(every InputRequiredResult must include at least one of the two)`
+            );
+        }
+
+        // Per-embedded-request capability check against the request's own
+        // envelope declaration (-32021 on violation).
+        if (hasInputRequests) {
+            const declared = this._inputRequestCapabilityView(ctx);
+            for (const [key, entry] of Object.entries(inputRequests)) {
+                const { embedded, required } = coerceEmbeddedInputRequest(method, key, entry);
+                const missing = missingClientCapabilities(required, declared);
+                if (missing !== undefined) {
+                    throw new MissingRequiredClientCapabilityError(
+                        { requiredCapabilities: missing },
+                        `Cannot request input '${key}' (${embedded.method}): the request's client capabilities do not declare ` +
+                            `the required capability`
+                    );
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Runs the configured `requestState.verify` hook and returns its
+     * resolved value (`undefined` when unconfigured or the hook returns
+     * nothing). Deny-on-error: any hook failure answers the frozen `-32602`;
+     * the reason goes to `onerror` only.
+     */
+    private async _verifyRequestState(state: string, ctx: ServerContext, method: string): Promise<unknown> {
+        if (this._requestStateVerify === undefined) {
+            return undefined;
+        }
+        try {
+            return await this._requestStateVerify(state, ctx);
+        } catch (error) {
+            this.onerror?.(
+                new Error(`requestState verification rejected ${method}: ${error instanceof Error ? error.message : String(error)}`)
+            );
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid or expired requestState', {
+                reason: 'invalid_request_state'
+            });
+        }
+    }
+
+    /**
+     * The per-request resolved client-capabilities view: the request's own
+     * `_meta` envelope on the 2026 era; the `initialize`-declared state on a
+     * 2025-era connection. Per-request instances that never saw an
+     * initialize (stateless legacy) hold nothing, so gates refuse there.
+     */
+    private _inputRequestCapabilityView(ctx: ServerContext): ClientCapabilities | undefined {
+        return this._servedModernEra()
+            ? (ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined)
+            : this._clientCapabilities;
+    }
+
+    /**
+     * Guard for the push-style server→client request APIs ({@linkcode createMessage},
+     * {@linkcode elicitInput}, {@linkcode listRoots}, {@linkcode ping}) on a
+     * modern-era instance: the 2026-07-28 revision has no server→client request
+     * channel, so the call fails before any wire traffic with a typed error
+     * whose message steers to `inputRequired(...)`. The base era gate would
+     * also reject it; this guard runs first to carry the steer.
+     */
+    private _assertPushApiInServedEra(method: string): void {
+        if (this._servedModernEra()) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `Server-to-client requests are not available on protocol revision ${this._negotiatedProtocolVersion}: ` +
+                    `'${method}' cannot be sent while serving a request on that revision. ` +
+                    `Return inputRequired({ ... }) from the handler instead — the client fulfils the embedded ` +
+                    `requests and retries the original request (multi round-trip requests).`,
+                { method, era: '2026-07-28' }
+            );
+        }
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
@@ -375,10 +888,17 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        // A 2026-07-28-or-later revision is NEVER negotiated via the legacy
+        // `initialize` handshake — only ever selected through `server/discover` —
+        // so the accept check and counter-offer consult only the legacy subset.
+        const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
+        const protocolVersion = legacyVersions.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (legacyVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
+        // The negotiated version is the instance's connection state — it IS
+        // the wire-era selection for everything this instance sends and
+        // receives from here on (legacy handshake ⇒ a legacy-era version).
         this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);
 
@@ -391,7 +911,28 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
+     * Answers `server/discover` (protocol revision 2026-07-28). `supportedVersions`
+     * lists only modern revisions (2025-era versions are negotiated via `initialize`);
+     * the advertised capabilities exclude the listChanged/subscribe-class capabilities
+     * (see {@linkcode discoverAdvertisedCapabilities}).
+     */
+    private _ondiscover(): DiscoverResult {
+        return {
+            supportedVersions: modernProtocolVersions(this._supportedProtocolVersions),
+            capabilities: discoverAdvertisedCapabilities(this.getCapabilities()),
+            serverInfo: this._serverInfo,
+            ...(this._instructions && { instructions: this._instructions })
+        };
+    }
+
+    /**
      * After initialization has completed, this will be populated with the client's reported capabilities.
+     *
+     * @deprecated Read client identity from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
+     * declared capabilities, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-scoped value. The accessor remains functional — instances serving the
+     * 2026-07-28 era are backfilled per request from the validated envelope.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -399,6 +940,12 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * After initialization has completed, this will be populated with information about the client's name and version.
+     *
+     * @deprecated Read client identity from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
+     * name and version, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-scoped value. The accessor remains functional — instances serving the
+     * 2026-07-28 era are backfilled per request from the validated envelope.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
@@ -408,9 +955,37 @@ export class Server extends Protocol<ServerContext> {
      * After initialization has completed, this will be populated with the protocol version negotiated
      * with the client (the version the server responded with during the initialize handshake), or
      * `undefined` before initialization.
+     *
+     * @deprecated Read the protocol revision from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` names the revision the
+     * request was sent for, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-negotiated version. The accessor remains functional — instances serving the
+     * 2026-07-28 era report that revision.
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;
+    }
+
+    /**
+     * Project a `tools/call` result through this instance's negotiated wire
+     * codec — the era-agnostic SEP-2106 §4.3 TextContent auto-append, plus on
+     * the 2025 era the `{result:…}` wrap when `structuredContent` is a
+     * non-object value or the advertised `outputSchema` had a non-object root.
+     * Identity for object-shaped `structuredContent` on the 2026 era.
+     *
+     * `McpServer`'s built-in `tools/call` handler routes through this method.
+     * Low-level `setRequestHandler('tools/call', …)` authors call it
+     * themselves so the projection lives in one place (the codec) and the
+     * server-side handler stays era-blind.
+     *
+     * This is the only codec function exposed on `Server` — the full
+     * `WireCodec` is intentionally not part of the public surface.
+     */
+    public projectCallToolResult(
+        result: CallToolResult,
+        advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined
+    ): CallToolResult {
+        return this._wireCodec().projectCallToolResult(result, advertisedOutputSchema);
     }
 
     /**
@@ -420,8 +995,15 @@ export class Server extends Protocol<ServerContext> {
         return this._capabilities;
     }
 
-    async ping() {
-        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
+    /**
+     * Sends a `ping` request to the connected client.
+     *
+     * @deprecated The 2026-07-28 protocol removed ping; it throws on a 2026-07-28-era instance.
+     * If your factory serves both eras, this only works on the legacy path.
+     */
+    async ping(): Promise<EmptyResult> {
+        this._assertPushApiInServedEra('ping');
+        return this.request({ method: 'ping' });
     }
 
     /**
@@ -429,8 +1011,10 @@ export class Server extends Protocol<ServerContext> {
      * Returns single content block for backwards compatibility.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
 
@@ -439,8 +1023,10 @@ export class Server extends Protocol<ServerContext> {
      * Returns content that may be a single block or array (for parallel tool calls).
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
 
@@ -449,8 +1035,10 @@ export class Server extends Protocol<ServerContext> {
      * When tools may or may not be present, returns the union type.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(
         params: CreateMessageRequest['params'],
@@ -462,6 +1050,7 @@ export class Server extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
+        this._assertPushApiInServedEra('sampling/createMessage');
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
@@ -511,11 +1100,25 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided
-        if (params.tools) {
-            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+        // The result schema depends on the REQUEST params (tools vs no tools),
+        // which a method-keyed registry entry cannot express — the era codec's
+        // `samplingResultVariant` owns the with-tools/plain pair. The funnel's
+        // registry-result path runs first (era-gated: sampling/createMessage
+        // is not a wire request on the 2026 era, so a modern-era instance
+        // fails with the typed era error before anything reaches the
+        // transport), then the variant validator narrows the wide result.
+        const hasTools = Boolean(params.tools || params.toolChoice);
+        const wide = await this.request({ method: 'sampling/createMessage', params }, options);
+        const outcome = this._wireCodec().samplingResultVariant(hasTools, wide);
+        if (!outcome.ok) {
+            // `not-in-era` is unreachable on the path that gets here (the era
+            // gate above filters out 2026 instances); `invalid` is a peer bug.
+            throw new SdkError(
+                SdkErrorCode.InvalidResult,
+                `Invalid sampling/createMessage result: ${outcome.reason === 'invalid' ? outcome.message : outcome.reason}`
+            );
         }
-        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return outcome.value;
     }
 
     /**
@@ -524,8 +1127,14 @@ export class Server extends Protocol<ServerContext> {
      * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
+     *
+     * @deprecated Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip)
+     * instead. The 2025 push-style server-to-client request model is replaced by input_required
+     * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
+     * legacy path.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        this._assertPushApiInServedEra('elicitation/create');
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
         switch (mode) {
@@ -533,25 +1142,49 @@ export class Server extends Protocol<ServerContext> {
                 if (!this._clientCapabilities?.elicitation?.url) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
                 }
-
-                const urlParams = params as ElicitRequestURLParams;
-                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                break;
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
                 }
+                break;
+            }
+        }
 
+        return this._sendElicitationLeg(params, options);
+    }
+
+    /**
+     * The capability-check-free core of {@linkcode elicitInput}. The shim
+     * uses it because its gate differs from the public checks: a bare
+     * `elicitation: {}` counts as form support (the pre-mode rule), and
+     * accepted content passes through unvalidated for parity with the
+     * modern client driver (handlers validate via the schema-aware
+     * `acceptedContent` overload and can re-ask).
+     */
+    private async _sendElicitationLeg(
+        params: ElicitRequestFormParams | ElicitRequestURLParams,
+        options?: RequestOptions,
+        behavior?: { validateAcceptedContent: boolean }
+    ): Promise<ElicitResult> {
+        const mode = (params.mode ?? 'form') as 'form' | 'url';
+        const validateAcceptedContent = behavior?.validateAcceptedContent ?? true;
+
+        switch (mode) {
+            case 'url': {
+                const urlParams = params as ElicitRequestURLParams;
+                // Method-keyed request(): the era registry's plain
+                // ElicitResult schema is exactly the narrow surface.
+                return this.request({ method: 'elicitation/create', params: urlParams }, options);
+            }
+            case 'form': {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this._requestWithSchema(
-                    { method: 'elicitation/create', params: formParams },
-                    ElicitResultSchema,
-                    options
-                );
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
-                if (result.action === 'accept' && result.content && formParams.requestedSchema) {
+                if (validateAcceptedContent && result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
                         const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
                         const validationResult = validator(result.content);
@@ -581,6 +1214,11 @@ export class Server extends Protocol<ServerContext> {
      * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
      * notification for the specified elicitation ID.
      *
+     * The notification (and the `elicitationId` it references) exists only on protocol revision
+     * 2025-11-25 — the 2026-07-28 draft removed both. On a connection negotiated at 2026-07-28 the
+     * returned callback rejects with a typed local error before anything reaches the transport
+     * (the method is not part of that revision's wire registry).
+     *
      * @param elicitationId The ID of the elicitation to mark as complete.
      * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
      * @returns A function that emits the completion notification when awaited.
@@ -609,11 +1247,14 @@ export class Server extends Protocol<ServerContext> {
      * Requests the list of roots from the client.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to passing paths via tool parameters, resource URIs, or configuration. The 2025
+     * push-style server-to-client request model is replaced by input_required results in the
+     * 2026-07-28 protocol. If your factory serves both eras, this only works on the legacy path.
      */
-    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
+    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
+        this._assertPushApiInServedEra('roots/list');
+        return this.request({ method: 'roots/list', params }, options);
     }
 
     /**
@@ -653,4 +1294,17 @@ export class Server extends Protocol<ServerContext> {
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
+}
+
+/**
+ * The capability set a server advertises on `server/discover`. Pure — never
+ * mutates the input; the legacy `initialize` advertisement is untouched.
+ *
+ * The serving entries serve `subscriptions/listen` themselves, so the
+ * `listChanged` and `resources.subscribe` capability bits are advertised
+ * as-is: a modern-era client uses them to decide which notification types to
+ * request on its listen filter.
+ */
+export function discoverAdvertisedCapabilities(capabilities: ServerCapabilities): ServerCapabilities {
+    return { ...capabilities };
 }

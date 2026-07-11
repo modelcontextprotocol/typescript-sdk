@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/server-legacy",
     "private": false,
-    "version": "2.0.0-alpha.3",
+    "version": "2.0.0-beta.2",
     "description": "Frozen v1 SSE transport and OAuth Authorization Server helpers for the Model Context Protocol TypeScript SDK. Deprecated; use StreamableHTTP and a dedicated OAuth server in production.",
     "deprecated": "This package is a frozen copy of v1's SSE transport and OAuth Authorization Server helpers for migration purposes only. Use StreamableHTTP from @modelcontextprotocol/server and a dedicated OAuth server in production. Will not receive new features.",
     "license": "MIT",
@@ -26,18 +26,37 @@
     ],
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": {
+                "types": "./dist/index.d.mts",
+                "default": "./dist/index.mjs"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
         },
         "./sse": {
-            "types": "./dist/sse/index.d.mts",
-            "import": "./dist/sse/index.mjs"
+            "import": {
+                "types": "./dist/sse/index.d.mts",
+                "default": "./dist/sse/index.mjs"
+            },
+            "require": {
+                "types": "./dist/sse/index.d.cts",
+                "default": "./dist/sse/index.cjs"
+            }
         },
         "./auth": {
-            "types": "./dist/auth/index.d.mts",
-            "import": "./dist/auth/index.mjs"
+            "import": {
+                "types": "./dist/auth/index.d.mts",
+                "default": "./dist/auth/index.mjs"
+            },
+            "require": {
+                "types": "./dist/auth/index.d.cts",
+                "default": "./dist/auth/index.cjs"
+            }
         }
     },
+    "main": "./dist/index.cjs",
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
@@ -66,7 +85,7 @@
     "dependencies": {
         "zod": "catalog:runtimeShared",
         "raw-body": "catalog:runtimeServerOnly",
-        "content-type": "catalog:runtimeServerOnly",
+        "content-type": "catalog:runtimeShared",
         "cors": "catalog:runtimeServerOnly",
         "express-rate-limit": "^8.2.1",
         "pkce-challenge": "catalog:runtimeShared"

@@ -1,23 +1,7 @@
 import * as z from 'zod/v4';
 
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    JSONRPC_VERSION,
-    LOG_LEVEL_META_KEY,
-    PROTOCOL_VERSION_META_KEY,
-    RELATED_TASK_META_KEY
-} from './constants';
-import type {
-    JSONArray,
-    JSONObject,
-    JSONValue,
-    NotificationMethod,
-    NotificationTypeMap,
-    RequestMethod,
-    RequestTypeMap,
-    ResultTypeMap
-} from './types';
+import { JSONRPC_VERSION, RELATED_TASK_META_KEY, SUBSCRIPTION_ID_META_KEY } from './constants';
+import type { JSONArray, JSONObject, JSONValue } from './types';
 
 export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
@@ -34,21 +18,7 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
-/**
- * Task creation parameters, used to ask that the server create a task to represent a request.
- */
-export const TaskCreationParamsSchema = z.looseObject({
-    /**
-     * Requested duration in milliseconds to retain task from creation.
-     */
-    ttl: z.number().optional(),
-
-    /**
-     * Time in milliseconds to wait between task status requests.
-     */
-    pollInterval: z.number().optional()
-});
-
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export const TaskMetadataSchema = z.object({
     ttl: z.number().optional()
 });
@@ -56,6 +26,8 @@ export const TaskMetadataSchema = z.object({
 /**
  * Metadata for associating messages with a task.
  * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const RelatedTaskMetadataSchema = z.object({
     taskId: z.string()
@@ -84,6 +56,8 @@ export const BaseRequestParamsSchema = z.object({
 
 /**
  * Common params for any task-augmented request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -120,14 +94,13 @@ export const ResultSchema = z.looseObject({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional(),
-    /**
-     * Indicates the type of the result, allowing the receiver to determine how to
-     * parse the result object. Servers implementing protocol revision 2026-07-28 or
-     * later always include this field; results from earlier revisions omit it, and
-     * an absent value must be treated as `"complete"`.
-     */
-    resultType: z.string().optional()
+    _meta: RequestMetaSchema.optional()
+    // `resultType` is wire-only vocabulary (protocol revision 2026-07-28) and
+    // is deliberately NOT modeled here: the neutral result schemas carry no
+    // slot for it. It exists only inside the 2026-era wire codec, which
+    // consumes it on decode and stamps it on encode. (Q1 increment 2 - the
+    // former optional member here was the masking surface that let modern
+    // vocabulary leak through every legacy-leg parse.)
 });
 
 /**
@@ -347,6 +320,8 @@ const ElicitationCapabilitySchema = z.preprocess(
 
 /**
  * Task capabilities for clients, indicating which request types support task creation.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ClientTasksCapabilitySchema = z.looseObject({
     /**
@@ -384,6 +359,8 @@ export const ClientTasksCapabilitySchema = z.looseObject({
 
 /**
  * Task capabilities for servers, indicating which request types support task creation.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ServerTasksCapabilitySchema = z.looseObject({
     /**
@@ -460,6 +437,8 @@ export const ClientCapabilitiesSchema = z.object({
         .optional(),
     /**
      * Present if the client supports task creation.
+     *
+     * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; parsed for interoperability only — servers built on this SDK never advertise it.
      */
     tasks: ClientTasksCapabilitySchema.optional(),
     /**
@@ -544,6 +523,8 @@ export const ServerCapabilitiesSchema = z.object({
         .optional(),
     /**
      * Present if the server supports task creation.
+     *
+     * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; parsed for interoperability only — servers built on this SDK never advertise it.
      */
     tasks: ServerTasksCapabilitySchema.optional(),
     /**
@@ -678,120 +659,6 @@ export const PaginatedResultSchema = ResultSchema.extend({
      */
     nextCursor: CursorSchema.optional()
 });
-
-/**
- * The status of a task.
- * */
-export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
-
-/* Tasks */
-/**
- * A pollable state object associated with a request.
- */
-export const TaskSchema = z.object({
-    taskId: z.string(),
-    status: TaskStatusSchema,
-    /**
-     * Time in milliseconds to keep task results available after completion.
-     * If `null`, the task has unlimited lifetime until manually cleaned up.
-     */
-    ttl: z.union([z.number(), z.null()]),
-    /**
-     * ISO 8601 timestamp when the task was created.
-     */
-    createdAt: z.string(),
-    /**
-     * ISO 8601 timestamp when the task was last updated.
-     */
-    lastUpdatedAt: z.string(),
-    pollInterval: z.optional(z.number()),
-    /**
-     * Optional diagnostic message for failed tasks or other status information.
-     */
-    statusMessage: z.optional(z.string())
-});
-
-/**
- * Result returned when a task is created, containing the task data wrapped in a `task` field.
- */
-export const CreateTaskResultSchema = ResultSchema.extend({
-    task: TaskSchema
-});
-
-/**
- * Parameters for task status notification.
- */
-export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
-
-/**
- * A notification sent when a task's status changes.
- */
-export const TaskStatusNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tasks/status'),
-    params: TaskStatusNotificationParamsSchema
-});
-
-/**
- * A request to get the state of a specific task.
- */
-export const GetTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/get'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode GetTaskRequest | tasks/get} request.
- */
-export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
-
-/**
- * A request to get the result of a specific task.
- */
-export const GetTaskPayloadRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/result'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a `tasks/result` request.
- * The structure matches the result type of the original request.
- * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
- *
- */
-export const GetTaskPayloadResultSchema = ResultSchema.loose();
-
-/**
- * A request to list tasks.
- */
-export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('tasks/list')
-});
-
-/**
- * The response to a {@linkcode ListTasksRequest | tasks/list} request.
- */
-export const ListTasksResultSchema = PaginatedResultSchema.extend({
-    tasks: z.array(TaskSchema)
-});
-
-/**
- * A request to cancel a specific task.
- */
-export const CancelTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/cancel'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
- */
-export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
 /**
@@ -1031,6 +898,87 @@ export const UnsubscribeRequestSchema = RequestSchema.extend({
     params: UnsubscribeRequestParamsSchema
 });
 
+/* Subscriptions (protocol revision 2026-07-28) */
+/**
+ * The set of notification types a client opts in to on a `subscriptions/listen`
+ * request. Each type is opt-in; the server MUST NOT send a notification type
+ * the client has not explicitly requested here.
+ */
+export const SubscriptionFilterSchema = z.object({
+    /**
+     * If true, receive `notifications/tools/list_changed`.
+     */
+    toolsListChanged: z.boolean().optional(),
+    /**
+     * If true, receive `notifications/prompts/list_changed`.
+     */
+    promptsListChanged: z.boolean().optional(),
+    /**
+     * If true, receive `notifications/resources/list_changed`.
+     */
+    resourcesListChanged: z.boolean().optional(),
+    /**
+     * Subscribe to `notifications/resources/updated` for these resource URIs.
+     * Replaces the former `resources/subscribe` RPC on the 2026-07-28 revision.
+     */
+    resourceSubscriptions: z.array(z.string()).optional()
+});
+
+export const SubscriptionsListenRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * The notifications the client opts in to on this stream. The server MUST
+     * NOT send notification types the client has not explicitly requested.
+     */
+    notifications: SubscriptionFilterSchema
+});
+
+/**
+ * Sent from the client to open a long-lived channel for receiving notifications
+ * outside the context of a specific request (protocol revision 2026-07-28).
+ * Replaces the previous HTTP GET endpoint and `resources/subscribe`.
+ */
+export const SubscriptionsListenRequestSchema = RequestSchema.extend({
+    method: z.literal('subscriptions/listen'),
+    params: SubscriptionsListenRequestParamsSchema
+});
+
+export const SubscriptionsAcknowledgedNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The subset of requested notification types the server agreed to honor.
+     */
+    notifications: SubscriptionFilterSchema
+});
+
+/**
+ * Sent by the server as the first message on a `subscriptions/listen` stream
+ * to acknowledge that the subscription has been established and report which
+ * notification types it agreed to honor (protocol revision 2026-07-28).
+ */
+export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/subscriptions/acknowledged'),
+    params: SubscriptionsAcknowledgedNotificationParamsSchema
+});
+
+/**
+ * `_meta` for a {@linkcode SubscriptionsListenResult}: the listen request's
+ * JSON-RPC ID under the canonical subscription-id key (mirroring the same key
+ * on every notification delivered on the stream).
+ */
+export const SubscriptionsListenResultMetaSchema = z.looseObject({
+    [SUBSCRIPTION_ID_META_KEY]: RequestIdSchema
+});
+
+/**
+ * The response to a `subscriptions/listen` request, signalling that the
+ * subscription has ended gracefully (for example, during server shutdown).
+ * Because the listen stream is long-lived, this result is sent only when the
+ * server tears the subscription down; an abrupt transport close carries no
+ * response. The result body is otherwise empty.
+ */
+export const SubscriptionsListenResultSchema = ResultSchema.extend({
+    _meta: SubscriptionsListenResultMetaSchema
+});
+
 /**
  * Parameters for a {@linkcode ResourceUpdatedNotification | notifications/resources/updated} notification.
  */
@@ -1201,6 +1149,10 @@ export const AudioContentSchema = z.object({
 /**
  * A tool call request from an assistant (LLM).
  * Represents the assistant's request to use a tool.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolUseContentSchema = z.object({
     type: z.literal('tool_use'),
@@ -1382,18 +1334,14 @@ export const ToolSchema = z.object({
         })
         .catchall(z.unknown()),
     /**
-     * An optional JSON Schema 2020-12 object defining the structure of the tool's output
+     * An optional JSON Schema 2020-12 document describing the structure of the tool's output
      * returned in the `structuredContent` field of a `CallToolResult`.
-     * Must have `type: 'object'` at the root level per MCP spec.
+     *
+     * SEP-2106: any JSON Schema root is permitted (e.g. `type:'array'`, `oneOf`, `$ref`).
+     * The 2025-11-25 wire parse retains the `type:'object'` constraint via the frozen schema in
+     * `wire/rev2025-11-25/schemas.ts`; this neutral/public schema widens.
      */
-    outputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown())
-        .optional(),
+    outputSchema: z.looseObject({ $schema: z.string().optional() }).optional(),
     /**
      * Optional additional tool information.
      */
@@ -1432,16 +1380,24 @@ export const CallToolResultSchema = ResultSchema.extend({
      * A list of content objects that represent the result of the tool call.
      *
      * If the `Tool` does not define an outputSchema, this field MUST be present in the result.
-     * For backwards compatibility, this field is always present, but it may be empty.
+     * Required on the wire per the specification (it may be an empty array).
+     *
+     * Parse-tolerant: absent `content` defaults to `[]` (v1 parity — deployed
+     * servers omit it alongside `structuredContent`).
      */
     content: z.array(ContentBlockSchema).default([]),
 
     /**
-     * An object containing structured tool output.
+     * Structured tool output.
      *
-     * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     * If the `Tool` defines an `outputSchema`, this field MUST be present in the result and
+     * contain a JSON value that matches the schema.
+     *
+     * SEP-2106: any JSON value is permitted (arrays, primitives, `null`). Narrow before property
+     * access. The 2025-11-25 wire parse retains the object-only constraint via the frozen schema
+     * in `wire/rev2025-11-25/schemas.ts`; this neutral/public schema widens.
      */
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
+    structuredContent: z.unknown().optional(),
 
     /**
      * Whether the tool call ended in an error.
@@ -1527,11 +1483,19 @@ export const ListChangedOptionsBaseSchema = z.object({
 /* Logging */
 /**
  * The severity of a log message.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
 
 /**
  * Parameters for a `logging/setLevel` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -1541,6 +1505,10 @@ export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 /**
  * A request from the client to the server, to enable or adjust logging.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const SetLevelRequestSchema = RequestSchema.extend({
     method: z.literal('logging/setLevel'),
@@ -1549,6 +1517,10 @@ export const SetLevelRequestSchema = RequestSchema.extend({
 
 /**
  * Parameters for a `notifications/message` notification.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
@@ -1566,57 +1538,23 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
 });
 /**
  * Notification of a log message passed from server to client. If no `logging/setLevel` request has been sent from the client, the server MAY decide which messages to send automatically.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/message'),
     params: LoggingMessageNotificationParamsSchema
 });
 
-/* Per-request `_meta` envelope */
-/**
- * The per-request `_meta` envelope carried by every request under protocol revision
- * 2026-07-28: the protocol version governing the request, the client implementation
- * info, and the client's capabilities — declared per request rather than once at
- * initialization — plus the optional log-level opt-in.
- *
- * This schema models the complete envelope on its own. The base request schemas
- * ({@linkcode RequestMetaSchema}) deliberately stay lenient so the same wire schemas
- * parse requests from earlier protocol revisions (no envelope) as well; envelope
- * requiredness is enforced per request at dispatch time, not here.
- */
-export const RequestMetaEnvelopeSchema = z.looseObject({
-    /**
-     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-     */
-    progressToken: ProgressTokenSchema.optional(),
-    /**
-     * The MCP protocol version being used for this request. For the HTTP transport,
-     * the value must match the `MCP-Protocol-Version` header.
-     */
-    [PROTOCOL_VERSION_META_KEY]: z.string(),
-    /**
-     * Identifies the client software making the request.
-     */
-    [CLIENT_INFO_META_KEY]: ImplementationSchema,
-    /**
-     * The client's capabilities for this specific request. An empty object means the
-     * client supports no optional capabilities. Servers must not infer capabilities
-     * from prior requests.
-     */
-    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilitiesSchema,
-    /**
-     * The desired log level for this request. When absent, the server must not send
-     * `notifications/message` notifications for the request.
-     *
-     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
-     * in the specification for at least twelve months.
-     */
-    [LOG_LEVEL_META_KEY]: LoggingLevelSchema.optional()
-});
-
 /* Sampling */
 /**
  * Hints to use for model selection.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ModelHintSchema = z.object({
     /**
@@ -1627,6 +1565,10 @@ export const ModelHintSchema = z.object({
 
 /**
  * The server's preferences for model selection, requested of the client during sampling.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ModelPreferencesSchema = z.object({
     /**
@@ -1649,6 +1591,10 @@ export const ModelPreferencesSchema = z.object({
 
 /**
  * Controls tool usage behavior in sampling requests.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolChoiceSchema = z.object({
     /**
@@ -1663,12 +1609,20 @@ export const ToolChoiceSchema = z.object({
 /**
  * The result of a tool execution, provided by the user (server).
  * Represents the outcome of invoking a tool requested via `ToolUseContent`.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
     toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
-    content: z.array(ContentBlockSchema).default([]),
-    structuredContent: z.object({}).loose().optional(),
+    content: z.array(ContentBlockSchema),
+    /**
+     * SEP-2106: any JSON value is permitted. The 2025-11-25 wire parse retains the object-only
+     * constraint via the frozen schema in `wire/rev2025-11-25/schemas.ts`.
+     */
+    structuredContent: z.unknown().optional(),
     isError: z.boolean().optional(),
 
     /**
@@ -1681,12 +1635,20 @@ export const ToolResultContentSchema = z.object({
 /**
  * Basic content types for sampling responses (without tool use).
  * Used for backwards-compatible {@linkcode CreateMessageResult} when tools are not used.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
 /**
  * Content block types allowed in sampling messages.
  * This includes text, image, audio, tool use requests, and tool results.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
     TextContentSchema,
@@ -1698,6 +1660,10 @@ export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
 
 /**
  * Describes a message issued to or received from an LLM API.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingMessageSchema = z.object({
     role: RoleSchema,
@@ -1711,6 +1677,10 @@ export const SamplingMessageSchema = z.object({
 
 /**
  * Parameters for a `sampling/createMessage` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
     messages: z.array(SamplingMessageSchema),
@@ -1726,8 +1696,12 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
      * The client MAY ignore this request.
      *
-     * Default is `"none"`. Values `"thisServer"` and `"allServers"` are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares `ClientCapabilities`.`sampling.context`. These values may be removed in future spec releases.
+     * Default is `"none"`. The values `"thisServer"` and `"allServers"` are deprecated (SEP-2596): servers SHOULD
+     * omit this field or use `"none"`, and SHOULD only use the deprecated values if the client declares
+     * `ClientCapabilities`.`sampling.context`.
+     *
+     * @deprecated The `"thisServer"` and `"allServers"` values are deprecated as of protocol version 2025-11-25
+     * (SEP-2596) and will be removed no later than the Sampling feature itself (SEP-2577). Omit this field or use `"none"`.
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1756,6 +1730,10 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
 });
 /**
  * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageRequestSchema = RequestSchema.extend({
     method: z.literal('sampling/createMessage'),
@@ -1766,6 +1744,10 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
  * The client's response to a `sampling/create_message` request from the server.
  * This is the backwards-compatible version that returns single content (no arrays).
  * Used when the request does not include tools.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageResultSchema = ResultSchema.extend({
     /**
@@ -1793,6 +1775,10 @@ export const CreateMessageResultSchema = ResultSchema.extend({
 /**
  * The client's response to a `sampling/create_message` request when tools were provided.
  * This version supports array content for tool use flows.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
     /**
@@ -1990,6 +1976,11 @@ export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.ext
     /**
      * The ID of the elicitation, which must be unique within the context of the server.
      * The client MUST treat this ID as an opaque value.
+     *
+     * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the
+     * outcome of an out-of-band interaction by retrying the original request; no
+     * server-initiated completion signal exists in the 2026-07-28 revision. Kept here
+     * for the 2025-era URL-mode flow only.
      */
     elicitationId: z.string(),
     /**
@@ -2016,11 +2007,17 @@ export const ElicitRequestSchema = RequestSchema.extend({
 /**
  * Parameters for a {@linkcode ElicitationCompleteNotification | notifications/elicitation/complete} notification.
  *
+ * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the outcome
+ * of an out-of-band interaction by retrying the original request; no server-initiated
+ * completion signal exists in the 2026-07-28 revision. Kept here for the 2025-era flow
+ * only. The 2026-07-28 wire codec excludes this notification.
  * @category notifications/elicitation/complete
  */
 export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
      * The ID of the elicitation that completed.
+     *
+     * @deprecated See {@linkcode ElicitationCompleteNotificationParamsSchema}.
      */
     elicitationId: z.string()
 });
@@ -2028,6 +2025,10 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSc
 /**
  * A notification from the server to the client, informing it of a completion of an out-of-band elicitation request.
  *
+ * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the outcome
+ * of an out-of-band interaction by retrying the original request; no server-initiated
+ * completion signal exists in the 2026-07-28 revision. Kept here for the 2025-era flow
+ * only. The 2026-07-28 wire codec excludes this notification.
  * @category notifications/elicitation/complete
  */
 export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
@@ -2139,6 +2140,10 @@ export const CompleteResultSchema = ResultSchema.extend({
 /* Roots */
 /**
  * Represents a root directory or file that the server can operate on.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const RootSchema = z.object({
     /**
@@ -2159,6 +2164,10 @@ export const RootSchema = z.object({
 
 /**
  * Sent from the server to request a list of root URIs from the client.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const ListRootsRequestSchema = RequestSchema.extend({
     method: z.literal('roots/list'),
@@ -2167,6 +2176,10 @@ export const ListRootsRequestSchema = RequestSchema.extend({
 
 /**
  * The client's response to a `roots/list` request from the server.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
@@ -2174,16 +2187,196 @@ export const ListRootsResultSchema = ResultSchema.extend({
 
 /**
  * A notification from the client to the server, informing it that the list of roots has changed.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const RootsListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/roots/list_changed'),
     params: NotificationsParamsSchema.optional()
 });
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * Tasks (2025-11-25 wire vocabulary, DEPRECATED)
+ *
+ * The task message surface defined by the 2025-11-25 protocol revision. These
+ * schemas are kept in the neutral layer so the public Task* types stay
+ * nameable without a cross-layer import into wire/rev*; the wire-parse
+ * contract for them is the FROZEN copy in wire/rev2025-11-25/schemas.ts.
+ *
+ * They appear in NO role aggregate below and no API signature — nameable-only
+ * vocabulary for interop with task-capable 2025 peers (#2248). Removable at
+ * the major version that drops 2025-era support.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Task creation parameters, used to ask that the server create a task to represent a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskCreationParamsSchema = z.looseObject({
+    /**
+     * Requested duration in milliseconds to retain task from creation.
+     */
+    ttl: z.number().optional(),
+
+    /**
+     * Time in milliseconds to wait between task status requests.
+     */
+    pollInterval: z.number().optional()
+});
+
+/**
+ * The status of a task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
+
+/**
+ * A pollable state object associated with a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskSchema = z.object({
+    taskId: z.string(),
+    status: TaskStatusSchema,
+    /**
+     * Time in milliseconds to keep task results available after completion.
+     * If `null`, the task has unlimited lifetime until manually cleaned up.
+     */
+    ttl: z.union([z.number(), z.null()]),
+    /**
+     * ISO 8601 timestamp when the task was created.
+     */
+    createdAt: z.string(),
+    /**
+     * ISO 8601 timestamp when the task was last updated.
+     */
+    lastUpdatedAt: z.string(),
+    pollInterval: z.optional(z.number()),
+    /**
+     * Optional diagnostic message for failed tasks or other status information.
+     */
+    statusMessage: z.optional(z.string())
+});
+
+/**
+ * Result returned when a task is created, containing the task data wrapped in a `task` field.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CreateTaskResultSchema = ResultSchema.extend({
+    task: TaskSchema
+});
+
+/**
+ * Parameters for task status notification.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
+
+/**
+ * A notification sent when a task's status changes.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tasks/status'),
+    params: TaskStatusNotificationParamsSchema
+});
+
+/**
+ * A request to get the state of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/get'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a {@linkcode GetTaskRequest | tasks/get} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
+
+/**
+ * A request to get the result of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskPayloadRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/result'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a `tasks/result` request.
+ * The structure matches the result type of the original request.
+ * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
+ *
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskPayloadResultSchema = ResultSchema.loose();
+
+/**
+ * A request to list tasks.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal('tasks/list')
+});
+
+/**
+ * The response to a {@linkcode ListTasksRequest | tasks/list} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const ListTasksResultSchema = PaginatedResultSchema.extend({
+    tasks: z.array(TaskSchema)
+});
+
+/**
+ * A request to cancel a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CancelTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/cancel'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
+
 /* Client messages */
+// NOTE (Q1 increment 2): the role unions below are the NEUTRAL message sets.
+// The 2025-era task vocabulary (tasks/* methods, task results, the task
+// status notification) is 2025-only WIRE vocabulary; the deprecated Task*
+// schemas above are nameable-only and appear in NO role aggregate and no API
+// signature. The era's full wire role unions live in
+// `wire/rev2025-11-25/schemas.ts`.
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
+    DiscoverRequestSchema,
     CompleteRequestSchema,
     SetLevelRequestSchema,
     GetPromptRequestSchema,
@@ -2193,20 +2386,16 @@ export const ClientRequestSchema = z.union([
     ReadResourceRequestSchema,
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
+    SubscriptionsListenRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
+    ListToolsRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema,
-    TaskStatusNotificationSchema
+    RootsListChangedNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([
@@ -2214,23 +2403,11 @@ export const ClientResultSchema = z.union([
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
-    ListRootsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    ListRootsResultSchema
 ]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([
-    PingRequestSchema,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ListRootsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
-]);
+export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -2240,13 +2417,14 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
-    TaskStatusNotificationSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
     EmptyResultSchema,
     InitializeResultSchema,
+    DiscoverResultSchema,
     CompleteResultSchema,
     GetPromptResultSchema,
     ListPromptsResultSchema,
@@ -2255,92 +2433,5 @@ export const ServerResultSchema = z.union([
     ReadResourceResultSchema,
     CallToolResultSchema,
     ListToolsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    SubscriptionsListenResultSchema
 ]);
-
-/* Runtime schema lookup — result schemas by method */
-const resultSchemas: Record<string, z.core.$ZodType> = {
-    ping: EmptyResultSchema,
-    initialize: InitializeResultSchema,
-    'completion/complete': CompleteResultSchema,
-    'logging/setLevel': EmptyResultSchema,
-    'prompts/get': GetPromptResultSchema,
-    'prompts/list': ListPromptsResultSchema,
-    'resources/list': ListResourcesResultSchema,
-    'resources/templates/list': ListResourceTemplatesResultSchema,
-    'resources/read': ReadResourceResultSchema,
-    'resources/subscribe': EmptyResultSchema,
-    'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
-    'tools/list': ListToolsResultSchema,
-    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
-    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
-    'roots/list': ListRootsResultSchema,
-    'tasks/get': GetTaskResultSchema,
-    'tasks/result': ResultSchema,
-    'tasks/list': ListTasksResultSchema,
-    'tasks/cancel': CancelTaskResultSchema
-};
-
-/**
- * Gets the Zod schema for validating results of a given request method.
- * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
- */
-export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
-export function getResultSchema(method: string): z.ZodType | undefined;
-export function getResultSchema(method: string): z.ZodType | undefined {
-    return resultSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
-}
-
-/* Runtime schema lookup — request schemas by method */
-type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
-type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
-
-function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
-    const map: Record<string, T> = {};
-    for (const schema of schemas) {
-        const method = schema.shape.method.value;
-        map[method] = schema;
-    }
-    return map;
-}
-
-const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
-    RequestMethod,
-    RequestSchemaType
->;
-const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
-    NotificationMethod,
-    NotificationSchemaType
->;
-
-/**
- * Gets the Zod schema for a given request method.
- * Returns `undefined` for non-spec methods.
- * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
- * to use schema.parse() without needing additional type assertions.
- *
- * Note: The internal cast is necessary because TypeScript can't correlate the
- * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
- * when M is a generic type parameter. Both compute to the same type at
- * instantiation, but TypeScript can't prove this statically.
- */
-export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
-export function getRequestSchema(method: string): z.ZodType | undefined;
-export function getRequestSchema(method: string): z.ZodType | undefined {
-    return requestSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
-}
-
-/**
- * Gets the Zod schema for a given notification method.
- * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
- */
-export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]>;
-export function getNotificationSchema(method: string): z.ZodType | undefined;
-export function getNotificationSchema(method: string): z.ZodType | undefined {
-    return notificationSchemas[method as NotificationMethod] as unknown as z.ZodType | undefined;
-}

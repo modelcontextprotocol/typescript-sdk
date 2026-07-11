@@ -24,10 +24,11 @@ pnpm --filter @modelcontextprotocol/core-internal test -- -t "test name"
 
 ## Breaking Changes
 
-When making breaking changes, document them in **both**:
-
-- `docs/migration.md` — human-readable guide with before/after code examples
-- `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
+When making breaking changes, add to the relevant subsystem section in
+`docs/migration/upgrade-to-v2.md` (or `docs/migration/support-2026-07-28.md` if the
+change is 2026-07-28-only). Mechanical renames go in
+`packages/codemod/src/migrations/v1-to-v2/mappings/` and the codemod handles them — do
+not reproduce mapping tables in the guide; link to the mapping file instead.
 
 Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
 
@@ -122,11 +123,15 @@ Pluggable JSON Schema validation (`packages/core-internal/src/validators/`):
 
 ### Examples
 
-Runnable examples in `examples/`:
+Runnable examples in `examples/<story>/{server.ts,client.ts}` — each story is its own
+`@mcp-examples/<story>` workspace package and a self-verifying e2e test (the client connects,
+asserts results, exits non-zero on mismatch). `pnpm run:examples` runs every story over its
+configured transport×era legs; the `examples (build + e2e)` CI job is part of the per-PR gate
+basket. See `examples/README.md` for the full story matrix.
 
-- `examples/server/src/` - Various server configurations (stateful, stateless, OAuth, etc.)
-- `examples/client/src/` - Client examples (basic, OAuth, parallel calls, etc.)
-- `examples/shared/src/` - Shared utilities (OAuth demo provider, etc.)
+- `examples/shared/` — `@mcp-examples/shared` package. Root export is args-only (`parseExampleArgs`, `check`, `siblingPath`); the demo OAuth provider and `InMemoryEventStore` live at the `@mcp-examples/shared/auth` subpath so non-auth stories don't eagerly evaluate better-auth/express/better-sqlite3. Stories import only this plumbing and inline the SDK transport setup themselves — see `examples/CONTRIBUTING.md`.
+- `scripts/examples/` — runner (`run-examples.ts`)
+- `examples/guides/` — per-page snippet companions for the `docs/` guide pages (one `<section>/<page>.examples.ts` per page); fences sync via `pnpm sync:snippets`, and the runnable ones are executed in CI by `pnpm docs:examples`
 
 ## Message Flow (Bidirectional Protocol)
 

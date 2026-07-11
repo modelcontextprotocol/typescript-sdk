@@ -67,6 +67,39 @@ export type TransportSendOptions = {
      * This allows clients to persist the latest token for potential reconnection.
      */
     onresumptiontoken?: ((token: string) => void) | undefined;
+
+    /**
+     * An abort signal for THIS outbound message's underlying request, when the
+     * transport sends one outbound message per underlying request (the
+     * Streamable HTTP transport's POST-per-request model). Aborting it cancels
+     * the underlying request (and its SSE response stream) without closing the
+     * transport. Transports that share a single channel (stdio, in-memory)
+     * ignore it.
+     */
+    requestSignal?: AbortSignal | undefined;
+
+    /**
+     * Fired by transports that open a per-request stream (the Streamable HTTP
+     * transport's POST-per-request SSE response) when that stream ends or
+     * errors for any reason OTHER than a deliberate `requestSignal` abort —
+     * i.e. the server closed the stream, the network dropped it, or
+     * reconnection was exhausted. Transports that share a single channel
+     * (stdio, in-memory) ignore it.
+     */
+    onRequestStreamEnd?: (() => void) | undefined;
+
+    /**
+     * Additional HTTP headers to send with THIS outbound message, when the
+     * transport sends one outbound message per underlying HTTP request (the
+     * Streamable HTTP transport's POST-per-request model). Transports that
+     * share a single channel (stdio, in-memory) ignore it.
+     *
+     * The Client uses this to attach SEP-2243 `Mcp-Param-{Name}` headers to a
+     * `tools/call` request on a 2026-07-28 connection. Values are sent
+     * verbatim — encode anything that is not a safe RFC 9110 field value
+     * before passing it here.
+     */
+    headers?: Readonly<Record<string, string>> | undefined;
 };
 /**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
@@ -92,6 +125,18 @@ export interface Transport {
      * Closes the connection.
      */
     close(): Promise<void>;
+
+    /**
+     * `true` when this transport opens one underlying request per outbound
+     * JSON-RPC request (the Streamable HTTP POST-per-request model) and
+     * therefore honors {@linkcode TransportSendOptions.requestSignal}. The
+     * 2026-07-28 spec makes closing that per-request stream the cancellation
+     * signal — the protocol layer aborts `requestSignal` instead of POSTing
+     * `notifications/cancelled` when this flag is set on a 2026-era
+     * connection. Transports that share a single channel (stdio, in-memory)
+     * leave it `undefined`.
+     */
+    readonly hasPerRequestStream?: boolean;
 
     /**
      * Callback for when the connection is closed for any reason.

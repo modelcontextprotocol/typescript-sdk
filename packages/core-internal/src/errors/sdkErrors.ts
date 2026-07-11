@@ -1,3 +1,5 @@
+import { brandedHasInstance, stampErrorBrands } from './crossBundleBrand';
+
 /**
  * Error codes for SDK errors (local errors that never cross the wire).
  * Unlike {@linkcode ProtocolErrorCode} which uses numeric JSON-RPC codes, `SdkErrorCode` uses
@@ -28,6 +30,47 @@ export enum SdkErrorCode {
     SendFailed = 'SEND_FAILED',
     /** Response result failed local schema validation */
     InvalidResult = 'INVALID_RESULT',
+    /**
+     * The response carried a `resultType` discriminator (protocol revision
+     * 2026-07-28) naming a result kind this client cannot consume yet, e.g.
+     * `input_required`. The kind is carried in `data.resultType`.
+     */
+    UnsupportedResultType = 'UNSUPPORTED_RESULT_TYPE',
+    /**
+     * The multi-round-trip auto-fulfilment driver exhausted its round cap
+     * (`inputRequired.maxRounds`) without the server returning a complete
+     * result. `data.rounds` carries the cap that was hit and
+     * `data.lastResult` carries the last `input_required` payload received
+     * (`{ inputRequests, requestState? }`), so callers can inspect or resume
+     * the flow manually.
+     */
+    InputRequiredRoundsExceeded = 'INPUT_REQUIRED_ROUNDS_EXCEEDED',
+    /**
+     * The auto-aggregating no-`cursor` `listTools()` / `listPrompts()` /
+     * `listResources()` / `listResourceTemplates()` walk hit the
+     * `ClientOptions.listMaxPages` cap without the server's pagination
+     * converging. `data.method` carries the list verb and
+     * `data.listMaxPages` the cap that was hit; raise the cap or fall back to
+     * explicit per-page `{ cursor }` calls.
+     */
+    ListPaginationExceeded = 'LIST_PAGINATION_EXCEEDED',
+    /**
+     * The spec method being sent does not exist on the negotiated protocol
+     * version's wire era (e.g. `tasks/get` toward a 2026-07-28 peer, or
+     * `server/discover` toward a 2025-era peer). Raised locally, before
+     * anything reaches the transport. The method and era are carried in
+     * `data.method` / `data.era`.
+     */
+    MethodNotSupportedByProtocolVersion = 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    /**
+     * Protocol-era negotiation at connect time failed without producing either a
+     * usable modern (2026-07-28+) era or a definitive legacy fallback signal —
+     * e.g. the negotiation mode forbids falling back (`pin`), or the probe hit a
+     * network failure (a typed connect error, never an era verdict).
+     *
+     * Negotiation-phase only: this code is never used once an era is established.
+     */
+    EraNegotiationFailed = 'ERA_NEGOTIATION_FAILED',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
@@ -57,6 +100,32 @@ export enum SdkErrorCode {
  * ```
  */
 export class SdkError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
@@ -64,6 +133,7 @@ export class SdkError extends Error {
     ) {
         super(message);
         this.name = 'SdkError';
+        stampErrorBrands(this, new.target);
     }
 }
 
@@ -93,6 +163,10 @@ export interface SdkHttpErrorData {
  * ```
  */
 export class SdkHttpError extends SdkError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkHttpError' });
+    }
+
     declare readonly data: SdkHttpErrorData;
 
     constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {

@@ -1,4 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import { isJsonContentType } from '@modelcontextprotocol/core-internal';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
@@ -1016,7 +1017,7 @@ describe('createMiddleware', () => {
         const transformMiddleware = createMiddleware(async (next, input, init) => {
             const response = await next(input, init);
 
-            if (response.headers.get('content-type')?.includes('application/json')) {
+            if (isJsonContentType(response.headers.get('content-type'))) {
                 const data = (await response.json()) as Record<string, unknown>;
                 const transformed = { ...data, timestamp: 123_456_789 };
 

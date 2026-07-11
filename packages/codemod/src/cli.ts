@@ -8,6 +8,7 @@ import { Command } from 'commander';
 
 import { listMigrations } from './migrations/index';
 import { run } from './runner';
+import type { PackageJsonChange } from './types';
 import { DiagnosticLevel } from './types';
 import { detectFormatter } from './utils/detectFormatter';
 import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics';
@@ -15,8 +16,30 @@ import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics';
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
 
+const SOURCE_FILE_RE = /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/;
+
 function quoteArg(arg: string): string {
     return /\s/.test(arg) ? `"${arg}"` : arg;
+}
+
+function hasManifestEdits(pc: PackageJsonChange): boolean {
+    return pc.added.length > 0 || pc.removed.length > 0;
+}
+
+function printManifestChange(pc: PackageJsonChange): void {
+    console.log(`  ${path.relative(process.cwd(), pc.packageJsonPath) || pc.packageJsonPath}`);
+    if (pc.removed.length > 0) {
+        console.log(`    Removed: ${pc.removed.join(', ')}`);
+    }
+    if (pc.added.length > 0) {
+        console.log(`    Added:   ${pc.added.join(', ')}`);
+    }
+    for (const n of pc.notes ?? []) {
+        console.log(`    Note: ${n}`);
+    }
+    for (const w of pc.warnings ?? []) {
+        console.log(`    Warning: ${w}`);
+    }
 }
 
 /**
@@ -71,8 +94,15 @@ for (const [name, migration] of listMigrations()) {
 
                 const resolvedDir = path.resolve(targetDir);
 
-                if (!existsSync(resolvedDir) || !statSync(resolvedDir).isDirectory()) {
-                    console.error(`\nError: "${resolvedDir}" is not a valid directory.\n`);
+                const targetExists = existsSync(resolvedDir);
+                const targetIsFile = targetExists && statSync(resolvedDir).isFile();
+                if (!targetExists || (!statSync(resolvedDir).isDirectory() && !(targetIsFile && SOURCE_FILE_RE.test(resolvedDir)))) {
+                    console.error(`\nError: "${resolvedDir}" is not a directory or a TypeScript/JavaScript source file.\n`);
+                    process.exitCode = 1;
+                    return;
+                }
+                if (targetIsFile && /\.d\.(?:ts|mts|cts)$/.test(resolvedDir)) {
+                    console.error(`\nError: "${resolvedDir}" is a declaration file — declaration files are not migration targets.\n`);
                     process.exitCode = 1;
                     return;
                 }
@@ -96,8 +126,24 @@ for (const [name, migration] of listMigrations()) {
                 });
 
                 if (result.filesChanged === 0 && result.diagnostics.length === 0 && !result.packageJsonChanges) {
-                    console.log('No changes needed — code already migrated or no SDK imports found.\n');
+                    if (result.mcpImportFiles > 0 && result.v1ImportFiles === 0) {
+                        console.log(`No changes needed — ${result.mcpImportFiles} file(s) already import the v2 packages.\n`);
+                    } else if (result.v1ImportFiles > 0) {
+                        console.log(
+                            `No changes applied — ${result.v1ImportFiles} file(s) still import the v1 SDK ` +
+                                `(check which transforms were selected).\n`
+                        );
+                    } else {
+                        console.log(`No MCP SDK imports found under ${resolvedDir} — nothing to migrate.\n`);
+                    }
                     return;
+                }
+
+                if (targetIsFile && result.packageJsonChanges) {
+                    console.log(
+                        'Single-file run: manifest changes are reported for the owning package but not applied — ' +
+                            'run the codemod at the package root to apply them.\n'
+                    );
                 }
 
                 if (result.filesChanged > 0) {
@@ -105,9 +151,19 @@ for (const [name, migration] of listMigrations()) {
                 }
 
                 if (opts['verbose']) {
-                    console.log('Files modified:');
-                    for (const fr of result.fileResults) {
-                        console.log(`  ${fr.filePath} (${fr.changes} change(s))`);
+                    const modified = result.fileResults.filter(fr => fr.changes > 0);
+                    const diagnosticsOnly = result.fileResults.filter(fr => fr.changes === 0 && fr.diagnostics.length > 0);
+                    if (modified.length > 0) {
+                        console.log('Files modified:');
+                        for (const fr of modified) {
+                            console.log(`  ${fr.filePath} (${fr.changes} change(s))`);
+                        }
+                    }
+                    if (diagnosticsOnly.length > 0) {
+                        console.log('Files with diagnostics only (not modified):');
+                        for (const fr of diagnosticsOnly) {
+                            console.log(`  ${fr.filePath} (${fr.diagnostics.length} diagnostic(s))`);
+                        }
                     }
                     console.log('');
                 }
@@ -149,18 +205,36 @@ for (const [name, migration] of listMigrations()) {
                     console.log('');
                 }
 
-                if (result.packageJsonChanges) {
-                    const pc = result.packageJsonChanges;
-                    if (opts['dryRun']) {
-                        console.log('package.json changes (dry run — not applied):');
-                    } else {
-                        console.log('package.json updated:');
+                const manifestChanges = result.packageJsonChanges ?? [];
+                // In single-file mode nothing is written, so even the nearest manifest's
+                // change set is presented as a report.
+                const appliedManifests = manifestChanges.filter(pc => pc.applied && hasManifestEdits(pc) && !targetIsFile);
+                const reportedManifests = manifestChanges.filter(pc => (!pc.applied || targetIsFile) && hasManifestEdits(pc));
+                const warningOnlyManifests = manifestChanges.filter(pc => !hasManifestEdits(pc));
+                if (manifestChanges.length > 0) {
+                    if (appliedManifests.length > 0) {
+                        if (opts['dryRun']) {
+                            console.log('package.json changes (dry run — not applied):');
+                        } else {
+                            console.log('package.json updated:');
+                        }
+                        for (const pc of appliedManifests) {
+                            printManifestChange(pc);
+                        }
                     }
-                    if (pc.removed.length > 0) {
-                        console.log(`  Removed: ${pc.removed.join(', ')}`);
+                    if (reportedManifests.length > 0) {
+                        console.log(
+                            'Manifests that declare @modelcontextprotocol/sdk but are not modified by the codemod — apply the listed changes yourself:'
+                        );
+                        for (const pc of reportedManifests) {
+                            printManifestChange(pc);
+                        }
                     }
-                    if (pc.added.length > 0) {
-                        console.log(`  Added:   ${pc.added.join(', ')}`);
+                    if (warningOnlyManifests.length > 0) {
+                        console.log('Manifest warnings:');
+                        for (const pc of warningOnlyManifests) {
+                            printManifestChange(pc);
+                        }
                     }
                     console.log('');
                 }
@@ -177,7 +251,11 @@ for (const [name, migration] of listMigrations()) {
                 } else {
                     const changedFiles = result.fileResults.filter(fr => fr.changes > 0).map(fr => fr.filePath);
                     printFormatGuidance(resolvedDir, changedFiles);
-                    if (result.packageJsonChanges) {
+                    if (reportedManifests.length > 0) {
+                        console.log(
+                            'Apply the manifest changes listed above, then run your package manager to install the new packages.\n'
+                        );
+                    } else if (appliedManifests.length > 0) {
                         console.log('Run your package manager to install the new packages.\n');
                     }
                     console.log('Migration complete. Review the changes and run your build/tests.\n');

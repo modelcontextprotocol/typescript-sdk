@@ -1,0 +1,13 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32021,
+    "message": "Server requires the elicitation capability for this request",
+    "data": {
+      "requiredCapabilities": {
+        "elicitation": {}
+      }
+    }
+  }
+}

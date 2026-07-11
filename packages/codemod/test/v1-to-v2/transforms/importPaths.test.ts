@@ -467,6 +467,38 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/express"`);
     });
 
+    it('rewrites server/express.js import to @modelcontextprotocol/express', () => {
+        const input = `import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('createMcpExpressApp');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites deep middleware/hostHeaderValidation.js import to @modelcontextprotocol/express', () => {
+        const input = `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('hostHeaderValidation');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites client/auth-extensions.js import to @modelcontextprotocol/client', () => {
+        const input = `import { discoverAuthorizationServerMetadata } from '@modelcontextprotocol/sdk/client/auth-extensions.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/client"`);
+        expect(result).toContain('discoverAuthorizationServerMetadata');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('moves deep server/auth/middleware/bearerAuth.js to server-legacy/auth via catch-all', () => {
+        const input = `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('requireBearerAuth');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
     it('renames body references when renamedSymbols applies', () => {
         const input = [
             `import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
@@ -957,5 +989,157 @@ describe('import-paths transform', () => {
             expect(result).toContain(`from "@modelcontextprotocol/server"`);
             expect(result).toContain('jsonSchemaValidator');
         });
+    });
+});
+
+describe('auth types routing (B3)', () => {
+    it('routes AuthInfo from server/auth/types.js by context, not to server-legacy', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';\nimport { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`
+        );
+        importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(text).not.toContain('server-legacy');
+    });
+});
+
+describe('symbols with no v2 export (removedSymbols)', () => {
+    function applyWithDiagnostics(code: string, context: TransformContext = { projectType: 'server' }) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = importPathsTransform.apply(sourceFile, context);
+        return { text: sourceFile.getFullText(), result };
+    }
+
+    it('drops Protocol from a shared/protocol.js import and flags it', () => {
+        const input = `import { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).not.toContain('Protocol }');
+        expect(text).not.toContain('@modelcontextprotocol/sdk');
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('Protocol base class'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('fallbackRequestHandler');
+    });
+
+    it('routes surviving siblings while dropping the removed symbol', () => {
+        const input = `import { Protocol, type ProtocolOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('ProtocolOptions');
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(text).not.toMatch(/\bProtocol\b(?!Options)/);
+        expect(result.diagnostics.some(d => d.message.includes('Protocol base class'))).toBe(true);
+    });
+
+    it('flags mergeCapabilities with spread guidance', () => {
+        const input = `import { mergeCapabilities } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const diag = result.diagnostics.find(d => d.message.includes('mergeCapabilities'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('object spread');
+    });
+
+    it('does not resolve a context package for an import of only removed symbols', () => {
+        const input = `import { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { result } = applyWithDiagnostics(input, { projectType: 'unknown' });
+        // projectType 'unknown' would emit a could-not-determine warning if context were resolved.
+        expect(result.diagnostics.some(d => d.message.includes('could not determine'))).toBe(false);
+    });
+
+    it('flags qualified accesses to removed symbols on a namespace import', () => {
+        const input = `import * as proto from '@modelcontextprotocol/sdk/shared/protocol.js';\nclass Mine extends proto.Protocol {}\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('Protocol base class'))).toBe(true);
+    });
+
+    it('warns on a named re-export of Protocol with module-scoped guidance', () => {
+        const input = `export { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const diag = result.diagnostics.find(d => d.message.includes('Re-exported Protocol has no v2 export'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('fallbackRequestHandler');
+    });
+
+    it('flags a star re-export of a module with removed symbols', () => {
+        const input = `export * from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const messages = result.diagnostics.map(d => d.message);
+        expect(messages.some(m => m.includes('Star re-export') && m.includes('Protocol'))).toBe(true);
+        expect(messages.some(m => m.includes('Star re-export') && m.includes('mergeCapabilities'))).toBe(true);
+    });
+
+    it('flags type-position namespace accesses (QualifiedName) to removed symbols', () => {
+        const input = `import * as proto from '@modelcontextprotocol/sdk/shared/protocol.js';\nexport function f(p: proto.Protocol): void {}\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('Protocol base class'))).toBe(true);
+    });
+
+    it('anchors the dropped-symbol marker to a usage site that survives the rewrite', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n\nexport class Mine extends Protocol {}\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.message.includes('Protocol base class'));
+        expect(diag).toBeDefined();
+        // resolveCurrentLine resolves against the live usage node, not the removed import.
+        const finalLine =
+            sourceFile
+                .getFullText()
+                .split('\n')
+                .findIndex(l => l.includes('extends Protocol')) + 1;
+        expect(diag?.resolveCurrentLine?.()).toBe(finalLine);
+    });
+});
+
+describe('RS-only auth helper markers (B2)', () => {
+    it('marks requireBearerAuth routed to server-legacy/auth', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('requireBearerAuth'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('@modelcontextprotocol/express');
+        expect(diag?.message).toContain('OAuthError');
+    });
+
+    it('downgrades type-only RS imports to an info note', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import type { OAuthTokenVerifier } from '@modelcontextprotocol/sdk/server/auth/provider.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('OAuthTokenVerifier'))).toBe(false);
+        expect(result.diagnostics.some(d => d.message.includes('type-only import'))).toBe(true);
+    });
+
+    it('marks RS helpers re-exported from a barrel', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `export { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('Re-exported requireBearerAuth'));
+        expect(diag).toBeDefined();
+    });
+
+    it('does not mark AS-only helpers routed to server-legacy/auth', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('@modelcontextprotocol/express'))).toBe(false);
     });
 });

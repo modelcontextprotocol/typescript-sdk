@@ -1,0 +1,12 @@
+{
+    "content": [
+        {
+            "type": "text",
+            "text": "{\"temperature\": 22.5}"
+        }
+    ],
+    "structuredContent": {
+        "temperature": 22.5,
+        "conditions": "Partly cloudy"
+    }
+}

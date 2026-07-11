@@ -1,9 +1,15 @@
+import { statSync } from 'node:fs';
+import path from 'node:path';
+
+import fg from 'fast-glob';
 import type { Node } from 'ts-morph';
 import { Project, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types';
+import { MOCK_CALLERS, MOCK_METHODS } from './migrations/v1-to-v2/transforms/mockPaths';
+import type { Diagnostic, FileResult, Migration, PackageJsonChange, RunnerOptions, RunnerResult } from './types';
 import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics';
-import { updatePackageJson } from './utils/packageJsonUpdater';
+import { isSdkSpecifier, isV2Specifier } from './utils/importUtils';
+import { discoverManifests, ownerManifest, updatePackageJson } from './utils/packageJsonUpdater';
 import { analyzeProject } from './utils/projectAnalyzer';
 
 const LITERAL_NODE_KINDS = new Set([
@@ -75,10 +81,6 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
     return insertedCount;
 }
 
-function escapeGlobPath(p: string): string {
-    return p.replaceAll(/[[\]{}()*?!@#]/g, String.raw`\$&`);
-}
-
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
     const context = analyzeProject(options.targetDir);
 
@@ -104,7 +106,30 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     });
 
-    const globPattern = `${escapeGlobPath(options.targetDir)}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
+    // A file target scopes the run to that one source file; project context and the
+    // nearest-manifest rule still derive from its directory.
+    const targetIsFile = (() => {
+        try {
+            return statSync(options.targetDir).isFile();
+        } catch {
+            return false;
+        }
+    })();
+
+    const targetBase = fg.convertPathToPattern(path.resolve(targetIsFile ? path.dirname(options.targetDir) : options.targetDir));
+    const globPattern = `${targetBase}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
+    // The positive pattern is absolute, so fast-glob compares ignore patterns against
+    // absolute paths — a bare-relative --ignore would silently match nothing. Rebase
+    // relative user patterns onto the target directory.
+    const userIgnores = (options.ignore ?? []).map(pattern => {
+        // User ignores are PATTERNS, not paths: convertPathToPattern would escape
+        // their glob metacharacters (`**` → `\*\*`) and they would match nothing.
+        // fast-glob needs forward slashes, so Windows separators are normalized.
+        if (pattern.startsWith('**') || path.isAbsolute(pattern)) {
+            return path.sep === '\\' ? pattern.replaceAll('\\', '/') : pattern;
+        }
+        return `${targetBase}/${pattern}`;
+    });
     const ignorePatterns = [
         '**/node_modules/**',
         '**/dist/**',
@@ -117,14 +142,24 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         '**/*.d.ts',
         '**/*.d.mts',
         '**/*.d.cts',
-        ...(options.ignore ?? [])
+        ...userIgnores
     ];
 
-    const allPatterns = [globPattern];
-    for (const ignore of ignorePatterns) {
-        allPatterns.push(`!${ignore}`);
+    // Collect files with fast-glob directly instead of ts-morph's glob handling:
+    // symbolic links are never followed (pnpm node_modules layouts contain symlink
+    // cycles that ELOOP a following walker) and ignore patterns — including the
+    // user's --ignore — apply during directory descent, not as a post-filter.
+    const files = targetIsFile
+        ? [path.resolve(options.targetDir)]
+        : fg.sync(globPattern, {
+              ignore: ignorePatterns,
+              followSymbolicLinks: false,
+              suppressErrors: true,
+              absolute: true
+          });
+    for (const filePath of files) {
+        project.addSourceFileAtPathIfExists(filePath);
     }
-    project.addSourceFilesAtPaths(allPatterns);
 
     const sourceFiles = project.getSourceFiles().filter(sf => {
         const fp = sf.getFilePath();
@@ -134,7 +169,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     });
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
-    const allUsedPackages = new Set<string>();
+    const shebangs = new Map<string, string>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -143,33 +178,21 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
 
-        const fileClaimedPackages = new Set<string>();
+        // A leading `#!` shebang is leading trivia of the first import; some transforms drop it when
+        // they rewrite that import, silently breaking CLI packages whose `bin` points at the compiled
+        // entry. Capture it now and restore it after transforms, before saving. Include any blank lines
+        // that followed it (also part of the same dropped trivia) so the original spacing round-trips —
+        // the `\r?` keeps that working for CRLF files, where a blank line is `\r\n`.
+        const shebangMatch = originalText.match(/^#![^\n]*\n(?:[ \t]*\r?\n)*/);
+        if (shebangMatch) {
+            shebangs.set(sourceFile.getFilePath(), shebangMatch[0]);
+        }
+
         try {
             for (const transform of enabledTransforms) {
                 const result = transform.apply(sourceFile, context);
                 fileChanges += result.changesCount;
                 fileDiagnostics.push(...result.diagnostics);
-                if (result.usedPackages) {
-                    for (const pkg of result.usedPackages) {
-                        fileClaimedPackages.add(pkg);
-                    }
-                }
-            }
-            // A transform records a package as "used" when it routes a binding there — but importPaths does
-            // so the moment it rewrites an import, and later transforms (handlerRegistration,
-            // schemaParamRemoval) routinely rewrite the schema usage away and delete that very import.
-            // Honouring a claim whose import did not survive would add an unused dependency to package.json,
-            // so a claim counts only when the FINAL file still references the specifier. Every claim
-            // originates from a string literal the transform wrote (an import/export module specifier, or a
-            // vi.mock()/dynamic import() argument), so a surviving string-literal match is the ground truth.
-            const survivingSpecifiers = new Set<string>();
-            for (const literal of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
-                survivingSpecifiers.add(literal.getLiteralValue());
-            }
-            for (const pkg of fileClaimedPackages) {
-                if (survivingSpecifiers.has(pkg)) {
-                    allUsedPackages.add(pkg);
-                }
             }
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
@@ -177,7 +200,14 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             fileDiagnostics.push(error(filePath, 1, `Transform failed: ${error_ instanceof Error ? error_.message : String(error_)}`));
             sourceFile.replaceWithText(originalText);
             fileChanges = 0;
-            fileClaimedPackages.clear();
+        }
+
+        // Heuristic advisories only flush for files a transform actually changed —
+        // a re-run over a migrated tree stays quiet.
+        if (fileChanges === 0) {
+            const kept = fileDiagnostics.filter(d => !d.advisoryOnly);
+            fileDiagnostics.length = 0;
+            fileDiagnostics.push(...kept);
         }
 
         for (const d of fileDiagnostics) {
@@ -185,7 +215,10 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
                 try {
                     d.line = d.resolveCurrentLine();
                 } catch {
-                    // Node was removed by a later transform; keep snapshot line
+                    // The anchor node was removed by a later rewrite — the snapshot
+                    // line is stale against the final text, so keep the console
+                    // diagnostic but never insert a comment at the wrong place.
+                    delete d.insertComment;
                 }
                 delete d.resolveCurrentLine;
             }
@@ -205,16 +238,92 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
+    // The v2 dependency set for each manifest is derived from the POST-transform
+    // import state of the files it owns (longest-prefix match against the
+    // discovered manifests). Reading the final state — rather than what this run
+    // rewrote — means an already-migrated package whose v1 dependency is being
+    // removed still gets the v2 packages its imports need.
     const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports');
-    const packageJsonChanges = hasImportsTransform
-        ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
-        : undefined;
+    let packageJsonChanges: PackageJsonChange[] | undefined;
+    if (hasImportsTransform) {
+        const manifests = discoverManifests(options.targetDir);
+        const usedByManifest = new Map<string, Set<string>>();
+        for (const sourceFile of sourceFiles) {
+            const owner = ownerManifest(sourceFile.getFilePath(), manifests);
+            if (!owner) continue;
+            let used = usedByManifest.get(owner.path);
+            if (!used) {
+                used = new Set();
+                usedByManifest.set(owner.path, used);
+            }
+            for (const decl of sourceFile.getImportDeclarations()) {
+                const spec = decl.getModuleSpecifierValue();
+                if (spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+            for (const decl of sourceFile.getExportDeclarations()) {
+                const spec = decl.getModuleSpecifierValue();
+                if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+            for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+                const exprText = call.getExpression().getText();
+                const dot = exprText.indexOf('.');
+                const isMockCall = dot !== -1 && MOCK_CALLERS.has(exprText.slice(0, dot)) && MOCK_METHODS.has(exprText.slice(dot + 1));
+                const isModuleRef = call.getExpression().getKind() === SyntaxKind.ImportKeyword || exprText === 'require' || isMockCall;
+                if (!isModuleRef) continue;
+                const spec = call.getArguments()[0]?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue();
+                if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+        }
+        // A single-file run sees one file's imports — applying a manifest edit from that
+        // view could remove the v1 dependency the rest of the package still needs, so
+        // manifests are report-only in file mode.
+        const zodInjectedByManifest = new Map<string, string[]>();
+        for (const fileResult of fileResults) {
+            if (!fileResult.diagnostics.some(d => d.tag === 'zod-injected')) continue;
+            const owner = ownerManifest(fileResult.filePath, manifests);
+            if (!owner) continue;
+            let files = zodInjectedByManifest.get(owner.path);
+            if (!files) {
+                files = [];
+                zodInjectedByManifest.set(owner.path, files);
+            }
+            files.push(fileResult.filePath);
+        }
+
+        const changes = updatePackageJson(manifests, usedByManifest, (options.dryRun ?? false) || targetIsFile, zodInjectedByManifest);
+        packageJsonChanges = changes.length > 0 ? changes : undefined;
+    }
+
+    const mcpImportFiles = sourceFiles.filter(sf =>
+        sf.getImportDeclarations().some(decl => isV2Specifier(decl.getModuleSpecifierValue()))
+    ).length;
+    const v1ImportFiles = sourceFiles.filter(sf =>
+        sf.getImportDeclarations().some(decl => isSdkSpecifier(decl.getModuleSpecifierValue()))
+    ).length;
 
     // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
     // original state and an error diagnostic is emitted.
     let commentCount = 0;
     if (!options.dryRun) {
         commentCount = insertDiagnosticComments(project, fileResults);
+        // Restore any shebang a transform dropped. Done after comment insertion so the inserted
+        // comments (positioned against the post-transform text) shift down with the code uniformly.
+        for (const [filePath, shebang] of shebangs) {
+            const sf = project.getSourceFile(filePath);
+            if (sf && !sf.getFullText().startsWith('#!')) {
+                sf.insertText(0, shebang);
+                // Diagnostic lines were resolved against the post-transform, shebang-stripped text;
+                // re-inserting the shebang pushes every line down by its line count, so bump the reported
+                // lines to stay aligned with the saved file. (Comment insertion above already ran against
+                // the stripped text, so its placement is unaffected.) These Diagnostic objects are shared
+                // with the returned `diagnostics` array, so the fix reaches the CLI output and report too.
+                const lineShift = (shebang.match(/\n/g) ?? []).length;
+                const fileResult = fileResults.find(fr => fr.filePath === filePath);
+                if (fileResult) {
+                    for (const d of fileResult.diagnostics) d.line += lineShift;
+                }
+            }
+        }
         project.saveSync();
     }
 
@@ -224,6 +333,8 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         diagnostics: allDiagnostics,
         fileResults,
         packageJsonChanges,
+        mcpImportFiles,
+        v1ImportFiles,
         commentCount
     };
 }

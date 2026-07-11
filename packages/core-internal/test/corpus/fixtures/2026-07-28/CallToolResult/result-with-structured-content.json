@@ -1,0 +1,14 @@
+{
+  "resultType": "complete",
+  "content": [
+    {
+      "type": "text",
+      "text": "{\"temperature\": 22.5, \"conditions\": \"Partly cloudy\", \"humidity\": 65}"
+    }
+  ],
+  "structuredContent": {
+    "temperature": 22.5,
+    "conditions": "Partly cloudy",
+    "humidity": 65
+  }
+}

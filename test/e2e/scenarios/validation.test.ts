@@ -149,14 +149,18 @@ verifies('validation:pluggable-provider', async ({ transport }: TestArgs) => {
 
     await client.listTools();
 
-    // The custom provider compiled the advertised outputSchema (once per tool
-    // that declares one — both forecast tools share the same schema).
-    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA, FORECAST_OUTPUT_SCHEMA]);
+    // Derived-view behavior: the validator index is compiled lazily on the
+    // first callTool against the cached tools/list entry's stamp, not eagerly
+    // at listTools time.
+    expect(recorder.compiledSchemas).toEqual([]);
 
     // The custom provider's validator is the one consulted on tools/call, and
-    // its (delegated) verdict is what the caller sees.
+    // its (delegated) verdict is what the caller sees. The first call
+    // re-derives the whole name → validator index (once per tool that
+    // declares an outputSchema — both forecast tools share the same schema).
     const result = await client.callTool({ name: 'forecast', arguments: {} });
     expect(result.structuredContent).toEqual({ celsius: 21, summary: 'mild and sunny' });
+    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA, FORECAST_OUTPUT_SCHEMA]);
     expect(recorder.validatedValues).toEqual([{ celsius: 21, summary: 'mild and sunny' }]);
 
     await expect(client.callTool({ name: 'forecast-corrupted', arguments: {} })).rejects.toBeInstanceOf(ProtocolError);

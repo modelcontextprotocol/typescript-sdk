@@ -1,0 +1,52 @@
+{
+    "name": "@modelcontextprotocol/examples",
+    "private": true,
+    "version": "2.0.0-beta.0",
+    "description": "Runnable MCP TypeScript SDK examples — one story per directory, each a self-verifying client/server pair",
+    "license": "MIT",
+    "author": "Anthropic, PBC (https://anthropic.com)",
+    "homepage": "https://modelcontextprotocol.io",
+    "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
+    },
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
+        "lint": "eslint . && prettier --ignore-path ../.prettierignore --check .",
+        "lint:fix": "eslint . --fix && prettier --ignore-path ../.prettierignore --write .",
+        "check": "pnpm run typecheck && pnpm run lint"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@modelcontextprotocol/client": "workspace:^",
+        "@mcp-examples/shared": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/express": "workspace:^",
+        "@modelcontextprotocol/fastify": "workspace:^",
+        "@modelcontextprotocol/hono": "workspace:^",
+        "@modelcontextprotocol/node": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
+        "@valibot/to-json-schema": "catalog:devTools",
+        "ajv": "catalog:runtimeShared",
+        "arktype": "catalog:devTools",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
+        "fastify": "catalog:runtimeServerOnly",
+        "hono": "catalog:runtimeServerOnly",
+        "open": "^11.0.0",
+        "valibot": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@types/cors": "catalog:devTools",
+        "@types/express": "catalog:devTools",
+        "tsx": "catalog:devTools"
+    }
+}
