@@ -52,6 +52,7 @@ import {
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
     modernProtocolVersions,
+    normalizeContentlessToolResult,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -524,7 +525,12 @@ export class Server extends Protocol<ServerContext> {
                 return result;
             }
 
-            const validationResult = codec.validateResult('tools/call', result);
+            // v1-parity authoring affordance, era-independent: a content-less
+            // handler result normalizes to content: [] before era validation.
+            // Other result families' bodies stay un-normalized and fail loudly.
+            const normalizedResult = normalizeContentlessToolResult(result);
+
+            const validationResult = codec.validateResult('tools/call', normalizedResult);
             if (!validationResult.ok) {
                 throw new ProtocolError(
                     validationResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,

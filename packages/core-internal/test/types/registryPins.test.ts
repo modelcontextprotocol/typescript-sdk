@@ -27,10 +27,16 @@ import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../
 // every per-method schema the registry serves is a FROZEN 2025-11-25 copy so
 // the public/neutral layer can evolve (e.g. SEP-2106 widening) without
 // changing the 2025 wire-parse contract. The registry serves the FROZEN
-// copies, so the by-reference pins target this module.
+// copies, so the by-reference pins target this module. Since the lazy-
+// construction change, importing this module also WARMS the era's schema
+// memo (`buildSchemas2025`) at module scope — the registry pulls its maps
+// through the same memo, so the by-reference pins hold under laziness. The
+// wire-seam wrapper `CallToolResultWireSchema` moved here from the registry
+// with that change (same object either way, via the shared memo).
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
+    CallToolResultWireSchema,
     CancelledNotificationSchema,
     CancelTaskRequestSchema,
     CompleteRequestSchema,
@@ -130,7 +136,9 @@ const EXPECTED_RESULT_SCHEMAS = {
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': CallToolResultSchema,
+    // The wire-seam wrapper (content-default guard) IS the pinned entry —
+    // identity to the wrapper, which pipes into the plain schema.
+    'tools/call': CallToolResultWireSchema,
     'tools/list': ListToolsResultSchema,
     'sampling/createMessage': CreateMessageResultWithToolsSchema,
     'elicitation/create': ElicitResultSchema,

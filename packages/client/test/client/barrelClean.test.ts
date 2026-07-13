@@ -1,10 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, test } from 'vitest';
+
+import { ensureBuilt } from '../helpers/ensureBuilt';
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
@@ -37,11 +38,9 @@ function rootExportBlockOf(content: string): string {
 }
 
 describe('@modelcontextprotocol/client root entry is browser-safe', () => {
-    beforeAll(() => {
-        if (!existsSync(join(distDir, 'index.mjs')) || !existsSync(join(distDir, 'stdio.mjs'))) {
-            execFileSync('pnpm', ['build'], { cwd: pkgDir, stdio: 'inherit' });
-        }
-    }, 60_000);
+    beforeAll(async () => {
+        await ensureBuilt(pkgDir);
+    }, 180_000);
 
     test('dist/index.mjs contains no process-spawning runtime imports', () => {
         const entry = join(distDir, 'index.mjs');

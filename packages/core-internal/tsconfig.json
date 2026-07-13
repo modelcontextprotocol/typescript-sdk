@@ -6,7 +6,8 @@
         "paths": {
             "*": ["./*"],
             "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
-            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
+            "@modelcontextprotocol/core/internal": ["./node_modules/@modelcontextprotocol/core/src/internal.ts"]
         }
     }
 }

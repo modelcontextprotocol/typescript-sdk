@@ -848,7 +848,7 @@ hierarchy also exposes the same check as an explicit static guard
 TypeScript — use whichever style your codebase prefers; both read the same brand.
 Fine print (applies equally to `instanceof` and `isInstance`):
 
-- **Version skew** — matching needs *both* copies at a brand-aware release; against an
+- **Version skew** — matching needs _both_ copies at a brand-aware release; against an
   older copy, behavior degrades to plain prototype `instanceof` (false across bundles).
   During mixed-version rollouts, recognize errors without class identity: match
   `error.name` plus the class's discriminant field (`code`, `status`), or reconstruct
@@ -1325,8 +1325,9 @@ if (CallToolResultSchema.safeParse(value).success) { ... }
 
 `@modelcontextprotocol/core` is the canonical home for the spec's Zod schema constants
 (and the OAuth/OpenID metadata schemas). It is runtime-neutral (its only dependency is
-`zod`) and is **not** required by `client` / `server` — install it only if you import the
-raw schemas directly.
+`zod`) and arrives transitively as the shared runtime schema graph of `client` /
+`server` — add it to your own `dependencies` only when you import the raw schemas
+directly.
 
 If you would rather keep your project Zod-free, the **`isSpecType` / `specTypeSchemas`**
 alternatives are exported from `@modelcontextprotocol/client` and `…/server`:
@@ -1676,10 +1677,16 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
 
 #### Wire tightening (every era)
 
-- **`CallToolResult.content` is required at the wire boundary.** The `content.default([])`
-  affordance was removed. Tool handlers MUST include `content` (the TypeScript surface
-  always required it; `content: []` is fine). A handler result without it is rejected
-  with `-32602`.
+- **`CallToolResult.content` keeps the v1 parse tolerance on the legacy era.** An
+  inbound result without `content` defaults to `[]` (deployed servers omit it
+  alongside `structuredContent`); 2026-07-28 connections stay strict. Authoring is
+  unchanged and era-independent: the TypeScript surface requires `content` on handler
+  results, and a content-less handler result is normalized to `content: []` before it
+  reaches the wire. One sharpening remains: a content-less body carrying another
+  result family's vocabulary (a task handle or an `input_required` round) is still
+  rejected loudly — tolerance never turns a different result kind into a silent empty
+  success. A body whose only foreign key was `resultType` strips to an empty object
+  and defaults, exactly as v1 parsed a payload-free body.
 - **`ElicitResult.content` values are typed and validated as
   `string | number | boolean | string[]`.** v1's TypeScript surface accepted
   `Record<string, unknown>` content values; an elicitation handler returning arbitrary

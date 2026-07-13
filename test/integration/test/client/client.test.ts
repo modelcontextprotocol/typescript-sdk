@@ -1828,8 +1828,6 @@ describe('outputSchema validation', () => {
         server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 return {
-                    // content is spec-required (the wire default([]) was removed
-                    // - ledgered; changeset codec-split-wire-break)
                     content: [],
                     structuredContent: { result: 'success', count: 42 }
                 };

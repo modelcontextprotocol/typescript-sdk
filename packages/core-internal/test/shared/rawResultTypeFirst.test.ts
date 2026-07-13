@@ -137,12 +137,9 @@ describe('raw-first resultType discrimination — 2026 era (codec decode step 1)
 
 describe('raw-first resultType handling — 2025 era (strip-on-lift, Q1-SD3 ii)', () => {
     test('a foreign input_required body is stripped, then validation judges the content — never a silent success', async () => {
-        // BEHAVIOR MIGRATION (ledgered): pre-split, the era-blind funnel arm
-        // rejected this with UnsupportedResultType on every leg. On the 2025
-        // era resultType carries no meaning — the ruled posture strips the
-        // foreign key and lets validation decide. The body has no content,
-        // so it fails the (default-free) tools/call result schema LOUDLY —
-        // the V-1 invariant (never a hollow success) holds.
+        // BEHAVIOR MIGRATION (ledgered): the strip drops the foreign key and
+        // the wire-seam schema refuses to default a husk carrying
+        // input_required keys — V-1 (never a hollow success) holds at the seam.
         const protocol = await wireWithRawResult(INPUT_REQUIRED_BODY);
         const outcome = await settle(protocol);
 

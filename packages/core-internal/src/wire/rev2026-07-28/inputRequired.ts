@@ -21,41 +21,51 @@
 import * as z from 'zod/v4';
 
 import type { RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
-import {
-    CreateMessageRequestParamsSchema,
-    CreateMessageResultSchema,
-    ElicitRequestParamsSchema,
-    ElicitResultSchema,
-    ListRootsResultSchema
-} from './schemas';
+import { buildSchemas2026 } from './buildSchemas';
 
 /** The embedded input-request methods of the 2026-07-28 revision. */
 export const INPUT_REQUEST_METHODS_2026 = ['elicitation/create', 'sampling/createMessage', 'roots/list'] as const;
 
 export type InputRequestMethod2026 = (typeof INPUT_REQUEST_METHODS_2026)[number];
 
-/** Dispatch-time (lenient) embedded request schemas, keyed by method. */
-const inputRequestSchemas2026: Record<InputRequestMethod2026, z.ZodType> = {
-    'elicitation/create': z.object({
-        method: z.literal('elicitation/create'),
-        params: ElicitRequestParamsSchema
-    }),
-    'sampling/createMessage': z.object({
-        method: z.literal('sampling/createMessage'),
-        params: CreateMessageRequestParamsSchema
-    }),
-    'roots/list': z.object({
-        method: z.literal('roots/list'),
-        params: z.looseObject({}).optional()
-    })
-};
+/* The embedded-request maps are built lazily through the era's memoized
+ * schema factory (`buildSchemas2026`) so importing this module constructs no
+ * zod schemas; the maps themselves are memoized alongside. */
+interface InputSchemaMaps {
+    /** Dispatch-time (lenient) embedded request schemas, keyed by method. */
+    readonly request: Record<InputRequestMethod2026, z.ZodType>;
+    /** Embedded (bare) response schemas, keyed by the request method they answer. */
+    readonly response: Record<InputRequestMethod2026, z.ZodType>;
+}
 
-/** Embedded (bare) response schemas, keyed by the request method they answer. */
-const inputResponseSchemas2026: Record<InputRequestMethod2026, z.ZodType> = {
-    'elicitation/create': ElicitResultSchema,
-    'sampling/createMessage': CreateMessageResultSchema,
-    'roots/list': ListRootsResultSchema
-};
+let maps: InputSchemaMaps | undefined;
+
+function inputSchemaMaps(): InputSchemaMaps {
+    if (maps) return maps;
+    const s = buildSchemas2026();
+    maps = {
+        request: {
+            'elicitation/create': z.object({
+                method: z.literal('elicitation/create'),
+                params: s.ElicitRequestParamsSchema
+            }),
+            'sampling/createMessage': z.object({
+                method: z.literal('sampling/createMessage'),
+                params: s.CreateMessageRequestParamsSchema
+            }),
+            'roots/list': z.object({
+                method: z.literal('roots/list'),
+                params: z.looseObject({}).optional()
+            })
+        },
+        response: {
+            'elicitation/create': s.ElicitResultSchema,
+            'sampling/createMessage': s.CreateMessageResultSchema,
+            'roots/list': s.ListRootsResultSchema
+        }
+    };
+    return maps;
+}
 
 export function isInputRequestMethod2026(method: string): method is InputRequestMethod2026 {
     return (INPUT_REQUEST_METHODS_2026 as readonly string[]).includes(method);
@@ -69,7 +79,7 @@ export function isInputRequestMethod2026(method: string): method is InputRequest
 export function getInputRequestSchema2026<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
 export function getInputRequestSchema2026(method: string): z.ZodType | undefined;
 export function getInputRequestSchema2026(method: string): z.ZodType | undefined {
-    return isInputRequestMethod2026(method) ? inputRequestSchemas2026[method] : undefined;
+    return isInputRequestMethod2026(method) ? inputSchemaMaps().request[method] : undefined;
 }
 
 /**
@@ -79,5 +89,5 @@ export function getInputRequestSchema2026(method: string): z.ZodType | undefined
 export function getInputResponseSchema2026<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
 export function getInputResponseSchema2026(method: string): z.ZodType | undefined;
 export function getInputResponseSchema2026(method: string): z.ZodType | undefined {
-    return isInputRequestMethod2026(method) ? inputResponseSchemas2026[method] : undefined;
+    return isInputRequestMethod2026(method) ? inputSchemaMaps().response[method] : undefined;
 }

@@ -1290,6 +1290,9 @@ importers:
 
   packages/client:
     dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:*
+        version: link:../core
       cross-spawn:
         specifier: catalog:runtimeClientOnly
         version: 7.0.6
@@ -1437,9 +1440,6 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
-      '@modelcontextprotocol/core-internal':
-        specifier: workspace:^
-        version: link:../core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1479,6 +1479,9 @@ importers:
 
   packages/core-internal:
     dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:*
+        version: link:../core
       content-type:
         specifier: catalog:runtimeShared
         version: 1.0.5
@@ -1778,6 +1781,9 @@ importers:
 
   packages/server:
     dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:*
+        version: link:../core
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.6
@@ -1845,6 +1851,9 @@ importers:
 
   packages/server-legacy:
     dependencies:
+      '@modelcontextprotocol/core':
+        specifier: workspace:*
+        version: link:../core
       content-type:
         specifier: catalog:runtimeShared
         version: 1.0.5

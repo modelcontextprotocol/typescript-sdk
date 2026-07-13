@@ -26,8 +26,22 @@
   },
   "changesets": [
     "beta-release",
+    "calltoolresult-content-default",
+    "cjs-ajv-validator-subpath",
     "cjs-support-v2-packages",
     "codemod-iterations-5",
-    "post-dispatch-32021-http-400"
+    "codemod-versions-from-manifests",
+    "content-type-media-type-validation",
+    "cross-bundle-error-instanceof",
+    "examples-protected-wiring",
+    "initialize-session-hygiene",
+    "malformed-resource-uri-invalid-params",
+    "post-dispatch-32021-http-400",
+    "probe-window-handler-restore",
+    "silent-validators-wave",
+    "standard-header-ows",
+    "standard-schema-elicitation",
+    "web-standard-bearer-auth",
+    "web-standard-oauth-metadata"
   ]
 }

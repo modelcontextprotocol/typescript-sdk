@@ -61,7 +61,14 @@ interface InputRequiredBuilder {
      */
     (spec: InputRequiredSpec): InputRequiredResult;
 
-    /** Builds an embedded form-mode elicitation request (`elicitation/create`). */
+    /**
+     * Builds an embedded form-mode elicitation request (`elicitation/create`).
+     *
+     * A Standard Schema `requestedSchema` is converted to the restricted wire shape;
+     * shapes it cannot express throw a `TypeError` before anything is sent. Responses
+     * are not validated against it — pass the same schema to `acceptedContent()` on
+     * re-entry for validated, typed content.
+     */
     elicit(params: ElicitInputParams): InputRequest;
 
     /**

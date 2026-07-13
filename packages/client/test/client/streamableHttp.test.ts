@@ -93,6 +93,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
@@ -120,6 +121,123 @@ describe('StreamableHTTPClientTransport', () => {
         const lastCall = calls.at(-1)!;
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
+    });
+
+    it('should not store session ID from an error response, then store it from a later successful initialize', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        // A failed initialize (e.g. a legacy server rejecting a version probe) that carries a session ID
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request',
+            text: () => Promise.resolve('Bad Request'),
+            headers: new Headers({ 'mcp-session-id': 'poisoned-session-id' })
+        });
+
+        await expect(transport.send(message)).rejects.toThrow();
+        expect(transport.sessionId).toBeUndefined();
+
+        // The fallback initialize succeeds and its session ID is captured
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'real-session-id' })
+        });
+
+        await transport.send(message);
+        expect(transport.sessionId).toBe('real-session-id');
+    });
+
+    it('should not attach a session ID to an initialize POST, clear a stale ID on a sessionless handshake, and adopt a newly returned one', async () => {
+        const initMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        const staleTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+
+        // Sessionless handshake: the response carries no session ID
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' })
+        });
+
+        await staleTransport.send(initMessage);
+
+        const initCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+        expect(initCall[1].headers.get('mcp-session-id')).toBeNull();
+
+        // The sessionless handshake cleared the stale ID, so an ordinary request carries none
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await staleTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBeNull();
+
+        await staleTransport.close().catch(() => {});
+
+        // When the handshake DOES return a new ID, subsequent requests carry it instead of the preset
+        const replacedTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preset-session-id'
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'new-session-id' })
+        });
+
+        await replacedTransport.send(initMessage);
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await replacedTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBe('new-session-id');
+
+        await replacedTransport.close().catch(() => {});
+    });
+
+    it('should ignore a session ID on a successful non-initialize response', async () => {
+        const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'session-a'
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers({ 'mcp-session-id': 'session-b' })
+        });
+
+        await sessionTransport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
+        expect(sessionTransport.sessionId).toBe('session-a');
+
+        await sessionTransport.close().catch(() => {});
     });
 
     it('should accept protocolVersion constructor option and include it in request headers', async () => {
@@ -156,6 +274,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
@@ -196,6 +315,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'

@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/core",
-    "version": "2.0.0-beta.2",
+    "version": "2.0.0-beta.3",
     "description": "Model Context Protocol for TypeScript — public Zod schemas (spec + OAuth/OpenID)",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -30,6 +30,23 @@
                 "types": "./dist/index.d.cts",
                 "default": "./dist/index.cjs"
             }
+        },
+        "./internal": {
+            "import": {
+                "types": "./dist/internal.d.mts",
+                "default": "./dist/internal.mjs"
+            },
+            "require": {
+                "types": "./dist/internal.d.cts",
+                "default": "./dist/internal.cjs"
+            }
+        }
+    },
+    "typesVersions": {
+        "*": {
+            "internal": [
+                "dist/internal.d.mts"
+            ]
         }
     },
     "main": "./dist/index.cjs",
@@ -53,7 +70,6 @@
     },
     "devDependencies": {
         "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",

@@ -1,5 +1,23 @@
 # @modelcontextprotocol/core-internal
 
+## 2.0.0-beta.2
+
+### Minor Changes
+
+- [#2369](https://github.com/modelcontextprotocol/typescript-sdk/pull/2369) [`24be404`](https://github.com/modelcontextprotocol/typescript-sdk/commit/24be4040d454a9c5983901229068477c7a9ea796) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Allow `inputRequired.elicit()` to accept a Standard Schema such as a Zod object for `requestedSchema`. The builder converts it to MCP's restricted form-elicitation JSON Schema, while the same schema can validate and type the response through `acceptedContent()` on handler re-entry. Zod formats mapping to `email`, `uri`, `date`, and `date-time` are supported. Shapes the restricted schema cannot express reject before anything is sent — nested objects, `.regex()` and customized zod format patterns, exclusive number bounds (`.positive()`/`.gt()`), literal unions (use `z.enum` or `z.literal(['a', 'b'])`), and non-spec root keywords like `z.strictObject()`'s `additionalProperties`.
+
+### Patch Changes
+
+- [#2456](https://github.com/modelcontextprotocol/typescript-sdk/pull/2456) [`44797d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/44797d77792953d0ce70b68922bb6bb69e697c32) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Restore the v1 parse tolerance for `CallToolResult.content`: an inbound legacy-era `tools/call` result without `content` defaults to `[]` instead of failing validation. Deployed servers — accepted by SDK v1 for years — return `structuredContent`-only (or otherwise content-less) results, and the strict parse turned every such call into an `INVALID_RESULT` error before application code could run.
+
+    The silent-empty-success hazard the strictness guarded is preserved where it matters: the 2025 era's wire-seam schema refuses to default `content` for a body carrying another result family's vocabulary (`task`, `inputRequests`, `requestState` — the era is frozen, so the list is complete), and the 2026-era wire schemas stay strict — modern-revision servers have no legacy excuse. Task interop through an explicit result schema is untouched (including bodies that also stamp a foreign `resultType`), and the server-side authoring normalization refuses the same foreign-family vocabulary.
+
+    Server-side authoring is era-independent: a handler result without `content` (dynamic/JS callers — the TypeScript surface requires it) is normalized to `content: []` before era validation on every leg, reaching the wire spec-valid.
+
+    Conscious call: the nested sampling `ToolResultContentSchema` stays spec-strict — v1 had defaulted its `content` too, but it is params-side (tool results a caller authors into a sampling message), deliberately not restored.
+
+- [#2453](https://github.com/modelcontextprotocol/typescript-sdk/pull/2453) [`0ab5d14`](https://github.com/modelcontextprotocol/typescript-sdk/commit/0ab5d1471d6c7375878316df2930fca77eee1d2a) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Strip RFC 9110 optional whitespace around inbound `MCP-Protocol-Version`, `Mcp-Method`, and `Mcp-Name` values before classifying and validating modern HTTP requests. This keeps valid requests portable across Fetch runtimes that expose raw leading or trailing SP/HTAB through `Headers.get()`.
+
 ## 2.0.0-beta.1
 
 ### Patch Changes

@@ -7,7 +7,9 @@ export default [
     {
         // Wire-layer isolation, outbound direction: nothing outside src/wire/ may
         // reach into a wire revision module. The wire layer's only public surface
-        // is src/wire/codec.ts (the WireCodec interface) and src/wire/bootstrap.ts.
+        // is src/wire/codec.ts (the WireCodec interface), src/wire/bootstrap.ts,
+        // and the leaf result-family module src/wire/resultFamilies.ts (the shared
+        // tools/call-result ruling, re-exported on the barrel).
         // test/wire/layeringInvariants.test.ts re-derives the same invariant with
         // zero exceptions. Type-only imports are exempted at the lint layer (a
         // type-only crossing is erased at runtime), but the test allows none.
@@ -40,11 +42,17 @@ export default [
                 {
                     patterns: [
                         {
-                            group: ['**/types/schemas', '**/types/schemas.js'],
+                            group: [
+                                '**/types/schemas',
+                                '**/types/schemas.js',
+                                '@modelcontextprotocol/core',
+                                '@modelcontextprotocol/core/*'
+                            ],
                             allowTypeImports: true,
                             message:
                                 'Wire revision modules must be self-contained. Freeze a copy of the schema into the ' +
-                                'rev*/ directory instead of importing the mutable public-layer types/schemas.ts.'
+                                'rev*/ directory instead of importing the mutable public-layer schemas ' +
+                                '(types/schemas.ts or @modelcontextprotocol/core).'
                         }
                     ]
                 }
