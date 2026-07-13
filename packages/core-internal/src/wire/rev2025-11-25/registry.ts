@@ -212,6 +212,14 @@ function registryMaps(): RegistryMaps {
     return maps;
 }
 
+/**
+ * Forces the lazy registry maps (and, through them, the era's schema memo).
+ * Warm-up hook for `preloadSchemas()` — no-op once the maps exist.
+ */
+export function warmRegistryMaps2025(): void {
+    registryMaps();
+}
+
 /** The 2025-era request-method set (registry membership = the deletion story). */
 export function hasRequestMethod2025(method: string): method is Rev2025RequestMethod {
     return Object.prototype.hasOwnProperty.call(requestMethodKeys, method);

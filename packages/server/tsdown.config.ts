@@ -7,6 +7,7 @@ export default defineConfig({
         'src/stdio.ts',
         'src/shimsNode.ts',
         'src/shimsWorkerd.ts',
+        'src/shimsBrowser.ts',
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts'
     ],

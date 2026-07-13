@@ -8,7 +8,8 @@ export default [
         // Wire-layer isolation, outbound direction: nothing outside src/wire/ may
         // reach into a wire revision module. The wire layer's only public surface
         // is src/wire/codec.ts (the WireCodec interface), src/wire/bootstrap.ts,
-        // and the leaf result-family module src/wire/resultFamilies.ts (the shared
+        // the revision-neutral warm-up entry src/wire/preload.ts, and the leaf
+        // result-family module src/wire/resultFamilies.ts (the shared
         // tools/call-result ruling, re-exported on the barrel).
         // test/wire/layeringInvariants.test.ts re-derives the same invariant with
         // zero exceptions. Type-only imports are exempted at the lint layer (a
