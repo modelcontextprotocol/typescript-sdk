@@ -4175,6 +4175,59 @@ describe('Zod v4', () => {
             ]);
         });
 
+        test('should accept omitted prompt arguments when all schema fields are optional', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'echo',
+                {
+                    argsSchema: z.object({
+                        context: z.string().optional()
+                    })
+                },
+                ({ context }) => ({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `context: ${context ?? 'none'}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'echo'
+                }
+            });
+
+            expect(result.messages).toEqual([
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'context: none'
+                    }
+                }
+            ]);
+        });
+
         /***
          * Test: Prompt Registration with _meta field
          */
