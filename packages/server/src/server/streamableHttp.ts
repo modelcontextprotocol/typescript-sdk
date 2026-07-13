@@ -238,7 +238,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
-    private _standaloneSseStreamId: string = '_GET_stream';
+    private get _standaloneSseStreamId(): string {
+        const hardcode = '_GET_stream';
+        return this.sessionId === undefined ? hardcode : `${hardcode}_${this.sessionId}`;
+    }
     private _eventStore?: EventStore;
     private _onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
     private _onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
