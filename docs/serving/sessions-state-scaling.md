@@ -7,7 +7,7 @@ shape: how-to
 
 ## Pin a client to a session
 
-A **session** pins a client to one long-lived transport instance; sessions belong to the hand-wired 2025-era transport — the 2026-07-28 revision is per-request and has no `Mcp-Session-Id` ([Protocol versions](../protocol-versions.md)). On `NodeStreamableHTTPServerTransport`, `sessionIdGenerator` turns sessions on; leaving it `undefined` is stateless mode.
+A **session** pins a client to one long-lived transport instance; sessions belong to the hand-wired 2025-era transport — the 2026-07-28 revision is per-request and has no `Mcp-Session-Id` ([Protocol versions](../protocol-versions.md)). On `NodeStreamableHTTPServerTransport`, `sessionIdGenerator` turns sessions on; leaving it `undefined` is stateless mode. A stateless transport serves exactly one request exchange; construct a fresh transport + server pair per request — reuse throws. For stateless HTTP hosting prefer `createMcpHandler`, which builds the per-request pair for you.
 
 ```ts source="../../examples/guides/serving/sessions-state-scaling.examples.ts#sessions_stateful"
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';

@@ -92,6 +92,8 @@ To enable stateless mode, configure the `NodeStreamableHTTPServerTransport` with
 sessionIdGenerator: undefined;
 ```
 
+A stateless transport serves exactly one request: construct a fresh transport + server pair per request (reuse throws). `createMcpHandler` does this for you — see [`stateless-legacy/`](./stateless-legacy/README.md).
+
 ```
 ┌─────────────────────────────────────────────┐
 │                  Client                     │

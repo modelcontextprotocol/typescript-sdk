@@ -775,18 +775,38 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Throws if already bound to a transport. Subclass connect overrides that
+     * mutate per-connection state before `super.connect()` must call this first.
+     */
+    protected assertNotConnected(): void {
+        if (this._transport) {
+            throw new SdkError(
+                SdkErrorCode.AlreadyConnected,
+                'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
+            );
+        }
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        this.assertNotConnected();
+
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
             try {
                 _onclose?.();
             } finally {
-                this._onclose();
+                // Identity guard: close() may have already torn this
+                // connection down (and a replacement may be live) by the time
+                // a transport fires a deferred onclose.
+                if (this._transport === transport) {
+                    this._onclose();
+                }
             }
         };
 
@@ -813,7 +833,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Pass supported protocol versions to transport for header validation
         transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
 
-        await this._transport.start();
+        try {
+            await this._transport.start();
+        } catch (error) {
+            // Unwind a failed start so connect() can be retried: restore the
+            // transport's own callbacks — a late event from the failed
+            // transport must not tear down a successful retry's connection.
+            transport.onclose = _onclose;
+            transport.onerror = _onerror;
+            transport.onmessage = _onmessage;
+            this._transport = undefined;
+            throw error;
+        }
     }
 
     /**
@@ -1024,22 +1055,38 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        const abortController = new AbortController();
+        this._requestHandlerAbortControllers.set(request.id, abortController);
+
         // Related sends resolve through the SAME instance era as every other
         // sender (the per-request/instance asymmetry is deliberately gone):
         // the codec is resolved at send time from the connection state.
-        const sendNotification = (notification: Notification, options?: NotificationOptions) =>
-            this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
+        //
+        // After the handler aborts, related sends must not reach the transport
+        // (read live at send time, it may belong to a later connection):
+        // notifications no-op, requests reject with ConnectionClosed.
+        const sendNotification = (notification: Notification, options?: NotificationOptions): Promise<void> => {
+            if (abortController.signal.aborted) {
+                return Promise.resolve();
+            }
+            return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
                 ...options,
                 relatedRequestId: request.id
             });
-        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
+        };
+        const sendRequest = <U extends StandardSchemaV1>(
+            r: Request,
+            resultSchema: U,
+            options?: RequestOptions
+        ): Promise<StandardSchemaV1.InferOutput<U>> => {
+            if (abortController.signal.aborted) {
+                return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+            }
+            return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
                 ...options,
                 relatedRequestId: request.id
             });
-
-        const abortController = new AbortController();
-        this._requestHandlerAbortControllers.set(request.id, abortController);
+        };
 
         // Multi-round-trip retry material: only BARE response objects are
         // surfaced to the handler; entries that look like a wrapped
@@ -1071,6 +1118,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
+                    // Abort guard FIRST, before era/codec resolution: an
+                    // aborted handler gets ConnectionClosed, never an era
+                    // throw evaluated against a replacement connection.
+                    if (abortController.signal.aborted) {
+                        return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+                    }
                     // Related requests resolve through the instance era at
                     // send time, exactly like direct sends: era-gate first,
                     // then method-keyed schema resolution.
@@ -1222,7 +1275,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Closes the connection.
      */
     async close(): Promise<void> {
-        await this._transport?.close();
+        const transport = this._transport;
+        await transport?.close();
+        // A transport whose close() resolves without firing onclose would
+        // otherwise leave the instance wedged (still "connected" per the
+        // connect() guard). Run the teardown ourselves if it hasn't happened.
+        if (transport !== undefined && this._transport === transport) {
+            this._onclose();
+        }
     }
 
     /**

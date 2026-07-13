@@ -837,26 +837,41 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('a fresh connect without an intervening close settles in-flight listen() from the prior connection', async () => {
-        // Edge: prior transport never fires onclose; consumer calls connect()
-        // again. The in-flight listen() promise from the old connection must
-        // reject with a clear "client reconnected/closed" error rather than
-        // hang on the (now-discarded) ack timer.
+    it('connect() without an intervening close throws; close() settles in-flight listen() from the prior connection', async () => {
+        // Edge: prior transport never spontaneously fires onclose; consumer
+        // calls connect() again. The transport-reuse guard rejects the second
+        // connect outright WITHOUT touching the live connection's state (the
+        // in-flight listen stays pending), and the close() now required in
+        // between settles the in-flight listen() promise with a clear
+        // "client reconnected/closed" error rather than leaving it hanging on
+        // the (now-discarded) ack timer.
         const { clientTx } = await scriptedModernNoAck();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
         const pending = client.listen({ toolsListChanged: true });
         await flush();
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
-        // Fresh connect on a new transport — _resetConnectionState runs.
+        // Fresh connect on a new transport without close() — rejected by the
+        // reuse guard, and the prior connection's listen state is untouched.
         const { clientTx: clientTx2 } = await scriptedModern();
-        await client.connect(clientTx2);
+        await expect(client.connect(clientTx2)).rejects.toThrow(
+            'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
+        );
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
+        // close() settles the in-flight listen even though the prior server
+        // never acked or closed.
+        await client.close();
         const error = await pending.catch(e => e as Error);
         expect(error).toBeInstanceOf(SdkError);
         expect((error as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
-        expect((error as SdkError).message).toContain('reconnected or closed');
+        // Settled via the transport onclose path ('Connection closed') or the
+        // reset path ('reconnected or closed') — both are clean
+        // ConnectionClosed settlements, never a hang.
+        expect((error as SdkError).message).toMatch(/Connection closed|reconnected or closed/);
         // No leaked per-listen state from the old connection.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // The instance is reusable after close(): a fresh connect succeeds.
+        await client.connect(clientTx2);
         await client.close();
     });
 

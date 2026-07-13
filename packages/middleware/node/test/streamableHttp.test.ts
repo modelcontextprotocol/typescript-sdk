@@ -1599,18 +1599,102 @@ describe('Zod v4', () => {
     // Test stateless mode
     describe('NodeStreamableHTTPServerTransport in stateless mode', () => {
         let server: Server;
-        let transport: NodeStreamableHTTPServerTransport;
         let baseUrl: URL;
+        const perRequestServers: McpServer[] = [];
 
+        // In stateless mode, each request must use a fresh transport + server pair.
+        // The HTTP server creates these per-request and delegates accordingly.
         beforeEach(async () => {
-            const result = await createTestServer({ sessionIdGenerator: undefined });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
+            server = createServer(async (req, res) => {
+                try {
+                    const { transport, mcpServer } = await createStatelessHandler();
+                    perRequestServers.push(mcpServer);
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+            baseUrl = await listenOnRandomPort(server);
         });
 
         afterEach(async () => {
-            await stopTestServer({ server, transport });
+            while (perRequestServers.length > 0) {
+                await perRequestServers
+                    .pop()!
+                    .close()
+                    .catch(() => {});
+            }
+            server.close();
+        });
+
+        /**
+         * Creates a fresh transport + mcpServer pair for a single stateless request.
+         */
+        async function createStatelessHandler(): Promise<{
+            transport: NodeStreamableHTTPServerTransport;
+            mcpServer: McpServer;
+        }> {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'A simple greeting tool',
+                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
+                },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+
+            const transport = new NodeStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined
+            });
+
+            await mcpServer.connect(transport);
+
+            return { transport, mcpServer };
+        }
+
+        it('reusing one stateless transport rejects at the handleRequest call site (single-use invariant)', async () => {
+            // Deliberately share ONE stateless transport across two requests:
+            // the second handleRequest call must reject with the single-use
+            // message at the Node call site (not be absorbed into a bare 500).
+            const mcpServer = new McpServer({ name: 'single-use-test', version: '1.0.0' }, { capabilities: { logging: {} } });
+            const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await mcpServer.connect(transport);
+            perRequestServers.push(mcpServer);
+
+            const callSiteErrors: Error[] = [];
+            const headersSentAtRejection: boolean[] = [];
+            const sharedServer = createServer(async (req, res) => {
+                try {
+                    await transport.handleRequest(req, res);
+                } catch (error) {
+                    callSiteErrors.push(error as Error);
+                    headersSentAtRejection.push(res.headersSent);
+                    if (!res.headersSent) res.writeHead(500);
+                    res.end();
+                }
+            });
+            const sharedUrl = await listenOnRandomPort(sharedServer);
+            try {
+                const first = await sendPostRequest(sharedUrl, TEST_MESSAGES.initialize);
+                expect(first.status).toBe(200);
+                expect(callSiteErrors).toHaveLength(0);
+
+                await sendPostRequest(sharedUrl, TEST_MESSAGES.toolsList);
+                expect(callSiteErrors).toHaveLength(1);
+                expect(callSiteErrors[0]!.message).toContain('Stateless transport cannot be reused across requests');
+                expect((callSiteErrors[0] as { code?: unknown }).code).toBe('STATELESS_TRANSPORT_REUSE');
+                // The rejection reached the caller before anything was
+                // committed to `res` — the caller keeps control of the
+                // response it sends for the rejected request.
+                expect(headersSentAtRejection).toEqual([false]);
+            } finally {
+                sharedServer.close();
+            }
         });
 
         it('should operate without session ID validation', async () => {
@@ -1622,6 +1706,7 @@ describe('Zod v4', () => {
             expect(initResponse.headers.get('mcp-session-id')).toBeNull();
 
             // Try request without session ID - should work in stateless mode
+            // (a fresh transport is created per request)
             const toolsResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
 
             expect(toolsResponse.status).toBe(200);
@@ -1655,14 +1740,14 @@ describe('Zod v4', () => {
             expect(response2.status).toBe(200);
         });
 
-        it('should reject second SSE stream even in stateless mode', async () => {
-            // Despite no session ID requirement, the transport still only allows
-            // one standalone SSE stream at a time
+        it('should allow multiple SSE streams in stateless mode with per-request transports', async () => {
+            // Each request gets its own transport, so multiple SSE streams can
+            // coexist since they are handled by separate transport instances
 
             // Initialize the server first
             await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
-            // Open first SSE stream
+            // Open first SSE stream - this uses its own per-request transport
             const stream1 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
@@ -1672,7 +1757,8 @@ describe('Zod v4', () => {
             });
             expect(stream1.status).toBe(200);
 
-            // Open second SSE stream - should still be rejected, stateless mode still only allows one
+            // Open second SSE stream - also gets its own per-request transport,
+            // so it should also succeed (each transport only handles one request)
             const stream2 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
@@ -1680,7 +1766,7 @@ describe('Zod v4', () => {
                     'mcp-protocol-version': '2025-11-25'
                 }
             });
-            expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+            expect(stream2.status).toBe(200);
         });
     });
 
@@ -2941,17 +3027,20 @@ describe('Zod v4', () => {
 
         describe('Combined validations', () => {
             it('should validate both host and origin when both are configured', async () => {
-                const result = await createTestServerWithDnsProtection({
+                // In stateless mode, each request needs a fresh transport, so we
+                // test invalid and valid origins with separate server instances.
+
+                // Test with invalid origin (host will be automatically correct via fetch)
+                const result1 = await createTestServerWithDnsProtection({
                     sessionIdGenerator: undefined,
                     allowedHosts: ['localhost'],
                     allowedOrigins: ['http://localhost:3001'],
                     enableDnsRebindingProtection: true
                 });
-                server = result.server;
-                transport = result.transport;
-                baseUrl = result.baseUrl;
+                server = result1.server;
+                transport = result1.transport;
+                baseUrl = result1.baseUrl;
 
-                // Test with invalid origin (host will be automatically correct via fetch)
                 const response1 = await fetch(baseUrl, {
                     method: 'POST',
                     headers: {
@@ -2966,7 +3055,20 @@ describe('Zod v4', () => {
                 const body1 = (await response1.json()) as JSONRPCErrorResponse;
                 expect(body1.error.message).toBe('Invalid Origin header: http://evil.com');
 
-                // Test with valid origin
+                // Clean up first server
+                await stopTestServer({ server, transport });
+
+                // Test with valid origin using a fresh server+transport
+                const result2 = await createTestServerWithDnsProtection({
+                    sessionIdGenerator: undefined,
+                    allowedHosts: ['localhost'],
+                    allowedOrigins: ['http://localhost:3001'],
+                    enableDnsRebindingProtection: true
+                });
+                server = result2.server;
+                transport = result2.transport;
+                baseUrl = result2.baseUrl;
+
                 const response2 = await fetch(baseUrl, {
                     method: 'POST',
                     headers: {

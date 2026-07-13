@@ -986,6 +986,7 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 | ------------------------------------- | -------------------------------------------------------------------------- |
 | `NotConnected`                        | Transport is not connected                                                 |
 | `AlreadyConnected`                    | Transport is already connected                                             |
+| `StatelessTransportReuse`             | Stateless transport reused across requests                                |
 | `NotInitialized`                      | Protocol is not initialized                                                |
 | `CapabilityNotSupported`              | Required capability is not supported                                       |
 | `RequestTimeout`                      | Request timed out waiting for response                                     |
@@ -1619,6 +1620,56 @@ rewrite required unless noted.
 - Session-ID mismatch still responds `404` with JSON-RPC `-32001` (`Session not found`),
   unchanged from v1. This `-32001` is an SDK convention, not spec-assigned; client code
   should key off the HTTP `404` status, not `-32001`.
+
+#### Transport / connection lifecycle (v1 parity)
+
+The following v1 transport lifecycle invariants (in effect since sdk@1.26.0) apply in v2:
+
+- **A stateless `WebStandardStreamableHTTPServerTransport` serves exactly one request.**
+  With `sessionIdGenerator: undefined`, the second `handleRequest()` call throws
+  `"Stateless transport cannot be reused across requests. Create a new transport per
+request."` (an `SdkError` with code `StatelessTransportReuse`) — matching v1
+  message behavior since 1.26.0. Stateful transports
+  (`sessionIdGenerator` set) accept multiple requests as before;
+  `NodeStreamableHTTPServerTransport` inherits the behavior. Migrate shared-transport
+  hosting to the per-request pattern:
+
+    ```typescript
+    app.all('/mcp', async c => {
+        // Fresh transport + server pair per request.
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        await server.connect(transport);
+        return transport.handleRequest(c.req.raw);
+    });
+    ```
+
+    Or use `createMcpHandler`, which constructs the per-request pair for you (its
+    `legacy: 'stateless'` fallback and the modern per-request transport are both
+    one-exchange by construction).
+
+- **`Protocol.connect()` throws when already connected** (an `SdkError` with code
+  `AlreadyConnected`: `"Already connected to a transport. Call close() before connecting
+to a new transport, or use a separate Protocol instance per connection."`) instead of
+  silently rebinding `this._transport`.
+  Sequential `close()` then `connect()` keeps working. `Client.connect()` performs the
+  same check up front, before any per-connection state is reset.
+  To resume a Streamable HTTP session across that sequence, carry both the session ID
+  and the negotiated protocol version onto the new transport — `close()` wipes the
+  client's copy, and the resuming connect reads it back from the transport:
+
+    ```typescript
+    const sessionId = transport.sessionId;
+    const protocolVersion = client.getNegotiatedProtocolVersion();
+    await client.close();
+    await client.connect(new StreamableHTTPClientTransport(url, { sessionId, protocolVersion }));
+    ```
+
+- **Aborted request handlers cannot write to a replacement transport.** After the
+  handler's `ctx.mcpReq.signal` aborts (connection closed or request cancelled),
+  `ctx.mcpReq.notify()` (and `ctx.mcpReq.log()`) resolves as a no-op, and
+  `ctx.mcpReq.send()`, `ctx.mcpReq.elicitInput()`, and `ctx.mcpReq.requestSampling()`
+  reject with `SdkError(ConnectionClosed)`.
 
 #### Server (deprecated accessors and app-factory Origin validation)
 

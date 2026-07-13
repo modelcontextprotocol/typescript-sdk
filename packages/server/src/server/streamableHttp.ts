@@ -16,6 +16,8 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
@@ -193,6 +195,11 @@ export interface HandleRequestOptions {
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ * - Each transport instance serves exactly ONE request: construct a fresh
+ *   transport (and server instance) per request — reusing a stateless
+ *   transport across requests throws. Reuse would share the request-id →
+ *   stream mapping between unrelated clients, so colliding JSON-RPC ids
+ *   could deliver one client's response to another client.
  *
  * @example Stateful setup
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_stateful"
@@ -207,14 +214,25 @@ export interface HandleRequestOptions {
  *
  * @example Stateless setup
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_stateless"
+ * // A stateless transport serves exactly one request — reuse throws.
+ * // Construct a fresh transport + server pair per request.
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
  * const transport = new WebStandardStreamableHTTPServerTransport({
  *     sessionIdGenerator: undefined
  * });
+ *
+ * await server.connect(transport);
+ * const response = await transport.handleRequest(request);
  * ```
  *
  * @example Hono.js
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_hono"
  * app.all('/mcp', async c => {
+ *     // Stateless serving: a fresh transport + server pair per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
  *     return transport.handleRequest(c.req.raw);
  * });
  * ```
@@ -223,6 +241,10 @@ export interface HandleRequestOptions {
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_workers"
  * const worker = {
  *     async fetch(request: Request): Promise<Response> {
+ *         // Stateless serving: a fresh transport + server pair per request.
+ *         const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *         const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *         await server.connect(transport);
  *         return transport.handleRequest(request);
  *     }
  * };
@@ -232,6 +254,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _hasHandledRequest: boolean = false;
     private _closed: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -348,10 +371,29 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * The single-use check `handleRequest()` performs on entry, exposed so
+     * wrapping adapters can fail fast before writing to their own response.
+     *
+     * @internal
+     */
+    assertNotReused(): void {
+        // Stateless reuse would collide JSON-RPC message ids across clients.
+        if (!this.sessionIdGenerator && this._hasHandledRequest) {
+            throw new SdkError(
+                SdkErrorCode.StatelessTransportReuse,
+                'Stateless transport cannot be reused across requests. Create a new transport per request.'
+            );
+        }
+    }
+
+    /**
      * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
      * Returns a `Response` object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        this.assertNotReused();
+        this._hasHandledRequest = true;
+
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {

@@ -16,23 +16,34 @@ Deno.test({
     sanitizeOps: false,
     sanitizeResources: false,
     async fn() {
-        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        // Stateless serving is per-request: a fresh transport + server pair
+        // per request (a stateless transport throws when reused across
+        // requests).
+        const buildServer = () => {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
 
-        mcpServer.registerTool(
-            'greet',
-            {
-                description: 'Greet someone',
-                inputSchema: z.object({ name: z.string() })
-            },
-            async ({ name }) => ({
-                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
-            })
-        );
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'Greet someone',
+                    inputSchema: z.object({ name: z.string() })
+                },
+                async ({ name }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+                })
+            );
 
-        const transport = new WebStandardStreamableHTTPServerTransport();
-        await mcpServer.connect(transport);
+            return mcpServer;
+        };
 
-        const httpServer = Deno.serve({ port: 0 }, req => transport.handleRequest(req));
+        const perRequestServers: McpServer[] = [];
+        const httpServer = Deno.serve({ port: 0 }, async req => {
+            const mcpServer = buildServer();
+            const transport = new WebStandardStreamableHTTPServerTransport();
+            await mcpServer.connect(transport);
+            perRequestServers.push(mcpServer);
+            return transport.handleRequest(req);
+        });
         const port = httpServer.addr.port;
 
         try {
@@ -46,7 +57,9 @@ Deno.test({
 
             await client.close();
         } finally {
-            await transport.close();
+            for (const mcpServer of perRequestServers) {
+                await mcpServer.close().catch(() => {});
+            }
             await httpServer.shutdown();
         }
     }

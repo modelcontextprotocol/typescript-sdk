@@ -70,6 +70,7 @@ describe('SdkErrorCode', () => {
         expect({ ...SdkErrorCode }).toEqual({
             NotConnected: 'NOT_CONNECTED',
             AlreadyConnected: 'ALREADY_CONNECTED',
+            StatelessTransportReuse: 'STATELESS_TRANSPORT_REUSE',
             NotInitialized: 'NOT_INITIALIZED',
             CapabilityNotSupported: 'CAPABILITY_NOT_SUPPORTED',
             RequestTimeout: 'REQUEST_TIMEOUT',

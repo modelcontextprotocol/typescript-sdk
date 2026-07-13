@@ -41,29 +41,39 @@ describe('server/discover round-trip against a modern server', () => {
 
     async function startServer(options: { modernEraInstance: boolean }) {
         const httpServer: HttpServer = createServer();
-        const mcpServer = new McpServer(
-            { name: 'dual-era-server', version: '2.0.0' },
-            {
-                capabilities: { tools: { listChanged: true } },
-                supportedProtocolVersions: DUAL_ERA_VERSIONS,
-                instructions: 'dual era'
-            }
-        );
-        mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
-            content: [{ type: 'text', text }]
-        }));
-        const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        await mcpServer.connect(serverTransport);
-        if (options.modernEraInstance) {
-            // Stand-in for the server-side entry (instance binding): mark the
-            // instance as serving the modern era so it can answer the probe.
-            setNegotiatedProtocolVersion(mcpServer.server, MODERN);
-        }
-        httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
+        // Stateless serving is per-request: each inbound request gets a fresh
+        // McpServer + stateless transport pair (a stateless transport throws
+        // when reused across requests). Era binding is instance state, so the
+        // stand-in entry binding is re-applied to every fresh instance.
+        httpServer.on('request', (req, res) => {
+            void (async () => {
+                const mcpServer = new McpServer(
+                    { name: 'dual-era-server', version: '2.0.0' },
+                    {
+                        capabilities: { tools: { listChanged: true } },
+                        supportedProtocolVersions: DUAL_ERA_VERSIONS,
+                        instructions: 'dual era'
+                    }
+                );
+                mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+                    content: [{ type: 'text', text }]
+                }));
+                const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+                await mcpServer.connect(serverTransport);
+                if (options.modernEraInstance) {
+                    // Stand-in for the server-side entry (instance binding): mark the
+                    // instance as serving the modern era so it can answer the probe.
+                    setNegotiatedProtocolVersion(mcpServer.server, MODERN);
+                }
+                cleanups.push(async () => {
+                    await mcpServer.close().catch(() => {});
+                    await serverTransport.close().catch(() => {});
+                });
+                await serverTransport.handleRequest(req, res);
+            })();
+        });
         const baseUrl = await listenOnRandomPort(httpServer);
-        cleanups.push(async () => {
-            await mcpServer.close().catch(() => {});
-            await serverTransport.close().catch(() => {});
+        cleanups.push(() => {
             httpServer.close();
         });
         return baseUrl;
@@ -149,14 +159,21 @@ describe('server/discover round-trip against a modern server', () => {
         // round-trip over HTTP completes once every modern request carries the
         // per-request _meta envelope.)
         const httpServer: HttpServer = createServer();
-        const mcpServer = new McpServer({ name: 'legacy-only', version: '1.0.0' }, { capabilities: { tools: {} } });
-        const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        await mcpServer.connect(serverTransport);
-        httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
+        // Per-request stateless pair (a stateless transport throws on reuse).
+        httpServer.on('request', (req, res) => {
+            void (async () => {
+                const mcpServer = new McpServer({ name: 'legacy-only', version: '1.0.0' }, { capabilities: { tools: {} } });
+                const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+                await mcpServer.connect(serverTransport);
+                cleanups.push(async () => {
+                    await mcpServer.close().catch(() => {});
+                    await serverTransport.close().catch(() => {});
+                });
+                await serverTransport.handleRequest(req, res);
+            })();
+        });
         const baseUrl = await listenOnRandomPort(httpServer);
-        cleanups.push(async () => {
-            await mcpServer.close().catch(() => {});
-            await serverTransport.close().catch(() => {});
+        cleanups.push(() => {
             httpServer.close();
         });
 

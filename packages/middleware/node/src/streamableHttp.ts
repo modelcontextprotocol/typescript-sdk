@@ -18,7 +18,7 @@ import type {
     Transport,
     WebStandardStreamableHTTPServerTransportOptions
 } from '@modelcontextprotocol/server';
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { SdkErrorCode, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**
  * Configuration options for {@linkcode NodeStreamableHTTPServerTransport}
@@ -44,6 +44,10 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ * - Each transport instance serves exactly ONE request: construct a fresh
+ *   transport (and server instance) per request — reusing a stateless
+ *   transport across requests throws (the guard lives in the wrapped
+ *   {@linkcode WebStandardStreamableHTTPServerTransport})
  *
  * @example Stateful setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateful"
@@ -58,15 +62,26 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  *
  * @example Stateless setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateless"
+ * // A stateless transport serves exactly one request — reuse throws.
+ * // Construct a fresh transport + server pair per request.
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
  * const transport = new NodeStreamableHTTPServerTransport({
  *     sessionIdGenerator: undefined
  * });
+ *
+ * await server.connect(transport);
+ * await transport.handleRequest(incomingRequest, serverResponse);
  * ```
  *
  * @example Using with a pre-parsed request body (e.g. Express)
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_express"
- * app.post('/mcp', (req, res) => {
- *     transport.handleRequest(req, res, req.body);
+ * app.post('/mcp', async (req, res) => {
+ *     // Stateless serving: a fresh transport + server pair per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
+ *     await transport.handleRequest(req, res, req.body);
  * });
  * ```
  */
@@ -180,6 +195,10 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
+        // Check before delegating: getRequestListener may swallow a
+        // mid-dispatch rejection after bytes are written to `res`.
+        this._webStandardTransport.assertNotReused();
+
         // Store context for this request to pass through auth and parsedBody
         // We need to intercept the request creation to attach this context
         const authInfo = req.auth;
@@ -187,12 +206,18 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // Create a custom handler that includes our context
         // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
         // break frameworks like Next.js whose response classes extend the native Response
+        let dispatchError: unknown;
         const handler = getRequestListener(
             async (webRequest: Request) => {
-                return this._webStandardTransport.handleRequest(webRequest, {
-                    authInfo,
-                    parsedBody
-                });
+                try {
+                    return await this._webStandardTransport.handleRequest(webRequest, {
+                        authInfo,
+                        parsedBody
+                    });
+                } catch (error) {
+                    dispatchError = error;
+                    throw error;
+                }
             },
             { overrideGlobalObjects: false }
         );
@@ -200,6 +225,13 @@ export class NodeStreamableHTTPServerTransport implements Transport {
         // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
         // including proper SSE streaming support
         await handler(req, res);
+
+        // Backstop for concurrent calls racing the up-front check.
+        // getRequestListener absorbs rejections into a 500; re-raise the
+        // single-use throw (matched by code, robust to dual bundling).
+        if (dispatchError instanceof Error && (dispatchError as { code?: unknown }).code === SdkErrorCode.StatelessTransportReuse) {
+            throw dispatchError;
+        }
     }
 
     /**

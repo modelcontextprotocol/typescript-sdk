@@ -1507,12 +1507,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'A stateless per-request transport cannot be reused for a second request.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'changed in v2: the stateless reuse guard was removed, so a second request on the same per-request transport is processed instead of rejected.'
-            }
-        ]
+        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:stateless:no-session-id': {
         source: 'sdk',

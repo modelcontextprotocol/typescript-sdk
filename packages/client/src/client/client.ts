@@ -927,6 +927,9 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     override async connect(transport: Transport, options?: ConnectOptions): Promise<void> {
+        // Guard before the paths below mutate per-connection state — the base
+        // Protocol.connect() check would fire only after that corruption.
+        this.assertNotConnected();
         if (options?.prior !== undefined) {
             // Zero-round-trip reconnect from a previously-obtained
             // DiscoverResult: bypasses versionNegotiation resolution entirely.
@@ -938,27 +941,20 @@ export class Client extends Protocol<ClientContext> {
         }
         // Plain legacy connect — the pinned 2025 sequence, byte-untouched.
         await super.connect(transport);
-        // When transport sessionId is already set this means we are trying to reconnect.
-        // Restore the protocol version negotiated during the original initialize handshake
-        // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
+        // Session resume (transport carries a sessionId): skip re-init, restore
+        // the originally negotiated version — from this instance, or from the
+        // transport itself after close() wiped the instance's copy.
         if (transport.sessionId !== undefined) {
-            const negotiatedProtocolVersion = this._negotiatedProtocolVersion;
-            if (negotiatedProtocolVersion !== undefined) {
-                // Resuming keeps the original negotiation: the instance still
-                // holds the negotiated version (and with it the wire era) —
-                // only the new transport needs the header pushed again.
-                transport.setProtocolVersion?.(negotiatedProtocolVersion);
+            const version = this._negotiatedProtocolVersion ?? transport.protocolVersion;
+            if (version !== undefined) {
+                this._negotiatedProtocolVersion = version;
+                transport.setProtocolVersion?.(version);
             }
             return;
         }
-        // Fresh connect: per-connection state left over from a previous
-        // connection must not survive into a new handshake. Clearing it puts
-        // the instance back in the pre-negotiation phase, so the initialize
-        // exchange below rides the bootstrap method pins (legacy era) instead
-        // of a dead session's era. Without this, an instance that once
-        // negotiated a modern era could never re-run a fresh handshake:
-        // `initialize` is physically absent from the modern registry. (The
-        // resume branch above keeps it instead.)
+        // Fresh connect: clear leftover connection state so `initialize` rides
+        // the legacy bootstrap pins — a stale modern era would make it
+        // unsendable (absent from the modern registry).
         this._resetConnectionState();
         await this._legacyHandshake(transport, options);
     }
@@ -1046,13 +1042,14 @@ export class Client extends Protocol<ClientContext> {
         negotiation: Extract<ResolvedVersionNegotiation, { kind: 'auto' | 'pin' }>,
         options?: RequestOptions
     ): Promise<void> {
-        // Session-resuming reconnect: restore the previously negotiated version,
-        // never re-probe mid-session.
+        // Session resume: never re-probe; restore the negotiated version from
+        // this instance or, after close() wiped it, from the transport itself.
         if (transport.sessionId !== undefined) {
             await super.connect(transport);
-            const negotiatedProtocolVersion = this._negotiatedProtocolVersion;
-            if (negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
-                transport.setProtocolVersion(negotiatedProtocolVersion);
+            const version = this._negotiatedProtocolVersion ?? transport.protocolVersion;
+            if (version !== undefined) {
+                this._negotiatedProtocolVersion = version;
+                transport.setProtocolVersion?.(version);
             }
             return;
         }

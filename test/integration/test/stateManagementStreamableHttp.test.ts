@@ -8,8 +8,7 @@ import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
-async function setupServer(withSessionManagement: boolean) {
-    const server: Server = createServer();
+function buildMcpServer(): McpServer {
     const mcpServer = new McpServer(
         { name: 'test-server', version: '1.0.0' },
         {
@@ -59,11 +58,20 @@ async function setupServer(withSessionManagement: boolean) {
         }
     );
 
-    // Create transport with or without session management
+    return mcpServer;
+}
+
+async function setupServer(): Promise<{
+    server: Server;
+    mcpServer: McpServer;
+    serverTransport: NodeStreamableHTTPServerTransport;
+    baseUrl: URL;
+}> {
+    const server: Server = createServer();
+    const mcpServer = buildMcpServer();
+
     const serverTransport = new NodeStreamableHTTPServerTransport({
-        sessionIdGenerator: withSessionManagement
-            ? () => randomUUID() // With session management, generate UUID
-            : undefined // Without session management, return undefined
+        sessionIdGenerator: () => randomUUID()
     });
 
     await mcpServer.connect(serverTransport);
@@ -78,27 +86,48 @@ async function setupServer(withSessionManagement: boolean) {
     return { server, mcpServer, serverTransport, baseUrl };
 }
 
+/**
+ * Stateless hosting: each request gets a fresh transport + mcpServer pair (a
+ * stateless transport throws when reused across requests). The per-request
+ * mcpServer is closed after handling to release resources.
+ */
+async function setupStatelessServer(): Promise<{ server: Server; baseUrl: URL }> {
+    const server: Server = createServer(async (req, res) => {
+        try {
+            const mcpServer = buildMcpServer();
+            const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await mcpServer.connect(serverTransport);
+            res.on('close', () => {
+                void mcpServer.close().catch(() => {});
+            });
+            await serverTransport.handleRequest(req, res);
+        } catch (error) {
+            console.error('Error handling request:', error);
+            if (!res.headersSent) res.writeHead(500).end();
+        }
+    });
+
+    const baseUrl = await listenOnRandomPort(server);
+
+    return { server, baseUrl };
+}
+
 describe('Zod v4', () => {
     describe('Streamable HTTP Transport Session Management', () => {
         // Function to set up the server with optional session management
         describe('Stateless Mode', () => {
             let server: Server;
-            let mcpServer: McpServer;
-            let serverTransport: NodeStreamableHTTPServerTransport;
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(false);
+                const setup = await setupStatelessServer();
                 server = setup.server;
-                mcpServer = setup.mcpServer;
-                serverTransport = setup.serverTransport;
                 baseUrl = setup.baseUrl;
             });
 
             afterEach(async () => {
-                // Clean up resources
-                await mcpServer.close().catch(() => {});
-                await serverTransport.close().catch(() => {});
+                // Clean up resources (per-request pairs are closed as their
+                // responses complete).
                 server.close();
             });
 
@@ -234,7 +263,7 @@ describe('Zod v4', () => {
             let baseUrl: URL;
 
             beforeEach(async () => {
-                const setup = await setupServer(true);
+                const setup = await setupServer();
                 server = setup.server;
                 mcpServer = setup.mcpServer;
                 serverTransport = setup.serverTransport;

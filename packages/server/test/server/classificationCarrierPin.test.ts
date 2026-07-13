@@ -73,18 +73,22 @@ const modernEnvelope = {
 
 describe('B-2: hand-wired legacy-transport traffic is never Protocol-classified', () => {
     it('extra.request is set and extra.classification stays unset for every delivered message', async () => {
-        const { server, seen, post } = await setupHandWired();
+        // One hand-wired pair per request: a stateless transport cannot be
+        // reused across requests (per-request idiom).
+        const plainSetup = await setupHandWired();
+        await plainSetup.post(toolsCall());
+        await plainSetup.server.close();
 
-        await post(toolsCall());
-        await post(toolsCall(modernEnvelope));
+        const stampedSetup = await setupHandWired();
+        await stampedSetup.post(toolsCall(modernEnvelope));
+        await stampedSetup.server.close();
 
+        const seen = [...plainSetup.seen, ...stampedSetup.seen];
         expect(seen.length).toBeGreaterThanOrEqual(2);
         for (const { extra } of seen) {
             expect(extra?.request).toBeInstanceOf(Request);
             expect(extra?.classification).toBeUndefined();
         }
-
-        await server.close();
     });
 
     it('a modern-stamped body through the legacy transport gets today’s exact legacy semantics, byte-identical', async () => {

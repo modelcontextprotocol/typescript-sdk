@@ -82,6 +82,7 @@ class ScriptedTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
     sessionId?: string;
+    protocolVersion?: string;
 
     startCalls = 0;
     sent: JSONRPCMessage[] = [];
@@ -694,6 +695,23 @@ describe('era scope discipline', () => {
         const next = new ScriptedTransport(modernServerScript());
         await client.connect(next);
         expect(requests(next.sent)[0]!.method).toBe('server/discover');
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+        await client.close();
+    });
+
+    test('session resume on a fresh auto client adopts the transport-carried version: no probe, no initialize', async () => {
+        // After close() (or on a brand-new client) the instance holds no
+        // negotiated version — a resuming transport constructed with
+        // { sessionId, protocolVersion } supplies it instead.
+        const transport = new ScriptedTransport(() => {});
+        transport.sessionId = 'sess-1';
+        transport.protocolVersion = MODERN;
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(requests(transport.sent)).toHaveLength(0);
+        expect(transport.setProtocolVersionCalls).toEqual([MODERN]);
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         await client.close();
     });
