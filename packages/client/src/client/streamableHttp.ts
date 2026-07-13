@@ -245,6 +245,25 @@ export type StreamableHTTPClientTransportOptions = {
     maxStepUpRetries?: number;
 };
 
+function setMcpStandardPostHeaders(headers: Headers, message: JSONRPCMessage | JSONRPCMessage[]): void {
+    if (Array.isArray(message) || !('method' in message) || typeof message.method !== 'string') {
+        return;
+    }
+
+    headers.set('Mcp-Method', message.method);
+
+    const params = 'params' in message ? message.params : undefined;
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+        return;
+    }
+
+    const requestParams = params as { name?: unknown; uri?: unknown };
+    const mcpName = typeof requestParams.name === 'string' ? requestParams.name : requestParams.uri;
+    if (typeof mcpName === 'string') {
+        headers.set('Mcp-Name', mcpName);
+    }
+}
+
 /**
  * Standard/auth header names the transport owns. The per-request
  * `TransportSendOptions.headers` carrier MUST NOT be able to override these —
@@ -959,6 +978,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
+            setMcpStandardPostHeaders(headers, message);
 
             // Per-request abort: when the caller supplies a request-scoped
             // signal (the `subscriptions/listen` driver), aborting it cancels
