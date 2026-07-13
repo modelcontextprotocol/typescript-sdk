@@ -73,12 +73,12 @@
             },
             "browser": {
                 "import": {
-                    "types": "./dist/shimsWorkerd.d.mts",
-                    "default": "./dist/shimsWorkerd.mjs"
+                    "types": "./dist/shimsBrowser.d.mts",
+                    "default": "./dist/shimsBrowser.mjs"
                 },
                 "require": {
-                    "types": "./dist/shimsWorkerd.d.cts",
-                    "default": "./dist/shimsWorkerd.cjs"
+                    "types": "./dist/shimsBrowser.d.cts",
+                    "default": "./dist/shimsBrowser.cjs"
                 }
             },
             "node": {

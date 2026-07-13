@@ -67,6 +67,14 @@ function inputSchemaMaps(): InputSchemaMaps {
     return maps;
 }
 
+/**
+ * Forces the lazy embedded-request maps (and, through them, the era's schema
+ * memo). Warm-up hook for `preloadSchemas()` — no-op once the maps exist.
+ */
+export function warmInputSchemaMaps2026(): void {
+    inputSchemaMaps();
+}
+
 export function isInputRequestMethod2026(method: string): method is InputRequestMethod2026 {
     return (INPUT_REQUEST_METHODS_2026 as readonly string[]).includes(method);
 }

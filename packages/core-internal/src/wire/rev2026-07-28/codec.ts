@@ -298,3 +298,11 @@ function getWireResultSchemas(): Record<string, z.ZodType> {
     };
     return wireResultSchemasMemo;
 }
+
+/**
+ * Forces the lazy wire-result wrapper map (and, through it, the era's schema
+ * memo). Warm-up hook for `preloadSchemas()` — no-op once the map exists.
+ */
+export function warmWireResultSchemas2026(): void {
+    getWireResultSchemas();
+}

@@ -1,5 +1,9 @@
+/**
+ * Server-package copy of packages/client/test/helpers/ensureBuilt.ts (per-package
+ * test dirs stay self-contained). Keep the locking logic in sync with that file.
+ */
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -15,23 +19,16 @@ const execFileAsync = promisify(execFile);
  * prevent.
  */
 const DIST_SENTINELS: Record<string, string[]> = {
-    // Include late-written artifacts (dts pass, CJS validators) so an
-    // interrupted build never satisfies the fast path.
-    client: [
+    server: [
         'index.mjs',
         'stdio.mjs',
-        // Shim entries in both formats — the workerdSchemaPreload suite reads them all.
         'shimsWorkerd.mjs',
         'shimsWorkerd.cjs',
         'shimsNode.mjs',
         'shimsNode.cjs',
         'shimsBrowser.mjs',
-        'shimsBrowser.cjs',
-        'validators/ajv.cjs',
-        'index.d.mts',
-        'index.d.cts'
-    ],
-    core: ['index.mjs', 'internal.mjs', 'index.d.mts', 'internal.d.mts']
+        'shimsBrowser.cjs'
+    ]
 };
 
 /** The build is killed after this long; execFile's kill still runs our finally. */
@@ -72,14 +69,11 @@ export async function ensureBuilt(pkgDir: string): Promise<void> {
             // once it is older than any live build could be.
             try {
                 if (Date.now() - statSync(lockDir).mtimeMs > STALE_LOCK_MS) {
-                    // renameSync is atomic: exactly one waiter steals; losers throw and re-check.
-                    const graveyard = `${lockDir}.stale-${process.pid}-${Date.now()}`;
-                    renameSync(lockDir, graveyard);
-                    rmSync(graveyard, { recursive: true, force: true });
+                    rmSync(lockDir, { recursive: true, force: true });
                     continue;
                 }
             } catch {
-                continue; // lock vanished or another waiter stole it — re-check now
+                continue; // lock vanished between mkdir and stat — re-check now
             }
             if (Date.now() > deadline) {
                 throw new Error(
