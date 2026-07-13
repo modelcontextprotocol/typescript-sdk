@@ -1,5 +1,5 @@
 {
-    "description": "A spec request with params that fail the method schema is answered with an error response (current dispatch surfaces the parse failure as -32603 Internal error).",
+    "description": "A spec request with params that fail the method schema is answered with -32602 Invalid params (the caller's error, not the server's).",
     "message": {
         "jsonrpc": "2.0",
         "id": 3,
@@ -9,5 +9,5 @@
         }
     },
     "expect": "error-response",
-    "errorCode": -32603
+    "errorCode": -32602
 }
