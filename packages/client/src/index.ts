@@ -106,5 +106,11 @@ export { fromJsonSchema } from './fromJsonSchema';
 export type { InputRequiredOptions } from '@modelcontextprotocol/core-internal';
 export { withInputRequired } from '@modelcontextprotocol/core-internal';
 
+// Explicit opt-in to eager wire-schema construction, for platforms that bill
+// request CPU but not module evaluation (isolate-based edge/serverless
+// runtimes). The package's workerd build calls it automatically at module
+// scope; other builds stay lazy unless the application calls it itself.
+export { preloadSchemas } from '@modelcontextprotocol/core-internal';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core-internal/public';

@@ -1,18 +1,13 @@
 /**
- * Cloudflare Workers runtime shims for server package
+ * Browser runtime shims for server package
  *
- * This file is selected via package.json export conditions when running in workerd.
+ * This file is selected via package.json export conditions when bundling for
+ * browsers. It binds the same platform choices as the workerd shim (the
+ * cfWorker validator, the process stub) WITHOUT the module-scope
+ * `preloadSchemas()` call: in a browser, module evaluation is page load —
+ * boot latency — so schema construction stays lazy, exactly like Node.
  */
-import { preloadSchemas } from '@modelcontextprotocol/core-internal';
-
 export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/cfWorker';
-
-// Platform asymmetry: isolate platforms like workerd evaluate module scope
-// during deployment/isolate warm-up, outside any request's billed CPU, while
-// lazy construction would land inside the first request each fresh isolate
-// serves. The Node and browser shims stay lazy — there, module evaluation is
-// process/page startup and boot latency is the cost that matters.
-preloadSchemas();
 
 /**
  * Stub process object for non-Node.js environments.

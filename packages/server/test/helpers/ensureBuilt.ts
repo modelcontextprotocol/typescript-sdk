@@ -1,3 +1,7 @@
+/**
+ * Server-package copy of packages/client/test/helpers/ensureBuilt.ts (per-package
+ * test dirs stay self-contained). Keep the locking logic in sync with that file.
+ */
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
@@ -15,19 +19,16 @@ const execFileAsync = promisify(execFile);
  * prevent.
  */
 const DIST_SENTINELS: Record<string, string[]> = {
-    client: [
+    server: [
         'index.mjs',
         'stdio.mjs',
-        // The workerdSchemaPreload suite reads every shim entry in both
-        // formats; a partial dist missing any of them must trigger a rebuild.
         'shimsWorkerd.mjs',
         'shimsWorkerd.cjs',
         'shimsNode.mjs',
         'shimsNode.cjs',
         'shimsBrowser.mjs',
         'shimsBrowser.cjs'
-    ],
-    core: ['index.mjs', 'internal.mjs']
+    ]
 };
 
 /** The build is killed after this long; execFile's kill still runs our finally. */
