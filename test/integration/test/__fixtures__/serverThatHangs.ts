@@ -30,10 +30,16 @@ transport.onclose = () => {
 };
 
 const doNotExitImmediately = async (signal: NodeJS.Signals) => {
-    await server.sendLoggingMessage({
-        level: 'debug',
-        data: `received signal ${signal}`
-    });
+    try {
+        await server.sendLoggingMessage({
+            level: 'debug',
+            data: `received signal ${signal}`
+        });
+    } catch {
+        // The client may have already closed stdin/stdout while terminating this
+        // fixture. Ignore late logging failures so the cleanup test continues to
+        // exercise process termination rather than crashing on transport teardown.
+    }
     // Clear keepalive but delay exit to simulate slow shutdown
     clearInterval(keepAlive);
     setInterval(() => {}, 30_000);
