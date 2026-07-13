@@ -656,6 +656,29 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification that has relatedRequestId 0', async () => {
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_zero'] });
+            await protocol.connect(transport);
+
+            await protocol.notification({ method: 'test/debounced_with_zero' }, { relatedRequestId: 0 });
+            await protocol.notification({ method: 'test/debounced_with_zero' }, { relatedRequestId: 0 });
+
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenNthCalledWith(1, expect.any(Object), { relatedRequestId: 0 });
+            expect(sendSpy).toHaveBeenNthCalledWith(2, expect.any(Object), { relatedRequestId: 0 });
+        });
+
+        it('should reject debounced-method notifications when transport send fails with relatedRequestId 0', async () => {
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_zero'] });
+            await protocol.connect(transport);
+
+            sendSpy.mockRejectedValueOnce(new Error('send failed'));
+
+            await expect(protocol.notification({ method: 'test/debounced_with_zero' }, { relatedRequestId: 0 })).rejects.toThrow(
+                'send failed'
+            );
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
