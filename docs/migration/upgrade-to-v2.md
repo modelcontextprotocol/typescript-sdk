@@ -848,7 +848,7 @@ hierarchy also exposes the same check as an explicit static guard
 TypeScript — use whichever style your codebase prefers; both read the same brand.
 Fine print (applies equally to `instanceof` and `isInstance`):
 
-- **Version skew** — matching needs *both* copies at a brand-aware release; against an
+- **Version skew** — matching needs _both_ copies at a brand-aware release; against an
   older copy, behavior degrades to plain prototype `instanceof` (false across bundles).
   During mixed-version rollouts, recognize errors without class identity: match
   `error.name` plus the class's discriminant field (`code`, `status`), or reconstruct
@@ -1325,8 +1325,9 @@ if (CallToolResultSchema.safeParse(value).success) { ... }
 
 `@modelcontextprotocol/core` is the canonical home for the spec's Zod schema constants
 (and the OAuth/OpenID metadata schemas). It is runtime-neutral (its only dependency is
-`zod`) and is **not** required by `client` / `server` — install it only if you import the
-raw schemas directly.
+`zod`) and arrives transitively as the shared runtime schema graph of `client` /
+`server` — add it to your own `dependencies` only when you import the raw schemas
+directly.
 
 If you would rather keep your project Zod-free, the **`isSpecType` / `specTypeSchemas`**
 alternatives are exported from `@modelcontextprotocol/client` and `…/server`:

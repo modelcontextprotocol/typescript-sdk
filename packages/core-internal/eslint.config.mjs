@@ -42,11 +42,17 @@ export default [
                 {
                     patterns: [
                         {
-                            group: ['**/types/schemas', '**/types/schemas.js'],
+                            group: [
+                                '**/types/schemas',
+                                '**/types/schemas.js',
+                                '@modelcontextprotocol/core',
+                                '@modelcontextprotocol/core/*'
+                            ],
                             allowTypeImports: true,
                             message:
                                 'Wire revision modules must be self-contained. Freeze a copy of the schema into the ' +
-                                'rev*/ directory instead of importing the mutable public-layer types/schemas.ts.'
+                                'rev*/ directory instead of importing the mutable public-layer schemas ' +
+                                '(types/schemas.ts or @modelcontextprotocol/core).'
                         }
                     ]
                 }

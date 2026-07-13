@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync, mkdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
@@ -15,8 +15,10 @@ const execFileAsync = promisify(execFile);
  * prevent.
  */
 const DIST_SENTINELS: Record<string, string[]> = {
-    client: ['index.mjs', 'stdio.mjs'],
-    core: ['index.mjs', 'internal.mjs']
+    // Include late-written artifacts (dts pass, CJS validators) so an
+    // interrupted build never satisfies the fast path.
+    client: ['index.mjs', 'stdio.mjs', 'validators/ajv.cjs', 'index.d.mts', 'index.d.cts'],
+    core: ['index.mjs', 'internal.mjs', 'index.d.mts', 'internal.d.mts']
 };
 
 /** The build is killed after this long; execFile's kill still runs our finally. */
@@ -57,11 +59,14 @@ export async function ensureBuilt(pkgDir: string): Promise<void> {
             // once it is older than any live build could be.
             try {
                 if (Date.now() - statSync(lockDir).mtimeMs > STALE_LOCK_MS) {
-                    rmSync(lockDir, { recursive: true, force: true });
+                    // renameSync is atomic: exactly one waiter steals; losers throw and re-check.
+                    const graveyard = `${lockDir}.stale-${process.pid}-${Date.now()}`;
+                    renameSync(lockDir, graveyard);
+                    rmSync(graveyard, { recursive: true, force: true });
                     continue;
                 }
             } catch {
-                continue; // lock vanished between mkdir and stat — re-check now
+                continue; // lock vanished or another waiter stole it — re-check now
             }
             if (Date.now() > deadline) {
                 throw new Error(
