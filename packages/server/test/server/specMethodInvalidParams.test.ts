@@ -41,4 +41,3 @@ describe('spec-method invalid params surface', () => {
         await server.close();
     });
 });
-
