@@ -553,16 +553,21 @@ export class ClientResponseCache {
      * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh),
      * checked BEFORE decoding so stale entries cost no parse. Every hit is
      * freshly parsed, so the caller owns the value outright. An entry whose
-     * document does not parse (corrupted external store) is reported,
+     * document does not parse or is not an object (corrupted external
+     * store) is reported,
      * deleted, and treated as a miss — deleted because a fresh-but-corrupt
      * entry would otherwise re-parse and re-report on every read until its
      * `expiresAt` passes.
      */
     async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
         const entry = await this._probe(method, params);
-        if (entry?.expiresAt === undefined || entry.expiresAt <= this.now()) return undefined;
+        if (entry?.expiresAt === undefined || !(entry.expiresAt > this.now())) return undefined;
         try {
-            return { value: JSON.parse(entry.value) };
+            const parsed: unknown = JSON.parse(entry.value);
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                throw new TypeError('cached document is not an object');
+            }
+            return { value: parsed };
         } catch (error) {
             this._reportError(error);
             await this._deleteBoth(method, params ?? '');
@@ -657,7 +662,7 @@ export class ClientResponseCache {
     }
 
     /** Parse a held `tools/list` document for the index builders; a document
-     * that does not parse OR parses to something without a `tools` array
+     * that does not parse OR whose `tools` is not an array of objects
      * (both mean a corrupted external store) is reported and treated as if
      * nothing were held. Callers memoize the outcome against the entry's
      * stamp, so a corrupt document costs one parse + report per stamp, not
@@ -665,7 +670,9 @@ export class ClientResponseCache {
     private _decodeListTools(entry: CacheEntry): ListToolsResult | undefined {
         try {
             const parsed = JSON.parse(entry.value) as ListToolsResult | null;
-            if (!Array.isArray(parsed?.tools)) throw new TypeError('cached tools/list document has no tools array');
+            if (!Array.isArray(parsed?.tools) || !parsed.tools.every(t => t !== null && typeof t === 'object')) {
+                throw new TypeError('cached tools/list document has a malformed tools array');
+            }
             return parsed;
         } catch (error) {
             this._reportError(error);

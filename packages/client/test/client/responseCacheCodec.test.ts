@@ -209,7 +209,59 @@ describe('response cache document codec', () => {
             // Memoized against the unchanged stamp: one report for the tool
             // index, one for the validator index — not one per lookup.
             expect(reported).toHaveLength(2);
-            expect(String(reported[0])).toMatch(/no tools array/);
+            expect(String(reported[0])).toMatch(/tools array/);
         }
+    });
+
+    test('a NaN expiresAt is never fresh: the entry is not served at any clock value', async () => {
+        const store: ResponseCacheStore = {
+            get: () => ({ value: '{"tools":[]}', stamp: 1, expiresAt: NaN, scope: 'private' as const }),
+            set: () => 1,
+            delete: () => {},
+            evict: () => {},
+            clear: () => {}
+        };
+        const cache = new ClientResponseCache(store, true);
+        expect(await cache.read('tools/list')).toBeUndefined();
+    });
+
+    test('a fresh decodable-but-non-object document is reported, dropped, and read as a miss', async () => {
+        for (const document of ['null', '"str"', '[]']) {
+            const reported: unknown[] = [];
+            const deletes: CacheKey[] = [];
+            let entry: CacheEntry | undefined = { value: document, stamp: 1, expiresAt: Date.now() + 60_000, scope: 'private' };
+            const store: ResponseCacheStore = {
+                get: () => entry,
+                set: () => 1,
+                delete: key => {
+                    deletes.push(key);
+                    entry = undefined;
+                },
+                evict: () => {},
+                clear: () => {}
+            };
+            const cache = new ClientResponseCache(store, true, error => reported.push(error));
+            expect(await cache.read('tools/list')).toBeUndefined();
+            expect(reported).toHaveLength(1);
+            expect(String(reported[0])).toMatch(/not an object/);
+            expect(deletes.length).toBeGreaterThan(0);
+        }
+    });
+
+    test('a tools/list document with non-object elements is reported once per stamp, not thrown per lookup', async () => {
+        const reported: unknown[] = [];
+        const store: ResponseCacheStore = {
+            get: () => ({ value: '{"tools":[null]}', stamp: 9, scope: 'private' as const }),
+            set: () => 1,
+            delete: () => {},
+            evict: () => {},
+            clear: () => {}
+        };
+        const cache = new ClientResponseCache(store, true, error => reported.push(error));
+        await expect(cache.toolDefinition('a')).resolves.toBeUndefined();
+        await expect(cache.toolDefinition('a')).resolves.toBeUndefined();
+        await expect(cache.outputValidator('a', () => undefined)).resolves.toBeUndefined();
+        expect(reported).toHaveLength(2);
+        expect(String(reported[0])).toMatch(/malformed tools array/);
     });
 });
