@@ -40,18 +40,19 @@ export function validateOriginHeader(originHeader: string | null | undefined, al
         return { ok: true };
     }
 
-    let hostname: string;
+    let origin: URL;
     try {
-        hostname = new URL(originHeader).hostname;
+        origin = new URL(originHeader);
     } catch {
         return { ok: false, errorCode: 'invalid_origin_header', message: `Invalid Origin header: ${originHeader}`, originHeader };
     }
-    if (hostname === '') {
+    if (origin.hostname === '' || origin.username !== '' || origin.password !== '') {
         // Opaque origins ("null") and other non-hierarchical values parse without a
-        // hostname; they can never be allowlisted.
+        // hostname; userinfo is not part of the serialized Origin grammar.
         return { ok: false, errorCode: 'invalid_origin_header', message: `Invalid Origin header: ${originHeader}`, originHeader };
     }
 
+    const hostname = origin.hostname;
     if (!allowedOriginHostnames.includes(hostname)) {
         return { ok: false, errorCode: 'invalid_origin', message: `Invalid Origin: ${hostname}`, originHeader, hostname };
     }
