@@ -14,7 +14,7 @@ describe('validateHostHeader', () => {
     });
 
     it('rejects userinfo before an allowed hostname', () => {
-        for (const malformed of ['user@localhost:3000', 'user:pass@localhost:3000']) {
+        for (const malformed of ['@localhost:3000', ':@localhost:3000', 'user@localhost:3000', 'user:pass@localhost:3000']) {
             const result = validateHostHeader(malformed, localhostAllowedHostnames());
             expect(result.ok).toBe(false);
             if (!result.ok) {
@@ -26,7 +26,7 @@ describe('validateHostHeader', () => {
 
 describe('hostHeaderValidationResponse', () => {
     it('returns a 403 response when a Host with userinfo resolves to an allowed hostname', () => {
-        const request = new Request('http://localhost/mcp', { headers: { host: 'user@localhost:3000' } });
+        const request = new Request('http://localhost/mcp', { headers: { host: '@localhost:3000' } });
         expect(hostHeaderValidationResponse(request, localhostAllowedHostnames())?.status).toBe(403);
     });
 });

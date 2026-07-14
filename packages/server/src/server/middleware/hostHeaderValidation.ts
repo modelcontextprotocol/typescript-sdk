@@ -26,7 +26,7 @@ export function validateHostHeader(hostHeader: string | null | undefined, allowe
     } catch {
         return { ok: false, errorCode: 'invalid_host_header', message: `Invalid Host header: ${hostHeader}`, hostHeader };
     }
-    if (host.username !== '' || host.password !== '') {
+    if (hostHeader.includes('@')) {
         return { ok: false, errorCode: 'invalid_host_header', message: `Invalid Host header: ${hostHeader}`, hostHeader };
     }
 

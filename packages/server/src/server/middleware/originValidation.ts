@@ -46,7 +46,7 @@ export function validateOriginHeader(originHeader: string | null | undefined, al
     } catch {
         return { ok: false, errorCode: 'invalid_origin_header', message: `Invalid Origin header: ${originHeader}`, originHeader };
     }
-    if (origin.hostname === '' || origin.username !== '' || origin.password !== '') {
+    if (origin.hostname === '' || originHeader.includes('@')) {
         // Opaque origins ("null") and other non-hierarchical values parse without a
         // hostname; userinfo is not part of the serialized Origin grammar.
         return { ok: false, errorCode: 'invalid_origin_header', message: `Invalid Origin header: ${originHeader}`, originHeader };
