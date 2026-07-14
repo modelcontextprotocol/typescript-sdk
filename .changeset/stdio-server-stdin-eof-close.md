@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/server': patch
+---
+
+`StdioServerTransport` now closes itself and fires `onclose` when its stdin ends or closes. The stdio binding says servers "SHOULD exit promptly when their standard input is closed" — stdin EOF is the primary graceful-shutdown signal, and on some platforms (notably Windows, where no signal is delivered when the parent goes away) the only reliable one. Previously the transport listened only for `data` and `error`, so when an MCP client hung up its end of the pipe (window closed, session restarted, host crashed) the server never noticed: `onclose` never fired, nothing tore down, and server processes accumulated as zombies until killed by hand. The transport now attaches `end`/`close` listeners on stdin that close the transport (idempotently — `onclose` still fires exactly once if `close()` is also called), so `Server`/`McpServer` and `serveStdio` tear down through the existing `onclose` chain and a well-behaved server process exits naturally.
