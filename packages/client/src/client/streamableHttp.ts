@@ -437,8 +437,8 @@ export class StreamableHTTPClientTransport implements Transport {
         const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
-            ...headers,
-            ...extraHeaders
+            ...extraHeaders,
+            ...headers
         });
     }
 
