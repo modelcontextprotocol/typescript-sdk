@@ -1755,11 +1755,18 @@ the named class from the explicit subpath
 (`@modelcontextprotocol/{client,server}/validators/ajv` or `…/cf-worker`) — importing
 from a subpath means the corresponding peer dep must be in your `package.json`.
 
-### `Client.connect(transport, { prior })` — zero-round-trip connect
+### `Client.connect(transport, { prior })` — connect from a cached era verdict
 
 Probe once, persist `client.getDiscoverResult()` (`JSON.stringify`), and feed it to
-every worker as `client.connect(transport, { prior })` — 2026-07-28+ only. New exported
-type `ConnectOptions` (extends `RequestOptions` with `prior?: DiscoverResult`).
+every worker as `client.connect(transport, { prior: { kind: 'modern', discover } })`.
+New exported types
+`ConnectOptions` (extends `RequestOptions` with `prior?: PriorDiscovery`)
+and `PriorDiscovery` — a cached era verdict: the modern arm wraps a `DiscoverResult`
+(zero round trips), the legacy arm (`{ kind: 'legacy' }`) skips the probe and runs the
+plain `initialize` handshake for servers known to be pre-2026. Freshness is the
+supplying host's responsibility — date cached legacy verdicts in your own storage and
+stop supplying them past your policy horizon (a stale one succeeds silently against an
+upgraded server).
 
 ### Serving the 2026-07-28 revision
 

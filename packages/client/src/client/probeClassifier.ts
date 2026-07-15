@@ -87,6 +87,22 @@ export type ProbeVerdict =
     /** Typed connect error — never converted to an era verdict. */
     | { kind: 'error'; error: Error };
 
+/**
+ * A cached era verdict for `connect({ prior })` — the persistable subset of
+ * the {@linkcode ProbeVerdict} vocabulary (`'modern'` = speaks 2026-07-28+,
+ * `'legacy'` = 2025-era `initialize` only). Freshness is the supplying host's
+ * responsibility: a stale modern verdict fails loudly at the first request,
+ * but a stale legacy verdict succeeds silently forever (an upgraded server
+ * still answers `initialize`) — date cached legacy verdicts in your own
+ * storage and stop supplying them past your policy horizon. Full recipe:
+ * the gateway guide (`docs/advanced/gateway.md`).
+ */
+export type PriorDiscovery =
+    /** Adopt `discover` directly: zero round trips. */
+    | { kind: 'modern'; discover: DiscoverResult }
+    /** Known-legacy server: skip the `server/discover` probe and run the plain legacy `initialize` handshake. */
+    | { kind: 'legacy' };
+
 /** The `-32022` UnsupportedProtocolVersion protocol error code (negotiation-phase recognition). */
 const UNSUPPORTED_PROTOCOL_VERSION = -32_022;
 /**
