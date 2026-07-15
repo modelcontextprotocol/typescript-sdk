@@ -348,7 +348,7 @@ export interface OAuthClientProvider {
      *
      * Implementations must verify the returned resource matches the MCP server.
      */
-    validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+    validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<OAuthResourceIndicator | undefined>;
 
     /**
      * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
@@ -707,6 +707,11 @@ function isClientAuthMethod(method: string): method is ClientAuthMethod {
 
 const AUTHORIZATION_CODE_RESPONSE_TYPE = 'code';
 const AUTHORIZATION_CODE_CHALLENGE_METHOD = 'S256';
+export type OAuthResourceIndicator = string | URL;
+
+function serializeResourceIndicator(resource: OAuthResourceIndicator): string {
+    return typeof resource === 'string' ? resource : resource.href;
+}
 
 /**
  * Determines the best client authentication method to use based on server support and client configuration.
@@ -1185,11 +1190,11 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: OAuthResourceIndicator | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
-        await provider.saveResourceUrl?.(String(resource));
+        await provider.saveResourceUrl?.(serializeResourceIndicator(resource));
     }
 
     // Scope selection used consistently for DCR and the authorization request.
@@ -1390,7 +1395,7 @@ export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
-): Promise<URL | undefined> {
+): Promise<OAuthResourceIndicator | undefined> {
     const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
     // If provider has custom validation, delegate to it
@@ -1407,8 +1412,9 @@ export async function selectResourceURL(
     if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
         throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
     }
-    // Prefer the resource from metadata since it's what the server is telling us to request
-    return new URL(resourceMetadata.resource);
+    // Prefer the exact resource indicator from metadata since it's what the server is telling us to request.
+    // Constructing a URL would normalize pathless origins by appending "/", which can change the audience.
+    return resourceMetadata.resource;
 }
 
 /**
@@ -1968,7 +1974,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: OAuthResourceIndicator;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2016,7 +2022,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', serializeResourceIndicator(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2064,7 +2070,7 @@ export async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: OAuthResourceIndicator;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2076,7 +2082,7 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', serializeResourceIndicator(resource));
     }
 
     if (addClientAuthentication) {
@@ -2147,7 +2153,7 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: OAuthResourceIndicator;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2195,7 +2201,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: OAuthResourceIndicator;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2257,7 +2263,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: OAuthResourceIndicator;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**
