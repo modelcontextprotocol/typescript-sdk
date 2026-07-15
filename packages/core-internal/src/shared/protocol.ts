@@ -552,7 +552,11 @@ export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
  * features like request/response linking, notifications, and progress.
  *
  * `Protocol` is abstract; `Client` and `Server` are the concrete role-specific
- * implementations most code should use.
+ * implementations most code should use. Consumers that run their own JSON-RPC
+ * protocol on the engine (custom methods, own handshake — e.g. the MCP Apps SDK)
+ * extend `Protocol` directly instead: `connect()` wires the transport without
+ * performing the MCP `initialize` handshake. Subclasses implement `buildContext`
+ * (identity is fine) and the three capability assertion hooks.
  */
 export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;

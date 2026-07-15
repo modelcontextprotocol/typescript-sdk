@@ -173,17 +173,7 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/shared/protocol.js': {
         target: 'RESOLVE_BY_CONTEXT',
-        status: 'moved',
-        removedSymbols: {
-            Protocol:
-                'The Protocol base class is not exported by the v2 packages. To observe or handle inbound requests ' +
-                'that have no registered handler, use client.fallbackRequestHandler / server.fallbackRequestHandler; ' +
-                'build custom behavior on Client or Server instead of subclassing Protocol. ' +
-                'See the migration guide: Behavioral changes > Client connection & dispatch.',
-            mergeCapabilities:
-                'mergeCapabilities() is not exported by the v2 packages. Pass the complete capabilities object to the ' +
-                'Client/Server constructor, or merge capability objects with a plain object spread.'
-        }
+        status: 'moved'
     },
     '@modelcontextprotocol/sdk/shared/transport.js': {
         target: 'RESOLVE_BY_CONTEXT',
