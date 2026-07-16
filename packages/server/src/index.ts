@@ -55,7 +55,7 @@ export { PerRequestHTTPServerTransport } from './server/perRequestTransport';
 // convenience codec consumers drop into ServerOptions.requestState.verify.
 export type { RequestStateCodec, RequestStateCodecOptions } from './server/requestStateCodec';
 export { createRequestStateCodec } from './server/requestStateCodec';
-export type { ServerOptions } from './server/server';
+export type { AroundMcpRequest, McpRequestMethod, ServerOptions } from './server/server';
 export { Server } from './server/server';
 // subscriptions/listen change-event sourcing seam (protocol revision 2026-07-28).
 export type { ServerEvent, ServerEventBus, ServerNotifier } from './server/serverEventBus';

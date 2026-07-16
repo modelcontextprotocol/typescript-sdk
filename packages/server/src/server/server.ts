@@ -14,6 +14,7 @@ import type {
     ElicitRequestURLParams,
     ElicitResult,
     EmptyResult,
+    HandlerResultTypeMap,
     Implementation,
     InitializeRequest,
     InitializeResult,
@@ -30,6 +31,7 @@ import type {
     ProtocolOptions,
     RequestMethod,
     RequestOptions,
+    RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
     ServerCapabilities,
@@ -72,6 +74,35 @@ import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimO
  */
 const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
 
+/**
+ * High-level MCP operations that can be intercepted through
+ * {@linkcode ServerOptions.aroundMcpRequest}.
+ */
+export type McpRequestMethod =
+    | 'tools/list'
+    | 'tools/call'
+    | 'resources/list'
+    | 'resources/templates/list'
+    | 'resources/read'
+    | 'prompts/list'
+    | 'prompts/get';
+
+/**
+ * Intercepts a validated high-level MCP operation around its core handler.
+ *
+ * The interceptor runs after method-specific input validation and routing. Its
+ * result then passes through the SDK's normal output validation, projection,
+ * cache-hint, input-required, and protocol-result processing. Calling
+ * {@linkcode next} invokes the registered operation handler; omitting it
+ * short-circuits the operation.
+ */
+export type AroundMcpRequest = <M extends McpRequestMethod>(
+    method: M,
+    request: RequestTypeMap[M],
+    ctx: ServerContext,
+    next: () => Promise<HandlerResultTypeMap[M]>
+) => Promise<HandlerResultTypeMap[M]>;
+
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
@@ -99,6 +130,15 @@ export type ServerOptions = ProtocolOptions & {
      * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Optional interceptor for primitive operations owned by
+     * {@linkcode server/mcp.McpServer | McpServer}.
+     *
+     * The low-level {@linkcode Server} does not apply this callback to handlers
+     * registered directly with `setRequestHandler`.
+     */
+    aroundMcpRequest?: AroundMcpRequest;
 
     /**
      * Cache hints for the cacheable results of the 2026-07-28 protocol

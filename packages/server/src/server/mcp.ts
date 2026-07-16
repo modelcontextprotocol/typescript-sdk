@@ -6,6 +6,7 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     GetPromptResult,
+    HandlerResultTypeMap,
     Icon,
     Implementation,
     InputRequiredResult,
@@ -16,6 +17,7 @@ import type {
     Prompt,
     PromptReference,
     ReadResourceResult,
+    RequestTypeMap,
     Resource,
     ResourceTemplateReference,
     Result,
@@ -47,7 +49,7 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
-import type { ServerOptions } from './server';
+import type { AroundMcpRequest, McpRequestMethod, ServerOptions } from './server';
 import { Server } from './server';
 
 /**
@@ -69,12 +71,15 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private readonly _aroundMcpRequest?: AroundMcpRequest;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private readonly _promptExecutors = new WeakMap<RegisteredPrompt, PromptExecutor>();
     /**
      * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
      * registration-time scan and the pre-dispatch validation step share one
@@ -116,6 +121,7 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._aroundMcpRequest = options?.aroundMcpRequest;
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
@@ -156,6 +162,16 @@ export class McpServer {
         await this.server.close();
     }
 
+    /** Invokes the configured high-level operation interceptor, when present. */
+    private async invokeAroundMcpRequest<M extends McpRequestMethod>(
+        method: M,
+        request: RequestTypeMap[M],
+        ctx: ServerContext,
+        next: () => Promise<HandlerResultTypeMap[M]>
+    ): Promise<HandlerResultTypeMap[M]> {
+        return this._aroundMcpRequest ? this._aroundMcpRequest(method, request, ctx, next) : next();
+    }
+
     private _toolHandlersInitialized = false;
 
     private setToolRequestHandlers() {
@@ -177,34 +193,38 @@ export class McpServer {
         // recommended by the spec.
         this.server.setRequestHandler(
             'tools/list',
-            (): ListToolsResult => ({
-                tools: Object.entries(this._registeredTools)
-                    .filter(([, tool]) => tool.enabled)
-                    .map(([name, tool]): Tool => {
-                        const toolDefinition: Tool = {
-                            name,
-                            title: tool.title,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
-                                : EMPTY_OBJECT_JSON_SCHEMA,
-                            annotations: tool.annotations,
-                            icons: tool.icons,
-                            execution: tool.execution,
-                            _meta: tool._meta
-                        };
+            (request, ctx): Promise<ListToolsResult> =>
+                this.invokeAroundMcpRequest('tools/list', request, ctx, async () => ({
+                    tools: Object.entries(this._registeredTools)
+                        .filter(([, tool]) => tool.enabled)
+                        .map(([name, tool]): Tool => {
+                            const toolDefinition: Tool = {
+                                name,
+                                title: tool.title,
+                                description: tool.description,
+                                inputSchema: tool.inputSchema
+                                    ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                    : EMPTY_OBJECT_JSON_SCHEMA,
+                                annotations: tool.annotations,
+                                icons: tool.icons,
+                                execution: tool.execution,
+                                _meta: tool._meta
+                            };
 
-                        if (tool.outputSchema) {
-                            // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
-                            // `{type:'object',properties:{result:<natural>},required:['result']}` toward
-                            // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
-                            // — this handler is era-blind and emits the natural converted schema.
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
-                        }
+                            if (tool.outputSchema) {
+                                // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
+                                // `{type:'object',properties:{result:<natural>},required:['result']}` toward
+                                // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
+                                // — this handler is era-blind and emits the natural converted schema.
+                                toolDefinition.outputSchema = standardSchemaToJsonSchema(
+                                    tool.outputSchema,
+                                    'output'
+                                ) as Tool['outputSchema'];
+                            }
 
-                        return toolDefinition;
-                    })
-            })
+                            return toolDefinition;
+                        })
+                }))
         );
 
         this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
@@ -218,7 +238,13 @@ export class McpServer {
 
             try {
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-                const result = await this.executeToolHandler(tool, args, ctx);
+                const validatedRequest: RequestTypeMap['tools/call'] = {
+                    ...request,
+                    params: { ...request.params, arguments: args }
+                };
+                const result = await this.invokeAroundMcpRequest('tools/call', validatedRequest, ctx, () =>
+                    this.executeToolHandler(tool, args, ctx)
+                );
                 await this.validateToolOutput(tool, result, request.params.name);
                 if (isInputRequiredResult(result)) return result;
                 // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
@@ -437,43 +463,47 @@ export class McpServer {
             }
         });
 
-        this.server.setRequestHandler('resources/list', async (_request, ctx) => {
-            const resources = Object.entries(this._registeredResources)
-                .filter(([_, resource]) => resource.enabled)
-                .map(([uri, resource]) => ({
-                    uri,
-                    name: resource.name,
-                    ...resource.metadata
+        this.server.setRequestHandler('resources/list', (request, ctx) =>
+            this.invokeAroundMcpRequest('resources/list', request, ctx, async () => {
+                const resources = Object.entries(this._registeredResources)
+                    .filter(([_, resource]) => resource.enabled)
+                    .map(([uri, resource]) => ({
+                        uri,
+                        name: resource.name,
+                        ...resource.metadata
+                    }));
+
+                const templateResources: Resource[] = [];
+                for (const template of Object.values(this._registeredResourceTemplates)) {
+                    if (!template.resourceTemplate.listCallback) {
+                        continue;
+                    }
+
+                    const result = await template.resourceTemplate.listCallback(ctx);
+                    for (const resource of result.resources) {
+                        templateResources.push({
+                            ...template.metadata,
+                            // the defined resource metadata should override the template metadata if present
+                            ...resource
+                        });
+                    }
+                }
+
+                return { resources: [...resources, ...templateResources] };
+            })
+        );
+
+        this.server.setRequestHandler('resources/templates/list', (request, ctx) =>
+            this.invokeAroundMcpRequest('resources/templates/list', request, ctx, async () => {
+                const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
+                    name,
+                    uriTemplate: template.resourceTemplate.uriTemplate.toString(),
+                    ...template.metadata
                 }));
 
-            const templateResources: Resource[] = [];
-            for (const template of Object.values(this._registeredResourceTemplates)) {
-                if (!template.resourceTemplate.listCallback) {
-                    continue;
-                }
-
-                const result = await template.resourceTemplate.listCallback(ctx);
-                for (const resource of result.resources) {
-                    templateResources.push({
-                        ...template.metadata,
-                        // the defined resource metadata should override the template metadata if present
-                        ...resource
-                    });
-                }
-            }
-
-            return { resources: [...resources, ...templateResources] };
-        });
-
-        this.server.setRequestHandler('resources/templates/list', async () => {
-            const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
-                name,
-                uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
-            }));
-
-            return { resourceTemplates };
-        });
+                return { resourceTemplates };
+            })
+        );
 
         this.server.setRequestHandler('resources/read', async (request, ctx) => {
             let uri: URL;
@@ -495,14 +525,26 @@ export class McpServer {
                 // A per-resource cache hint is the most specific configured
                 // author for this result's 2026-07-28 cache fields; it rides a
                 // never-serialized carrier and is resolved at the encode seam.
-                return attachCacheHintFallback(await resource.readCallback(uri, ctx), resource.cacheHint);
+                const result = await this.invokeAroundMcpRequest(
+                    'resources/read',
+                    request,
+                    ctx,
+                    async () => await resource.readCallback(uri, ctx)
+                );
+                return attachCacheHintFallback(result, resource.cacheHint);
             }
 
             // Then check templates
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
-                    return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
+                    const result = await this.invokeAroundMcpRequest(
+                        'resources/read',
+                        request,
+                        ctx,
+                        async () => await template.readCallback(uri, variables, ctx)
+                    );
+                    return attachCacheHintFallback(result, template.cacheHint);
                 }
             }
 
@@ -533,20 +575,21 @@ export class McpServer {
 
         this.server.setRequestHandler(
             'prompts/list',
-            (): ListPromptsResult => ({
-                prompts: Object.entries(this._registeredPrompts)
-                    .filter(([, prompt]) => prompt.enabled)
-                    .map(([name, prompt]): Prompt => {
-                        return {
-                            name,
-                            title: prompt.title,
-                            description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
-                            icons: prompt.icons,
-                            _meta: prompt._meta
-                        };
-                    })
-            })
+            (request, ctx): Promise<ListPromptsResult> =>
+                this.invokeAroundMcpRequest('prompts/list', request, ctx, async () => ({
+                    prompts: Object.entries(this._registeredPrompts)
+                        .filter(([, prompt]) => prompt.enabled)
+                        .map(([name, prompt]): Prompt => {
+                            return {
+                                name,
+                                title: prompt.title,
+                                description: prompt.description,
+                                arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                                icons: prompt.icons,
+                                _meta: prompt._meta
+                            };
+                        })
+                }))
         );
 
         this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult | InputRequiredResult> => {
@@ -559,11 +602,32 @@ export class McpServer {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} disabled`);
             }
 
-            // Handler encapsulates parsing and callback invocation with proper types
-            return prompt.handler(request.params.arguments, ctx);
+            const args = await this.validatePromptInput(prompt, request.params.arguments, request.params.name);
+            const executor = this._promptExecutors.get(prompt);
+            if (!executor) {
+                throw new ProtocolError(ProtocolErrorCode.InternalError, `Prompt ${request.params.name} has no executor`);
+            }
+            return this.invokeAroundMcpRequest('prompts/get', request, ctx, () => executor(args, ctx));
         });
 
         this._promptHandlersInitialized = true;
+    }
+
+    /** Validates prompt arguments before routing through the operation interceptor. */
+    private async validatePromptInput(
+        prompt: RegisteredPrompt,
+        args: RequestTypeMap['prompts/get']['params']['arguments'],
+        promptName: string
+    ): Promise<unknown> {
+        if (!prompt.argsSchema) {
+            return undefined;
+        }
+
+        const parseResult = await validateStandardSchema(prompt.argsSchema, args);
+        if (!parseResult.success) {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${promptName}: ${parseResult.error}`);
+        }
+        return parseResult.data;
     }
 
     /**
@@ -742,7 +806,6 @@ export class McpServer {
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
         let currentCallback = callback;
-
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
@@ -777,6 +840,7 @@ export class McpServer {
                 }
                 if (needsHandlerRegen) {
                     registeredPrompt.handler = createPromptHandler(name, currentArgsSchema, currentCallback);
+                    this._promptExecutors.set(registeredPrompt, createPromptExecutor(currentArgsSchema, currentCallback));
                 }
 
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
@@ -784,6 +848,7 @@ export class McpServer {
             }
         };
         this._registeredPrompts[name] = registeredPrompt;
+        this._promptExecutors.set(registeredPrompt, createPromptExecutor(argsSchema, callback));
 
         // If any argument uses a Completable schema, enable completions capability
         if (argsSchema) {
@@ -1423,6 +1488,9 @@ export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = und
  */
 type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult | InputRequiredResult>;
 
+/** Invokes a prompt callback with arguments that have already been validated. */
+type PromptExecutor = (args: unknown, ctx: ServerContext) => Promise<GetPromptResult | InputRequiredResult>;
+
 type ToolCallbackInternal = (
     args: unknown,
     ctx: ServerContext
@@ -1461,28 +1529,37 @@ function createPromptHandler(
     argsSchema: StandardSchemaWithJSON | undefined,
     callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
+    const executor = createPromptExecutor(argsSchema, callback);
     if (argsSchema) {
-        const typedCallback = callback as (
-            args: unknown,
-            ctx: ServerContext
-        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
-
         return async (args, ctx) => {
             const parseResult = await validateStandardSchema(argsSchema, args);
             if (!parseResult.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }
-            return typedCallback(parseResult.data, ctx);
-        };
-    } else {
-        const typedCallback = callback as (
-            ctx: ServerContext
-        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
-
-        return async (_args, ctx) => {
-            return typedCallback(ctx);
+            return executor(parseResult.data, ctx);
         };
     }
+
+    return async (_args, ctx) => executor(undefined, ctx);
+}
+
+/** Creates an executor for prompt arguments that were validated by the caller. */
+function createPromptExecutor(
+    argsSchema: StandardSchemaWithJSON | undefined,
+    callback: PromptCallback<StandardSchemaWithJSON | undefined>
+): PromptExecutor {
+    if (argsSchema) {
+        const typedCallback = callback as (
+            args: unknown,
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
+        return async (args, ctx) => typedCallback(args, ctx);
+    }
+
+    const typedCallback = callback as (
+        ctx: ServerContext
+    ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
+    return async (_args, ctx) => typedCallback(ctx);
 }
 
 function createCompletionResult(suggestions: readonly unknown[]): CompleteResult {
