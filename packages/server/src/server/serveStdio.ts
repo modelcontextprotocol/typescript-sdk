@@ -78,7 +78,7 @@ import type { McpServerFactory } from './createMcpHandler';
 import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter';
 import { McpServer } from './mcp';
 import type { Server } from './server';
-import { installModernOnlyHandlers } from './server';
+import { installModernOnlyHandlers, serverIdentityOf } from './server';
 import { StdioServerTransport } from './stdio';
 
 /** Options for {@linkcode serveStdio}. */
@@ -518,9 +518,10 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             setNegotiatedProtocolVersion(server, revision);
             installModernOnlyHandlers(server, SUPPORTED_MODERN_PROTOCOL_VERSIONS);
             // The listen router was created before this instance existed; now
-            // that capabilities are known, hand them over so the acknowledged
-            // filter is narrowed against what the server actually advertises.
-            listenRouter.setServerCapabilities(server.getCapabilities());
+            // that capabilities are known, hand them over (with the identity
+            // stamped onto graceful-close results) so the acknowledged filter
+            // is narrowed against what the server actually advertises.
+            listenRouter.setServerCapabilities(server.getCapabilities(), serverIdentityOf(server));
         }
         const channel: StdioConnectionChannel = new StdioConnectionChannel(
             wire,

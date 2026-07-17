@@ -345,7 +345,7 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
                     resultType: 'complete',
                     supportedVersions: [MODERN],
                     capabilities: { tools: { listChanged: true }, prompts: {}, resources: {} },
-                    serverInfo: opts.serverInfo ?? { name: 'scripted', version: '1.0.0' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': opts.serverInfo ?? { name: 'scripted', version: '1.0.0' } }
                 }
             });
         } else if (r.method === 'tools/list') {
@@ -1210,7 +1210,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: { resources: {} },
-                        serverInfo: { name: 'scripted', version: '1.0.0' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1.0.0' } }
                     }
                 });
             } else if (r.method === 'resources/read') {

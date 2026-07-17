@@ -1365,7 +1365,24 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:meta:result-to-client': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
-        behavior: "_meta returned in a handler's result is delivered intact to the requesting client."
+        behavior:
+            "_meta returned in a handler's result is delivered intact to the requesting client. On a 2026-07-28 connection the delivered _meta additionally carries the SDK-stamped io.modelcontextprotocol/serverInfo key (spec PR #3002: servers SHOULD identify themselves on every response); on 2025-era connections nothing is ever added."
+    },
+    'protocol:meta:server-identity': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/discover',
+        behavior:
+            "On the 2026-07-28 revision the server identifies itself via _meta['io.modelcontextprotocol/serverInfo'] on its responses (spec PR #3002), and the client resolves getServerVersion() from the discover result's _meta.",
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'entryModern is the only arm that negotiates a real 2026-07-28 connection (the other arms run the legacy handshake), and the body also POSTs a raw discover via wired.fetch to assert the wire-level _meta stamp.'
+    },
+    'protocol:envelope:client-info-optional': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#meta',
+        behavior:
+            'A 2026-07-28 request whose per-request _meta envelope omits io.modelcontextprotocol/clientInfo is served normally — clientInfo is a SHOULD (spec PR #3002), never a validation requirement.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: "The wired SDK client always sends clientInfo (the spec SHOULD), so the omission can only be put on the wire as a raw POST through wired.fetch — which needs the entry arm's in-process endpoint."
     },
     'protocol:request-id:unique': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],

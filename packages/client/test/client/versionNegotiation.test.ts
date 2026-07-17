@@ -118,7 +118,7 @@ class ScriptedTransport implements Transport {
 const discoverResult = (supportedVersions: string[]) => ({
     supportedVersions,
     capabilities: {},
-    serverInfo: { name: 'scripted-modern-server', version: '1.0.0' }
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted-modern-server', version: '1.0.0' } }
 });
 
 /** A scripted dual-era server: answers server/discover with a DiscoverResult and initialize like a 2025 server. */

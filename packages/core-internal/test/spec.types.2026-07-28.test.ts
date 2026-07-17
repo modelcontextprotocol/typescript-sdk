@@ -492,6 +492,13 @@ const wireParityChecks = {
         sdk = spec;
         spec = sdk;
     },
+    // Result `_meta` (anchor ResultMetaObject, spec PR #3002): the typed
+    // optional serverInfo key — servers SHOULD identify themselves on every
+    // response; the encode seam owns the outbound stamp.
+    ResultMetaObject: (sdk: z4.infer<typeof Wire2026.ResultMetaSchema>, spec: SpecTypes.ResultMetaObject) => {
+        sdk = spec;
+        spec = sdk;
+    },
     EmptyResult: (sdk: WResult, spec: SpecTypes.EmptyResult) => {
         sdk = spec;
         spec = sdk;
@@ -867,7 +874,8 @@ describe('Spec Types (2026-07-28)', () => {
         expect(specTypes).toContain('InputRequiredResult');
         expect(specTypes).toContain('SubscriptionsListenRequest');
         expect(specTypes).toContain('SubscriptionsListenResult');
-        expect(specTypes).toHaveLength(153);
+        expect(specTypes).toContain('ResultMetaObject');
+        expect(specTypes).toHaveLength(154);
     });
 
     it('should only allowlist types that exist in the 2026-07-28 schema', () => {

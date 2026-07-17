@@ -124,6 +124,7 @@ export {
     ResourceTemplateSchema,
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
+    ResultMetaObjectSchema,
     ResultSchema,
     RoleSchema,
     RootSchema,

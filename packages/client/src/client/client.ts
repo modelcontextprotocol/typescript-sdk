@@ -61,6 +61,7 @@ import {
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
+    isSpecType,
     legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -74,6 +75,7 @@ import {
     scanXMcpHeaderDeclarations,
     SdkError,
     SdkErrorCode,
+    SERVER_INFO_META_KEY,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
@@ -83,6 +85,18 @@ import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache'
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation';
 import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation';
+
+/**
+ * The server identity a `DiscoverResult` carries in
+ * `_meta['io.modelcontextprotocol/serverInfo']` (a spec SHOULD — absent means
+ * the server offered no identity). Runtime-validated with the spec-type
+ * guard because `connect({ prior })` accepts caller-supplied values that
+ * never saw a wire parse.
+ */
+function serverInfoFromDiscover(discover: DiscoverResult): Implementation | undefined {
+    const fromMeta = discover._meta?.[SERVER_INFO_META_KEY];
+    return isSpecType.Implementation(fromMeta) ? fromMeta : undefined;
+}
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -1122,7 +1136,7 @@ export class Client extends Protocol<ClientContext> {
         }
 
         this._serverCapabilities = result.discover.capabilities;
-        this._serverVersion = result.discover.serverInfo;
+        this._serverVersion = serverInfoFromDiscover(result.discover);
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = result.discover.instructions;
         this._discoverResult = result.discover;
@@ -1251,7 +1265,7 @@ export class Client extends Protocol<ClientContext> {
 
         this._discoverResult = discover;
         this._serverCapabilities = discover.capabilities;
-        this._serverVersion = discover.serverInfo;
+        this._serverVersion = serverInfoFromDiscover(discover);
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = discover.instructions;
         this._negotiatedProtocolVersion = version;
@@ -1275,7 +1289,10 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * After initialization has completed, this will be populated with information about the server's name and version.
+     * The connected server's self-reported name and version, when it
+     * identified itself: required on the legacy `initialize` result; a spec
+     * SHOULD in the discover result's `_meta` on 2026-07-28, so a successful
+     * modern connect against an anonymous server leaves this `undefined`.
      */
     getServerVersion(): Implementation | undefined {
         return this._serverVersion;
@@ -1283,16 +1300,22 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The connected server's identity for response-cache partitioning. The
-     * `serverInfo` `name@version` pair when available (the spec requires it on
-     * both `initialize` and `server/discover`); falls back to the transport's
-     * `sessionId` otherwise. The value itself is server-controlled — the
-     * collision-safety of the storage partition comes from
+     * `serverInfo` `name@version` pair when available (required on
+     * `initialize`; a SHOULD in the discover result's `_meta` since spec PR
+     * #3002); falls back to the transport's `sessionId`, then to a
+     * per-connection surrogate. The surrogate matters since #3002 made
+     * identity optional: without it, two identity-less servers reached over
+     * sessionId-less transports would share the cache's pre-connect `''`
+     * partition and read each other's entries — no stable identity means no
+     * cross-connection cache reuse. The value itself is server-controlled —
+     * the collision-safety of the storage partition comes from
      * {@linkcode ClientResponseCache}'s JSON-array encoding around it, not
      * from any character it does or does not contain.
      */
     private _deriveServerIdentity(transport: Transport): string {
         const v = this._serverVersion;
-        return v === undefined ? (transport.sessionId ?? '') : `${v.name}@${v.version}`;
+        if (v !== undefined) return `${v.name}@${v.version}`;
+        return transport.sessionId ?? `anonymous:${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
     /**
