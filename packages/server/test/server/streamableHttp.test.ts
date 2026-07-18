@@ -1526,7 +1526,10 @@ describe('Zod v4', () => {
             const readerA = resA.body!.getReader();
             expect(vi.getTimerCount()).toBe(1);
 
-            // Stream B: GET with last-event-id -> replayEvents path, separate mapping key
+            // Stream B: GET with last-event-id -> replayEvents path, separate mapping key.
+            // Simulate an in-flight request for the replay stream so the
+            // early-close-for-completed-requests block keeps the stream open.
+            (transport as any)._requestToStreamMapping.set('fake-req', 'replay-stream');
             const resB = await transport.handleRequest(
                 createRequest('GET', undefined, { sessionId, extraHeaders: { 'last-event-id': 'evt-1' } })
             );

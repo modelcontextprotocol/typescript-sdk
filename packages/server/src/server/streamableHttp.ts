@@ -587,14 +587,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     streamController = controller;
                 },
                 cancel: () => {
-                    // Stream was cancelled by client — drop the mapping so a
-                    // subsequent reconnect with the same Last-Event-ID is not
-                    // refused with 409 by the conflict check above. Only delete
-                    // when the mapped entry is still THIS closure's controller:
-                    // a stale cancel from an earlier resume must not delete a
-                    // successor resumed stream a re-poll has since registered.
+                    // Always clear the closure-local keepalive timer; the
+                    // mapping may already have been removed by the early-close
+                    // block for completed requests, but the timer is still ours.
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
+                    // Drop the mapping so a subsequent reconnect with the same
+                    // Last-Event-ID is not refused with 409. Only delete when
+                    // the mapped entry is still THIS closure's controller: a
+                    // stale cancel must not delete a successor resumed stream.
                     if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
-                        if (keepAliveTimer) clearInterval(keepAliveTimer);
                         this._streamMapping.delete(replayedStreamId);
                     }
                 }
@@ -652,8 +653,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
 
             // Start keepalive timer for the replayed stream so reconnecting
-            // clients remain protected from proxy idle timeouts
-            if (this._keepAliveInterval !== undefined) {
+            // clients remain protected from proxy idle timeouts.
+            // Skip if the early-close block above already removed the mapping.
+            if (this._keepAliveInterval !== undefined && this._streamMapping.has(replayedStreamId!)) {
                 keepAliveTimer = setInterval(() => {
                     try {
                         streamController!.enqueue(encoder.encode(': keepalive\n\n'));
