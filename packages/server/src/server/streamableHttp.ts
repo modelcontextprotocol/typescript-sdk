@@ -72,6 +72,8 @@ interface StreamMapping {
     replayedEventIds?: Set<string>;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
+    /** Per-stream keepalive timer; cleared by this stream's cleanup/cancel */
+    keepAliveTimer?: ReturnType<typeof setInterval>;
 }
 
 /**
@@ -147,6 +149,15 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
+
+    /**
+     * Interval in milliseconds for sending SSE keepalive comments on the standalone
+     * GET SSE stream. When set, the transport sends periodic SSE comments
+     * (`: keepalive`) to prevent reverse proxies from closing idle connections.
+     *
+     * Disabled by default (no keepalive comments are sent).
+     */
+    keepAliveInterval?: number;
 
     /**
      * List of protocol versions that this transport will accept.
@@ -246,6 +257,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _keepAliveInterval?: number;
     private _supportedProtocolVersions: string[];
 
     sessionId?: string;
@@ -263,6 +275,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._keepAliveInterval = options.keepAliveInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     }
 
@@ -461,18 +474,33 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         const encoder = new TextEncoder();
-        let streamController: ReadableStreamDefaultController<Uint8Array>;
+        let streamController!: ReadableStreamDefaultController<Uint8Array>;
+
+        const mapping: StreamMapping = {
+            encoder,
+            cleanup: () => {
+                if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
+                this._streamMapping.delete(this._standaloneSseStreamId);
+                try {
+                    streamController.close();
+                } catch {
+                    // Controller might already be closed
+                }
+            }
+        };
 
         // Create a ReadableStream with a controller we can use to push SSE events
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 streamController = controller;
+                mapping.controller = controller;
             },
             cancel: () => {
                 // Stream was cancelled by client. Only drop the mapping when
                 // it still points at THIS controller — a stale cancel must not
                 // delete a successor stream registered by a later GET/resume.
                 if (this._streamMapping.get(this._standaloneSseStreamId)?.controller === streamController) {
+                    if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
                     this._streamMapping.delete(this._standaloneSseStreamId);
                 }
             }
@@ -489,19 +517,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
-        // Store the stream mapping with the controller for pushing data
-        this._streamMapping.set(this._standaloneSseStreamId, {
-            controller: streamController!,
-            encoder,
-            cleanup: () => {
-                this._streamMapping.delete(this._standaloneSseStreamId);
+        this._streamMapping.set(this._standaloneSseStreamId, mapping);
+
+        // Start keepalive timer to send periodic SSE comments that prevent
+        // reverse proxies from closing the connection due to idle timeouts
+        if (this._keepAliveInterval !== undefined) {
+            mapping.keepAliveTimer = setInterval(() => {
                 try {
-                    streamController!.close();
+                    streamController.enqueue(encoder.encode(': keepalive\n\n'));
                 } catch {
-                    // Controller might already be closed
+                    // Controller is closed or errored, stop sending keepalives
+                    if (mapping.keepAliveTimer) clearInterval(mapping.keepAliveTimer);
                 }
-            }
-        });
+            }, this._keepAliveInterval);
+        }
 
         return new Response(readable, { headers });
     }
@@ -551,18 +580,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // replayEventsAfter resolves) — must be `let`.
             // eslint-disable-next-line prefer-const
             let replayedStreamId: string | undefined;
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
                 },
                 cancel: () => {
-                    // Stream was cancelled by client — drop the mapping so a
-                    // subsequent reconnect with the same Last-Event-ID is not
-                    // refused with 409 by the conflict check above. Only delete
-                    // when the mapped entry is still THIS closure's controller:
-                    // a stale cancel from an earlier resume must not delete a
-                    // successor resumed stream a re-poll has since registered.
+                    // Always clear the closure-local keepalive timer; the
+                    // mapping may already have been removed by the early-close
+                    // block for completed requests, but the timer is still ours.
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
+                    // Drop the mapping so a subsequent reconnect with the same
+                    // Last-Event-ID is not refused with 409. Only delete when
+                    // the mapped entry is still THIS closure's controller: a
+                    // stale cancel must not delete a successor resumed stream.
                     if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
                         this._streamMapping.delete(replayedStreamId);
                     }
@@ -577,7 +609,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
                         try {
-                            streamController!.close();
+                            streamController.close();
                         } catch {
                             // Controller might already be closed
                         }
@@ -585,11 +617,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            this._streamMapping.set(replayedStreamId, {
+            const mapping: StreamMapping = {
                 controller: streamController!,
                 encoder,
                 replayedEventIds,
                 cleanup: () => {
+                    if (keepAliveTimer) clearInterval(keepAliveTimer);
                     this._streamMapping.delete(replayedStreamId!);
                     try {
                         streamController!.close();
@@ -597,7 +630,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         // Controller might already be closed
                     }
                 }
-            });
+            };
+            this._streamMapping.set(replayedStreamId!, mapping);
 
             // If this is a per-request stream and no in-flight request still
             // targets this streamId, the request was already retired by the
@@ -616,6 +650,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         // Controller might already be closed
                     }
                 }
+            }
+
+            // Start keepalive timer for the replayed stream so reconnecting
+            // clients remain protected from proxy idle timeouts.
+            // Skip if the early-close block above already removed the mapping.
+            if (this._keepAliveInterval !== undefined && this._streamMapping.has(replayedStreamId!)) {
+                keepAliveTimer = setInterval(() => {
+                    try {
+                        streamController!.enqueue(encoder.encode(': keepalive\n\n'));
+                    } catch {
+                        if (keepAliveTimer) clearInterval(keepAliveTimer);
+                    }
+                }, this._keepAliveInterval);
+                mapping.keepAliveTimer = keepAliveTimer;
             }
 
             return new Response(readable, { headers });
@@ -980,7 +1028,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
         this._closed = true;
 
-        // Close all SSE connections
+        // Close all SSE connections (each cleanup() also clears its own keepAliveTimer)
         for (const { cleanup } of this._streamMapping.values()) {
             cleanup();
         }
