@@ -430,6 +430,19 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('should include response details when opening an SSE stream fails', async () => {
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 503,
+            statusText: '',
+            text: () => Promise.resolve('upstream reset'),
+            headers: new Headers()
+        });
+
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).rejects.toThrow('Failed to open SSE stream: upstream reset');
+    });
+
     it('should handle successful initial GET connection for SSE', async () => {
         // Set up readable stream for SSE events
         const encoder = new TextEncoder();
@@ -551,6 +564,13 @@ describe('StreamableHTTPClientTransport', () => {
         };
         expect(transportInstance._reconnectionOptions.initialReconnectionDelay).toBe(500);
         expect(transportInstance._reconnectionOptions.maxRetries).toBe(5);
+    });
+
+    it('should use a production-friendly default reconnection retry count', () => {
+        const transportInstance = transport as unknown as {
+            _reconnectionOptions: StreamableHTTPReconnectionOptions;
+        };
+        expect(transportInstance._reconnectionOptions.maxRetries).toBe(10);
     });
 
     it('should pass lastEventId when reconnecting', async () => {
@@ -2498,6 +2518,132 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Verify no reconnection was scheduled
             expect(transport['_cancelReconnection']).toBeUndefined();
+        });
+
+        it('should reject accepted requests after standalone SSE reconnection is exhausted', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            (globalThis.fetch as Mock).mockClear();
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                text: () => Promise.resolve(''),
+                headers: new Headers()
+            });
+
+            // ACT - exhaust the transport-lifetime GET SSE stream.
+            transport['_scheduleReconnection']({ isStandalone: true });
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {},
+                id: 'call-1'
+            };
+
+            await expect(transport.send(message)).rejects.toThrow(
+                'Cannot receive a response for the accepted request because the Streamable HTTP SSE stream is disconnected and reconnection attempts have been exhausted'
+            );
+
+            // ASSERT - the 202 response was rejected instead of leaving the request pending forever.
+            expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenNthCalledWith(
+                1,
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (0) exceeded.'
+                })
+            );
+            expect(errorSpy).toHaveBeenNthCalledWith(
+                2,
+                expect.objectContaining({
+                    message: expect.stringContaining('Cannot receive a response for the accepted request')
+                })
+            );
+        });
+
+        it('should allow direct responses after standalone SSE reconnection is exhausted', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const responseMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                result: { content: [{ type: 'text', text: 'still works' }] },
+                id: 'call-1'
+            };
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+            (globalThis.fetch as Mock).mockClear();
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: () => Promise.resolve(responseMessage)
+            });
+
+            // ACT - exhaust the transport-lifetime GET SSE stream.
+            transport['_scheduleReconnection']({ isStandalone: true });
+
+            await expect(
+                transport.send({
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: {},
+                    id: 'call-1'
+                })
+            ).resolves.toBeUndefined();
+
+            // ASSERT
+            expect(messageSpy).toHaveBeenCalledWith(responseMessage);
+            expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('should not fail subsequent sends after per-request stream reconnection is exhausted', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            const onRequestStreamEnd = vi.fn();
+
+            // ACT - exhaust a per-request stream without marking the standalone channel dead.
+            transport['_scheduleReconnection']({ onRequestStreamEnd });
+
+            (globalThis.fetch as Mock).mockClear();
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                text: () => Promise.resolve(''),
+                headers: new Headers()
+            });
+
+            await expect(transport.send({ jsonrpc: '2.0', method: 'notifications/ping', params: {} })).resolves.toBeUndefined();
+
+            // ASSERT
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(transport['_standaloneSseReconnectionError']).toBeUndefined();
+            expect(globalThis.fetch).toHaveBeenCalledTimes(1);
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
