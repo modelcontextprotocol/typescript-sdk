@@ -1137,14 +1137,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     // the wire code for a handler-thrown error, so per-era
                     // wire-code policy lives in the codec rather than in any
                     // handler. Non-integer codes still fall through to −32603.
-                    const thrownCode = Number.isSafeInteger(error['code']) ? (error['code'] as number) : ProtocolErrorCode.InternalError;
+                    // Coalesce the reason first: a handler may reject with a
+                    // nullish value (a bare `reject()` or `throw null`), and
+                    // indexing `error['code']` on it would throw here and strand
+                    // the peer with no error response at all.
+                    const reason = (error ?? {}) as { code?: unknown; message?: string; data?: unknown };
+                    const thrownCode = Number.isSafeInteger(reason.code) ? (reason.code as number) : ProtocolErrorCode.InternalError;
                     const errorResponse: JSONRPCErrorResponse = {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
                             code: codec.encodeErrorCode(thrownCode),
-                            message: error.message ?? 'Internal error',
-                            ...(error['data'] !== undefined && { data: error['data'] })
+                            message: reason.message ?? 'Internal error',
+                            ...(reason.data !== undefined && { data: reason.data })
                         }
                     };
                     await capturedTransport?.send(errorResponse);
