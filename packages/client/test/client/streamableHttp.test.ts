@@ -1984,6 +1984,54 @@ describe('StreamableHTTPClientTransport', () => {
             // Resumption token callback may be invoked, but the primary assertion
             // here is that no JSON parse errors occurred for the priming event.
         });
+
+        it('should thread onresumptiontoken and onRequestStreamEnd through the send() resume path', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 0
+                }
+            });
+
+            const resumptionTokenSpy = vi.fn();
+            const streamEndSpy = vi.fn();
+
+            // The resumed stream delivers one id-bearing event, then ends
+            // (maxRetries 0 above: the end is non-resumable, no reconnect).
+            const resumedStream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode('id: evt-2\ndata: {"jsonrpc":"2.0","result":{},"id":"req-1"}\n\n'));
+                    controller.close();
+                }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: resumedStream
+            });
+
+            await transport.start();
+            transport.send(
+                { jsonrpc: '2.0', method: 'tools/call', id: 'req-1', params: {} },
+                { resumptionToken: 'evt-1', onresumptiontoken: resumptionTokenSpy, onRequestStreamEnd: streamEndSpy }
+            );
+
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Sanity: the resume send() opened a GET carrying Last-Event-ID
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect((fetchMock.mock.calls[0]![1]?.headers as Headers).get('last-event-id')).toBe('evt-1');
+            // The caller's callbacks must stay wired across the resume:
+            // new tokens are reported for persistence…
+            expect(resumptionTokenSpy).toHaveBeenCalledWith('evt-2');
+            // …and the non-resumable end of the request stream is surfaced.
+            expect(streamEndSpy).toHaveBeenCalled();
+        });
     });
 
     it('invalidates all credentials on OAuthErrorCode.InvalidClient during auth', async () => {
