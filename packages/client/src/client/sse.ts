@@ -168,11 +168,17 @@ export class SSEClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
+        // Order matters: caller-supplied headers (e.g. an `Authorization` placeholder
+        // for an env-var API key) are merged first, then the SDK-derived common
+        // headers spread on top. This lets OAuth-derived tokens override any
+        // stale user-supplied header (matching the order used in streamableHttp
+        // and the rest of the SDK) without requiring the caller to know which
+        // common headers the client will compute at request time. See #2208.
         const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
         return new Headers({
-            ...headers,
-            ...extraHeaders
+            ...extraHeaders,
+            ...headers
         });
     }
 
