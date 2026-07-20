@@ -30,3 +30,28 @@ export const process = {
         return notSupported();
     }
 };
+
+/**
+ * Single-slot fallback for environments without `node:async_hooks` (workerd
+ * without the `nodejs_compat` flag). Unlike the real `AsyncLocalStorage`, the
+ * store is only guaranteed live for the SYNCHRONOUS portion of `run()`'s
+ * callback — it is cleared as soon as that call returns, not after any
+ * promise it returns settles. This still covers the common case (a handler
+ * that triggers a related notification before its first `await`); a handler
+ * that awaits first and only then triggers one loses the association here.
+ */
+export class AsyncLocalStorage<T> {
+    private _store: T | undefined;
+    getStore(): T | undefined {
+        return this._store;
+    }
+    run<A extends unknown[], R>(store: T, cb: (...args: A) => R, ...args: A): R {
+        const prev = this._store;
+        this._store = store;
+        try {
+            return cb(...args);
+        } finally {
+            this._store = prev;
+        }
+    }
+}
