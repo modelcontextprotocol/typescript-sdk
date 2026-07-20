@@ -84,7 +84,15 @@ import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation';
-import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation';
+import {
+    detectProbeEnvironment,
+    detectProbeTransportKind,
+    disarmSpentCloseGuard,
+    negotiateEra,
+    negotiateStdioViaSibling,
+    readStdioServerParams,
+    resolveVersionNegotiation
+} from './versionNegotiation';
 
 /**
  * The server identity a `DiscoverResult` carries in
@@ -199,11 +207,16 @@ export type ClientOptions = ProtocolOptions & {
      * - `mode: 'auto'` — `connect()` probes the server with `server/discover` first:
      *   definitive modern evidence selects the modern era; definitive legacy signals
      *   (and anything unrecognized) fall back to the plain legacy `initialize`
-     *   handshake on the same connection, byte-equivalent to a 2025 client. A
+     *   handshake, byte-equivalent to a 2025 client. On the SDK's own stdio
+     *   transport (the base `StdioClientTransport` exactly; subclasses probe in
+     *   place) the probe runs on a short-lived sibling process spawned from the
+     *   same parameters (one extra spawn per connect; its stderr is discarded) and
+     *   the caller's transport starts once, after the era is known; HTTP — and
+     *   custom or subclassed stdio-shaped transports — probe on the connection itself. A
      *   network outage rejects with a typed connect error. A probe timeout is
      *   transport-aware: on stdio it indicates a legacy server (some legacy servers
      *   never answer unknown pre-`initialize` requests) and falls back to
-     *   `initialize` on the same stream; on HTTP it rejects with a typed timeout
+     *   `initialize`; on HTTP it rejects with a typed timeout
      *   error (silence on a deployed server is an outage, not a legacy signal).
      * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
      *   no probe-and-fallback: anything else fails loudly.
@@ -1014,8 +1027,9 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The 2025 `initialize` handshake — the body of the plain legacy connect and
-     * the `'auto'`-mode fallback path (same connection, same `initialize` body,
-     * zero 2026 headers). Callers clear the negotiated protocol version before
+     * the `'auto'`-mode fallback path (same `initialize` body, zero 2026 headers;
+     * on the stdio sibling path it opens the session child's fresh pipe, in the
+     * in-place modes it rides the probed connection). Callers clear the negotiated protocol version before
      * the handshake; its completion sets the negotiated (legacy) version.
      */
     private async _legacyHandshake(transport: Transport, options?: RequestOptions): Promise<void> {
@@ -1087,8 +1101,9 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Negotiated connect (mode `'auto'` or `{ pin }`): probe with `server/discover`
-     * before the Protocol machinery attaches, then either establish the modern era
-     * or perform the plain legacy handshake on the same connection.
+     * before the Protocol machinery attaches — on a disposable sibling process for
+     * the SDK's stdio transport, in place otherwise — then either establish the
+     * modern era or perform the plain legacy handshake.
      */
     private async _connectNegotiated(
         transport: Transport,
@@ -1112,25 +1127,48 @@ export class Client extends Protocol<ClientContext> {
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
-            result = await negotiateEra(negotiation, {
-                transport,
+            const transportKind = detectProbeTransportKind(transport);
+            const baseDeps = {
                 clientInfo: this._clientInfo,
                 capabilities: this._capabilities,
                 environment: detectProbeEnvironment(),
-                transportKind: detectProbeTransportKind(transport),
                 defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
-            });
+            };
+            // The SDK's stdio transport probes on a disposable sibling process,
+            // so the caller's transport spends its one child life on the
+            // session, never on the probe. Stdio-shaped transports without
+            // readable spawn parameters (and HTTP) probe in place, as before.
+            const stdioParams = transportKind === 'stdio' ? readStdioServerParams(transport) : undefined;
+            result =
+                stdioParams === undefined
+                    ? await negotiateEra(negotiation, { ...baseDeps, transport, transportKind })
+                    : await negotiateStdioViaSibling(negotiation, transport, stdioParams, baseDeps);
         } catch (error) {
             // Typed connect error — close the channel like a failed initialize does.
             await transport.close().catch(() => {});
+            // The cleanup close has settled: any re-delivery of a spent
+            // mid-probe close has happened by now, so the spent-close guard
+            // must not outlive it — on transports whose close() never re-fires
+            // onclose (stdio), an armed guard would swallow the next GENUINE
+            // close after a restart.
+            disarmSpentCloseGuard(transport);
             throw error;
         }
+
+        // Success path: no cleanup close ever runs here, so no re-delivery of a
+        // spent mid-window close is coming — disarm any guard NOW, before
+        // Protocol chains the handler slot, or an in-place negotiation that
+        // succeeded after a same-tick reply-then-close would carry the armed
+        // skip into the live session and swallow its first genuine close.
+        disarmSpentCloseGuard(transport);
 
         await super.connect(transport);
 
         if (result.era === 'legacy') {
-            // Conservative fallback: the plain legacy handshake on the SAME
-            // connection (the probe never touched the transport version slot).
+            // Conservative fallback: the in-place probing modes run the plain
+            // legacy handshake on the probed connection; the sibling path runs
+            // it as the session child's first exchange (the probe never touched
+            // the transport version slot either way).
             await this._legacyHandshake(transport, options);
             return;
         }

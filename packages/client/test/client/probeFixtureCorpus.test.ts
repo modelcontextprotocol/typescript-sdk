@@ -89,7 +89,7 @@ const CORPUS: CorpusRow[] = [
     },
     // --- T9 edge 3: probe success but no version overlap → initialize on the SAME connection.
     {
-        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize on the same connection)',
+        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize fallback)',
         outcome: {
             kind: 'result',
             result: { supportedVersions: ['2027-01-01'], capabilities: {} }

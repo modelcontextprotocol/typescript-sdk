@@ -30,7 +30,7 @@ console.log(client.getProtocolEra());
 modern
 ```
 
-Point the same options at a 2025-only server and `connect()` falls back to the `initialize` handshake on the same connection — one extra round trip, no error.
+Point the same options at a 2025-only server and `connect()` falls back to the `initialize` handshake — one extra round trip, no error (on the SDK's stdio transport the probe rides a disposable sibling process; see below).
 
 ```ts source="../examples/guides/protocolVersions.examples.ts#versionNegotiation_fallback"
 const fallback = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
@@ -99,12 +99,14 @@ const cli = new Client(
 );
 ```
 
-A probe timeout is transport-aware. On stdio a silent server is a legacy server, so `connect()` falls back to `initialize` on the same stream; on HTTP silence is an outage, so `connect()` rejects with `SdkError(RequestTimeout)` instead of misreporting a dead server as legacy. One browser exception: an opaque CORS `TypeError` during the probe falls back to the legacy era, because deployed 2025 servers commonly have allow-lists that predate the 2026 headers.
+A probe timeout is transport-aware. On stdio a silent server is a legacy server, so `connect()` falls back to `initialize`; on HTTP silence is an outage, so `connect()` rejects with `SdkError(RequestTimeout)` instead of misreporting a dead server as legacy. One browser exception: an opaque CORS `TypeError` during the probe falls back to the legacy era, because deployed 2025 servers commonly have allow-lists that predate the 2026 headers.
+
+On the SDK's own stdio transport (exactly `StdioClientTransport` — subclasses, like custom stdio-shaped transports, probe in place) the probe runs on a short-lived **sibling process** spawned from the same parameters — some stdio servers exit on any pre-`initialize` request (servers built on the official Rust SDK, rmcp, behave this way), so the probe must not spend the caller's one child process. The sibling is invisible infrastructure: its stderr is discarded and it is reaped once the era is known; the caller's transport spawns exactly once, afterwards, and its wire never carries `server/discover`. A child that exits on the probe is simply a legacy server (its exit must close the child's stdio pipes to register — an exit hidden behind a helper process holding them open falls to the probe-timeout path). Closing the caller's transport during the probe aborts `connect()` with a typed `SdkError(EraNegotiationFailed)` and the session child is never spawned. On HTTP — and on custom stdio-shaped transports, which probe in place — a mid-probe connection close rejects with the same typed error as any probe transport failure.
 
 The client's `supportedProtocolVersions` option shapes the probe: its 2026+ entries are the versions the probe offers, and the legacy fallback stays available only while the list keeps a pre-2026 entry. A list with no pre-2026 entry removes the fallback — against a 2025-only server, `connect()` rejects with `SdkError(EraNegotiationFailed)`.
 
 ::: warning
-Do not default a spawn-per-invocation CLI tool to `'auto'`. On stdio, a legacy server that never answers unknown pre-`initialize` requests stalls `connect()` for the full probe timeout before falling back, and the extra round trip changes recorded transcripts. Keep the default and expose `'auto'` (or a pin) as a flag.
+Do not default a spawn-per-invocation CLI tool to `'auto'`. On stdio, a legacy server that never answers unknown pre-`initialize` requests stalls `connect()` for the full probe timeout before falling back, and the probe spawns an extra short-lived server process per connect. Keep the default and expose `'auto'` (or a pin) as a flag.
 :::
 
 ## Serve both eras from one entry point
