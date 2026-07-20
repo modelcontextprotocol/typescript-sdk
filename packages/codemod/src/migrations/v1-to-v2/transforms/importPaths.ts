@@ -225,9 +225,9 @@ export const importPathsTransform: Transform = {
                         );
                     }
                 }
-                // Qualified accesses to symbols with no v2 export (`ns.Protocol`) can't be fixed by
+                // Qualified accesses to symbols with no v2 export (`ns.GoneClass`) can't be fixed by
                 // moving the namespace binding — flag each accessed one. Expression positions are
-                // PropertyAccessExpressions; type positions (`let p: ns.Protocol`) are QualifiedNames.
+                // PropertyAccessExpressions; type positions (`let p: ns.GoneClass`) are QualifiedNames.
                 if (mapping.removedSymbols) {
                     const nsName = namespaceImport.getText();
                     const accessedRemoved = new Map<string, Node>();

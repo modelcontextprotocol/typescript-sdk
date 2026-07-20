@@ -78,6 +78,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation';
@@ -322,18 +323,43 @@ export type ClientOptions = ProtocolOptions & {
 /**
  * Options for {@linkcode Client.connect}. Extends {@linkcode RequestOptions}
  * (the timeout/signal apply to the connect-time handshake or probe) with the
- * zero-round-trip reconnect knob.
+ * cached-era-verdict knob.
  */
 export type ConnectOptions = RequestOptions & {
     /**
-     * A previously-obtained {@linkcode DiscoverResult} (see
-     * {@linkcode Client.getDiscoverResult}). When supplied, `connect()` adopts
-     * it directly — zero round trips. 2026-07-28+ only: throws
-     * `SdkError(EraNegotiationFailed)` when there is no modern overlap. Only
-     * reuse across clients presenting the same authorization context.
+     * A cached era verdict, taking precedence over `versionNegotiation`:
+     * `{ kind: 'modern', discover }` adopts a prior {@linkcode DiscoverResult}
+     * with zero round trips (throws `SdkError(EraNegotiationFailed)` on no
+     * 2026-07-28+ overlap); `{ kind: 'legacy' }` skips the probe and runs the
+     * plain legacy `initialize` handshake. Freshness is the supplying host's
+     * responsibility — see {@linkcode PriorDiscovery}. Reuse only within one
+     * authorization context.
      */
-    prior?: DiscoverResult;
+    prior?: PriorDiscovery;
 };
+
+/**
+ * Rejects malformed persisted blobs with a typed `SdkError` before any state
+ * change: unrecognized `kind`, a legacy verdict also carrying
+ * DiscoverResult-shaped members (a corrupt blob must never era-choose), or a
+ * modern `discover` payload failing the wire path's schema.
+ */
+function validatePrior(prior: PriorDiscovery): PriorDiscovery {
+    if (typeof prior === 'object' && prior !== null) {
+        if (prior.kind === 'legacy' && !('supportedVersions' in prior) && !('discover' in prior)) {
+            return prior;
+        }
+        // Validation only: the blob is adopted verbatim, so unknown nested
+        // members survive re-persistence via getDiscoverResult().
+        if (prior.kind === 'modern' && DiscoverResultSchema.safeParse(prior.discover).success) {
+            return prior;
+        }
+    }
+    throw new SdkError(
+        SdkErrorCode.EraNegotiationFailed,
+        "connect({ prior }): unrecognized prior — expected { kind: 'modern', discover } or { kind: 'legacy' }"
+    );
+}
 
 /**
  * {@linkcode RequestOptions} extended with the per-call cache disposition for
@@ -927,16 +953,25 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     override async connect(transport: Transport, options?: ConnectOptions): Promise<void> {
-        if (options?.prior !== undefined) {
-            // Zero-round-trip reconnect from a previously-obtained
-            // DiscoverResult: bypasses versionNegotiation resolution entirely.
-            return this._connectFromPrior(transport, options.prior);
+        // `!= null`: a persisted prior slot naturally revives as JSON `null`
+        // — treat it like an absent option, not a shape error.
+        if (options?.prior != null) {
+            // Cached era verdict: bypasses versionNegotiation resolution entirely.
+            return this._connectFromPrior(transport, validatePrior(options.prior), options);
         }
+        // The configured versionNegotiation mode decides the era.
         const negotiation = resolveVersionNegotiation(this._versionNegotiation, this._supportedProtocolVersionsOption);
         if (negotiation.kind !== 'legacy') {
             return this._connectNegotiated(transport, negotiation, options);
         }
-        // Plain legacy connect — the pinned 2025 sequence, byte-untouched.
+        return this._connectPlainLegacy(transport, options);
+    }
+
+    /**
+     * Plain legacy connect — the pinned 2025 sequence, byte-untouched. The
+     * `mode: 'legacy'` connect body, shared with the `prior` legacy verdict.
+     */
+    private async _connectPlainLegacy(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
@@ -1186,32 +1221,39 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Connect from a previously-obtained {@linkcode DiscoverResult}. Always
-     * zero-round-trip; throws `EraNegotiationFailed` when there is no
-     * 2026-07-28+ overlap (no legacy fallback). See {@linkcode ConnectOptions}.
+     * Connect from a validated {@linkcode PriorDiscovery}: the modern arm
+     * adopts the `DiscoverResult` (zero round trips; `EraNegotiationFailed`
+     * on no 2026-07-28+ overlap), the legacy arm runs the plain legacy connect.
      */
-    private async _connectFromPrior(transport: Transport, prior: DiscoverResult): Promise<void> {
+    private async _connectFromPrior(transport: Transport, prior: PriorDiscovery, options?: RequestOptions): Promise<void> {
+        if (prior.kind === 'legacy') {
+            // Known-legacy verdict: byte-identical to a mode: 'legacy' connect.
+            return this._connectPlainLegacy(transport, options);
+        }
+        const discover = prior.discover;
         this._resetConnectionState();
 
         const explicit = this._supportedProtocolVersionsOption;
         const clientModern =
             explicit && modernProtocolVersions(explicit).length > 0 ? modernProtocolVersions(explicit) : SUPPORTED_MODERN_PROTOCOL_VERSIONS;
-        const version = clientModern.find(v => prior.supportedVersions.includes(v));
+        const version = clientModern.find(v => discover.supportedVersions.includes(v));
         if (version === undefined) {
             throw new SdkError(
                 SdkErrorCode.EraNegotiationFailed,
-                "connect({ prior }) requires a 2026-07-28+ mutual protocol version; the supplied DiscoverResult and this client's " +
-                    "supportedProtocolVersions have no modern overlap. Use versionNegotiation: { mode: 'auto' } for legacy-era fallback."
+                'connect({ prior }) with a modern verdict requires a 2026-07-28+ mutual protocol version; the supplied DiscoverResult and ' +
+                    "this client's supportedProtocolVersions have no modern overlap. For a server known to be legacy, pass " +
+                    "prior: { kind: 'legacy' } to skip the probe and initialize directly, or use " +
+                    "versionNegotiation: { mode: 'auto' } to re-probe with legacy fallback."
             );
         }
 
         await super.connect(transport);
 
-        this._discoverResult = prior;
-        this._serverCapabilities = prior.capabilities;
-        this._serverVersion = prior.serverInfo;
+        this._discoverResult = discover;
+        this._serverCapabilities = discover.capabilities;
+        this._serverVersion = discover.serverInfo;
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
-        this._instructions = prior.instructions;
+        this._instructions = discover.instructions;
         this._negotiatedProtocolVersion = version;
         transport.setProtocolVersion?.(version);
 
@@ -1284,8 +1326,11 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The {@linkcode DiscoverResult} from the last `'auto'`/pinned probe,
-     * {@linkcode discover} call, or `connect({ prior })`. Persistable via
-     * `JSON.stringify`; feed to {@linkcode ConnectOptions} `prior`.
+     * {@linkcode discover} call, or `connect({ prior })` that adopted a
+     * modern verdict (a legacy verdict leaves this `undefined` — there is no
+     * `DiscoverResult` on that path). Persistable via `JSON.stringify`; wrap
+     * as `{ kind: 'modern', discover }` and feed to {@linkcode ConnectOptions}
+     * `prior`.
      */
     getDiscoverResult(): DiscoverResult | undefined {
         return this._discoverResult;

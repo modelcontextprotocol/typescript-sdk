@@ -74,6 +74,12 @@ The rejection is a typed, local `SdkError` — nothing reaches the server beyond
 ERA_NEGOTIATION_FAILED: Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)
 ```
 
+## Skip the probe with a cached verdict
+
+`mode: 'auto'` pays the probe on every fresh connect. A host that already knows the server's era — from a registry entry, or an earlier connection's outcome — skips it by supplying `ConnectOptions.prior`, the exported `PriorDiscovery` type: `{ kind: 'modern', discover }` adopts a previously obtained `DiscoverResult` with zero round trips, and `{ kind: 'legacy' }` goes straight to the `initialize` handshake.
+
+Freshness is the host's job, not the SDK's: a stale modern verdict fails loudly at the first request, but a stale legacy verdict succeeds silently against an upgraded server — so date cached legacy verdicts in your own storage and stop supplying them past your policy horizon. [Caching discovery verdicts](./advanced/gateway.md#caching-discovery-verdicts) shows the full loop, including the re-probe that re-populates the cache.
+
 ## Understand the probe
 
 `probe` bounds the `server/discover` round trip that `'auto'` and a pin run before anything else.
