@@ -1,4 +1,4 @@
-import { ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
+import { deserializeMessage, InvalidJsonRpcFrameError, ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
 import type { JSONRPCMessage } from '../../src/types/index';
 
 const testMessage: JSONRPCMessage = {
@@ -110,7 +110,20 @@ describe('non-JSON line filtering', () => {
         const readBuffer = new ReadBuffer();
         readBuffer.append(Buffer.from('{"not": "a jsonrpc message"}\n'));
 
-        expect(() => readBuffer.readMessage()).toThrow();
+        expect(() => readBuffer.readMessage()).toThrow(InvalidJsonRpcFrameError);
+    });
+
+    test('should preserve the parsed frame when valid JSON fails schema validation', () => {
+        const rawFrame = { id: 99, method: 'tools/list', params: {} };
+
+        expect(() => deserializeMessage(JSON.stringify(rawFrame))).toThrow(InvalidJsonRpcFrameError);
+
+        try {
+            deserializeMessage(JSON.stringify(rawFrame));
+        } catch (error) {
+            expect(error).toBeInstanceOf(InvalidJsonRpcFrameError);
+            expect((error as InvalidJsonRpcFrameError).rawFrame).toEqual(rawFrame);
+        }
     });
 });
 
