@@ -4,9 +4,9 @@
  * This module defines the stable, public-facing API surface. Client and server
  * packages re-export from here so that end users only see supported symbols.
  *
- * Internal utilities (Protocol class, stdio parsing, schema helpers, etc.)
- * remain available via the internal barrel (@modelcontextprotocol/core-internal) for
- * use by client/server packages.
+ * Internal utilities (stdio parsing, schema helpers, etc.) remain available via the
+ * internal barrel (@modelcontextprotocol/core-internal) for use by client/server
+ * packages.
  */
 
 // Auth error classes
@@ -45,7 +45,7 @@ export { isJsonContentType } from '../../shared/mediaType';
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 
-// Protocol types (NOT the Protocol class itself or mergeCapabilities)
+// Protocol types and the Protocol base class
 export type {
     BaseContext,
     ClientContext,
@@ -57,7 +57,7 @@ export type {
     RequestStateAccessor,
     ServerContext
 } from '../../shared/protocol';
-export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol';
+export { DEFAULT_REQUEST_TIMEOUT_MSEC, mergeCapabilities, Protocol } from '../../shared/protocol';
 
 // stdio message framing utilities (for custom transport authors)
 export { deserializeMessage, ReadBuffer, serializeMessage, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../shared/stdio';

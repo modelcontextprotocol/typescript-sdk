@@ -74,6 +74,7 @@ export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, Request
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware';
 export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware';
+export type { PriorDiscovery } from './client/probeClassifier';
 export type {
     CacheEntry,
     CacheKey,
