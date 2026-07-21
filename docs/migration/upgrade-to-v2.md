@@ -1246,6 +1246,10 @@ same handling as the POST send path.
 `saveClientInformation()` and threads `{ issuer }` as the `ctx` argument to those
 methods plus `tokens()` / `clientInformation()`. On read, a stored value whose `issuer`
 names a different AS is treated as `undefined` and the flow re-registers / re-authorizes.
+A fresh `resource_metadata` challenge re-probes protected-resource metadata even when
+discovery is cached. If validated metadata selects a new AS, the SDK discards AS-bound
+tokens and client credentials before continuing; portable HTTPS CIMD client IDs are
+retained. A cached URL merely carried into a callback does not trigger rediscovery.
 **Round-trip the stored object verbatim and you're protected** — single-slot storage
 works. Dropping the stamp is easy to miss: a `saveTokens()` implementation that
 rebuilds the object field-by-field and drops `issuer` leaves the value unstamped —
@@ -1259,7 +1263,9 @@ no `ctx`). New TypeScript-only aliases `StoredOAuthTokens` / `StoredOAuthClientI
 add an optional `issuer?: string` field on top of the wire types.
 
 `OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are
-`@deprecated` (still written for back-compat, never read by the SDK). The bundled
+`@deprecated`. They remain a legacy fallback for detecting a prior AS when no persisted
+discovery state exists; new providers should use `discoveryState()` and issuer-stamped
+credentials. The bundled
 `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, and
 `CrossAppAccessProvider` gain `expectedIssuer?: string` and no longer define
 `saveClientInformation()`. Implement `discoveryState()` / `saveDiscoveryState()` so the
