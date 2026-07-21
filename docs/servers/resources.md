@@ -214,11 +214,14 @@ The notification tells connected clients to call `resources/list` again. A chang
 
 ## Serve per-resource subscriptions
 
-A 2025-era client opts into `notifications/resources/updated` for one URI with `resources/subscribe`. The SDK routes the verb; the bookkeeping is yours: advertise the capability, track the URIs per connection, and send the notification to subscribers only.
+A 2025-era client opts into `notifications/resources/updated` for one URI with `resources/subscribe`. Declaring `resources: { subscribe: true }` is the whole opt-in: at connect time the SDK installs the `resources/subscribe` and `resources/unsubscribe` handlers and records the subscribed URIs in `resourceSubscriptions`. Sending the notification to subscribers only stays your call.
 
 ```ts source="../../examples/guides/servers/resources.examples.ts#sendResourceUpdated_subscribers"
 let deployStatus = 'idle';
 
+// Declaring `resources.subscribe` is the whole opt-in: at connect time the SDK
+// installs the subscribe/unsubscribe handlers and records this connection's
+// subscribed URIs in `deploys.resourceSubscriptions`.
 const deploys = new McpServer({ name: 'deploys', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
 
 deploys.registerResource(
@@ -228,26 +231,15 @@ deploys.registerResource(
     async uri => ({ contents: [{ uri: uri.href, text: deployStatus }] })
 );
 
-// The SDK routes the two verbs; which URIs this connection watches is yours to track.
-const subscribedUris = new Set<string>();
-deploys.server.setRequestHandler('resources/subscribe', request => {
-    subscribedUris.add(request.params.uri);
-    return {};
-});
-deploys.server.setRequestHandler('resources/unsubscribe', request => {
-    subscribedUris.delete(request.params.uri);
-    return {};
-});
-
 async function setDeployStatus(status: string): Promise<void> {
     deployStatus = status;
-    if (subscribedUris.has('deploys://status')) {
-        await deploys.server.sendResourceUpdated({ uri: 'deploys://status' });
+    if (deploys.resourceSubscriptions.has('deploys://status')) {
+        await deploys.sendResourceUpdated({ uri: 'deploys://status' });
     }
 }
 ```
 
-The `Set` belongs to one server instance, and each connection gets its own instance from your factory — a subscription never leaks across connections. Send `resources/updated` only to connections that subscribed; unsolicited per-resource updates are wrong on 2025-era connections.
+The set belongs to one server instance, and each connection gets its own instance from your factory — a subscription never leaks across connections. Send `resources/updated` only to connections that subscribed; unsolicited per-resource updates are wrong on 2025-era connections. To refuse a subscription, call `trackResourceSubscriptions({ onSubscribe: uri => { ... } })` before connecting instead of relying on the automatic install: the hook runs before the URI is recorded, and a throw is returned to the client as the request's error (`onUnsubscribe` is symmetric). Handlers you hand-register on `server.server` always win — the automatic install skips when either verb already has one.
 
 The pattern needs a connection that outlives the subscribe call: over stdio (and any sessionful wiring) the instance and its `Set` live as long as the connection. Behind `createMcpHandler`'s stateless legacy fallback each POST gets a fresh instance, so `resources/subscribe` succeeds and the `Set` is discarded with it — no update can ever be delivered on that posture. [Support legacy clients](../serving/legacy-clients.md) covers the serving postures.
 
@@ -255,7 +247,7 @@ The pattern needs a connection that outlives the subscribe call: over stdio (and
 On [2026-07-28](../protocol-versions.md) connections the verb does not exist: clients name resource URIs in their `subscriptions/listen` filter, and the entry filters delivery itself — `serveStdio` routes the instance's own `sendResourceUpdated` call onto matching streams, and `createMcpHandler` delivers what you publish on its notifier ([Notifications](./notifications.md#publish-a-resource-update-through-the-handler)).
 :::
 
-A dual-era server therefore still calls `sendResourceUpdated` on 2026-07-28 connections, where the subscribe set is always empty — gate on the connection's era as well as the set. The [`resources` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/resources) guards with `reqCtx.era === 'modern' || subscribedUris.has(uri)` in its factory and runs as a self-verifying pair: delivery is asserted over stdio on both eras and over HTTP on the 2026-07-28 listen path; the stateless legacy HTTP leg asserts only that the subscribe calls succeed.
+A dual-era server therefore still calls `sendResourceUpdated` on 2026-07-28 connections, where the subscribe set is always empty — gate on the connection's era as well as the set. The [`resources` example](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/resources) guards with `reqCtx.era === 'modern' || server.resourceSubscriptions.has(uri)` in its factory and runs as a self-verifying pair: delivery is asserted over stdio on both eras and over HTTP on the 2026-07-28 listen path; the stateless legacy HTTP leg asserts only that the subscribe calls succeed.
 
 ## Recap
 
@@ -265,4 +257,4 @@ A dual-era server therefore still calls `sendResourceUpdated` on 2026-07-28 conn
 - A template's `list` callback is what makes its instances appear in `resources/list`.
 - Resolve file-backed paths to their real location and reject anything outside the root before reading.
 - Registration changes emit `notifications/resources/list_changed` automatically.
-- `resources/subscribe` bookkeeping is the server's: advertise `resources: { subscribe: true }`, track URIs per connection, send `resources/updated` to subscribers only.
+- Declaring `resources: { subscribe: true }` gives you SDK-owned `resources/subscribe` bookkeeping automatically; the per-connection URI set is `resourceSubscriptions`, veto hooks come via `trackResourceSubscriptions({ onSubscribe })`, and you send `resources/updated` to subscribers only.
