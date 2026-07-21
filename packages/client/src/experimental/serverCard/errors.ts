@@ -4,8 +4,15 @@ import type { ServerCardInput } from '@modelcontextprotocol/core/experimental/se
  * Error codes for the Server Card discovery helpers.
  */
 export type ServerCardErrorCode =
+    /** A discovery URL string could not be parsed as a URL (`cause` is the TypeError). */
+    | 'invalid-url'
     /** URL guard rejection (scheme or address class), on any redirect hop. */
     | 'blocked-host'
+    /**
+     * The transport failed before an HTTP response arrived (DNS failure,
+     * TLS error, connection reset). `cause` is the underlying thrown error.
+     */
+    | 'network-error'
     /** Non-2xx, non-304 HTTP status. */
     | 'http-error'
     /** Content-Type essence is not an acceptable media type. */
@@ -14,9 +21,15 @@ export type ServerCardErrorCode =
     | 'response-too-large'
     /** Redirect chain exceeded `maxRedirects`. */
     | 'too-many-redirects'
-    /** A Server Card document failed validation (`cause` is the ZodError). */
+    /**
+     * A Server Card document failed validation. `cause` is the ZodError, or
+     * the SyntaxError when the response body is not JSON at all.
+     */
     | 'invalid-server-card'
-    /** An AI Catalog document failed validation (`cause` is the ZodError). */
+    /**
+     * An AI Catalog document failed validation. `cause` is the ZodError, or
+     * the SyntaxError when the response body is not JSON at all.
+     */
     | 'invalid-ai-catalog'
     /** `resolveRemote`: a required input was not supplied. */
     | 'missing-input'

@@ -50,6 +50,17 @@ describe('requiredRemoteInputs', () => {
         expect(keys).not.toContain('Authorization');
     });
 
+    it('skips nested variables of a valueless header, which resolveRemote never reads', () => {
+        const remote: ServerCardRemote = {
+            type: 'streamable-http',
+            url: 'https://example.com/mcp',
+            headers: [{ name: 'X-Key', variables: { token: { isRequired: true, isSecret: true } } }]
+        };
+        expect(requiredRemoteInputs(remote)).toEqual([{ key: 'X-Key', path: 'headers.X-Key', input: remote.headers![0], required: false }]);
+        // The walk mirrors consumption: only inputs['X-Key'] is read.
+        expect(resolveRemote(remote, { 'X-Key': 'k1' }).headers).toEqual({ 'X-Key': 'k1' });
+    });
+
     it('returns [] for a remote with no inputs', () => {
         expect(requiredRemoteInputs({ type: 'sse', url: 'https://example.com/sse' })).toEqual([]);
     });

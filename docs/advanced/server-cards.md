@@ -69,7 +69,7 @@ app.all('/mcp', mcpHandler); // the exact mount never sees GET /mcp/server-card;
 ```ts source="../../examples/guides/advanced/server-cards.examples.ts#discover_domain"
 const hits = await discoverServerCards('weather.example.com', discoveryOptions);
 for (const hit of hits) {
-    console.log(`${hit.entry.identifier}: listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain}`);
+    console.log(`${hit.entry.identifier}: listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain ?? 'inline'}`);
 }
 ```
 
@@ -82,7 +82,7 @@ urn:air:example.com:mcp:weather: listed by weather.example.com, hosted by weathe
 `listingDomain` is where the claim came from and `hostingDomain` is where traffic would go. Entries are self-asserted, so de-duplicate on `hit.card.remotes[].url`, never on names or catalog identifiers. Run the probe in the background, never auto-connect, and scope approval per server.
 
 ::: info
-The fetchers reject private, loopback, and link-local addresses, cap response sizes, and bound redirects by default. These are hostname-level checks: inject a DNS-pinning `fetch` through the `fetch` option to defend against DNS rebinding, and pass `allowHttp`/`allowPrivateHosts` for local development.
+The fetchers reject private, loopback, and link-local addresses, cap response sizes, and bound redirects by default; the local-dev hosts `localhost`, `127.0.0.1`, and `[::1]` are always exempt. These are hostname-level checks: inject a DNS-pinning `fetch` through the `fetch` option to defend against DNS rebinding, and pass `allowHttp`/`allowPrivateHosts` to reach other private hosts.
 :::
 
 ## Resolve inputs and connect

@@ -65,7 +65,7 @@ const discoveryOptions = { fetch: inProcessFetch };
 //#region discover_domain
 const hits = await discoverServerCards('weather.example.com', discoveryOptions);
 for (const hit of hits) {
-    console.log(`${hit.entry.identifier}: listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain}`);
+    console.log(`${hit.entry.identifier}: listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain ?? 'inline'}`);
 }
 //#endregion discover_domain
 check(hits.length === 1, 'one card discovered');

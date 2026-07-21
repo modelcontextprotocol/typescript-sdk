@@ -63,8 +63,9 @@ describe('Server Card discovery against a live MCP endpoint', () => {
 
     it('discovers, resolves, connects, and reconciles', async () => {
         const { baseUrl } = await startEndpoint();
-        // Loopback endpoint: the local-dev overrides are required and exercised.
-        const hits = await discoverServerCards(baseUrl, { allowHttp: true, allowPrivateHosts: true });
+        // Loopback endpoint: the local-dev hosts are always exempt from the
+        // hardened defaults, so no overrides are needed.
+        const hits = await discoverServerCards(baseUrl);
         expect(hits).toHaveLength(1);
         const hit = hits[0]!;
         expect(hit.listingDomain).toBe(baseUrl.host);
@@ -93,6 +94,6 @@ describe('Server Card discovery against a live MCP endpoint', () => {
         cleanups.push(() => {
             httpServer.close();
         });
-        await expect(discoverServerCards(baseUrl, { allowHttp: true, allowPrivateHosts: true })).resolves.toEqual([]);
+        await expect(discoverServerCards(baseUrl)).resolves.toEqual([]);
     });
 });

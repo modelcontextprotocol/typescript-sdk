@@ -28,9 +28,14 @@ export interface RemoteInputRequirement {
 
 /**
  * Walks everything a UI may prompt for on a card remote: the remote's
- * `variables`, header inputs lacking a fixed `value`, and each header's
- * nested `variables`. Keys share one flat namespace (variable names plus
- * header names), matching what {@link resolveRemote} reads from `inputs`.
+ * `variables`, header inputs lacking a fixed `value`, and the nested
+ * `variables` of headers that have one. Keys share one flat namespace
+ * (variable names plus header names), matching what {@link resolveRemote}
+ * reads from `inputs`.
+ *
+ * Despite the name, the walk returns *every* promptable input, optional ones
+ * included — check each requirement's `required` flag before treating it as
+ * mandatory.
  */
 export function requiredRemoteInputs(remote: ServerCardRemote): RemoteInputRequirement[] {
     const requirements: RemoteInputRequirement[] = [];
@@ -39,7 +44,11 @@ export function requiredRemoteInputs(remote: ServerCardRemote): RemoteInputRequi
     }
     for (const header of remote.headers ?? []) {
         if (header.value === undefined) {
+            // Without a `value` template there is nothing for nested
+            // variables to fill: resolveRemote reads only `inputs[name]` and
+            // the header's own `default`, so they are not prompted for.
             requirements.push({ key: header.name, path: `headers.${header.name}`, input: header, required: header.isRequired === true });
+            continue;
         }
         for (const [name, input] of Object.entries(header.variables ?? {})) {
             requirements.push({

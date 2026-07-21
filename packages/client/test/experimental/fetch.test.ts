@@ -79,6 +79,13 @@ describe('fetchServerCard', () => {
         expect(error.cause).toBeDefined();
     });
 
+    it('throws invalid-url, before any request, for a string that does not parse as a URL', async () => {
+        const fetch = mockFetch({});
+        const error = await expectCode(fetchServerCard('https://exa mple.com/card', { fetch }), 'invalid-url');
+        expect(error.cause).toBeDefined();
+        expect(fetch.calls).toHaveLength(0);
+    });
+
     it('throws http-error with status for non-2xx responses', async () => {
         const fetch = mockFetch({ [cardUrl]: () => new Response('down', { status: 503 }) });
         const error = await expectCode(fetchServerCard(cardUrl, { fetch }), 'http-error');

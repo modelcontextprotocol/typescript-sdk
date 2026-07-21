@@ -17,13 +17,13 @@ if (transport !== 'http') {
 }
 
 // Only the ORIGIN goes in: discovery finds the /mcp endpoint from the domain's
-// AI Catalog. Loopback needs the explicit local-dev overrides; the hardened
-// defaults reject plain HTTP and private addresses.
+// AI Catalog. The hardened defaults reject plain HTTP and private addresses,
+// but the local-dev hosts (localhost, 127.0.0.1, [::1]) are always exempt.
 const origin = new URL(url).origin;
-const hits = await discoverServerCards(origin, { allowHttp: true, allowPrivateHosts: true });
+const hits = await discoverServerCards(origin);
 check.equal(hits.length, 1, `expected one discovered card from ${origin}`);
 const hit = hits[0]!;
-console.error(`[client] discovered ${hit.entry.identifier} (listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain})`);
+console.error(`[client] discovered ${hit.entry.identifier} (listed by ${hit.listingDomain}, hosted by ${hit.hostingDomain ?? 'inline'})`);
 check.equal(hit.card.name, 'com.example/weather');
 
 const remote = hit.card.remotes![0]!;

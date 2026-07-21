@@ -152,7 +152,7 @@ function toUrl(value: string | URL): URL {
     try {
         return new URL(withScheme);
     } catch (error) {
-        throw new ServerCardError('blocked-host', `Invalid discovery URL: ${value}`, { url: value, cause: error });
+        throw new ServerCardError('invalid-url', `Invalid discovery URL: ${value}`, { url: value, cause: error });
     }
 }
 

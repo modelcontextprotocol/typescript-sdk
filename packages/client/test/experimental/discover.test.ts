@@ -121,6 +121,52 @@ describe('discoverServerCards', () => {
         expect(hits).toHaveLength(2);
     });
 
+    it('applies maxEntries after the type filter, so other entry types never consume the budget', async () => {
+        const agentEntries = Array.from({ length: 3 }, (_, index) => ({
+            identifier: `urn:air:example.com:agent:a${index}`,
+            type: 'application/agent-card+json',
+            url: `https://x.example/a${index}`
+        }));
+        const cardEntries = Array.from({ length: 2 }, (_, index) => ({
+            identifier: `urn:air:example.com:mcp:s${index}`,
+            type: SERVER_CARD_MEDIA_TYPE,
+            data: card
+        }));
+        // The 3 leading non-card entries would exhaust maxEntries: 3 if the
+        // cap were applied to the raw entry list before filtering.
+        const fetch = mockFetch({ [catalogUrl]: () => jsonResponse(catalogOf([...agentEntries, ...cardEntries])) });
+        const hits = await discoverServerCards('example.com', { fetch, maxEntries: 3 });
+        expect(hits).toHaveLength(2);
+    });
+
+    it('processes card entries beyond the default raw-entry count in a large mixed catalog', async () => {
+        const agentEntries = Array.from({ length: 110 }, (_, index) => ({
+            identifier: `urn:air:example.com:agent:a${index}`,
+            type: 'application/agent-card+json',
+            url: `https://x.example/a${index}`
+        }));
+        const cardEntry = { identifier: urlEntry.identifier, type: SERVER_CARD_MEDIA_TYPE, data: card };
+        const fetch = mockFetch({ [catalogUrl]: () => jsonResponse(catalogOf([...agentEntries, cardEntry])) });
+        const hits = await discoverServerCards('example.com', { fetch });
+        expect(hits).toHaveLength(1);
+    });
+
+    it('reports a transport failure on one entry as network-error with the cause preserved', async () => {
+        const cause = new TypeError('fetch failed');
+        const fetch = mockFetch({
+            [catalogUrl]: () => jsonResponse(catalogOf([urlEntry])),
+            [cardUrl]: () => {
+                throw cause;
+            }
+        });
+        const failures: ServerCardError[] = [];
+        const hits = await discoverServerCards('example.com', { fetch, onEntryError: error => failures.push(error) });
+        expect(hits).toEqual([]);
+        expect(failures).toHaveLength(1);
+        expect(failures[0]!.code).toBe('network-error');
+        expect(failures[0]!.cause).toBe(cause);
+    });
+
     it('accepts a full URL and probes its origin', async () => {
         const fetch = mockFetch({ [catalogUrl]: () => jsonResponse(catalogOf([])) });
         await expect(discoverServerCards('https://example.com/deep/page', { fetch })).resolves.toEqual([]);

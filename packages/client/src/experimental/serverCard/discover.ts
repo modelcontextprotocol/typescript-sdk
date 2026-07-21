@@ -10,8 +10,9 @@ import type { DiscoveryFetchOptions } from './guard';
  */
 export interface DiscoverServerCardsOptions extends DiscoveryFetchOptions {
     /**
-     * Cap on the number of Server Card entries processed from the catalog.
-     * Defaults to 100.
+     * Cap on the number of Server Card entries processed from the catalog,
+     * applied after filtering to card-type entries — other entry types never
+     * consume the budget. Defaults to 100.
      */
     maxEntries?: number;
 
@@ -80,7 +81,12 @@ export async function discoverServerCards(
     const catalogUrl = getAICatalogUrl(domainOrUrl);
     let fetched;
     try {
-        fetched = await fetchAICatalog(catalogUrl, options);
+        // `maxEntries` here caps *card* entries, so it must apply after the
+        // type filter below. Fetch the catalog uncapped (the body is already
+        // bounded by `maxResponseBytes`) instead of forwarding the option,
+        // which would truncate the raw entry list before filtering and could
+        // silently drop every card in a mixed catalog.
+        fetched = await fetchAICatalog(catalogUrl, { ...options, maxEntries: Number.POSITIVE_INFINITY });
     } catch (error) {
         if (error instanceof ServerCardError && error.code === 'http-error' && (error.status === 404 || error.status === 410)) {
             return [];
@@ -117,10 +123,13 @@ export async function discoverServerCards(
                 });
             }
         } catch (error) {
+            // Non-ServerCardError failures here come from the fetch layer
+            // (DNS, TLS, connection reset): the fetchers and the card parser
+            // throw ServerCardError for everything they classify themselves.
             const entryError =
                 error instanceof ServerCardError
                     ? error
-                    : new ServerCardError('invalid-server-card', `Catalog entry ${entry.identifier} could not be processed`, {
+                    : new ServerCardError('network-error', `Catalog entry ${entry.identifier} could not be fetched`, {
                           cause: error
                       });
             options.onEntryError?.(entryError, entry);

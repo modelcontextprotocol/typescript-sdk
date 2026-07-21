@@ -26,6 +26,12 @@ export interface ServerCardMismatch {
  * `options.negotiatedProtocolVersion` is given and the remote declares
  * `supportedProtocolVersions` that do not include it.
  *
+ * `name` is compared verbatim: a card's `name` is the namespaced form
+ * (`'com.example/weather'`), so a server whose `serverInfo.name` is the bare
+ * unqualified name reports an advisory `'name'` mismatch. Per the extension
+ * spec the two are expected to match exactly; treat the mismatch as the
+ * card and the server disagreeing, not as a false positive.
+ *
  * Deliberately not wired into `Client.connect`: cards must not gate
  * anything.
  */
