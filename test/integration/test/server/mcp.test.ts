@@ -1359,6 +1359,77 @@ describe('Zod v4', () => {
             expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
         });
 
+        test('should validate outputSchema when using non-object Zod schema wrappers', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'optional-output',
+                {
+                    outputSchema: z.object({ data: z.string() }).optional()
+                },
+                async () => ({
+                    structuredContent: { data: 'optional' }
+                })
+            );
+
+            const unionOutputSchema = z.union([z.object({ data: z.string() }), z.object({ value: z.string() })]);
+
+            mcpServer.registerTool(
+                'union-output',
+                {
+                    outputSchema: unionOutputSchema
+                },
+                async () => ({
+                    structuredContent: { value: 'union' }
+                })
+            );
+
+            mcpServer.registerTool(
+                'invalid-union-output',
+                {
+                    outputSchema: unionOutputSchema
+                },
+                async () => ({
+                    structuredContent: { invalid: true }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const optionalResult = await client.callTool({
+                name: 'optional-output'
+            });
+            expect(optionalResult.structuredContent).toEqual({ data: 'optional' });
+
+            const unionResult = await client.callTool({
+                name: 'union-output'
+            });
+            expect(unionResult.structuredContent).toEqual({ value: 'union' });
+
+            const invalidUnionResult = await client.callTool({
+                name: 'invalid-union-output'
+            });
+            expect(invalidUnionResult.isError).toBe(true);
+            expect(invalidUnionResult.content).toEqual(
+                expect.arrayContaining([
+                    {
+                        type: 'text',
+                        text: expect.stringContaining('Output validation error: Invalid structured content for tool invalid-union-output')
+                    }
+                ])
+            );
+        });
+
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
          */
