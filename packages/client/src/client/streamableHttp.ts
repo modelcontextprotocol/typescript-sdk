@@ -43,7 +43,7 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     initialReconnectionDelay: 1000,
     maxReconnectionDelay: 30_000,
     reconnectionDelayGrowFactor: 1.5,
-    maxRetries: 2
+    maxRetries: 10
 };
 
 /**
@@ -113,10 +113,19 @@ export interface StreamableHTTPReconnectionOptions {
 
     /**
      * Maximum number of reconnection attempts before giving up.
-     * Default is 2.
+     * Default is 10.
      */
     maxRetries: number;
 }
+
+type InternalStartSSEOptions = StartSSEOptions & {
+    /**
+     * True for the transport-lifetime GET SSE stream that receives responses
+     * to POSTs accepted with 202. Exhausting this stream means future sends
+     * would otherwise be delivered into a dead response channel.
+     */
+    isStandalone?: boolean;
+};
 
 /**
  * Custom scheduler for SSE stream reconnection attempts.
@@ -323,6 +332,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _standaloneSseReconnectionError?: Error;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -498,7 +508,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
+    private async _startOrAuthSse(options: InternalStartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -577,7 +587,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                await response.text?.().catch(() => {});
+                const text = await response.text?.().catch(() => null);
 
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
@@ -594,12 +604,17 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                const detail = response.statusText || text || `HTTP ${response.status}`;
+                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${detail}`, {
                     status: response.status,
-                    statusText: response.statusText
+                    statusText: response.statusText,
+                    text
                 });
             }
 
+            if (options.isStandalone) {
+                this._standaloneSseReconnectionError = undefined;
+            }
             this._handleSseStream(response.body, options, true);
         } catch (error) {
             if (!isIntentionalAbort()) {
@@ -636,13 +651,17 @@ export class StreamableHTTPClientTransport implements Transport {
      * @param lastEventId The ID of the last received event for resumability
      * @param attemptCount Current reconnection attempt count for this specific stream
      */
-    private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
+    private _scheduleReconnection(options: InternalStartSSEOptions, attemptCount = 0): void {
         // Use provided options or default options
         const maxRetries = this._reconnectionOptions.maxRetries;
 
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
-            this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            const error = new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`);
+            this.onerror?.(error);
+            if (options.isStandalone) {
+                this._standaloneSseReconnectionError = error;
+            }
             // The per-request stream is now definitively gone.
             options.onRequestStreamEnd?.();
             return;
@@ -677,7 +696,7 @@ export class StreamableHTTPClientTransport implements Transport {
         }
     }
 
-    private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
+    private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: InternalStartSSEOptions, isReconnectable: boolean): void {
         if (!stream) {
             // A null body on a per-request stream (or its GET resume) is the
             // same terminal non-resumable outcome as a 405 — fire the
@@ -768,7 +787,8 @@ export class StreamableHTTPClientTransport implements Transport {
                             onresumptiontoken,
                             replayMessageId,
                             requestSignal,
-                            onRequestStreamEnd
+                            onRequestStreamEnd,
+                            isStandalone: options.isStandalone
                         },
                         0
                     );
@@ -801,7 +821,8 @@ export class StreamableHTTPClientTransport implements Transport {
                                 onresumptiontoken,
                                 replayMessageId,
                                 requestSignal,
-                                onRequestStreamEnd
+                                onRequestStreamEnd,
+                                isStandalone: options.isStandalone
                             },
                             0
                         );
@@ -960,6 +981,11 @@ export class StreamableHTTPClientTransport implements Transport {
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
 
+            // Get original message(s) for detecting request IDs
+            const messages = Array.isArray(message) ? message : [message];
+
+            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
+
             // Per-request abort: when the caller supplies a request-scoped
             // signal (the `subscriptions/listen` driver), aborting it cancels
             // this POST and its SSE response stream without closing the
@@ -1073,19 +1099,19 @@ export class StreamableHTTPClientTransport implements Transport {
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
                 await response.text?.().catch(() => {});
+                if (hasRequests && this._standaloneSseReconnectionError) {
+                    throw new Error(
+                        `Cannot receive a response for the accepted request because the Streamable HTTP SSE stream is disconnected and reconnection attempts have been exhausted: ${this._standaloneSseReconnectionError.message}`
+                    );
+                }
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
                     // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    this._startOrAuthSse({ resumptionToken: undefined, isStandalone: true }).catch(error => this.onerror?.(error));
                 }
                 return;
             }
-
-            // Get original message(s) for detecting request IDs
-            const messages = Array.isArray(message) ? message : [message];
-
-            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
 
             // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');
@@ -1209,7 +1235,8 @@ export class StreamableHTTPClientTransport implements Transport {
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
         await this._startOrAuthSse({
             resumptionToken: lastEventId,
-            onresumptiontoken: options?.onresumptiontoken
+            onresumptiontoken: options?.onresumptiontoken,
+            isStandalone: true
         });
     }
 }
