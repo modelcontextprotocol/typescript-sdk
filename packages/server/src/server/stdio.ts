@@ -9,6 +9,11 @@ import { process } from '@modelcontextprotocol/server/_shims';
  *
  * This transport is only available in Node.js environments.
  *
+ * When the client closes its end of the pipe (stdin reaches end-of-file), the transport
+ * closes itself and fires `onclose`, per the MCP stdio binding's guidance that servers
+ * should exit promptly when their standard input is closed. A server that holds no other
+ * keep-alive handles will then exit naturally.
+ *
  * @example
  * ```ts source="./stdio.examples.ts#StdioServerTransport_basicUsage"
  * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
@@ -60,6 +65,16 @@ export class StdioServerTransport implements Transport {
             // Ignore errors during close — we're already in an error path
         });
     };
+    _onstdinclose = () => {
+        // stdin reaching EOF (or being destroyed) means the client has hung up and no
+        // further input can ever arrive. The MCP stdio binding says servers should exit
+        // promptly when their standard input closes — this is the primary graceful
+        // shutdown signal, and on some platforms (e.g. Windows) the only reliable one.
+        // Close the transport so `onclose` fires and the process can exit naturally.
+        this.close().catch(() => {
+            // Ignore errors during close — nothing more can be read anyway
+        });
+    };
 
     /**
      * Starts listening for messages on `stdin`.
@@ -74,6 +89,8 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdin.on('end', this._onstdinclose);
+        this._stdin.on('close', this._onstdinclose);
         this._stdout.on('error', this._onstdouterror);
     }
 
@@ -101,6 +118,8 @@ export class StdioServerTransport implements Transport {
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdin.off('end', this._onstdinclose);
+        this._stdin.off('close', this._onstdinclose);
         this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener

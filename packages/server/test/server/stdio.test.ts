@@ -138,6 +138,100 @@ test('should not fire onclose twice when close() is called after stdout error', 
     expect(closeCount).toBe(1);
 });
 
+test('should close and fire onclose when stdin ends (client hung up)', async () => {
+    // `autoDestroy: false, emitClose: false` so that pushing EOF emits only 'end',
+    // proving the 'end' listener works on its own (without relying on 'close').
+    const endOnlyInput = new Readable({ read: () => {}, autoDestroy: false, emitClose: false });
+    const server = new StdioServerTransport(endOnlyInput, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await server.start();
+    endOnlyInput.push(null); // EOF — the client closed its end of the pipe
+
+    await closed;
+    expect(closeCount).toBe(1);
+});
+
+test('should close and fire onclose when stdin closes', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await server.start();
+    input.destroy(); // emits 'close'
+
+    await closed;
+    expect(closeCount).toBe(1);
+});
+
+test('should not fire onclose twice when close() is called after stdin ends', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await server.start();
+    input.push(null); // EOF fires 'end', and stream teardown may fire 'close' too
+
+    await closed;
+    await server.close();
+    // Allow any late 'close' event from the stream teardown to be delivered
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(closeCount).toBe(1);
+});
+
+test('should still deliver messages that arrived before stdin ended', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    const messages: JSONRPCMessage[] = [];
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => resolve();
+    });
+    server.onmessage = message => {
+        messages.push(message);
+    };
+
+    const message: JSONRPCMessage = { jsonrpc: '2.0', id: 1, method: 'ping' };
+    input.push(serializeMessage(message));
+    input.push(null); // EOF right behind the message
+
+    await server.start();
+    await closed;
+
+    expect(messages).toEqual([message]);
+});
+
 test('should reject send() when stdout errors before drain', async () => {
     let completeWrite: ((error?: Error | null) => void) | undefined;
     const slowOutput = new Writable({
