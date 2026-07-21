@@ -22,6 +22,48 @@ describe('crossAppAccess', () => {
             expect(mockFetch).not.toHaveBeenCalled();
         });
 
+        it('does not follow a token endpoint redirect and rejects', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: false,
+                status: 307,
+                headers: new Headers({ location: 'https://elsewhere.example.com/token' }),
+                json: async () => ({})
+            } as Response);
+            await expect(
+                requestJwtAuthorizationGrant({
+                    tokenEndpoint: 'https://idp.example.com/token',
+                    audience: 'https://auth.chat.example/',
+                    resource: 'https://mcp.chat.example/',
+                    idToken: 'id-token',
+                    clientId: 'client',
+                    clientSecret: 'secret',
+                    fetchFn: mockFetch
+                })
+            ).rejects.toThrow(/redirect/);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch.mock.calls[0]?.[1]?.redirect).toBe('manual');
+        });
+
+        it('rejects a token response the runtime filtered as an opaque redirect', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: false,
+                status: 0,
+                type: 'opaqueredirect',
+                headers: new Headers(),
+                json: async () => ({})
+            } as Response);
+            await expect(
+                exchangeJwtAuthGrant({
+                    tokenEndpoint: 'https://auth.chat.example/token',
+                    jwtAuthGrant: 'jag',
+                    clientId: 'client',
+                    clientSecret: 'secret',
+                    fetchFn: mockFetch
+                })
+            ).rejects.toThrow(/redirect/);
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
         it('permits a loopback http token endpoint (SEP-2207 exemption)', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,

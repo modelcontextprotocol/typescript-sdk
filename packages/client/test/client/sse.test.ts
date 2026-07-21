@@ -1548,6 +1548,130 @@ describe('SSEClientTransport', () => {
         });
     });
 
+    describe('authorization request header isolation', () => {
+        type RecordedCall = { url: string; init?: RequestInit };
+
+        const headerOnCall = (call: RecordedCall, name: string): string | null => new Headers(call.init?.headers).get(name);
+
+        const isAuthCall = (call: RecordedCall): boolean =>
+            call.url.includes('/.well-known/') || call.url.endsWith('/register') || call.url.endsWith('/token');
+
+        const createIsolationAuthProvider = (): Mocked<OAuthClientProvider> => ({
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn(() => ({ client_id: 'test-client-id', client_secret: 'test-client-secret' })),
+            tokens: vi.fn(),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            invalidateCredentials: vi.fn()
+        });
+
+        /**
+         * Serves protected-resource metadata, authorization-server metadata and token
+         * issuance from one fake origin and accepts data-plane POSTs, recording every
+         * request so header propagation can be asserted per leg.
+         */
+        const createDispatcherFetch = (calls: RecordedCall[]): Mock =>
+            vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
+                const url = input.toString();
+                calls.push({ url, init });
+                if (url.includes('/.well-known/oauth-protected-resource')) {
+                    return Response.json({
+                        resource: 'http://localhost:1234/mcp',
+                        authorization_servers: ['http://localhost:1234']
+                    });
+                }
+                if (url.includes('/.well-known/oauth-authorization-server')) {
+                    return Response.json({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    });
+                }
+                if (url === 'http://localhost:1234/token') {
+                    return Response.json({
+                        access_token: 'new-access-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    });
+                }
+                // Data-plane POST to the message endpoint.
+                return new Response(null, { status: 200 });
+            });
+
+        /** Exchanges a code (PRM + AS metadata + token) and then sends a data-plane POST. */
+        const runAuthAndSend = async (transport: SSEClientTransport): Promise<void> => {
+            await transport.finishAuth('test-auth-code');
+            (transport as unknown as { _http: { setMessageEndpoint(endpoint: URL): void } })._http.setMessageEndpoint(
+                new URL('http://localhost:1234/messages')
+            );
+            await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'req-1' });
+        };
+
+        it('does not apply requestInit headers to authorization requests', async () => {
+            const calls: RecordedCall[] = [];
+            transport = new SSEClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: createIsolationAuthProvider(),
+                fetch: createDispatcherFetch(calls),
+                requestInit: { headers: { 'X-Api-Key': 'transport-secret' } }
+            });
+
+            await runAuthAndSend(transport);
+
+            const authCalls = calls.filter(isAuthCall);
+            expect(authCalls.map(c => c.url)).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('/.well-known/oauth-protected-resource'),
+                    expect.stringContaining('/.well-known/oauth-authorization-server'),
+                    'http://localhost:1234/token'
+                ])
+            );
+            for (const call of authCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBeNull();
+            }
+
+            const dataPlaneCalls = calls.filter(c => !isAuthCall(c));
+            expect(dataPlaneCalls.length).toBeGreaterThan(0);
+            for (const call of dataPlaneCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBe('transport-secret');
+            }
+        });
+
+        it('applies oauthRequestInit headers to authorization requests only', async () => {
+            const calls: RecordedCall[] = [];
+            transport = new SSEClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: createIsolationAuthProvider(),
+                fetch: createDispatcherFetch(calls),
+                requestInit: { headers: { 'X-Api-Key': 'transport-secret' } },
+                oauthRequestInit: { headers: { 'X-Auth-Gateway': 'gateway-value' } }
+            });
+
+            await runAuthAndSend(transport);
+
+            const authCalls = calls.filter(isAuthCall);
+            expect(authCalls.length).toBeGreaterThan(0);
+            for (const call of authCalls) {
+                expect(headerOnCall(call, 'X-Auth-Gateway')).toBe('gateway-value');
+                expect(headerOnCall(call, 'X-Api-Key')).toBeNull();
+            }
+
+            const dataPlaneCalls = calls.filter(c => !isAuthCall(c));
+            expect(dataPlaneCalls.length).toBeGreaterThan(0);
+            for (const call of dataPlaneCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBe('transport-secret');
+                expect(headerOnCall(call, 'X-Auth-Gateway')).toBeNull();
+            }
+        });
+    });
+
     describe('minimal AuthProvider (non-OAuth)', () => {
         let postResponses: number[];
         let postCount: number;

@@ -97,6 +97,7 @@ export type {
     StreamableHTTPReconnectionOptions
 } from './client/streamableHttp';
 export { StreamableHTTPClientTransport } from './client/streamableHttp';
+export type { RedirectPolicy } from './client/transportRedirect';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema';

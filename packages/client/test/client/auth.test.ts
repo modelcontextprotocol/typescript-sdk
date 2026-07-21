@@ -1965,6 +1965,50 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
+        it('does not follow a token endpoint redirect and rejects', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 307,
+                headers: new Headers({ location: 'https://elsewhere.example.com/token' }),
+                text: async () => ''
+            });
+
+            await expect(
+                exchangeAuthorization('https://auth.example.com', {
+                    clientInformation: validClientInfo,
+                    authorizationCode: 'code123',
+                    codeVerifier: 'verifier123',
+                    redirectUri: 'http://localhost:3000/callback'
+                })
+            ).rejects.toThrow(/redirect/);
+
+            // The redirect target is never requested — a single POST was issued,
+            // with redirects disabled.
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch.mock.calls[0]![1]).toMatchObject({ method: 'POST', redirect: 'manual' });
+        });
+
+        it('rejects a token response the runtime filtered as an opaque redirect', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 0,
+                type: 'opaqueredirect',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            await expect(
+                exchangeAuthorization('https://auth.example.com', {
+                    clientInformation: validClientInfo,
+                    authorizationCode: 'code123',
+                    codeVerifier: 'verifier123',
+                    redirectUri: 'http://localhost:3000/callback'
+                })
+            ).rejects.toThrow(/redirect/);
+
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
         it('allows for string "expires_in" values', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2328,6 +2372,26 @@ describe('OAuth Authorization', () => {
                 redirect_uris: ['http://localhost:3000/callback'],
                 client_name: 'Test Client'
             });
+        });
+
+        it('does not follow a registration endpoint redirect and rejects', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 307,
+                headers: new Headers({ location: 'https://elsewhere.example.com/register' }),
+                text: async () => ''
+            });
+
+            await expect(
+                registerClient('https://auth.example.com', {
+                    clientMetadata: validClientMetadata
+                })
+            ).rejects.toThrow(/redirect/);
+
+            // The redirect target is never requested — a single POST was issued,
+            // with redirects disabled.
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+            expect(mockFetch.mock.calls[0]![1]).toMatchObject({ method: 'POST', redirect: 'manual' });
         });
 
         it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {

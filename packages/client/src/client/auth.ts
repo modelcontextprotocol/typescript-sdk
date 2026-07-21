@@ -2047,6 +2047,18 @@ export function prepareAuthorizationCodeRequest(
 }
 
 /**
+ * Token and registration responses are terminal (RFC 6749 §5, RFC 7591 §3.2):
+ * a redirect — including one the runtime filters to `opaqueredirect` — is an error.
+ */
+export function assertNotRedirected(response: Response, endpoint: 'Token' | 'Registration'): void {
+    if (response.type === 'opaqueredirect' || (response.status >= 300 && response.status < 400)) {
+        throw new Error(
+            `${endpoint} endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); ${endpoint.toLowerCase()} responses are terminal`
+        );
+    }
+}
+
+/**
  * Internal helper to execute a token request with the given parameters.
  * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
@@ -2090,8 +2102,10 @@ export async function executeTokenRequest(
     const response = await (fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
-        body: tokenRequestParams
+        body: tokenRequestParams,
+        redirect: 'manual'
     });
+    assertNotRedirected(response, 'Token');
 
     if (!response.ok) {
         throw await parseErrorResponse(response);
@@ -2365,8 +2379,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(submittedMetadata)
+        body: JSON.stringify(submittedMetadata),
+        redirect: 'manual'
     });
+    assertNotRedirected(response, 'Registration');
 
     if (!response.ok) {
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });

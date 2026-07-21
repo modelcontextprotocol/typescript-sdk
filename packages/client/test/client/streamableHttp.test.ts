@@ -7,6 +7,23 @@ import { UnauthorizedError } from '../../src/client/auth';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
+/**
+ * fetchWithCorsRetry gates its retry heuristic on the `CORS_IS_POSSIBLE` shim constant.
+ * Tests run under the Node shim (`false`), where a fetch TypeError propagates as a real
+ * network error. The header-isolation test that exercises the browser retry leg flips
+ * the mocked constant to `true` for a single test; the suite's afterEach resets it.
+ */
+let mockedCorsIsPossible = false;
+vi.mock('@modelcontextprotocol/client/_shims', async importOriginal => {
+    const actual = await importOriginal<typeof import('@modelcontextprotocol/client/_shims')>();
+    return {
+        ...actual,
+        get CORS_IS_POSSIBLE() {
+            return mockedCorsIsPossible;
+        }
+    };
+});
+
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
     let mockAuthProvider: Mocked<OAuthClientProvider>;
@@ -2319,6 +2336,177 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalThis.fetch).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('authorization request header isolation', () => {
+        type RecordedCall = { url: string; init?: RequestInit };
+
+        afterEach(() => {
+            mockedCorsIsPossible = false;
+        });
+
+        const headerOnCall = (call: RecordedCall, name: string): string | null => new Headers(call.init?.headers).get(name);
+
+        const isAuthCall = (call: RecordedCall): boolean =>
+            call.url.includes('/.well-known/') || call.url.endsWith('/register') || call.url.endsWith('/token');
+
+        /**
+         * Serves the full authorization sequence from one fake origin: 401 on the MCP
+         * GET, protected-resource metadata, authorization-server metadata, client
+         * registration, token issuance, and 202 on MCP POSTs. Every request is
+         * recorded so header propagation can be asserted per leg.
+         */
+        const createDispatcherFetch = (calls: RecordedCall[]): Mock =>
+            vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
+                const url = input.toString();
+                calls.push({ url, init });
+                if (url.includes('/.well-known/oauth-protected-resource')) {
+                    return Response.json({
+                        resource: 'http://localhost:1234/mcp',
+                        authorization_servers: ['http://localhost:1234']
+                    });
+                }
+                if (url.includes('/.well-known/oauth-authorization-server')) {
+                    return Response.json({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        registration_endpoint: 'http://localhost:1234/register',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    });
+                }
+                if (url === 'http://localhost:1234/register') {
+                    return Response.json({
+                        client_id: 'registered-client-id',
+                        redirect_uris: ['http://localhost/callback']
+                    });
+                }
+                if (url === 'http://localhost:1234/token') {
+                    return Response.json({
+                        access_token: 'new-access-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    });
+                }
+                // MCP endpoint: 401 the GET stream open to trigger the authorization
+                // flow; accept data-plane POSTs.
+                if (init?.method === 'GET') {
+                    return new Response(null, { status: 401 });
+                }
+                return new Response(null, { status: 202 });
+            });
+
+        /**
+         * Drives the full sequence against the dispatcher: 401 → discovery →
+         * registration → (redirect), then code exchange, then a data-plane POST.
+         */
+        const runFullAuthSequence = async (transport: StreamableHTTPClientTransport): Promise<void> => {
+            mockAuthProvider.clientInformation.mockReturnValue(undefined);
+            mockAuthProvider.saveClientInformation = vi.fn();
+
+            await transport.start();
+            await expect(
+                (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})
+            ).rejects.toThrow(UnauthorizedError);
+            expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
+
+            mockAuthProvider.clientInformation.mockReturnValue({ client_id: 'registered-client-id' });
+            await transport.finishAuth('test-auth-code');
+
+            await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'req-1' });
+        };
+
+        it('does not apply requestInit headers to authorization requests', async () => {
+            const calls: RecordedCall[] = [];
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: createDispatcherFetch(calls),
+                requestInit: { headers: { 'X-Api-Key': 'transport-secret' } }
+            });
+
+            await runFullAuthSequence(transport);
+
+            const authCalls = calls.filter(isAuthCall);
+            expect(authCalls.map(c => c.url)).toEqual(
+                expect.arrayContaining([
+                    expect.stringContaining('/.well-known/oauth-protected-resource'),
+                    expect.stringContaining('/.well-known/oauth-authorization-server'),
+                    'http://localhost:1234/register',
+                    'http://localhost:1234/token'
+                ])
+            );
+            for (const call of authCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBeNull();
+            }
+
+            const dataPlaneCalls = calls.filter(c => !isAuthCall(c));
+            expect(dataPlaneCalls.length).toBeGreaterThan(0);
+            for (const call of dataPlaneCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBe('transport-secret');
+            }
+        });
+
+        it('applies oauthRequestInit headers to authorization requests only', async () => {
+            const calls: RecordedCall[] = [];
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: createDispatcherFetch(calls),
+                requestInit: { headers: { 'X-Api-Key': 'transport-secret' } },
+                oauthRequestInit: { headers: { 'X-Auth-Gateway': 'gateway-value' } }
+            });
+
+            await runFullAuthSequence(transport);
+
+            const authCalls = calls.filter(isAuthCall);
+            expect(authCalls.length).toBeGreaterThan(0);
+            for (const call of authCalls) {
+                expect(headerOnCall(call, 'X-Auth-Gateway')).toBe('gateway-value');
+                expect(headerOnCall(call, 'X-Api-Key')).toBeNull();
+            }
+
+            const dataPlaneCalls = calls.filter(c => !isAuthCall(c));
+            expect(dataPlaneCalls.length).toBeGreaterThan(0);
+            for (const call of dataPlaneCalls) {
+                expect(headerOnCall(call, 'X-Api-Key')).toBe('transport-secret');
+                expect(headerOnCall(call, 'X-Auth-Gateway')).toBeNull();
+            }
+        });
+
+        it('keeps requestInit headers off the retried simple discovery request', async () => {
+            // Browser-like runtime: a TypeError from a discovery fetch that carried
+            // custom headers is retried as a simple request without headers. The
+            // retry must go through the same un-merged fetch, so connection-level
+            // requestInit headers must not reappear on it.
+            mockedCorsIsPossible = true;
+
+            const calls: RecordedCall[] = [];
+            const dispatcher = createDispatcherFetch(calls);
+            const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
+                const url = input.toString();
+                if (url.includes('/.well-known/oauth-protected-resource') && init?.headers !== undefined) {
+                    calls.push({ url, init });
+                    throw new TypeError('preflight rejected');
+                }
+                return dispatcher(input, init) as Promise<Response>;
+            });
+
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: fetchImpl,
+                requestInit: { headers: { 'X-Api-Key': 'transport-secret' } }
+            });
+
+            await transport.finishAuth('test-auth-code');
+
+            const prmCalls = calls.filter(c => c.url.includes('/.well-known/oauth-protected-resource'));
+            expect(prmCalls).toHaveLength(2);
+            // First attempt carried the discovery headers (and only those).
+            expect(headerOnCall(prmCalls[0]!, 'MCP-Protocol-Version')).not.toBeNull();
+            expect(headerOnCall(prmCalls[0]!, 'X-Api-Key')).toBeNull();
+            // The retried simple request carries no headers at all.
+            expect(prmCalls[1]!.init?.headers).toBeUndefined();
         });
     });
 
