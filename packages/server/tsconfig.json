@@ -7,6 +7,9 @@
             "*": ["./*"],
             "@modelcontextprotocol/core-internal": ["./node_modules/@modelcontextprotocol/core-internal/src/index.ts"],
             "@modelcontextprotocol/core/internal": ["./node_modules/@modelcontextprotocol/core/src/internal.ts"],
+            "@modelcontextprotocol/core/experimental/server-card": [
+                "./node_modules/@modelcontextprotocol/core/src/experimental/serverCard/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
