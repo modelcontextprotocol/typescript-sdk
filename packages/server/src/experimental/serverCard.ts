@@ -110,7 +110,9 @@ export function buildServerCard(options: BuildServerCardOptions): ServerCard {
 /**
  * Computes the reserved card location for a streamable HTTP endpoint:
  * `'https://host/mcp'` becomes `'https://host/mcp/server-card'`. The suffix
- * is appended to the MCP path, never to the origin.
+ * is appended to the MCP path, never to the origin. The location is derived
+ * from the origin and path only: any query string or fragment on `mcpUrl` is
+ * dropped.
  */
 export function getServerCardUrl(mcpUrl: URL | string): string {
     const url = new URL(mcpUrl);
@@ -241,11 +243,19 @@ export function aiCatalogResponse(request: Request, options: AICatalogResponseOp
  * `{ inline: true }` to embed the card itself as the entry's `data`. The
  * entry deliberately does not duplicate the card's human-readable fields;
  * per the spec, clients read `title` and `description` from the card.
+ *
+ * Throws `ZodError` when `card.name` is not the namespaced
+ * `{namespace}/{server-name}` form — only reachable with a hand-cast card
+ * that skipped {@link buildServerCard}.
  */
 export function serverCardCatalogEntry(card: ServerCard, location: { url: URL | string } | { inline: true }): AICatalogEntry {
-    const slash = card.name.indexOf('/');
-    const namespace = card.name.slice(0, slash);
-    const serverName = card.name.slice(slash + 1);
+    // A hand-cast card can bypass ServerCardSchema's name regex; re-validate
+    // here so a nameless namespace fails at boot instead of minting a
+    // garbage URN.
+    const name = ServerCardSchema.shape.name.parse(card.name);
+    const slash = name.indexOf('/');
+    const namespace = name.slice(0, slash);
+    const serverName = name.slice(slash + 1);
     const publisher = namespace.split('.').toReversed().join('.');
     return AICatalogEntrySchema.parse({
         identifier: `urn:air:${publisher}:mcp:${serverName}`,

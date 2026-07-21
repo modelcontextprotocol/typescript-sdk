@@ -23,7 +23,9 @@ function chunkImportsOf(entryPath: string): string[] {
         if (visited.has(file)) continue;
         visited.add(file);
         const src = readFileSync(file, 'utf8');
-        for (const m of src.matchAll(/from\s+["']\.\/(.+?\.mjs)["']/g)) {
+        // Follow ./ and ../ relative chunk imports: subpath entries in nested
+        // dist directories import shared chunks from parent directories.
+        for (const m of src.matchAll(/from\s+["'](\.\.?\/.+?\.mjs)["']/g)) {
             queue.push(join(dirname(file), m[1]!));
         }
     }

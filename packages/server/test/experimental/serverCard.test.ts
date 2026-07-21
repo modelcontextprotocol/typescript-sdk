@@ -1,5 +1,6 @@
 import type { Implementation } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
+import * as z from 'zod/v4';
 
 import type { AICatalog, ServerCard } from '../../src/experimental/serverCard';
 import {
@@ -250,6 +251,11 @@ describe('serverCardCatalogEntry', () => {
         const entry = serverCardCatalogEntry(card, { inline: true });
         expect(entry.displayName).toBeUndefined();
         expect(entry.description).toBeUndefined();
+    });
+
+    it('rejects a hand-cast card whose name is not namespaced instead of minting a garbage URN', () => {
+        const handCast = { ...card, name: 'weather' } as ServerCard;
+        expect(() => serverCardCatalogEntry(handCast, { inline: true })).toThrow(z.ZodError);
     });
 });
 
