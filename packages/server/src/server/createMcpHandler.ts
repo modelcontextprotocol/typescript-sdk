@@ -63,7 +63,7 @@ import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTI
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import type { Server } from './server';
-import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server';
+import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
@@ -721,8 +721,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // middleware layer mounted in front of this entry.
         if (route.messageKind === 'request' && route.message.method === 'subscriptions/listen') {
             const capabilities = server.getCapabilities();
+            const serverInfo = serverIdentityOf(server);
             void product.close().catch(reportError);
-            return listenRouter.serve(route.message, request.signal, capabilities);
+            return listenRouter.serve(route.message, request.signal, capabilities, serverInfo);
         }
 
         // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder

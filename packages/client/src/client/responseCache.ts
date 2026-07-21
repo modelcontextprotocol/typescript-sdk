@@ -299,13 +299,13 @@ export class ClientResponseCache {
      */
     private _toolOutputValidatorIndex?: { stamp: number; byName: Map<string, unknown> };
     /**
-     * The connected server's identity (`serverInfo.name@version`, or a
-     * transport-supplied surrogate). Set by the `Client` immediately after a
-     * successful connect; `''` is the pre-connect sentinel. Every storage
-     * partition is derived from this (see `_partitionFor`), so two
-     * clients sharing one store but connected to different servers never
-     * collide on `tools/list` and a server cannot read another server's
-     * `'public'` entries.
+     * The connected server's identity (`serverInfo.name@version`, the
+     * transport's `sessionId`, or a client-generated per-connection
+     * surrogate). Set by the `Client` immediately after a successful connect;
+     * `''` is the pre-connect sentinel. Every storage partition is derived
+     * from this (see `_partitionFor`), so two clients sharing one store but
+     * connected to different servers never collide on `tools/list` and a
+     * server cannot read another server's `'public'` entries.
      */
     private _serverIdentity = '';
 
@@ -347,10 +347,15 @@ export class ClientResponseCache {
 
     /**
      * Record the connected server's identity. Called by `Client` immediately
-     * after a successful connect (`serverInfo.name@version`, or the
-     * transport's `sessionId` when `serverInfo` is unavailable). Every
-     * partition derived after this call is scoped to this identity; entries
-     * written under the pre-connect `''` sentinel are no longer reachable.
+     * after a successful connect: `serverInfo.name@version` when the server
+     * identified itself, else the transport's `sessionId`, else a
+     * client-generated per-connection surrogate (`serverInfo` is a spec
+     * SHOULD on 2026-07-28, so anonymous servers exist). Surrogate-keyed
+     * partitions are NOT stable across reconnects — no identity means no
+     * cross-connection cache reuse, and a shared long-lived store should
+     * bound its own size accordingly. Every partition derived after this
+     * call is scoped to this identity; entries written under the pre-connect
+     * `''` sentinel are no longer reachable.
      */
     setServerIdentity(identity: string): void {
         this._serverIdentity = identity;

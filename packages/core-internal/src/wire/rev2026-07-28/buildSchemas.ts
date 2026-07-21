@@ -21,10 +21,25 @@
  *
  * No 2025-era traffic ever touches this module, so requiredness here is
  * bare and spec-exact (the shared-schema `.catch` hazards do not apply).
+ *
+ * SPEC-CURRENCY RE-SEAL (2026-07-17): the 2026-07-28 revision was re-sealed
+ * upstream by spec PR #3002 (commit 71e30695, merged 2026-07-15 — after the
+ * previous anchor pin f68d864a): the envelope's `clientInfo` demoted from
+ * required to SHOULD, and `DiscoverResult.serverInfo` moved from the result
+ * body to the new `ResultMetaObject` key
+ * `_meta['io.modelcontextprotocol/serverInfo']` (optional on every result).
+ * The shapes below are the re-sealed anchor, exactly — no pre-#3002 shape is
+ * modeled anywhere (per ruling: the final revision is the only 2026-07-28).
  */
 import * as z from 'zod/v4';
 
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY
+} from '../../types/constants';
 import type { JSONObject, JSONValue } from '../../types/types';
 
 /**
@@ -665,9 +680,10 @@ function build() {
          */
         [PROTOCOL_VERSION_META_KEY]: z.string(),
         /**
-         * Identifies the client software making the request.
+         * Identifies the client software making the request. Optional since
+         * spec PR #3002 (clients SHOULD send it; servers must not require it).
          */
-        [CLIENT_INFO_META_KEY]: ImplementationSchema,
+        [CLIENT_INFO_META_KEY]: ImplementationSchema.optional(),
         /**
          * The client's capabilities for this specific request. An empty object means the
          * client supports no optional capabilities. Servers must not infer capabilities
@@ -758,7 +774,19 @@ function build() {
     /** Open union per the anchor: 'complete' | 'input_required' | string. */
     const ResultTypeSchema = z.string();
 
-    const wireMeta = z.record(z.string(), z.unknown()).optional();
+    /**
+     * Result `_meta` (anchor `ResultMetaObject`, added by spec PR #3002):
+     * loose, with the serverInfo key typed when present; the outbound stamp
+     * is the encode contract's `stampServerInfoMeta` step.
+     */
+    const ResultMetaSchema = z.looseObject({
+        // Malformed drops to absent, per the spec: the value "is not verified
+        // by the protocol" and clients "SHOULD NOT use it to change their behavior".
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+        [SERVER_INFO_META_KEY]: ImplementationSchema.optional().catch(undefined)
+    });
+
+    const wireMeta = ResultMetaSchema.optional();
 
     function wireResult<T extends z.core.$ZodLooseShape>(shape: T) {
         return z.looseObject({
@@ -848,7 +876,8 @@ function build() {
         cacheScope: z.enum(['public', 'private']).catch('private'),
         supportedVersions: z.array(z.string()),
         capabilities: ServerCapabilities2026Schema,
-        serverInfo: ImplementationSchema,
+        // No body `serverInfo` (spec PR #3002) — identity lives in the result
+        // `_meta['io.modelcontextprotocol/serverInfo']`.
         instructions: z.string().optional()
     });
 
@@ -1040,8 +1069,12 @@ function build() {
     const subscriptionsListenParamsShape = { notifications: SubscriptionFilterSchema };
     const SubscriptionsListenRequestSchema = wireRequest('subscriptions/listen', subscriptionsListenParamsShape);
 
-    /** Anchor SubscriptionsListenResultMeta — required subscriptionId stamp on the graceful-close result. */
-    const SubscriptionsListenResultMetaSchema = z.looseObject({
+    /**
+     * Anchor SubscriptionsListenResultMeta — required subscriptionId stamp on
+     * the graceful-close result. Extends `ResultMetaObject` since spec PR
+     * #3002 (composed, so the serverInfo key and its leniency stay single-sourced).
+     */
+    const SubscriptionsListenResultMetaSchema = ResultMetaSchema.extend({
         'io.modelcontextprotocol/subscriptionId': RequestIdSchema
     });
 
@@ -1135,7 +1168,7 @@ function build() {
             cacheScope: z.enum(['public', 'private']).catch('private'),
             supportedVersions: z.array(z.string()),
             capabilities: ServerCapabilities2026Schema,
-            serverInfo: ImplementationSchema,
+            // No body `serverInfo` (spec PR #3002; see DiscoverResultSchema).
             instructions: z.string().optional()
         }),
         // `subscriptions/listen` receives a JSON-RPC result only on a server-side
@@ -1321,6 +1354,7 @@ function build() {
         SamplingMessageContentBlockSchema,
         SamplingMessageSchema,
         ResultTypeSchema,
+        ResultMetaSchema,
         ResultSchema,
         PaginatedResultSchema,
         CallToolResultSchema,

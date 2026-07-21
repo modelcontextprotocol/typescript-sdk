@@ -36,7 +36,7 @@ async function scriptedServerSide(eras: 'modern' | 'legacy') {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'scripted-modern-server', version: '1.0.0' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted-modern-server', version: '1.0.0' } }
                     }
                 });
             } else {

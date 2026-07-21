@@ -44,7 +44,7 @@ The recorded value is the server's whole advertisement — supported versions, c
   cacheScope: 'private',
   supportedVersions: [ '2026-07-28' ],
   capabilities: { tools: { listChanged: true } },
-  serverInfo: { name: 'gateway-target', version: '1.0.0' },
+  _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'gateway-target', version: '1.0.0' } },
   resultType: 'complete'
 }
 ```

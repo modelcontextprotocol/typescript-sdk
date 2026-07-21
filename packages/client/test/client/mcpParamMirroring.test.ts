@@ -72,7 +72,7 @@ async function scriptedModernServer(pages: Tool[][], rejectFirstCall = false): P
                     resultType: 'complete',
                     supportedVersions: [MODERN],
                     capabilities: { tools: { listChanged: true } },
-                    serverInfo: { name: 'scripted', version: '1.0.0' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1.0.0' } }
                 }
             });
         } else if (r.method === 'tools/list') {

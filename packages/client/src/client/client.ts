@@ -61,6 +61,7 @@ import {
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
+    isSpecType,
     legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -74,6 +75,7 @@ import {
     scanXMcpHeaderDeclarations,
     SdkError,
     SdkErrorCode,
+    SERVER_INFO_META_KEY,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
@@ -82,7 +84,27 @@ import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation';
-import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation';
+import {
+    detectProbeEnvironment,
+    detectProbeTransportKind,
+    disarmSpentCloseGuard,
+    negotiateEra,
+    negotiateStdioViaSibling,
+    readStdioServerParams,
+    resolveVersionNegotiation
+} from './versionNegotiation';
+
+/**
+ * The server identity a `DiscoverResult` carries in
+ * `_meta['io.modelcontextprotocol/serverInfo']` (a spec SHOULD — absent means
+ * the server offered no identity). Runtime-validated with the spec-type
+ * guard because `connect({ prior })` accepts caller-supplied values that
+ * never saw a wire parse.
+ */
+function serverInfoFromDiscover(discover: DiscoverResult): Implementation | undefined {
+    const fromMeta = discover._meta?.[SERVER_INFO_META_KEY];
+    return isSpecType.Implementation(fromMeta) ? fromMeta : undefined;
+}
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -185,11 +207,16 @@ export type ClientOptions = ProtocolOptions & {
      * - `mode: 'auto'` — `connect()` probes the server with `server/discover` first:
      *   definitive modern evidence selects the modern era; definitive legacy signals
      *   (and anything unrecognized) fall back to the plain legacy `initialize`
-     *   handshake on the same connection, byte-equivalent to a 2025 client. A
+     *   handshake, byte-equivalent to a 2025 client. On the SDK's own stdio
+     *   transport (the base `StdioClientTransport` exactly; subclasses probe in
+     *   place) the probe runs on a short-lived sibling process spawned from the
+     *   same parameters (one extra spawn per connect; its stderr is discarded) and
+     *   the caller's transport starts once, after the era is known; HTTP — and
+     *   custom or subclassed stdio-shaped transports — probe on the connection itself. A
      *   network outage rejects with a typed connect error. A probe timeout is
      *   transport-aware: on stdio it indicates a legacy server (some legacy servers
      *   never answer unknown pre-`initialize` requests) and falls back to
-     *   `initialize` on the same stream; on HTTP it rejects with a typed timeout
+     *   `initialize`; on HTTP it rejects with a typed timeout
      *   error (silence on a deployed server is an outage, not a legacy signal).
      * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
      *   no probe-and-fallback: anything else fails loudly.
@@ -1000,8 +1027,9 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The 2025 `initialize` handshake — the body of the plain legacy connect and
-     * the `'auto'`-mode fallback path (same connection, same `initialize` body,
-     * zero 2026 headers). Callers clear the negotiated protocol version before
+     * the `'auto'`-mode fallback path (same `initialize` body, zero 2026 headers;
+     * on the stdio sibling path it opens the session child's fresh pipe, in the
+     * in-place modes it rides the probed connection). Callers clear the negotiated protocol version before
      * the handshake; its completion sets the negotiated (legacy) version.
      */
     private async _legacyHandshake(transport: Transport, options?: RequestOptions): Promise<void> {
@@ -1073,8 +1101,9 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Negotiated connect (mode `'auto'` or `{ pin }`): probe with `server/discover`
-     * before the Protocol machinery attaches, then either establish the modern era
-     * or perform the plain legacy handshake on the same connection.
+     * before the Protocol machinery attaches — on a disposable sibling process for
+     * the SDK's stdio transport, in place otherwise — then either establish the
+     * modern era or perform the plain legacy handshake.
      */
     private async _connectNegotiated(
         transport: Transport,
@@ -1098,31 +1127,54 @@ export class Client extends Protocol<ClientContext> {
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
-            result = await negotiateEra(negotiation, {
-                transport,
+            const transportKind = detectProbeTransportKind(transport);
+            const baseDeps = {
                 clientInfo: this._clientInfo,
                 capabilities: this._capabilities,
                 environment: detectProbeEnvironment(),
-                transportKind: detectProbeTransportKind(transport),
                 defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
-            });
+            };
+            // The SDK's stdio transport probes on a disposable sibling process,
+            // so the caller's transport spends its one child life on the
+            // session, never on the probe. Stdio-shaped transports without
+            // readable spawn parameters (and HTTP) probe in place, as before.
+            const stdioParams = transportKind === 'stdio' ? readStdioServerParams(transport) : undefined;
+            result =
+                stdioParams === undefined
+                    ? await negotiateEra(negotiation, { ...baseDeps, transport, transportKind })
+                    : await negotiateStdioViaSibling(negotiation, transport, stdioParams, baseDeps);
         } catch (error) {
             // Typed connect error — close the channel like a failed initialize does.
             await transport.close().catch(() => {});
+            // The cleanup close has settled: any re-delivery of a spent
+            // mid-probe close has happened by now, so the spent-close guard
+            // must not outlive it — on transports whose close() never re-fires
+            // onclose (stdio), an armed guard would swallow the next GENUINE
+            // close after a restart.
+            disarmSpentCloseGuard(transport);
             throw error;
         }
+
+        // Success path: no cleanup close ever runs here, so no re-delivery of a
+        // spent mid-window close is coming — disarm any guard NOW, before
+        // Protocol chains the handler slot, or an in-place negotiation that
+        // succeeded after a same-tick reply-then-close would carry the armed
+        // skip into the live session and swallow its first genuine close.
+        disarmSpentCloseGuard(transport);
 
         await super.connect(transport);
 
         if (result.era === 'legacy') {
-            // Conservative fallback: the plain legacy handshake on the SAME
-            // connection (the probe never touched the transport version slot).
+            // Conservative fallback: the in-place probing modes run the plain
+            // legacy handshake on the probed connection; the sibling path runs
+            // it as the session child's first exchange (the probe never touched
+            // the transport version slot either way).
             await this._legacyHandshake(transport, options);
             return;
         }
 
         this._serverCapabilities = result.discover.capabilities;
-        this._serverVersion = result.discover.serverInfo;
+        this._serverVersion = serverInfoFromDiscover(result.discover);
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = result.discover.instructions;
         this._discoverResult = result.discover;
@@ -1251,7 +1303,7 @@ export class Client extends Protocol<ClientContext> {
 
         this._discoverResult = discover;
         this._serverCapabilities = discover.capabilities;
-        this._serverVersion = discover.serverInfo;
+        this._serverVersion = serverInfoFromDiscover(discover);
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = discover.instructions;
         this._negotiatedProtocolVersion = version;
@@ -1275,7 +1327,10 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * After initialization has completed, this will be populated with information about the server's name and version.
+     * The connected server's self-reported name and version, when it
+     * identified itself: required on the legacy `initialize` result; a spec
+     * SHOULD in the discover result's `_meta` on 2026-07-28, so a successful
+     * modern connect against an anonymous server leaves this `undefined`.
      */
     getServerVersion(): Implementation | undefined {
         return this._serverVersion;
@@ -1283,16 +1338,22 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The connected server's identity for response-cache partitioning. The
-     * `serverInfo` `name@version` pair when available (the spec requires it on
-     * both `initialize` and `server/discover`); falls back to the transport's
-     * `sessionId` otherwise. The value itself is server-controlled — the
-     * collision-safety of the storage partition comes from
+     * `serverInfo` `name@version` pair when available (required on
+     * `initialize`; a SHOULD in the discover result's `_meta` since spec PR
+     * #3002); falls back to the transport's `sessionId`, then to a
+     * per-connection surrogate. The surrogate matters since #3002 made
+     * identity optional: without it, two identity-less servers reached over
+     * sessionId-less transports would share the cache's pre-connect `''`
+     * partition and read each other's entries — no stable identity means no
+     * cross-connection cache reuse. The value itself is server-controlled —
+     * the collision-safety of the storage partition comes from
      * {@linkcode ClientResponseCache}'s JSON-array encoding around it, not
      * from any character it does or does not contain.
      */
     private _deriveServerIdentity(transport: Transport): string {
         const v = this._serverVersion;
-        return v === undefined ? (transport.sessionId ?? '') : `${v.name}@${v.version}`;
+        if (v !== undefined) return `${v.name}@${v.version}`;
+        return transport.sessionId ?? `anonymous:${Date.now()}-${Math.random().toString(36).slice(2)}`;
     }
 
     /**

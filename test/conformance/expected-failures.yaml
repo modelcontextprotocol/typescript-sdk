@@ -23,6 +23,17 @@ client: []
     # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
 
 server:
+    # --- spec PR #3002 — referee pinned at alpha.9 asserts the OLD shape ---
+    # The alpha.9 `server-stateless` scenario still enforces the pre-#3002
+    # spec: clientInfo required in the envelope, serverInfo a DiscoverResult
+    # body field. This SDK follows the final revision (clientInfo optional;
+    # identity in the result _meta), so exactly three checks fail:
+    #   - sep-2575-request-meta-invalid-missing-client-info
+    #   - sep-2575-http-server-meta-invalid-400 (the missing-client-info iteration)
+    #   - sep-2575-server-implements-discover (requires body serverInfo)
+    # Remove this entry when the pin bumps to a conformance release that
+    # incorporates #3002 (alpha.10+).
+    - server-stateless
     # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
     # Extension-tagged scenarios; selected only by `--suite all` (the alpha.9 referee
     # has no server-side `--suite extensions`). The active/draft/2026 legs never select

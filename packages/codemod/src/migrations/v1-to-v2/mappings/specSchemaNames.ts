@@ -121,6 +121,7 @@ export const SPEC_SCHEMA_NAMES: ReadonlySet<string> = new Set([
     'ResourceTemplateSchema',
     'ResourceUpdatedNotificationParamsSchema',
     'ResourceUpdatedNotificationSchema',
+    'ResultMetaObjectSchema',
     'ResultSchema',
     'RoleSchema',
     'RootSchema',
