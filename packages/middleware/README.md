@@ -11,6 +11,7 @@ They intentionally **do not** add new MCP features or “business logic”. MCP 
 ## Packages
 
 - `@modelcontextprotocol/express` — Express helpers (app defaults + Host header validation for DNS rebinding protection).
+- `@modelcontextprotocol/fastify` — Fastify helpers (app defaults + Host header validation for DNS rebinding protection).
 - `@modelcontextprotocol/hono` — Hono helpers (app defaults + JSON body parsing hook + Host header validation).
 - `@modelcontextprotocol/node` — Node.js Streamable HTTP transport wrapper for `IncomingMessage`/`ServerResponse`.
 
