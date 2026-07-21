@@ -2,7 +2,8 @@ import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextp
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import * as authModule from '../../src/client/auth';
 import { UnauthorizedError } from '../../src/client/auth';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
@@ -1183,6 +1184,210 @@ describe('StreamableHTTPClientTransport', () => {
         expect(authSpy).not.toHaveBeenCalled();
 
         authSpy.mockRestore();
+    });
+
+    describe('scope accumulation on step-up authorization (SEP-2350)', () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const mock403Then202 = (challengeScope: string) => {
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${challengeScope}"`
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+        };
+
+        it('requests the union of previously granted scopes and the challenged scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('deduplicates when the challenge repeats an already-granted scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('write admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('uses only the challenged scope when there is no prior scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue(undefined);
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('preserves client metadata scope when the token response omits scope', async () => {
+            vi.spyOn(mockAuthProvider, 'clientMetadata', 'get').mockReturnValue({
+                redirect_uris: ['http://localhost/callback'],
+                scope: 'read write'
+            });
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('preserves protected resource metadata scope when the token response omits scope', async () => {
+            mockAuthProvider.discoveryState = vi.fn().mockResolvedValue({
+                authorizationServerUrl: 'http://localhost:1234',
+                resourceMetadata: {
+                    resource: 'http://localhost:1234/mcp',
+                    scopes_supported: ['read', 'write']
+                }
+            });
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('does not add PRM or provider scopes when an explicit prior scope is known', async () => {
+            vi.spyOn(mockAuthProvider, 'clientMetadata', 'get').mockReturnValue({
+                redirect_uris: ['http://localhost/callback'],
+                scope: 'provider-default'
+            });
+            mockAuthProvider.discoveryState = vi.fn().mockResolvedValue({
+                authorizationServerUrl: 'http://localhost:1234',
+                resourceMetadata: {
+                    resource: 'http://localhost:1234/mcp',
+                    scopes_supported: ['read', 'prm-unrequested']
+                }
+            });
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('keeps accumulated scope after a 401 challenge without scope', async () => {
+            const authProvider: AuthProvider = { token: vi.fn(async () => undefined) };
+            const challengeTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+            const resourceMetadataUrl = new URL('http://localhost:1234/.well-known/oauth-protected-resource/mcp');
+            (challengeTransport as unknown as { _scope?: string })._scope = 'read write';
+            (challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl = resourceMetadataUrl;
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer realm="test"'
+                }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+            await expect(challengeTransport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect((challengeTransport as unknown as { _scope?: string })._scope).toBe('read write');
+            expect((challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl).toBe(resourceMetadataUrl);
+
+            await challengeTransport.close().catch(() => {});
+        });
     });
 
     describe('Reconnection Logic', () => {

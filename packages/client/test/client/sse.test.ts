@@ -1550,12 +1550,14 @@ describe('SSEClientTransport', () => {
 
     describe('minimal AuthProvider (non-OAuth)', () => {
         let postResponses: number[];
+        let postHeaders: Record<string, string> | undefined;
         let postCount: number;
 
         async function setupServer(): Promise<void> {
             await resourceServer.close();
 
             postCount = 0;
+            postHeaders = undefined;
             resourceServer = createServer((req, res) => {
                 lastServerRequest = req;
 
@@ -1573,7 +1575,11 @@ describe('SSEClientTransport', () => {
                 if (req.method === 'POST') {
                     const status = postResponses[postCount] ?? 200;
                     postCount++;
-                    res.writeHead(status).end();
+                    if (status === 401 && postHeaders) {
+                        res.writeHead(status, postHeaders).end();
+                    } else {
+                        res.writeHead(status).end();
+                    }
                     return;
                 }
             });
@@ -1592,6 +1598,31 @@ describe('SSEClientTransport', () => {
             await transport.start();
 
             await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+        });
+
+        it('keeps accumulated scope and resource metadata after a POST 401 challenge without params', async () => {
+            postResponses = [401, 200];
+            await setupServer();
+            postHeaders = { 'WWW-Authenticate': 'Bearer realm="test"' };
+
+            const resourceMetadataUrl = new URL('http://localhost:1234/.well-known/oauth-protected-resource/mcp');
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async ctx => {
+                    expect(ctx.scope).toBe('read write');
+                    expect(ctx.resourceMetadataUrl).toBe(resourceMetadataUrl);
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            await transport.start();
+            (transport as unknown as { _scope?: string })._scope = 'read write';
+            (transport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl = resourceMetadataUrl;
+
+            await transport.send(message);
+
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect((transport as unknown as { _scope?: string })._scope).toBe('read write');
+            expect((transport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl).toBe(resourceMetadataUrl);
         });
 
         it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkHttpError', async () => {

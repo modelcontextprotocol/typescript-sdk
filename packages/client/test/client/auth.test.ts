@@ -25,6 +25,7 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    handleOAuthUnauthorized,
     InsecureTokenEndpointError,
     isHttpsUrl,
     isStrictScopeSuperset,
@@ -212,6 +213,87 @@ describe('OAuth Authorization', () => {
             // The spec explicitly does not require clients to deduplicate
             // hierarchically; the AS normalizes redundancy.
             expect(computeScopeUnion('admin', 'read')).toBe('admin read');
+        });
+    });
+
+    describe('handleOAuthUnauthorized', () => {
+        it('forces reauthorization with the full scope union instead of refreshing a narrower token', async () => {
+            const resourceMetadataUrl = new URL('https://resource.example.com/custom-prm');
+            const tokenEndpoint = 'https://auth.example.com/token';
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'old-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'refresh-token',
+                    scope: 'openid read'
+                }),
+                saveTokens: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn()
+            };
+            const response = new Response(null, {
+                status: 401,
+                headers: { 'WWW-Authenticate': 'Bearer scope="write"' }
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString === resourceMetadataUrl.toString()) {
+                    return Promise.resolve(
+                        Response.json({
+                            resource: 'https://api.example.com/mcp',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    );
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve(
+                        Response.json({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: tokenEndpoint,
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    );
+                }
+                if (urlString === tokenEndpoint) {
+                    return Promise.resolve(
+                        Response.json({
+                            access_token: 'refreshed-token',
+                            token_type: 'Bearer',
+                            scope: 'openid read'
+                        })
+                    );
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await expect(
+                handleOAuthUnauthorized(provider, {
+                    response,
+                    serverUrl: new URL('https://api.example.com/mcp'),
+                    fetchFn: mockFetch,
+                    resourceMetadataUrl,
+                    scope: 'read'
+                })
+            ).rejects.toBeInstanceOf(UnauthorizedError);
+
+            expect(mockFetch.mock.calls[0]?.[0].toString()).toBe(resourceMetadataUrl.toString());
+            expect(mockFetch.mock.calls.some(([url]) => url.toString() === tokenEndpoint)).toBe(false);
+            const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
+            expect(authorizationUrl.searchParams.get('scope')).toBe('openid read write');
         });
     });
 
