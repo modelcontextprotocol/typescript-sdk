@@ -40,6 +40,16 @@
                 "default": "./dist/stdio.cjs"
             }
         },
+        "./experimental/server-card": {
+            "import": {
+                "types": "./dist/experimental/serverCard.d.mts",
+                "default": "./dist/experimental/serverCard.mjs"
+            },
+            "require": {
+                "types": "./dist/experimental/serverCard.d.cts",
+                "default": "./dist/experimental/serverCard.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -115,6 +125,9 @@
             ],
             "stdio": [
                 "dist/stdio.d.mts"
+            ],
+            "experimental/server-card": [
+                "dist/experimental/serverCard.d.mts"
             ]
         }
     },

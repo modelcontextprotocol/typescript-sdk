@@ -8,7 +8,7 @@ import { defineConfig } from 'tsdown';
 // makes a node-only dependency leaking in fail the build here instead of silently shipping.
 export default defineConfig({
     failOnWarn: 'ci-only',
-    entry: ['src/index.ts', 'src/internal.ts'],
+    entry: ['src/index.ts', 'src/internal.ts', 'src/experimental/serverCard/index.ts'],
     format: ['esm', 'cjs'],
     fixedExtension: true,
     outDir: 'dist',
