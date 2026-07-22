@@ -2097,7 +2097,11 @@ export async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    const json: unknown = await response.json();
+    const contentType = response.headers?.get?.('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    const json: unknown =
+        contentType === 'application/x-www-form-urlencoded'
+            ? Object.fromEntries(new URLSearchParams(await response.text()))
+            : await response.json();
 
     try {
         return OAuthTokensSchema.parse(json);
