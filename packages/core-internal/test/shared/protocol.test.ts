@@ -656,6 +656,25 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        // Regression for #2117: numeric 0 is a legal JSON-RPC RequestId and must
+        // not be treated as "absent" by the debounce guard's truthiness check.
+        // Call synchronously (no await between) so coalescing can be observed —
+        // awaiting would flush the microtask and hide the bug.
+        it('should NOT debounce a notification that has relatedRequestId 0', async () => {
+            // ARRANGE
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — fire both in the same tick
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await flushMicrotasks();
+
+            // ASSERT — related notifications must never coalesce (sent immediately, twice)
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
@@ -817,6 +836,46 @@ describe('protocol tests', () => {
             await new Promise(resolve => setTimeout(resolve, 150));
 
             // Verify the request was aborted
+            expect(wasAborted).toBe(true);
+        });
+
+        // Regression for #2283 / #2115: requestId 0 is legal JSON-RPC and is the
+        // first id assigned by Protocol (_requestMessageId starts at 0).
+        test('should abort request handler when notifications/cancelled uses requestId 0', async () => {
+            await protocol.connect(transport);
+
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            const requestId = 0;
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    method: 'ping',
+                    params: {}
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: requestId,
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+
             expect(wasAborted).toBe(true);
         });
     });
