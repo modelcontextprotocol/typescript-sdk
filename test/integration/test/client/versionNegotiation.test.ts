@@ -11,12 +11,16 @@
  * Plus: structural fallback hygiene (the auto client's post-probe traffic is
  * byte-identical to a plain legacy client's, zero 2026 headers), the typed
  * connect errors for outage and HTTP timeout, and the stdio timeout fallback
- * (a silent legacy stdio server is detected by the probe timing out and the
- * client falls back to initialize on the same pipe).
+ * (a silent legacy stdio server is detected by the probe — riding the
+ * disposable sibling — timing out, and the client connects legacy with
+ * initialize on the session child's fresh pipe).
  */
 import { randomUUID } from 'node:crypto';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
@@ -24,7 +28,7 @@ import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 /** A fetch wrapper recording every request our client puts on the wire (URL, headers, body) and the raw response (status, body). */
@@ -229,9 +233,10 @@ describe('typed connect errors (Q12) over real sockets', () => {
 describe('stdio: silent legacy server (probe timeout fallback)', () => {
     // The stdio transport's backward-compatibility rule: a probe that gets no
     // response within a reasonable timeout indicates a legacy server — some
-    // legacy servers do not respond to unknown pre-initialize requests at all
-    // — and the client falls back to initialize on the same pipe. (On HTTP,
-    // by contrast, a timeout stays a typed connect error; see the test above.)
+    // legacy servers do not respond to unknown pre-initialize requests at all.
+    // The probe times out on the disposable sibling; the client then connects
+    // legacy with initialize on the session child's fresh pipe. (On HTTP, by
+    // contrast, a timeout stays a typed connect error; see the test above.)
     const SILENT_LEGACY_SERVER_SCRIPT = String.raw`
         let buffer = '';
         process.stdin.on('data', chunk => {
@@ -267,7 +272,7 @@ describe('stdio: silent legacy server (probe timeout fallback)', () => {
         });
     `;
 
-    it('auto mode: the probe times out, the client falls back to initialize on the same pipe and connects on the legacy era', async () => {
+    it("auto mode: the probe times out on the sibling and the client connects legacy — initialize on the session child's fresh pipe", async () => {
         const transport = new StdioClientTransport({
             command: process.execPath,
             args: ['-e', SILENT_LEGACY_SERVER_SCRIPT]
@@ -281,6 +286,221 @@ describe('stdio: silent legacy server (probe timeout fallback)', () => {
             await client.connect(transport);
             expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
             expect(client.getServerVersion()?.name).toBe('silent-legacy-stdio-server');
+        } finally {
+            await client.close();
+        }
+    }, 15_000);
+});
+
+describe('stdio: sibling probe (real children)', () => {
+    // The probe runs on a DISPOSABLE SIBLING spawned from the same parameters;
+    // the caller's transport spawns exactly once, after the era is known. Each
+    // fixture child appends "<pid> <method>" lines to a log file, so spawn
+    // counts and per-child wire traffic are asserted from the file.
+    const logFile = () => path.join(tmpdir(), `mcp-sibling-probe-${randomUUID()}.log`);
+    const linesOf = (file: string): string[] =>
+        existsSync(file)
+            ? readFileSync(file, 'utf8')
+                  .split('\n')
+                  .filter(l => l.trim() !== '')
+            : [];
+    const pidsOf = (file: string): number[] => [...new Set(linesOf(file).map(l => Number(l.split(' ')[0])))];
+    const methodsOf = (file: string, pid: number): string[] =>
+        linesOf(file)
+            .filter(l => l.startsWith(`${pid} `))
+            .map(l => l.split(' ')[1]!)
+            .filter(m => m !== 'spawned');
+    const isAlive = (pid: number): boolean => {
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch {
+            return false;
+        }
+    };
+
+    /** Line-delimited JSON-RPC child: logs every received method; `mode` picks the personality. */
+    const fixture = (file: string, mode: 'rmcp' | 'modern' | 'silent' | 'rmcp-holding') => String.raw`
+        const fs = require('fs');
+        const log = entry => fs.appendFileSync(${JSON.stringify(file)}, process.pid + ' ' + entry + '\n');
+        log('spawned');
+        const MODE = ${JSON.stringify(mode)};
+        if (MODE === 'rmcp-holding') {
+            require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 2500)'], { stdio: 'inherit' });
+        }
+        let initialized = false;
+        let buffer = '';
+        const send = obj => process.stdout.write(JSON.stringify(obj) + '\n');
+        process.stdin.on('data', chunk => {
+            buffer += chunk.toString();
+            let index;
+            while ((index = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.slice(0, index);
+                buffer = buffer.slice(index + 1);
+                if (line.trim() === '') continue;
+                let message;
+                try {
+                    message = JSON.parse(line);
+                } catch {
+                    continue;
+                }
+                if (message.method !== undefined) log(message.method);
+                if (MODE === 'silent') continue;
+                if (message.method === 'initialize') {
+                    initialized = true;
+                    send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: message.params.protocolVersion,
+                            capabilities: { tools: {} },
+                            serverInfo: { name: 'sibling-fixture', version: '1.0.0' }
+                        }
+                    });
+                } else if (message.method === 'server/discover' && MODE === 'modern') {
+                    send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            supportedVersions: ['2026-07-28'],
+                            capabilities: { tools: {} },
+                            _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'sibling-fixture', version: '1.0.0' } }
+                        }
+                    });
+                } else if (message.method === 'tools/call') {
+                    // The 2026 wire requires resultType on results; the legacy wire has no such field.
+                    const result = { content: [{ type: 'text', text: message.params.arguments.text }] };
+                    if (MODE === 'modern') result.resultType = 'complete';
+                    send({ jsonrpc: '2.0', id: message.id, result });
+                } else if (!initialized && MODE !== 'modern' && message.id !== undefined) {
+                    // The rmcp shape: exit on any unrecognized pre-initialize request.
+                    process.exit(1);
+                }
+            }
+        });
+        process.stdin.resume();
+    `;
+
+    const spawnFixture = (file: string, mode: 'rmcp' | 'modern' | 'silent' | 'rmcp-holding') =>
+        new StdioClientTransport({ command: process.execPath, args: ['-e', fixture(file, mode)] });
+
+    it('rmcp exit-on-probe: sibling spends itself and is reaped; the session connects legacy on its only spawn and serves tools/call', async () => {
+        const file = logFile();
+        const transport = spawnFixture(file, 'rmcp');
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        try {
+            await client.connect(transport);
+
+            const result = await client.callTool({ name: 'echo', arguments: { text: 'sibling' } });
+            expect(result.content).toEqual([{ type: 'text', text: 'sibling' }]);
+
+            const pids = pidsOf(file);
+            expect(pids).toHaveLength(2);
+            const [siblingPid, sessionPid] = pids as [number, number];
+            expect(sessionPid).toBe(transport.pid);
+            expect(methodsOf(file, siblingPid)).toEqual(['server/discover']);
+            expect(methodsOf(file, sessionPid)).not.toContain('server/discover');
+            expect(methodsOf(file, sessionPid)).toContain('initialize');
+            await vi.waitFor(() => expect(isAlive(siblingPid)).toBe(false));
+        } finally {
+            await client.close();
+        }
+    }, 15_000);
+
+    it('modern server: the session adopts the sibling verdict — its wire carries neither server/discover nor initialize', async () => {
+        const file = logFile();
+        const transport = spawnFixture(file, 'modern');
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        try {
+            await client.connect(transport);
+            expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+            expect(client.getServerVersion()?.name).toBe('sibling-fixture');
+
+            const result = await client.callTool({ name: 'echo', arguments: { text: 'modern' } });
+            expect(result.content).toEqual([{ type: 'text', text: 'modern' }]);
+
+            const pids = pidsOf(file);
+            expect(pids).toHaveLength(2);
+            const [siblingPid, sessionPid] = pids as [number, number];
+            expect(methodsOf(file, siblingPid)).toEqual(['server/discover']);
+            // Byte-trace: the verdict was adopted — the session never probed and
+            // never ran the legacy handshake.
+            expect(methodsOf(file, sessionPid)).not.toContain('server/discover');
+            expect(methodsOf(file, sessionPid)).not.toContain('initialize');
+            await vi.waitFor(() => expect(isAlive(siblingPid)).toBe(false));
+        } finally {
+            await client.close();
+        }
+    }, 15_000);
+
+    it('caller close() mid-probe aborts promptly: typed error, the session child is never spawned, the sibling is reaped', async () => {
+        const file = logFile();
+        const transport = spawnFixture(file, 'silent');
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const pending = client.connect(transport);
+        pending.catch(() => {});
+        await vi.waitFor(() => expect(pidsOf(file)).toHaveLength(1));
+
+        await transport.close();
+
+        const rejection = await pending.then(
+            () => {},
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect((rejection as SdkError).message).toMatch(/transport was closed during the server\/discover probe/);
+        // The session child was never spawned, and the sibling is reaped.
+        expect(transport.pid).toBeNull();
+        expect(pidsOf(file)).toHaveLength(1);
+        await vi.waitFor(() => expect(isAlive(pidsOf(file)[0]!)).toBe(false));
+    }, 15_000);
+
+    it("a pre-set onclose observer survives a failed pin negotiation: a restarted life's close still reaches it", async () => {
+        // The sibling design keeps the session transport's handlers untouched
+        // during the probe (the window opens on the sibling, which has none),
+        // so a failed negotiation must leave the caller's observer fully
+        // armed: after the caller restarts the transport, its life's close is
+        // genuine and must be delivered. (On the real StdioClientTransport,
+        // close() never re-fires onclose — delivery comes only from the
+        // child's own close event — so any leftover one-shot suppression
+        // would swallow exactly this event.)
+        const file = logFile();
+        const transport = spawnFixture(file, 'rmcp');
+        let closes = 0;
+        transport.onclose = () => {
+            closes++;
+        };
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
+
+        await expect(client.connect(transport)).rejects.toThrow(/no fallback in pin mode/);
+        // The session child was never spawned, so its observer saw nothing yet.
+        expect(transport.pid).toBeNull();
+        expect(closes).toBe(0);
+
+        // The caller restarts the transport: its first real life. Closing it
+        // makes the child exit — that close event must reach the observer.
+        await transport.start();
+        expect(transport.pid).not.toBeNull();
+        await transport.close();
+        await vi.waitFor(() => expect(closes).toBe(1));
+    }, 15_000);
+
+    it('a helper holding the probe child’s pipes defers the close past the probe window: the timeout row still lands legacy and the session works', async () => {
+        const file = logFile();
+        const transport = spawnFixture(file, 'rmcp-holding');
+        const client = new Client(
+            { name: 'neg-client', version: '1.0.0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 800 } } }
+        );
+        try {
+            await client.connect(transport);
+            const result = await client.callTool({ name: 'echo', arguments: { text: 'held' } });
+            expect(result.content).toEqual([{ type: 'text', text: 'held' }]);
+            const pids = pidsOf(file);
+            expect(pids).toHaveLength(2);
+            await vi.waitFor(() => expect(isAlive(pids[0]!)).toBe(false));
         } finally {
             await client.close();
         }

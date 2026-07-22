@@ -1,6 +1,7 @@
 ---
 shape: reference
 ---
+
 # Troubleshooting
 
 Each heading on this page is the verbatim error message. Match yours, then apply that entry's fix.
@@ -66,7 +67,14 @@ With the global in place the [client OAuth](./clients/oauth.md) flows run unchan
 
 ## `SdkError: ERA_NEGOTIATION_FAILED`
 
-`connect()` found no **protocol era** both sides speak. Two shapes produce it: `versionNegotiation: { mode: { pin: ... } }` names a revision the server does not offer over `server/discover`, and pinning never falls back; or `mode: 'auto'` with a `supportedProtocolVersions` list that has no pre-2026 entry, which removes the legacy fallback.
+`connect()` found no **protocol era** both sides speak, or the negotiation probe was cut short. Match the message tail:
+
+- `the server did not offer pinned protocol version ... via server/discover (no fallback in pin mode)` — the pin names a revision the server does not offer, and pinning never falls back: drop the pin or use `'auto'`.
+- `the connection closed during the server/discover probe before the server offered pinned protocol version ...` — same pin, but the server exited on the probe (an exit-on-probe legacy server): use `'auto'`.
+- `the server gave no modern evidence and this client supports no pre-2026-07-28 protocol version to fall back to` — or its `the connection closed during the server/discover probe and this client supports no ...` variant — `mode: 'auto'` with a modern-only `supportedProtocolVersions` list removes the legacy fallback: restore a pre-2026 entry.
+- `the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)` — a subclass of `StdioClientTransport`, or a custom stdio-shaped transport, probed in place and met a server that exits on any pre-`initialize` request: use the base `StdioClientTransport` (which probes on a disposable sibling), or `mode: 'legacy'`.
+- `the transport was closed during the server/discover probe` — the caller closed the transport while the probe was in flight; the connect aborted deliberately and the session child was never spawned.
+- `Version negotiation probe failed: ...` — the probe hit a transport failure (network outage, HTTP connection drop): fix connectivity and retry.
 
 The pinned shape — `transport` here reaches a server still on the 2025 revisions ([Test a server](./testing.md) shows the in-memory wiring these outputs come from):
 
@@ -87,7 +95,7 @@ The rejection names the pinned revision the server never offered:
 ERA_NEGOTIATION_FAILED: Version negotiation failed: the server did not offer pinned protocol version 2026-07-28 via server/discover (no fallback in pin mode)
 ```
 
-Change the mode to `'auto'`: the probe falls back to the 2025 `initialize` handshake on the same connection.
+Change the mode to `'auto'`: the probe falls back to the 2025 `initialize` handshake.
 
 ```ts source="../examples/guides/troubleshooting.examples.ts#connect_autoFallback"
 const negotiated = new Client({ name: 'app', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });

@@ -128,9 +128,12 @@ describe('createMcpHandler — modern path', () => {
             postRequest({ jsonrpc: '2.0', id: 5, method: 'server/discover', params: { _meta: ENVELOPE } })
         );
         expect(response.status).toBe(200);
-        const body = (await response.json()) as { result: { supportedVersions: string[]; serverInfo: { name: string } } };
+        const body = (await response.json()) as {
+            result: { supportedVersions: string[]; _meta: Record<string, { name: string }> };
+        };
         expect(body.result.supportedVersions).toEqual([MODERN_REVISION]);
-        expect(body.result.serverInfo.name).toBe('entry-test-server');
+        // #3002: identity in the result `_meta`, never the body.
+        expect(body.result._meta['io.modelcontextprotocol/serverInfo']!.name).toBe('entry-test-server');
     });
 
     it('backfills the deprecated accessors and the negotiated revision from the validated envelope (per-request instance state)', async () => {
@@ -309,7 +312,10 @@ describe('createMcpHandler — modern path', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_602);
-        expect(JSON.stringify(body.error.data)).toContain('clientInfo');
+        // clientCapabilities is the missing REQUIRED key; clientInfo is a
+        // SHOULD since spec PR #3002 and its absence is never an error.
+        expect(JSON.stringify(body.error.data)).toContain('clientCapabilities');
+        expect(JSON.stringify(body.error.data)).not.toContain('clientInfo');
         expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });

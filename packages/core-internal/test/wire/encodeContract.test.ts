@@ -12,6 +12,9 @@
  *           specific author first (valid handler-returned values, then the
  *           attached configured hint, then the defaults), with an encode-time
  *           validity gate on handler-returned values.
+ *  step 3 — `_meta` serverInfo stamp (spec PR #3002): the caller-supplied
+ *           identity lands on every result's `_meta`, handler-authored value
+ *           wins, no identity → identity function.
  *
  * The ordering (stamp before fill, `input_required` excluded from the fill)
  * is pinned here.
@@ -34,7 +37,8 @@ import {
     DEFAULT_CACHE_TTL_MS,
     EXTENDED_RESULT_TYPE_METHODS,
     fillCacheFields,
-    stampResultType
+    stampResultType,
+    stampServerInfoMeta
 } from '../../src/wire/rev2026-07-28/encodeContract';
 
 const asResult = (value: Record<string, unknown>): Result => value as unknown as Result;
@@ -202,11 +206,74 @@ describe('the codec integration (encodeResult applies the contract in pinned ord
     });
 });
 
+describe('step 3 — the _meta serverInfo stamp (spec PR #3002)', () => {
+    const identity = { name: 'stamp-server', version: '9.9.9' };
+    const metaOf = (result: Result) => (result as Record<string, unknown>)['_meta'] as Record<string, unknown> | undefined;
+
+    test('stamps the identity into a fresh _meta when the result has none', () => {
+        const stamped = stampServerInfoMeta(asResult({ tools: [] }), identity);
+        expect(metaOf(stamped)).toEqual({ 'io.modelcontextprotocol/serverInfo': identity });
+    });
+
+    test('preserves other _meta entries', () => {
+        const stamped = stampServerInfoMeta(asResult({ _meta: { 'com.example/trace': 'abc' } }), identity);
+        expect(metaOf(stamped)).toEqual({ 'com.example/trace': 'abc', 'io.modelcontextprotocol/serverInfo': identity });
+    });
+
+    test('a handler-authored serverInfo wins (never overwritten)', () => {
+        const authored = { name: 'authored', version: '0.1.0' };
+        const stamped = stampServerInfoMeta(asResult({ _meta: { 'io.modelcontextprotocol/serverInfo': authored } }), identity);
+        expect(metaOf(stamped)).toEqual({ 'io.modelcontextprotocol/serverInfo': authored });
+    });
+
+    test('no identity supplied → identity function (no _meta invented)', () => {
+        const result = asResult({ tools: [] });
+        expect(stampServerInfoMeta(result, undefined)).toBe(result);
+    });
+
+    test('a present-but-non-object _meta is never rewritten (the malformed value fails loudly at the peer)', () => {
+        const result = asResult({ _meta: ['not-an-object'] });
+        expect(stampServerInfoMeta(result, identity)).toBe(result);
+    });
+
+    test('encodeResult stamps every result — complete and input_required alike', () => {
+        const complete = rev2026Codec.encodeResult('tools/list', asResult({ tools: [] }), identity);
+        expect(metaOf(complete)?.['io.modelcontextprotocol/serverInfo']).toEqual(identity);
+        const inputRequired = rev2026Codec.encodeResult(
+            'resources/read',
+            asResult({ resultType: 'input_required', inputRequests: {} }),
+            identity
+        );
+        expect(metaOf(inputRequired)?.['io.modelcontextprotocol/serverInfo']).toEqual(identity);
+    });
+
+    test('the 2025 codec never stamps, identity supplied or not (the never-stamp guarantee)', () => {
+        const result = asResult({ tools: [] });
+        expect(rev2025Codec.encodeResult('tools/list', result, identity)).toBe(result);
+    });
+
+    test('receive side: a malformed _meta serverInfo drops to absent instead of failing the wire parse (display-only leniency)', () => {
+        const parsed = Wire2026DiscoverResultSchema.safeParse({
+            resultType: 'complete',
+            ttlMs: 0,
+            cacheScope: 'public',
+            supportedVersions: ['2026-07-28'],
+            capabilities: {},
+            _meta: { 'io.modelcontextprotocol/serverInfo': 'not-an-implementation', 'com.example/keep': 1 }
+        });
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expect(parsed.data._meta?.['io.modelcontextprotocol/serverInfo']).toBeUndefined();
+            expect(parsed.data._meta?.['com.example/keep']).toBe(1);
+        }
+    });
+});
+
 describe('inbound receiver-side defaults (the parse-side leniency that lets the probe classifier route through the codec)', () => {
     const minimalDiscover = {
         supportedVersions: ['2026-07-28'],
         capabilities: {},
-        serverInfo: { name: 's', version: '1' }
+        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
     };
 
     test("validateResult('server/discover', …) fills ttlMs/cacheScope when absent", () => {

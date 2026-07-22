@@ -2,12 +2,12 @@
     "comment": "Vendored schema.json twins (TEST-ONLY conformance oracles; never bundled, never runtime). RAW upstream bytes - never reformat: each file is locked to the sha256/bytes below by schemaTwinConformance. Refresh via `pnpm fetch:schema-twins [sha]`, ATOMICALLY with the matching spec.types anchor (see packages/core-internal/src/types/README.md lifecycle rule 4).",
     "source": {
         "repository": "modelcontextprotocol/modelcontextprotocol",
-        "commit": "f68d864a813754e188c6df52dcc5772a12f96c63"
+        "commit": "71e306956a4959c9655e5036be215d41986596e6"
     },
     "files": {
         "2026-07-28": {
-            "sha256": "14398c3dd2c66b9c3f6661fc7a7eaa24174952ed1598d0b7f011b686ba5c4c83",
-            "bytes": 178613,
+            "sha256": "9281c4890630e2d1e61792fa23b4084c4ea360cd58519610cd050545ab7b8708",
+            "bytes": 180695,
             "upstreamPath": "schema/draft/schema.json"
         },
         "2025-11-25": {

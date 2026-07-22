@@ -28,10 +28,17 @@ client: []
     # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
     # (empty: SEP-2468/2352/2350/837 burned by the auth bundle; SEP-2106 burned earlier)
 
-server: []
+server:
     # --- Carried-forward scenarios (also run by the 2025 legs) ---
-    # (empty: json-schema-2020-12 burned by the SEP-2106 fixture;
+    # (json-schema-2020-12 burned by the SEP-2106 fixture;
     # sep-2164-resource-not-found burned by the spec#2907 error-code renumber +
-    # alpha.5 referee; server-stateless burned by conformance#376 at alpha.9 —
-    # the referee's `requiredCapabilities` assertion now matches the schema's
-    # `ClientCapabilities` object, which is what this SDK emits.)
+    # alpha.5 referee.)
+    #
+    # --- spec PR #3002 — referee pinned at alpha.9 asserts the OLD shape ---
+    # Same three failing checks as the 2025-leg baseline entry
+    # (sep-2575-request-meta-invalid-missing-client-info, the
+    # missing-client-info iteration of sep-2575-http-server-meta-invalid-400,
+    # and sep-2575-server-implements-discover which requires body serverInfo):
+    # this SDK follows the final revision. Remove when the pin bumps to a
+    # conformance release that incorporates #3002 (alpha.10+).
+    - server-stateless

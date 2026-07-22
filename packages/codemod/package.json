@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/codemod",
-    "version": "2.0.0-beta.4",
+    "version": "2.0.0-beta.5",
     "description": "Codemod to migrate MCP TypeScript SDK code from v1 to v2",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",

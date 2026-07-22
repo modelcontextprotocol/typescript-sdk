@@ -2,7 +2,9 @@
  * Probe outcome classifier (pure module): maps the outcome of the connect-time
  * `server/discover` probe onto one of four verdicts — modern era, the
  * spec-mandated `-32022` corrective continuation, legacy fallback (the plain
- * 2025 `initialize` handshake on the same connection), or a typed connect error.
+ * 2025 `initialize` handshake — on the probed connection for in-place probes,
+ * on the session child's fresh pipe when the probe rode a disposable
+ * sibling), or a typed connect error.
  *
  * The classifier is deliberately conservative: anything it does not positively
  * recognize as modern resolves to the legacy fallback, and a network outage is a
@@ -28,10 +30,11 @@ import {
 export type ProbeEnvironment = 'node' | 'browser';
 
 /**
- * The transport class the probe ran on. Only consulted for the timeout row: a
- * stdio probe that times out signals a legacy server, while an HTTP timeout
- * stays a typed error. Anything that is not the stdio child-process transport
- * is treated like HTTP.
+ * The transport class the probe ran on. Consulted for the timeout and closed
+ * rows: a stdio probe that times out — or whose child exits, closing the
+ * connection — signals a legacy server, while an HTTP timeout or close stays
+ * a typed error. Anything that is not the stdio child-process transport is
+ * treated like HTTP.
  */
 export type ProbeTransportKind = 'stdio' | 'http';
 
@@ -48,6 +51,8 @@ export type ProbeOutcome =
     | { kind: 'network-error'; error: unknown }
     /** The transport's auth flow challenged during the probe send (`UnauthorizedError`). */
     | { kind: 'auth-required'; error: Error }
+    /** The transport reported close while the probe awaited its reply. */
+    | { kind: 'closed' }
     /** No response arrived within the probe timeout. */
     | { kind: 'timeout'; timeoutMs: number };
 
@@ -82,7 +87,7 @@ export type ProbeVerdict =
      * arms a loop guard on the second rejection, throwing `error`.
      */
     | { kind: 'corrective'; version: string; error: UnsupportedProtocolVersionError }
-    /** Definitive legacy signal or unrecognized shape: perform the plain legacy `initialize` handshake on the same connection. */
+    /** Definitive legacy signal or unrecognized shape: perform the plain legacy `initialize` handshake (on the probed connection in the in-place modes; on the session child's fresh pipe on the sibling path). */
     | { kind: 'legacy' }
     /** Typed connect error — never converted to an era verdict. */
     | { kind: 'error'; error: Error };
@@ -141,11 +146,24 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
             // handshake an auth-gated modern server as legacy.
             return { kind: 'error', error: outcome.error };
         }
+        case 'closed': {
+            if (context.transportKind === 'stdio') {
+                // A stdio child that exits on the unrecognized probe instead of
+                // answering is a legacy signal — the same backward-compatibility
+                // rule as the timeout row below (SDKs like the official Rust one
+                // terminate the server on ANY pre-initialize request).
+                return { kind: 'legacy' };
+            }
+            // On HTTP a mid-probe close is an ambiguous network condition — the
+            // same typed connect error as any probe transport failure.
+            return classifyNetworkError(new Error('Connection closed during the version negotiation probe'), context);
+        }
         case 'timeout': {
             if (context.transportKind === 'stdio') {
                 // Per the stdio transport's backward-compatibility rule, a probe
                 // nobody answers within the timeout indicates a legacy server —
-                // fall back to `initialize` on the same stream.
+                // fall back to `initialize` (the sibling path runs it on the
+                // session child's fresh pipe; in-place probes reuse the stream).
                 return { kind: 'legacy' };
             }
             // On HTTP a deployed server answers, so silence is an outage, not a
@@ -177,8 +195,8 @@ function classifyResult(result: unknown, context: ProbeClassifierContext): Probe
     if (overlap !== undefined) {
         return { kind: 'modern', version: overlap, discover: parsed.value };
     }
-    // A DiscoverResult with no overlap still drives era selection: initialize on
-    // the same connection when fallback is possible, otherwise a typed error.
+    // A DiscoverResult with no overlap still drives era selection: the legacy
+    // `initialize` fallback when available, otherwise a typed error.
     if (context.fallbackAvailable) {
         return { kind: 'legacy' };
     }

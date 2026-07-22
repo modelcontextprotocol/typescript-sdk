@@ -20,8 +20,21 @@ export const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersio
 
 /**
  * `_meta` key identifying the client software making a request.
+ *
+ * Clients SHOULD include it on every request; the value is self-reported and
+ * intended for display, logging, and debugging — servers should not rely on
+ * it for behavior or security decisions.
  */
 export const CLIENT_INFO_META_KEY = 'io.modelcontextprotocol/clientInfo';
+
+/**
+ * `_meta` key identifying the server software producing a response.
+ *
+ * Servers SHOULD include it on every response; the value is self-reported and
+ * intended for display, logging, and debugging — clients should not rely on
+ * it for behavior or security decisions.
+ */
+export const SERVER_INFO_META_KEY = 'io.modelcontextprotocol/serverInfo';
 
 /**
  * `_meta` key carrying the client's capabilities for a request.

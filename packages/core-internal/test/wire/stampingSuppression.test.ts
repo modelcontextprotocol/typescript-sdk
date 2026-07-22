@@ -215,7 +215,7 @@ describe('S5 — stamping is response-side only', () => {
                         cacheScope: 'private',
                         supportedVersions: ['2026-07-28'],
                         capabilities: {},
-                        serverInfo: { name: 'peer', version: '0.0.0' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'peer', version: '0.0.0' } }
                     }
                 } as JSONRPCMessage);
             }
