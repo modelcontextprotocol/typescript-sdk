@@ -2005,6 +2005,33 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+
+        it('accepts form-encoded token responses', async () => {
+            mockFetch.mockResolvedValueOnce(
+                new Response(
+                    new URLSearchParams({
+                        access_token: validTokens.access_token,
+                        token_type: validTokens.token_type,
+                        expires_in: String(validTokens.expires_in),
+                        refresh_token: validTokens.refresh_token!
+                    }),
+                    {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' }
+                    }
+                )
+            );
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+            expect(tokens).toEqual(validTokens);
+        });
+
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
