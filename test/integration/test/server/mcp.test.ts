@@ -1359,7 +1359,7 @@ describe('Zod v4', () => {
             expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
         });
 
-        test('should validate outputSchema when using non-object Zod schema wrappers', async () => {
+        test('should validate outputSchema when using Zod schema wrappers and non-object roots', async () => {
             const mcpServer = new McpServer({
                 name: 'test server',
                 version: '1.0'
@@ -1402,9 +1402,61 @@ describe('Zod v4', () => {
                 })
             );
 
+            mcpServer.registerTool(
+                'string-output',
+                {
+                    outputSchema: z.string()
+                },
+                async () => ({
+                    structuredContent: 'pong'
+                })
+            );
+
+            mcpServer.registerTool(
+                'array-output',
+                {
+                    outputSchema: z.array(z.string())
+                },
+                async () => ({
+                    structuredContent: ['alpha', 'beta']
+                })
+            );
+
+            mcpServer.registerTool(
+                'invalid-string-output',
+                {
+                    outputSchema: z.string()
+                },
+                async () => ({
+                    structuredContent: 123
+                })
+            );
+
+            mcpServer.registerTool(
+                'invalid-array-output',
+                {
+                    outputSchema: z.array(z.string())
+                },
+                async () => ({
+                    structuredContent: ['ok', 1]
+                })
+            );
+
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const listResult = await client.request({ method: 'tools/list' });
+            expect(listResult.tools.find(tool => tool.name === 'string-output')?.outputSchema).toMatchObject({
+                type: 'object',
+                properties: { result: { type: 'string' } },
+                required: ['result']
+            });
+            expect(listResult.tools.find(tool => tool.name === 'array-output')?.outputSchema).toMatchObject({
+                type: 'object',
+                properties: { result: { type: 'array', items: { type: 'string' } } },
+                required: ['result']
+            });
 
             const optionalResult = await client.callTool({
                 name: 'optional-output'
@@ -1416,6 +1468,28 @@ describe('Zod v4', () => {
             });
             expect(unionResult.structuredContent).toEqual({ value: 'union' });
 
+            const stringResult = await client.callTool({
+                name: 'string-output'
+            });
+            expect(stringResult.structuredContent).toEqual({ result: 'pong' });
+            expect(stringResult.content).toEqual([
+                {
+                    type: 'text',
+                    text: '"pong"'
+                }
+            ]);
+
+            const arrayResult = await client.callTool({
+                name: 'array-output'
+            });
+            expect(arrayResult.structuredContent).toEqual({ result: ['alpha', 'beta'] });
+            expect(arrayResult.content).toEqual([
+                {
+                    type: 'text',
+                    text: '["alpha","beta"]'
+                }
+            ]);
+
             const invalidUnionResult = await client.callTool({
                 name: 'invalid-union-output'
             });
@@ -1425,6 +1499,32 @@ describe('Zod v4', () => {
                     {
                         type: 'text',
                         text: expect.stringContaining('Output validation error: Invalid structured content for tool invalid-union-output')
+                    }
+                ])
+            );
+
+            const invalidStringResult = await client.callTool({
+                name: 'invalid-string-output'
+            });
+            expect(invalidStringResult.isError).toBe(true);
+            expect(invalidStringResult.content).toEqual(
+                expect.arrayContaining([
+                    {
+                        type: 'text',
+                        text: expect.stringContaining('Output validation error: Invalid structured content for tool invalid-string-output')
+                    }
+                ])
+            );
+
+            const invalidArrayResult = await client.callTool({
+                name: 'invalid-array-output'
+            });
+            expect(invalidArrayResult.isError).toBe(true);
+            expect(invalidArrayResult.content).toEqual(
+                expect.arrayContaining([
+                    {
+                        type: 'text',
+                        text: expect.stringContaining('Output validation error: Invalid structured content for tool invalid-array-output')
                     }
                 ])
             );
