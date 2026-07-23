@@ -54,6 +54,9 @@ export class StdioServerTransport implements Transport {
     _onerror = (error: Error) => {
         this.onerror?.(error);
     };
+    _onstdinclose = () => {
+        this.close().catch(() => {});
+    };
     _onstdouterror = (error: Error) => {
         this.onerror?.(error);
         this.close().catch(() => {
@@ -74,6 +77,8 @@ export class StdioServerTransport implements Transport {
         this._started = true;
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
+        this._stdin.on('close', this._onstdinclose);
+        this._stdin.on('end', this._onstdinclose);
         this._stdout.on('error', this._onstdouterror);
     }
 
@@ -101,6 +106,8 @@ export class StdioServerTransport implements Transport {
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);
         this._stdin.off('error', this._onerror);
+        this._stdin.off('close', this._onstdinclose);
+        this._stdin.off('end', this._onstdinclose);
         this._stdout.off('error', this._onstdouterror);
 
         // Check if we were the only data listener
