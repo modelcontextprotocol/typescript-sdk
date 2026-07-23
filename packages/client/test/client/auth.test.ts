@@ -7,6 +7,8 @@ import type {
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
 import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
+import { gzipSync } from 'node:zlib';
+
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
@@ -2131,6 +2133,83 @@ describe('OAuth Authorization', () => {
             expect((options.headers as Headers).get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
+        });
+    });
+
+    describe('gzip-compressed token responses', () => {
+        // https://github.com/modelcontextprotocol/typescript-sdk/issues/2408 — fetch
+        // implementations only auto-decompress when the response carries a usable
+        // Content-Encoding header. A proxy that strips the header (or a custom fetchFn
+        // that surfaces raw bytes) hands the SDK gzip bytes, which crashed response.json().
+        const validTokens: OAuthTokens = {
+            access_token: 'access123',
+            token_type: 'Bearer',
+            expires_in: 3600,
+            refresh_token: 'refresh123'
+        };
+
+        const validClientInfo = {
+            client_id: 'client123',
+            client_secret: 'secret123',
+            redirect_uris: ['http://localhost:3000/callback'],
+            client_name: 'Test Client'
+        };
+
+        const exchange = () =>
+            exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+
+        it('parses a token response whose body is gzip bytes without Content-Encoding', async () => {
+            // Proxy stripped the Content-Encoding header but left the body compressed.
+            mockFetch.mockResolvedValueOnce(
+                new Response(gzipSync(JSON.stringify(validTokens)), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                })
+            );
+
+            await expect(exchange()).resolves.toEqual(validTokens);
+        });
+
+        it('parses a token response whose body is gzip bytes with Content-Encoding set', async () => {
+            // Custom fetchFn (e.g. a raw undici.request wrapper) that does not auto-decompress.
+            mockFetch.mockResolvedValueOnce(
+                new Response(gzipSync(JSON.stringify(validTokens)), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'gzip' }
+                })
+            );
+
+            await expect(exchange()).resolves.toEqual(validTokens);
+        });
+
+        it('parses a gzip-compressed OAuth error response', async () => {
+            mockFetch.mockResolvedValueOnce(
+                new Response(gzipSync(JSON.stringify({ error: 'invalid_grant', error_description: 'expired code' })), {
+                    status: 400,
+                    headers: { 'Content-Type': 'application/json' }
+                })
+            );
+
+            const error = await exchange().catch((e: unknown) => e);
+            expect(error).toBeInstanceOf(OAuthError);
+            expect((error as OAuthError).code).toBe('invalid_grant');
+            expect((error as OAuthError).message).toBe('expired code');
+        });
+
+        it('still parses a plain JSON token response delivered as a real Response', async () => {
+            mockFetch.mockResolvedValueOnce(
+                new Response(JSON.stringify(validTokens), {
+                    status: 200,
+                    headers: { 'Content-Type': 'application/json' }
+                })
+            );
+
+            await expect(exchange()).resolves.toEqual(validTokens);
         });
     });
 
