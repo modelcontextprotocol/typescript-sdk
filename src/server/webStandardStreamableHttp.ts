@@ -146,7 +146,23 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
+
+    /**
+     * Interval in milliseconds between SSE keep-alive comment frames (`: keepalive`)
+     * written to open SSE streams. Keep-alive frames prevent idle streams (e.g. the
+     * standalone GET stream, or a POST stream during a long-running tool call) from
+     * being killed by intermediaries and server idle timeouts, which clients observe
+     * as `SSE stream disconnected: TypeError: terminated`.
+     *
+     * Comment frames are ignored by SSE parsers and never surface as messages.
+     * Defaults to 15000 (per the WHATWG SSE spec recommendation of roughly every
+     * 15 seconds). Set to 0 to disable keep-alive frames.
+     */
+    keepAliveMs?: number;
 }
+
+/** Default interval between SSE keep-alive comment frames. */
+const DEFAULT_KEEP_ALIVE_MS = 15_000;
 
 /**
  * Options for handling a request
@@ -225,6 +241,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _keepAliveMs: number;
+    private _keepAliveTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
 
     sessionId?: string;
     onclose?: () => void;
@@ -241,6 +259,40 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS;
+    }
+
+    /**
+     * Arms a keep-alive interval for an SSE stream that periodically writes an SSE
+     * comment frame so intermediaries and idle timeouts don't kill the connection.
+     * The timer is cleared via stopKeepAlive when the stream is cleaned up, and
+     * clears itself if a write fails (stream already closed/cancelled).
+     */
+    private startKeepAlive(streamId: string, controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
+        if (this._keepAliveMs <= 0) {
+            return;
+        }
+        const timer = setInterval(() => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                this.stopKeepAlive(streamId);
+            }
+        }, this._keepAliveMs);
+        // Don't let the keep-alive timer hold the process open (Node.js only)
+        (timer as { unref?: () => void }).unref?.();
+        this._keepAliveTimers.set(streamId, timer);
+    }
+
+    /**
+     * Clears the keep-alive interval for a stream, if one is armed.
+     */
+    private stopKeepAlive(streamId: string): void {
+        const timer = this._keepAliveTimers.get(streamId);
+        if (timer !== undefined) {
+            clearInterval(timer);
+            this._keepAliveTimers.delete(streamId);
+        }
     }
 
     /**
@@ -425,6 +477,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             },
             cancel: () => {
                 // Stream was cancelled by client
+                this.stopKeepAlive(this._standaloneSseStreamId);
                 this._streamMapping.delete(this._standaloneSseStreamId);
             }
         });
@@ -445,6 +498,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                this.stopKeepAlive(this._standaloneSseStreamId);
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -453,6 +507,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         });
+
+        this.startKeepAlive(this._standaloneSseStreamId, streamController!, encoder);
 
         return new Response(readable, { headers });
     }
@@ -528,6 +584,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 controller: streamController!,
                 encoder,
                 cleanup: () => {
+                    this.stopKeepAlive(replayedStreamId);
                     this._streamMapping.delete(replayedStreamId);
                     try {
                         streamController!.close();
@@ -536,6 +593,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
+
+            this.startKeepAlive(replayedStreamId, streamController!, encoder);
 
             return new Response(readable, { headers });
         } catch (error) {
@@ -743,6 +802,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 },
                 cancel: () => {
                     // Stream was cancelled by client
+                    this.stopKeepAlive(streamId);
                     this._streamMapping.delete(streamId);
                 }
             });
@@ -766,6 +826,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
+                            this.stopKeepAlive(streamId);
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
@@ -777,6 +838,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     this._requestToStreamMapping.set(message.id, streamId);
                 }
             }
+
+            this.startKeepAlive(streamId, streamController!, encoder);
 
             // Write priming event if event store is configured (after mapping is set up)
             await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
@@ -900,6 +963,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             cleanup();
         });
         this._streamMapping.clear();
+
+        // Clear any keep-alive timers not already cleared by stream cleanup
+        this._keepAliveTimers.forEach(timer => clearInterval(timer));
+        this._keepAliveTimers.clear();
 
         // Clear any pending responses
         this._requestResponseMap.clear();

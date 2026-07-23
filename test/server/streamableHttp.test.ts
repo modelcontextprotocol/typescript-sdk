@@ -3272,3 +3272,140 @@ describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
         await storeTransport.close();
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
+    /** Shorthand to build a Web Standard Request for direct transport testing. */
+    function req(method: string, opts?: { body?: unknown; headers?: Record<string, string> }): Request {
+        const headers: Record<string, string> = { ...opts?.headers };
+        if (method === 'POST') {
+            headers['Accept'] ??= 'application/json, text/event-stream';
+            headers['Content-Type'] ??= 'application/json';
+        } else if (method === 'GET') {
+            headers['Accept'] ??= 'text/event-stream';
+        }
+        return new Request('http://localhost/mcp', {
+            method,
+            headers,
+            body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined
+        });
+    }
+
+    async function createTransport(options?: { keepAliveMs?: number }): Promise<{
+        transport: WebStandardStreamableHTTPServerTransport;
+        sessionId: string;
+    }> {
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), ...options });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(initResponse.status).toBe(200);
+        return { transport, sessionId: initResponse.headers.get('mcp-session-id') as string };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('should write keep-alive comment frames to an idle standalone GET stream', async () => {
+        const { transport, sessionId } = await createTransport();
+
+        const response = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' } })
+        );
+        expect(response.status).toBe(200);
+
+        const reader = response.body!.getReader();
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value } = await reader.read();
+        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        await transport.close();
+    });
+
+    it('should honor a custom keepAliveMs interval', async () => {
+        const { transport, sessionId } = await createTransport({ keepAliveMs: 1000 });
+
+        const response = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' } })
+        );
+        const reader = response.body!.getReader();
+
+        await vi.advanceTimersByTimeAsync(3000);
+        let received = '';
+        for (let i = 0; i < 3; i++) {
+            const { value } = await reader.read();
+            received += new TextDecoder().decode(value);
+        }
+        expect(received).toBe(': keepalive\n\n'.repeat(3));
+
+        await transport.close();
+    });
+
+    it('should not write keep-alive frames when keepAliveMs is 0', async () => {
+        const { transport, sessionId } = await createTransport({ keepAliveMs: 0 });
+
+        const response = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' } })
+        );
+        const reader = response.body!.getReader();
+
+        await vi.advanceTimersByTimeAsync(60000);
+        const read = reader.read();
+        const raced = await Promise.race([read, Promise.resolve('pending')]);
+        expect(raced).toBe('pending');
+
+        await transport.close();
+    });
+
+    it('should stop keep-alive frames after the stream is closed', async () => {
+        const { transport, sessionId } = await createTransport();
+
+        const response = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' } })
+        );
+        const reader = response.body!.getReader();
+
+        await transport.close();
+        const { done } = await reader.read();
+        expect(done).toBe(true);
+
+        // Advancing time after close must not throw or fire further writes
+        expect(vi.getTimerCount()).toBe(0);
+        await vi.advanceTimersByTimeAsync(60000);
+    });
+
+    it('should write keep-alive frames on a POST SSE stream while a request is pending', async () => {
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        let resolveTool: (() => void) | undefined;
+        mcpServer.tool('slow', async () => {
+            await new Promise<void>(resolve => {
+                resolveTool = resolve;
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const response = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'call-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+        expect(response.status).toBe(200);
+        const reader = response.body!.getReader();
+
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value } = await reader.read();
+        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        resolveTool?.();
+        await transport.close();
+    });
+});
