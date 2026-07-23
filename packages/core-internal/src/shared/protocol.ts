@@ -1711,10 +1711,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         // handler runs.
                         throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
                     }
-                    // Preserves the pre-function-only error surface: the Zod
-                    // parse threw out of the handler and the funnel mapped it
-                    // to −32603 Internal error (specCorpusDispatch pins this).
-                    throw new Error(outcome.message);
+                    // Spec-method params that fail the wire schema are the
+                    // caller's error, not the server's: answer −32602 Invalid
+                    // params (JSON-RPC 2.0), matching the custom-handler path
+                    // below (specCorpusDispatch pins this). Before the
+                    // function-only WireCodec contract, the Zod parse threw
+                    // out of the handler and the funnel mapped it to −32603
+                    // Internal error — callers were told the server broke
+                    // rather than that their params were wrong.
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${outcome.message}`);
                 }
                 return Promise.resolve(schemasOrHandler(outcome.value, ctx));
             };
