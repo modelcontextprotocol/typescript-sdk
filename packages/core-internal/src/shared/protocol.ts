@@ -10,6 +10,7 @@ import type {
     ElicitRequestURLParams,
     ElicitResult,
     HandlerResultTypeMap,
+    Implementation,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -1113,7 +1114,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     // −32603 rather than stranding the request until timeout.
                     let encoded: Result;
                     try {
-                        encoded = codec.encodeResult(request.method, result);
+                        encoded = codec.encodeResult(request.method, result, this._outboundServerInfo());
                     } catch (error) {
                         this._onerror(new Error(`Failed to encode result for ${request.method}: ${error}`));
                         sendErrorResponse(ProtocolErrorCode.InternalError, 'Internal error');
@@ -1750,6 +1751,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
         handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
         return handler;
+    }
+
+    /**
+     * Hook for subclasses to supply the implementation identity the 2026-era
+     * encode seam stamps into outbound result `_meta` under
+     * `io.modelcontextprotocol/serverInfo` (spec PR #3002: servers SHOULD
+     * identify themselves on every response). The default is `undefined` — no
+     * stamp. Only `Server` overrides this: the key identifies the software
+     * producing a response, and the 2025-era codec never stamps anything
+     * regardless (the never-stamp guarantee).
+     */
+    protected _outboundServerInfo(): Implementation | undefined {
+        return undefined;
     }
 
     /**

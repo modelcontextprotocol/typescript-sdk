@@ -74,6 +74,7 @@ export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, Request
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware';
 export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware';
+export type { PriorDiscovery } from './client/probeClassifier';
 export type {
     CacheEntry,
     CacheKey,
@@ -105,6 +106,12 @@ export { fromJsonSchema } from './fromJsonSchema';
 // schema wrapper for callers that opt out of auto-fulfilment per call.
 export type { InputRequiredOptions } from '@modelcontextprotocol/core-internal';
 export { withInputRequired } from '@modelcontextprotocol/core-internal';
+
+// Explicit opt-in to eager wire-schema construction, for platforms that bill
+// request CPU but not module evaluation (isolate-based edge/serverless
+// runtimes). The package's workerd build calls it automatically at module
+// scope; other builds stay lazy unless the application calls it itself.
+export { preloadSchemas } from '@modelcontextprotocol/core-internal';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core-internal/public';

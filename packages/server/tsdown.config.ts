@@ -7,6 +7,7 @@ export default defineConfig({
         'src/stdio.ts',
         'src/shimsNode.ts',
         'src/shimsWorkerd.ts',
+        'src/shimsBrowser.ts',
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts'
     ],
@@ -33,5 +34,8 @@ export default defineConfig({
         }
     },
     noExternal: ['@modelcontextprotocol/core-internal', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
-    external: ['@modelcontextprotocol/server/_shims']
+    // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
+    // bundled core-internal shims import them via the './internal' subpath, which must stay an
+    // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
+    external: ['@modelcontextprotocol/server/_shims', '@modelcontextprotocol/core/internal']
 });

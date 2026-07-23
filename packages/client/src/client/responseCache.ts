@@ -52,16 +52,18 @@ export interface CacheKey {
 }
 
 /**
- * One cached response body. `value` is the verbatim decoded result; `stamp` is
- * the store-generated monotonically increasing write counter — opaque to
- * callers. Derived views (e.g. a `name → Tool` index) memoize against it and
- * re-derive only when it changes. `expiresAt` (absolute ms epoch, `now +
- * ttlMs`) and `scope` are the client-computed freshness metadata; the store
- * MUST persist them and hand them back on `get` so the read path can decide
- * freshness and gate the shared-partition fallback on `scope === 'public'`.
+ * One cached response body. `value` is the JSON-serialized result document —
+ * a store is a dumb string carrier and persists it verbatim; the cache owns
+ * both codec halves. `stamp` is the store-generated monotonically increasing write counter —
+ * opaque to callers. Derived views (e.g. a `name → Tool` index) memoize
+ * against it and re-derive only when it changes. `expiresAt` (absolute ms
+ * epoch, `now + ttlMs`) and `scope` are the client-computed freshness
+ * metadata; the store MUST persist them and hand them back on `get` so the
+ * read path can decide freshness and gate the shared-partition fallback on
+ * `scope === 'public'`.
  */
 export interface CacheEntry {
-    readonly value: unknown;
+    readonly value: string;
     readonly stamp: number;
     readonly expiresAt?: number;
     readonly scope?: CacheScope;
@@ -96,7 +98,7 @@ export interface ResponseCacheStore {
      * `scope` (the client-computed freshness metadata); the store MUST persist
      * them and hand them back on `get`.
      */
-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
+    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): MaybePromise<number>;
     /**
      * Drop the single entry under `key` (no-op if absent). Called for both
      * `notifications/resources/updated` (per-URI) and the `list_changed`
@@ -175,7 +177,7 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
         return this._entries.get(keyOf(key));
     }
 
-    set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): number {
+    set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): number {
         const k = keyOf(key);
         const exempt = CAP_EXEMPT_METHODS.has(key.method);
         const isNew = !this._entries.has(k);
@@ -297,13 +299,13 @@ export class ClientResponseCache {
      */
     private _toolOutputValidatorIndex?: { stamp: number; byName: Map<string, unknown> };
     /**
-     * The connected server's identity (`serverInfo.name@version`, or a
-     * transport-supplied surrogate). Set by the `Client` immediately after a
-     * successful connect; `''` is the pre-connect sentinel. Every storage
-     * partition is derived from this (see `_partitionFor`), so two
-     * clients sharing one store but connected to different servers never
-     * collide on `tools/list` and a server cannot read another server's
-     * `'public'` entries.
+     * The connected server's identity (`serverInfo.name@version`, the
+     * transport's `sessionId`, or a client-generated per-connection
+     * surrogate). Set by the `Client` immediately after a successful connect;
+     * `''` is the pre-connect sentinel. Every storage partition is derived
+     * from this (see `_partitionFor`), so two clients sharing one store but
+     * connected to different servers never collide on `tools/list` and a
+     * server cannot read another server's `'public'` entries.
      */
     private _serverIdentity = '';
 
@@ -345,10 +347,15 @@ export class ClientResponseCache {
 
     /**
      * Record the connected server's identity. Called by `Client` immediately
-     * after a successful connect (`serverInfo.name@version`, or the
-     * transport's `sessionId` when `serverInfo` is unavailable). Every
-     * partition derived after this call is scoped to this identity; entries
-     * written under the pre-connect `''` sentinel are no longer reachable.
+     * after a successful connect: `serverInfo.name@version` when the server
+     * identified itself, else the transport's `sessionId`, else a
+     * client-generated per-connection surrogate (`serverInfo` is a spec
+     * SHOULD on 2026-07-28, so anonymous servers exist). Surrogate-keyed
+     * partitions are NOT stable across reconnects — no identity means no
+     * cross-connection cache reuse, and a shared long-lived store should
+     * bound its own size accordingly. Every partition derived after this
+     * call is scoped to this identity; entries written under the pre-connect
+     * `''` sentinel are no longer reachable.
      */
     setServerIdentity(identity: string): void {
         this._serverIdentity = identity;
@@ -409,16 +416,25 @@ export class ClientResponseCache {
      */
     async evict(method: string): Promise<void> {
         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
+        await this._deleteBoth(method, '');
+    }
+
+    /**
+     * Guarded two-partition delete of `{method, params}`: each partition's
+     * `delete` is independently wrapped so a custom store's failure on one is
+     * reported and does not skip the other, and the call always resolves.
+     */
+    private async _deleteBoth(method: string, params: string): Promise<void> {
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
         try {
-            await this._store.delete({ method, params: '', partition: ownPartition });
+            await this._store.delete({ method, params, partition: ownPartition });
         } catch (error) {
             this._reportError(error);
         }
         if (sharedPartition !== ownPartition) {
             try {
-                await this._store.delete({ method, params: '', partition: sharedPartition });
+                await this._store.delete({ method, params, partition: sharedPartition });
             } catch (error) {
                 this._reportError(error);
             }
@@ -449,20 +465,7 @@ export class ClientResponseCache {
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
-        const ownPartition = this._partitionFor('private');
-        const sharedPartition = this._partitionFor('public');
-        try {
-            await this._store.delete({ method, params, partition: ownPartition });
-        } catch (error) {
-            this._reportError(error);
-        }
-        if (sharedPartition !== ownPartition) {
-            try {
-                await this._store.delete({ method, params, partition: sharedPartition });
-            } catch (error) {
-                this._reportError(error);
-            }
-        }
+        await this._deleteBoth(method, params);
     }
 
     /**
@@ -487,13 +490,14 @@ export class ClientResponseCache {
      * overwriting the eviction with the stale aggregate would lose the
      * invalidation.
      *
-     * The stored value is a `structuredClone` of `value`, so a caller
-     * mutating the aggregate it was returned (e.g. `result.tools.sort(...)`)
-     * cannot reach the cache or the stamp-memoized indices derived from it. A
-     * custom store whose `set()` throws or rejects is routed to the
-     * `reportError` sink and the write resolves — cache bookkeeping never
-     * costs the caller a result it already fetched (consistent with the
-     * eviction path).
+     * The value is stored as its JSON-serialized document; serialization
+     * doubles as the mutation barrier, so a caller mutating the returned
+     * aggregate cannot reach the cache or its derived indices. A value that
+     * is not JSON-serializable (reachable only via in-process transports)
+     * fails the write loudly into the `reportError` sink. A custom store
+     * whose `set()` throws or rejects is routed to the same sink and the
+     * write resolves — cache bookkeeping never costs the caller a result it
+     * already fetched.
      *
      * `freshness` carries the client-computed `expiresAt` (absolute ms epoch,
      * `now + ttlMs`) and the server-reported `cacheScope`. The storage
@@ -529,7 +533,7 @@ export class ClientResponseCache {
         try {
             await this._store.set(
                 { method, params, partition },
-                { value: structuredClone(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
+                { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
             );
         } catch (error) {
             this._reportError(error);
@@ -548,13 +552,32 @@ export class ClientResponseCache {
     }
 
     /**
-     * Read the cached entry for `{method, params}` via the two-probe lookup
-     * (own-partition then this server's shared partition, gated on
-     * `scope === 'public'`). The caller owns the freshness check
-     * (`entry.expiresAt > now()`); a missing `expiresAt` is never fresh.
+     * Serve the fresh cached result for `{method, params}`, or `undefined`.
+     * Lookup is the two-probe order (own-partition then this server's shared
+     * partition, gated on `scope === 'public'`); freshness is
+     * `entry.expiresAt > now()` (a missing `expiresAt` is never fresh),
+     * checked BEFORE decoding so stale entries cost no parse. Every hit is
+     * freshly parsed, so the caller owns the value outright. An entry whose
+     * document does not parse or is not an object (corrupted external
+     * store) is reported,
+     * deleted, and treated as a miss — deleted because a fresh-but-corrupt
+     * entry would otherwise re-parse and re-report on every read until its
+     * `expiresAt` passes.
      */
-    async read(method: string, params?: string): Promise<CacheEntry | undefined> {
-        return this._probe(method, params);
+    async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
+        const entry = await this._probe(method, params);
+        if (entry?.expiresAt === undefined || !(entry.expiresAt > this.now())) return undefined;
+        try {
+            const parsed: unknown = JSON.parse(entry.value);
+            if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+                throw new TypeError('cached document is not an object');
+            }
+            return { value: parsed };
+        } catch (error) {
+            this._reportError(error);
+            await this._deleteBoth(method, params ?? '');
+            return undefined;
+        }
     }
 
     /**
@@ -592,8 +615,12 @@ export class ClientResponseCache {
             return undefined;
         }
         if (this._toolIndex?.stamp !== entry.stamp) {
+            const list = this._decodeListTools(entry);
             const byName = new Map<string, Tool>();
-            for (const tool of (entry.value as ListToolsResult).tools) byName.set(tool.name, tool);
+            if (list !== undefined) for (const tool of list.tools) byName.set(tool.name, tool);
+            // A failed decode memoizes an EMPTY index under the same stamp, so
+            // the corrupt document is parsed (and reported) once per stamp —
+            // not once per callTool — and a later rewrite re-derives.
             this._toolIndex = { stamp: entry.stamp, byName };
         }
         return this._toolIndex.byName.get(name);
@@ -628,8 +655,9 @@ export class ClientResponseCache {
             return undefined;
         }
         if (this._toolOutputValidatorIndex?.stamp !== entry.stamp) {
+            const list = this._decodeListTools(entry) ?? { tools: [] };
             const byName = new Map<string, unknown>();
-            for (const tool of (entry.value as ListToolsResult).tools) {
+            for (const tool of list.tools) {
                 const compiled = compile(tool);
                 if (compiled !== undefined) byName.set(tool.name, compiled);
             }
@@ -637,4 +665,41 @@ export class ClientResponseCache {
         }
         return this._toolOutputValidatorIndex.byName.get(name) as V | undefined;
     }
+
+    /** Parse a held `tools/list` document for the index builders; a document
+     * that does not parse OR whose `tools` is not an array of objects
+     * (both mean a corrupted external store) is reported and treated as if
+     * nothing were held. Callers memoize the outcome against the entry's
+     * stamp, so a corrupt document costs one parse + report per stamp, not
+     * per lookup. */
+    private _decodeListTools(entry: CacheEntry): ListToolsResult | undefined {
+        try {
+            const parsed = JSON.parse(entry.value) as ListToolsResult | null;
+            if (!Array.isArray(parsed?.tools) || !parsed.tools.every(t => t !== null && typeof t === 'object')) {
+                throw new TypeError('cached tools/list document has a malformed tools array');
+            }
+            return parsed;
+        } catch (error) {
+            this._reportError(error);
+            return undefined;
+        }
+    }
+}
+
+/**
+ * Serialize a result for storage; throws TypeError for anything without a
+ * JSON representation (legal wire results always have one). Two failure
+ * modes need folding into that one throw: `JSON.stringify` throws on cycles
+ * and BigInt, but silently returns `undefined` (not a string) for a
+ * top-level function, symbol, or `undefined`.
+ */
+function encodeCacheValue(value: unknown): string {
+    let json: string | undefined;
+    try {
+        json = JSON.stringify(value);
+    } catch (error) {
+        throw new TypeError(`cache value is not JSON-serializable: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (typeof json !== 'string') throw new TypeError('cache value is not JSON-serializable: it has no JSON representation');
+    return json;
 }

@@ -36,6 +36,12 @@ export * from './util/schema';
 export * from './util/standardSchema';
 export * from './util/zodCompat';
 export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec';
+// Revision-neutral warm-up entry for the lazy wire-schema layers. Exposes no
+// per-revision objects — it only forces the memos every consumer already
+// pulls through — so it stays within the no-per-revision-exports rule above.
+// Re-exported as public API by the client and server packages for platforms
+// that bill request CPU but not module evaluation.
+export { preloadSchemas } from './wire/preload';
 export { normalizeContentlessToolResult, TOOL_RESULT_FOREIGN_FAMILY_KEYS } from './wire/resultFamilies';
 
 // Validator provider classes stay subpath-only. Re-exporting them here, even as

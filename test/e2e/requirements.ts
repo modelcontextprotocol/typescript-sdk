@@ -175,10 +175,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:client:connect:prior-zero-roundtrip': {
         source: 'sdk',
         behavior:
-            'connect(transport, { prior: DiscoverResult }) against a 2026-07-28 server is zero-round-trip: a fresh client supplied with a previously-obtained DiscoverResult connects without putting any HTTP exchange on the wire, adopts the modern era directly, and callTool round-trips immediately. prior is modern-only — no modern overlap throws SdkError(EraNegotiationFailed) (no legacy fallback).',
+            "connect(transport, { prior: { kind: 'modern', discover } }) against a 2026-07-28 server is zero-round-trip: a fresh client supplied with a previously-obtained DiscoverResult (wrapped as a PriorDiscovery verdict) connects without putting any HTTP exchange on the wire, adopts the modern era directly, and callTool round-trips immediately. The modern verdict requires a modern overlap — none throws SdkError(EraNegotiationFailed) (no legacy fallback).",
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'Runs on the entryModern arm; the wired (negotiating) client is the bootstrap that obtains the DiscoverResult, then a fresh worker client connects to the same harness-hosted endpoint via wired.url + a fresh StreamableHTTPClientTransport over wired.fetch with { prior }. The zero-round-trip clause is asserted on the arm-recorded httpLog length.'
+        note: "Runs on the entryModern arm; the wired (negotiating) client is the bootstrap that obtains the DiscoverResult, then a fresh worker client connects to the same harness-hosted endpoint via wired.url + a fresh StreamableHTTPClientTransport over wired.fetch with { prior: { kind: 'modern', discover } }. The zero-round-trip clause is asserted on the arm-recorded httpLog length."
     },
     'typescript:client:raw-result-type-first': {
         source: 'sdk',
@@ -1365,7 +1365,24 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:meta:result-to-client': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
-        behavior: "_meta returned in a handler's result is delivered intact to the requesting client."
+        behavior:
+            "_meta returned in a handler's result is delivered intact to the requesting client. On a 2026-07-28 connection the delivered _meta additionally carries the SDK-stamped io.modelcontextprotocol/serverInfo key (spec PR #3002: servers SHOULD identify themselves on every response); on 2025-era connections nothing is ever added."
+    },
+    'protocol:meta:server-identity': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/discover',
+        behavior:
+            "On the 2026-07-28 revision the server identifies itself via _meta['io.modelcontextprotocol/serverInfo'] on its responses (spec PR #3002), and the client resolves getServerVersion() from the discover result's _meta.",
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'entryModern is the only arm that negotiates a real 2026-07-28 connection (the other arms run the legacy handshake), and the body also POSTs a raw discover via wired.fetch to assert the wire-level _meta stamp.'
+    },
+    'protocol:envelope:client-info-optional': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#meta',
+        behavior:
+            'A 2026-07-28 request whose per-request _meta envelope omits io.modelcontextprotocol/clientInfo is served normally — clientInfo is a SHOULD (spec PR #3002), never a validation requirement.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: "The wired SDK client always sends clientInfo (the spec SHOULD), so the omission can only be put on the wire as a raw POST through wired.fetch — which needs the entry arm's in-process endpoint."
     },
     'protocol:request-id:unique': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],

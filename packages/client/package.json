@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/client",
-    "version": "2.0.0-beta.3",
+    "version": "2.0.0-beta.5",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -133,6 +133,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
+        "@modelcontextprotocol/core": "workspace:*",
         "cross-spawn": "catalog:runtimeClientOnly",
         "eventsource": "catalog:runtimeClientOnly",
         "eventsource-parser": "catalog:runtimeClientOnly",

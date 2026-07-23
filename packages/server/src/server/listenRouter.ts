@@ -23,8 +23,14 @@
  *   transport close carries no response and the client treats it as a
  *   disconnect.
  */
-import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
-import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
+import type {
+    Implementation,
+    JSONRPCRequest,
+    RequestId,
+    ServerCapabilities,
+    SubscriptionFilter
+} from '@modelcontextprotocol/core-internal';
+import { codecForVersion, MODERN_WIRE_REVISION, SERVER_INFO_META_KEY, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
 
 import type { ServerEventBus } from './serverEventBus';
 import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
@@ -100,8 +106,11 @@ export interface ListenRouter {
      * `capabilities` is required: the acknowledged filter is always narrowed
      * against what the serving instance advertises (honoring a filter without
      * capabilities would fail open and deliver unadvertised types).
+     * `serverInfo` is the serving instance's identity, stamped onto the
+     * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMeta`
+     * extends `ResultMetaObject`, so the serverInfo SHOULD applies there too).
      */
-    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response;
+    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities, serverInfo: Implementation): Response;
     /**
      * Gracefully close every open subscription stream: emits the empty
      * `subscriptions/listen` JSON-RPC result (the spec's graceful-close
@@ -119,7 +128,12 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
 
     const open = new Set<(graceful: boolean) => void>();
 
-    function serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response {
+    function serve(
+        message: JSONRPCRequest,
+        signal: AbortSignal | undefined,
+        capabilities: ServerCapabilities,
+        serverInfo: Implementation
+    ): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
         if (open.size >= maxSubscriptions) {
             onerror?.(new Error(`subscriptions/listen refused: subscription limit reached (${maxSubscriptions})`));
@@ -166,7 +180,10 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                     `event: message\ndata: ${JSON.stringify({
                         jsonrpc: '2.0',
                         id: subscriptionId,
-                        result: { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: subscriptionId } }
+                        result: {
+                            resultType: 'complete',
+                            _meta: { [SUBSCRIPTION_ID_META_KEY]: subscriptionId, [SERVER_INFO_META_KEY]: serverInfo }
+                        }
                     })}\n\n`
                 );
             }
@@ -256,6 +273,16 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
  * Stdio listen router
  * ------------------------------------------------------------------------ */
 
+/** A graceful-close `subscriptions/listen` result frame emitted by {@linkcode StdioListenRouter.teardownAll}. */
+export interface ListenCloseFrame {
+    jsonrpc: '2.0';
+    id: RequestId;
+    result: {
+        resultType: 'complete';
+        _meta: { [SUBSCRIPTION_ID_META_KEY]: RequestId; [SERVER_INFO_META_KEY]?: Implementation };
+    };
+}
+
 const CHANGE_NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
     'notifications/tools/list_changed',
     'notifications/prompts/list_changed',
@@ -281,21 +308,31 @@ export class StdioListenRouter {
      * what the server can actually deliver.
      */
     private _serverCapabilities: ServerCapabilities | undefined;
+    /**
+     * The serving instance's identity, stamped onto the graceful-close
+     * results' `_meta` (the spec's `SubscriptionsListenResultMeta` extends
+     * `ResultMetaObject`). Handed over together with the capabilities.
+     */
+    private _serverInfo: Implementation | undefined;
 
     constructor(
         private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS,
-        serverCapabilities?: ServerCapabilities
+        serverCapabilities?: ServerCapabilities,
+        serverInfo?: Implementation
     ) {
         this._serverCapabilities = serverCapabilities;
+        this._serverInfo = serverInfo;
     }
 
     /**
-     * Record the serving instance's declared capabilities once it has been
-     * constructed. Called by `serveStdio`'s connect path; subsequent
-     * `serve()` calls narrow the honored filter against these.
+     * Record the serving instance's declared capabilities and identity once
+     * it has been constructed. Called by `serveStdio`'s connect path;
+     * subsequent `serve()` calls narrow the honored filter against the
+     * capabilities, and `teardownAll()` stamps the identity.
      */
-    setServerCapabilities(capabilities: ServerCapabilities): void {
+    setServerCapabilities(capabilities: ServerCapabilities, serverInfo?: Implementation): void {
         this._serverCapabilities = capabilities;
+        if (serverInfo !== undefined) this._serverInfo = serverInfo;
     }
 
     /** Whether `id` is an active listen subscription on this connection. */
@@ -373,21 +410,24 @@ export class StdioListenRouter {
     /**
      * Server-side graceful teardown of every active subscription: returns the
      * empty `subscriptions/listen` JSON-RPC result for each subscription id —
-     * the spec's graceful-close signal — for the entry to emit before closing
-     * the wire. Clears the set so nothing further is delivered.
+     * the spec's graceful-close signal, `_meta` carrying the subscription id
+     * and the serving instance's identity — for the entry to emit before
+     * closing the wire. Clears the set so nothing further is delivered.
      */
-    teardownAll(): {
-        jsonrpc: '2.0';
-        id: RequestId;
-        result: { resultType: 'complete'; _meta: { [SUBSCRIPTION_ID_META_KEY]: RequestId } };
-    }[] {
-        const out: {
-            jsonrpc: '2.0';
-            id: RequestId;
-            result: { resultType: 'complete'; _meta: { [SUBSCRIPTION_ID_META_KEY]: RequestId } };
-        }[] = [];
+    teardownAll(): ListenCloseFrame[] {
+        const out: ListenCloseFrame[] = [];
         for (const id of this._subs.keys()) {
-            out.push({ jsonrpc: '2.0', id, result: { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: id } } });
+            out.push({
+                jsonrpc: '2.0',
+                id,
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: id,
+                        ...(this._serverInfo !== undefined && { [SERVER_INFO_META_KEY]: this._serverInfo })
+                    }
+                }
+            });
         }
         this._subs.clear();
         return out;

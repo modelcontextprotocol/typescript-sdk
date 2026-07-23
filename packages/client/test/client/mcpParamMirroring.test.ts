@@ -72,7 +72,7 @@ async function scriptedModernServer(pages: Tool[][], rejectFirstCall = false): P
                     resultType: 'complete',
                     supportedVersions: [MODERN],
                     capabilities: { tools: { listChanged: true } },
-                    serverInfo: { name: 'scripted', version: '1.0.0' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1.0.0' } }
                 }
             });
         } else if (r.method === 'tools/list') {
@@ -132,9 +132,9 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         const { tools } = await client.listTools();
         expect(tools.map(t => t.name)).toEqual(['route']);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'broken'"));
-        expect((store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
-            'route'
-        ]);
+        expect(
+            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools.map(t => t.name)
+        ).toEqual(['route']);
         // The explicit-cursor per-page path is filtered too (the spec's MUST
         // has no carve-out for paginated reads).
         const page = await client.listTools({ cursor: '0' });
@@ -178,14 +178,14 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         store.set(
             { method: 'tools/list', partition: PART },
             {
-                value: {
+                value: JSON.stringify({
                     tools: [
                         {
                             name: 'route',
                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
                         }
                     ]
-                }
+                })
             }
         );
 
@@ -197,7 +197,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'ap' }, { 'Mcp-Param-Region': 'ap' }]);
         // The recovery refetch wrote a fresh cache entry (REGION_TOOL, with the declaration).
         expect(
-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
+            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools[0]?.inputSchema.properties
         ).toHaveProperty('region');
     });
 
@@ -217,14 +217,14 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         store.set(
             { method: 'tools/list', partition: PART },
             {
-                value: {
+                value: JSON.stringify({
                     tools: [
                         {
                             name: 'route',
                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
                         }
                     ]
-                },
+                }),
                 expiresAt: Date.now() + 60_000,
                 scope: 'public'
             }
@@ -240,7 +240,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         // The refetch's write overwrote the stale entry (the no-op delete
         // never dropped it; the `'refresh'` write replaced it).
         expect(
-            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
+            (JSON.parse(store.get({ method: 'tools/list', partition: PART })!.value) as { tools: Tool[] }).tools[0]?.inputSchema.properties
         ).toHaveProperty(['region', 'x-mcp-header'], 'Region');
     });
 
@@ -309,7 +309,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         store.set(
             { method: 'tools/list', partition: PART },
             {
-                value: {
+                value: JSON.stringify({
                     tools: [
                         PAGE1,
                         {
@@ -317,7 +317,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
                             inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
                         }
                     ]
-                }
+                })
             }
         );
 
@@ -344,7 +344,7 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         // and sends without headers — callTool never refetches on its own.
         store.set(
             { method: 'tools/list', partition: PART },
-            { value: { tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] } }
+            { value: JSON.stringify({ tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] }) }
         );
         expect(store.get({ method: 'tools/list', partition: PART })).toBeDefined();
         await serverTx.send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' } as JSONRPCMessage);

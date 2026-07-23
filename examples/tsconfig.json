@@ -22,14 +22,9 @@
             "@modelcontextprotocol/core-internal": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/index.ts"
             ],
+            "@modelcontextprotocol/core/internal": ["./node_modules/@modelcontextprotocol/core/src/internal.ts"],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
-            ],
-            "@modelcontextprotocol/core-internal/schemas": [
-                "./node_modules/@modelcontextprotocol/core/node_modules/@modelcontextprotocol/core-internal/src/types/schemas.ts"
-            ],
-            "@modelcontextprotocol/core-internal/auth": [
-                "./node_modules/@modelcontextprotocol/core/node_modules/@modelcontextprotocol/core-internal/src/shared/auth.ts"
             ],
             "@mcp-examples/shared": ["./node_modules/@mcp-examples/shared/src/index.ts"]
         }

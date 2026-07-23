@@ -108,9 +108,8 @@ In addition the codemod:
   `completable(schema, cb).optional()` (see
   [Standard Schema objects](#standard-schema-objects-raw-shapes-deprecated)); shapes it
   cannot invert get an `@mcp-codemod-error` marker.
-- Drops `Protocol` / `mergeCapabilities` from `shared/protocol.js` imports, re-exports,
-  mocks, and dynamic imports — no v2 package exports them — leaving a marker with the
-  replacement at each site.
+- Rewrites `Protocol` / `mergeCapabilities` imports from `shared/protocol.js` to the
+  client or server package root, like the module's other symbols.
 
 ## What the codemod does NOT handle
 
@@ -848,7 +847,7 @@ hierarchy also exposes the same check as an explicit static guard
 TypeScript — use whichever style your codebase prefers; both read the same brand.
 Fine print (applies equally to `instanceof` and `isInstance`):
 
-- **Version skew** — matching needs *both* copies at a brand-aware release; against an
+- **Version skew** — matching needs _both_ copies at a brand-aware release; against an
   older copy, behavior degrades to plain prototype `instanceof` (false across bundles).
   During mixed-version rollouts, recognize errors without class identity: match
   `error.name` plus the class's discriminant field (`code`, `status`), or reconstruct
@@ -1325,8 +1324,9 @@ if (CallToolResultSchema.safeParse(value).success) { ... }
 
 `@modelcontextprotocol/core` is the canonical home for the spec's Zod schema constants
 (and the OAuth/OpenID metadata schemas). It is runtime-neutral (its only dependency is
-`zod`) and is **not** required by `client` / `server` — install it only if you import the
-raw schemas directly.
+`zod`) and arrives transitively as the shared runtime schema graph of `client` /
+`server` — add it to your own `dependencies` only when you import the raw schemas
+directly.
 
 If you would rather keep your project Zod-free, the **`isSpecType` / `specTypeSchemas`**
 alternatives are exported from `@modelcontextprotocol/client` and `…/server`:
@@ -1443,13 +1443,15 @@ now typed as JSON-compatible objects (nested JSON values) rather than arbitrary
 objects. A payload typed `Record<string, unknown>` no longer assigns (`TS2322`) — give
 the source a JSON-compatible type or cast at the boundary.
 
-The `Protocol` base class itself is no longer exported (it is internal engine). If you
-were reaching into protocol internals — rare, mostly debugging tools —
-`client.fallbackRequestHandler` / `server.fallbackRequestHandler` receives every
-inbound request that no registered handler matches, before capability gating. Delete
-the v1 `shared/protocol.js` import: `Protocol` has no v2 import path. The codemod
-drops `Protocol` (and `mergeCapabilities`) from the rewritten import and leaves an
-`@mcp-codemod-error` marker at the site explaining the replacement.
+The `Protocol` base class and `mergeCapabilities` moved: import them from the
+`@modelcontextprotocol/client` or `@modelcontextprotocol/server` package root instead
+of `shared/protocol.js`. Most code should not use `Protocol` directly — `Client` and
+`Server` are the supported surfaces, and for observing unmatched inbound requests
+prefer `client.fallbackRequestHandler` / `server.fallbackRequestHandler`. The codemod
+rewrites `Protocol` and `mergeCapabilities` imports to the package root, like the
+module's other symbols. One caveat: the client and server packages each bundle their
+own compiled copy of the class, so the two roots' `Protocol` exports are distinct
+classes — import it from one package consistently within a process.
 
 #### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
 
@@ -1587,7 +1589,7 @@ rewrite required unless noted.
   instead of sending the request. Set `enforceStrictCapabilities: true` in `ClientOptions`
   to restore the v1 throw.
 - Called **without a `cursor`**, the same methods now **auto-aggregate every page** and
-  return `nextCursor: undefined`. Passing `{ cursor }` still fetches one page. Manual
+  return an aggregate with no `nextCursor`. Passing `{ cursor }` still fetches one page. Manual
   pagination loops keep working (the first iteration returns everything); replace them
   with the bare no-arg call. The walk is capped at `ClientOptions.listMaxPages` (default
   64); overrun throws `SdkError(ListPaginationExceeded)`. There is no way to fetch only
@@ -1605,6 +1607,9 @@ rewrite required unless noted.
   trip. Per-call override: `{ cacheMode: 'refresh' | 'bypass' }`. New `ClientOptions`:
   `cachePartition`, `defaultCacheTtlMs`. `ResponseCacheStore` gained `delete(key)`;
   `InMemoryResponseCacheStore` is now bounded (`{ maxEntries }`, default 512).
+  `CacheEntry.value` (and the `set()` entry value) is the JSON-serialized result
+  document (`string`, not `unknown`): persist and return it verbatim, `JSON.parse`
+  it to inspect.
 
 #### Server (Streamable HTTP transport)
 
@@ -1751,11 +1756,18 @@ the named class from the explicit subpath
 (`@modelcontextprotocol/{client,server}/validators/ajv` or `…/cf-worker`) — importing
 from a subpath means the corresponding peer dep must be in your `package.json`.
 
-### `Client.connect(transport, { prior })` — zero-round-trip connect
+### `Client.connect(transport, { prior })` — connect from a cached era verdict
 
 Probe once, persist `client.getDiscoverResult()` (`JSON.stringify`), and feed it to
-every worker as `client.connect(transport, { prior })` — 2026-07-28+ only. New exported
-type `ConnectOptions` (extends `RequestOptions` with `prior?: DiscoverResult`).
+every worker as `client.connect(transport, { prior: { kind: 'modern', discover } })`.
+New exported types
+`ConnectOptions` (extends `RequestOptions` with `prior?: PriorDiscovery`)
+and `PriorDiscovery` — a cached era verdict: the modern arm wraps a `DiscoverResult`
+(zero round trips), the legacy arm (`{ kind: 'legacy' }`) skips the probe and runs the
+plain `initialize` handshake for servers known to be pre-2026. Freshness is the
+supplying host's responsibility — date cached legacy verdicts in your own storage and
+stop supplying them past your policy horizon (a stale one succeeds silently against an
+upgraded server).
 
 ### Serving the 2026-07-28 revision
 

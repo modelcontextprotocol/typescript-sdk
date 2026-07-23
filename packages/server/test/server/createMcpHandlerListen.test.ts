@@ -208,7 +208,16 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(resultFrame).toEqual({
             jsonrpc: '2.0',
             id: 1,
-            result: { resultType: 'complete', _meta: { 'io.modelcontextprotocol/subscriptionId': 1 } }
+            result: {
+                resultType: 'complete',
+                _meta: {
+                    'io.modelcontextprotocol/subscriptionId': 1,
+                    // #3002: the close result carries the serving instance's
+                    // identity like every other result (SubscriptionsListenResultMeta
+                    // extends ResultMetaObject).
+                    'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
+                }
+            }
         });
     });
 

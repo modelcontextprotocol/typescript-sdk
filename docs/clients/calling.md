@@ -30,7 +30,7 @@ A failed tool call is still a result: check `isError` on it before trusting `con
 
 ## Let the SDK walk the pages
 
-That `listTools()` already walked every page: when a server splits its list, the SDK follows `nextCursor` page by page and returns one aggregated list with `nextCursor: undefined`. `listPrompts()`, `listResources()`, and `listResourceTemplates()` aggregate the same way.
+That `listTools()` already walked every page: when a server splits its list, the SDK follows `nextCursor` page by page and returns one aggregated list with no `nextCursor`. `listPrompts()`, `listResources()`, and `listResourceTemplates()` aggregate the same way.
 
 Pass a `cursor` — a page's `nextCursor` your application held on to — and `listTools` returns exactly that page, raw.
 

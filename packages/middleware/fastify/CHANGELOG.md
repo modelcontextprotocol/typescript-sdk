@@ -1,5 +1,19 @@
 # @modelcontextprotocol/fastify
 
+## 2.0.0-beta.5
+
+### Patch Changes
+
+- Updated dependencies [[`1480241`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1480241e2a2a7f0ceee8e7723b2adcf88579bb36), [`f413763`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f4137630c05dc9a4fb14d4d3777f5cb167bd6313)]:
+    - @modelcontextprotocol/server@2.0.0-beta.5
+
+## 2.0.0-beta.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c49b47`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7c49b47fb3a58b51cec8fd0b337f656515f1a2b7), [`e0a0ab7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e0a0ab74d9baed74572c9f435313fb6daef1b989), [`8e1d2e9`](https://github.com/modelcontextprotocol/typescript-sdk/commit/8e1d2e92b1720d2520122b3a5f20ea084edaf3c4), [`3f07a32`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3f07a325c6741b2374ce2255846dfa0c25f74d03)]:
+    - @modelcontextprotocol/server@2.0.0-beta.4
+
 ## 2.0.0-beta.3
 
 ### Patch Changes
