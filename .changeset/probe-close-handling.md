@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/client': patch
+---
+
+Probe stdio servers on a disposable sibling process. Some stdio servers exit on any pre-`initialize` request (servers built on the official Rust SDK, rmcp, behave this way), so under `versionNegotiation: { mode: 'auto' }` the `server/discover` probe previously killed the server and `connect()` hard-failed. The probe now runs on a short-lived sibling spawned from the same parameters — its stderr is discarded and it is reaped once the era is known — and the caller's transport spawns exactly once, afterwards: a legacy verdict connects with the plain `initialize` handshake (byte-identical to `mode: 'legacy'`), a modern verdict is adopted directly, and the session wire never carries `server/discover`. Closing the caller's transport during the probe aborts `connect()` with the typed `SdkError(EraNegotiationFailed)` and the session child is never spawned. On HTTP — and on custom stdio-shaped transports, which probe in place — a mid-probe connection close keeps rejecting with the typed connect error, now naming the close in pin-mode and modern-only diagnostics.

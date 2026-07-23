@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/codemod",
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-beta.5",
     "description": "Codemod to migrate MCP TypeScript SDK code from v1 to v2",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -25,18 +25,22 @@
     },
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "import": {
+                "types": "./dist/index.d.mts",
+                "default": "./dist/index.mjs"
+            },
+            "require": {
+                "types": "./dist/index.d.cts",
+                "default": "./dist/index.cjs"
+            }
         }
     },
+    "main": "./dist/index.cjs",
     "files": [
         "dist"
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "generate:versions": "tsx scripts/generateVersions.ts",
-        "generate:spec-schemas": "tsx scripts/generateSpecSchemaMap.ts",
-        "prebuild": "pnpm run generate:versions && pnpm run generate:spec-schemas",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "pnpm run build",
@@ -50,6 +54,7 @@
     },
     "dependencies": {
         "commander": "^13.0.0",
+        "fast-glob": "^3.3.3",
         "ts-morph": "^28.0.0"
     },
     "devDependencies": {

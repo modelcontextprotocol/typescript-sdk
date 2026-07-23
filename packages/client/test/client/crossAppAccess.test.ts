@@ -1,10 +1,49 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from '../../src/client/crossAppAccess.js';
+import { InsecureTokenEndpointError } from '../../src/client/authErrors';
+import { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from '../../src/client/crossAppAccess';
 
 describe('crossAppAccess', () => {
     describe('requestJwtAuthorizationGrant', () => {
+        it('rejects a non-https token endpoint before sending credentials (SEP-2207)', async () => {
+            const mockFetch = vi.fn<FetchLike>();
+            await expect(
+                requestJwtAuthorizationGrant({
+                    tokenEndpoint: 'http://idp.internal/token',
+                    audience: 'https://auth.chat.example/',
+                    resource: 'https://mcp.chat.example/',
+                    idToken: 'id-token',
+                    clientId: 'client',
+                    clientSecret: 'secret',
+                    fetchFn: mockFetch
+                })
+            ).rejects.toThrow(InsecureTokenEndpointError);
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
+        it('permits a loopback http token endpoint (SEP-2207 exemption)', async () => {
+            const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
+                ok: true,
+                json: async () => ({
+                    issued_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
+                    access_token: 'jag',
+                    token_type: 'N_A'
+                })
+            } as Response);
+            await expect(
+                requestJwtAuthorizationGrant({
+                    tokenEndpoint: 'http://localhost:3000/token',
+                    audience: 'https://auth.chat.example/',
+                    resource: 'https://mcp.chat.example/',
+                    idToken: 'id-token',
+                    clientId: 'client',
+                    fetchFn: mockFetch
+                })
+            ).resolves.toMatchObject({ jwtAuthGrant: 'jag' });
+            expect(mockFetch).toHaveBeenCalledOnce();
+        });
+
         it('successfully exchanges ID token for JWT Authorization Grant', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,
@@ -34,7 +73,7 @@ describe('crossAppAccess', () => {
 
             expect(mockFetch).toHaveBeenCalledOnce();
             const [url, init] = mockFetch.mock.calls[0]!;
-            expect(url).toBe('https://idp.example.com/token');
+            expect(String(url)).toBe('https://idp.example.com/token');
             expect(init?.method).toBe('POST');
             expect(init?.headers).toEqual({
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -290,6 +329,20 @@ describe('crossAppAccess', () => {
     });
 
     describe('exchangeJwtAuthGrant', () => {
+        it('rejects a non-https token endpoint before sending credentials (SEP-2207)', async () => {
+            const mockFetch = vi.fn<FetchLike>();
+            await expect(
+                exchangeJwtAuthGrant({
+                    tokenEndpoint: 'http://as.internal/token',
+                    jwtAuthGrant: 'jwt',
+                    clientId: 'client',
+                    clientSecret: 'secret',
+                    fetchFn: mockFetch
+                })
+            ).rejects.toThrow(InsecureTokenEndpointError);
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
         it('exchanges JAG for access token using client_secret_basic by default', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,
@@ -316,7 +369,7 @@ describe('crossAppAccess', () => {
 
             expect(mockFetch).toHaveBeenCalledOnce();
             const [url, init] = mockFetch.mock.calls[0]!;
-            expect(url).toBe('https://auth.chat.example/token');
+            expect(String(url)).toBe('https://auth.chat.example/token');
             expect(init?.method).toBe('POST');
 
             // SEP-990 conformance: credentials in Authorization header, NOT in body

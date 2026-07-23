@@ -1,17 +1,17 @@
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
+import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core-internal';
 import type { RequestHandler } from 'express';
 import express from 'express';
 
-import type { AuthorizationHandlerOptions } from './handlers/authorize.js';
-import { authorizationHandler } from './handlers/authorize.js';
-import { metadataHandler } from './handlers/metadata.js';
-import type { ClientRegistrationHandlerOptions } from './handlers/register.js';
-import { clientRegistrationHandler } from './handlers/register.js';
-import type { RevocationHandlerOptions } from './handlers/revoke.js';
-import { revocationHandler } from './handlers/revoke.js';
-import type { TokenHandlerOptions } from './handlers/token.js';
-import { tokenHandler } from './handlers/token.js';
-import type { OAuthServerProvider } from './provider.js';
+import type { AuthorizationHandlerOptions } from './handlers/authorize';
+import { authorizationHandler } from './handlers/authorize';
+import { metadataHandler } from './handlers/metadata';
+import type { ClientRegistrationHandlerOptions } from './handlers/register';
+import { clientRegistrationHandler } from './handlers/register';
+import type { RevocationHandlerOptions } from './handlers/revoke';
+import { revocationHandler } from './handlers/revoke';
+import type { TokenHandlerOptions } from './handlers/token';
+import { tokenHandler } from './handlers/token';
+import type { OAuthServerProvider } from './provider';
 
 // Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
 const allowInsecureIssuerUrl =
@@ -61,7 +61,7 @@ export type AuthRouterOptions = {
     resourceServerUrl?: URL;
 
     // Individual options per route
-    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
+    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider' | 'issuerUrl'>;
     clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
     revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
     tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
@@ -114,7 +114,14 @@ export const createOAuthMetadata = (options: {
         revocation_endpoint: revocation_endpoint ? new URL(revocation_endpoint, baseUrl || issuer).href : undefined,
         revocation_endpoint_auth_methods_supported: revocation_endpoint ? ['client_secret_post'] : undefined,
 
-        registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined
+        registration_endpoint: registration_endpoint ? new URL(registration_endpoint, baseUrl || issuer).href : undefined,
+
+        // RFC 9207: the bundled authorize handler appends `iss` to any redirect the provider
+        // issues via `res.redirect(...)` to the client's validated redirect_uri, so the default
+        // is `true`. Providers whose callback is issued by an upstream AS (e.g. the proxy
+        // provider) override this to `false` so we don't over-claim — SEP-2468 clients reject
+        // a callback that omits `iss` when support is advertised.
+        authorization_response_iss_parameter_supported: options.provider.authorizationResponseIssParameterSupported ?? true
     };
 
     return metadata;
@@ -139,7 +146,7 @@ export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler {
 
     router.use(
         new URL(oauthMetadata.authorization_endpoint).pathname,
-        authorizationHandler({ provider: options.provider, ...options.authorizationOptions })
+        authorizationHandler({ provider: options.provider, issuerUrl: options.issuerUrl, ...options.authorizationOptions })
     );
 
     router.use(new URL(oauthMetadata.token_endpoint).pathname, tokenHandler({ provider: options.provider, ...options.tokenOptions }));

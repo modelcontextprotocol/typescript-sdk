@@ -1,10 +1,41 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { actionRequired, info, warning } from '../../../utils/diagnostics';
+import { addOrMergeImport, hasMcpImports, isAnyMcpSpecifier } from '../../../utils/importUtils';
+
+/**
+ * v2 `finishAuth(code, iss?)` verifies the callback's `iss` when the authorization
+ * server advertises `authorization_response_iss_parameter_supported` — and the v2
+ * server-legacy router advertises it by default. A bare `finishAuth(code)` stays
+ * type-correct (the parameter is optional) but the verification then has no input,
+ * so single-argument call sites in files this run changes get a run-log note
+ * pointing at the guide (not a marker: the one-argument URLSearchParams form is the
+ * blessed v2 spelling and is statically indistinguishable from the code-string
+ * form, so the note is advisory-only and stays quiet on already-migrated trees).
+ */
+function handleFinishAuthAdvisory(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    if (!hasMcpImports(sourceFile)) return;
+    for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        const expr = call.getExpression();
+        if (!Node.isPropertyAccessExpression(expr) || expr.getName() !== 'finishAuth') continue;
+        if (call.getArguments().length !== 1) continue;
+        diagnostics.push({
+            ...warning(
+                sourceFile.getFilePath(),
+                call.getStartLineNumber(),
+                'finishAuth with one argument: if this passes the authorization code string, v2 also accepts ' +
+                    'finishAuth(new URL(callbackUrl).searchParams) — preferred, since it carries the iss the callback check ' +
+                    'reads when the authorization server advertises authorization_response_iss_parameter_supported ' +
+                    '(the v2 server-legacy router advertises it by default). A call already passing URLSearchParams needs ' +
+                    "no change. See the migration guide's authorization-server mix-up defense section."
+            ),
+            advisoryOnly: true
+        });
+    }
+}
 
 const REMOVED_ZOD_HELPERS: Record<string, string> = {
     schemaToJson:
@@ -29,6 +60,7 @@ export const removedApisTransform: Transform = {
         changesCount += handleRemovedZodHelpers(sourceFile, diagnostics);
         changesCount += handleIsomorphicHeaders(sourceFile, diagnostics);
         changesCount += handleStreamableHTTPError(sourceFile, diagnostics);
+        handleFinishAuthAdvisory(sourceFile, diagnostics);
 
         return { changesCount, diagnostics };
     }
@@ -145,9 +177,9 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
         if (!Node.isIdentifier(expr) || expr.getText() !== localName) continue;
         hasConstructorCalls = true;
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                node.getStartLineNumber(),
+                node,
                 'new StreamableHTTPError(statusCode, statusText, body?) → new SdkHttpError(code, message, data). ' +
                     'Constructor arguments differ — manual review required. Map the HTTP status to a SdkErrorCode enum value ' +
                     'and pass the HTTP status via the data argument, e.g. { status, statusText }.'
@@ -157,6 +189,8 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
 
     renameAllReferences(sourceFile, localName, 'SdkHttpError');
     changesCount++;
+
+    changesCount += rewriteGuardedStatusReads(sourceFile, diagnostics);
 
     foundImport.remove();
     if (foundImportDecl.getNamedImports().length === 0 && !foundImportDecl.getDefaultImport() && !foundImportDecl.getNamespaceImport()) {
@@ -192,4 +226,111 @@ function resolveTargetModule(sourceFile: SourceFile, originalModule: string): st
 
     if (originalModule.includes('/client')) return '@modelcontextprotocol/client';
     return '@modelcontextprotocol/server';
+}
+
+/**
+ * Climb only through positive conjunctions (`&&`) and parentheses: under `||` or `!`
+ * the other operand evaluates exactly when the instanceof check FAILED, so it is not
+ * a guarded scope.
+ */
+function conjunctionRootOf(node: Node): Node {
+    let top: Node = node;
+    let parent = top.getParent();
+    while (parent !== undefined) {
+        if (Node.isParenthesizedExpression(parent)) {
+            top = parent;
+        } else if (Node.isBinaryExpression(parent) && parent.getOperatorToken().getKind() === SyntaxKind.AmpersandAmpersandToken) {
+            top = parent;
+        } else {
+            break;
+        }
+        parent = top.getParent();
+    }
+    return top;
+}
+
+/** True when `name` is rebound by a function parameter between `node` and `scopeRoot`. */
+function isShadowedWithin(node: Node, scopeRoot: Node, name: string): boolean {
+    let current = node.getParent();
+    while (current !== undefined && current !== scopeRoot) {
+        if (
+            (Node.isArrowFunction(current) ||
+                Node.isFunctionExpression(current) ||
+                Node.isFunctionDeclaration(current) ||
+                Node.isMethodDeclaration(current)) &&
+            current.getParameters().some(param => param.getName() === name)
+        ) {
+            return true;
+        }
+        current = current.getParent();
+    }
+    return false;
+}
+
+/** True when the scope contains any assignment whose left side is `subject`. */
+function subjectReassignedWithin(scope: Node, subject: string): boolean {
+    return scope.getDescendantsOfKind(SyntaxKind.BinaryExpression).some(bin => {
+        const op = bin.getOperatorToken().getKind();
+        return (
+            (op === SyntaxKind.EqualsToken || op === SyntaxKind.QuestionQuestionEqualsToken || op === SyntaxKind.BarBarEqualsToken) &&
+            bin.getLeft().getText() === subject
+        );
+    });
+}
+
+/**
+ * v2 carries the HTTP status on `.status`; `.code` is an `SdkErrorCode` string. A
+ * `.code` read on a value the surrounding check proves is an `SdkHttpError` —
+ * positive-conjunction siblings of the check, or reads inside the positively guarded
+ * if-block — rewrites mechanically. Unprovable reads keep the existing file-level
+ * warning.
+ */
+function rewriteGuardedStatusReads(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
+    let changes = 0;
+    for (const guard of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+        if (guard.wasForgotten()) continue;
+        if (guard.getOperatorToken().getKind() !== SyntaxKind.InstanceOfKeyword) continue;
+        const right = guard.getRight();
+        if (!Node.isIdentifier(right) || right.getText() !== 'SdkHttpError') continue;
+        const subject = guard.getLeft().getText();
+
+        const conjunctionRoot = conjunctionRootOf(guard);
+        const scopes: Node[] = [conjunctionRoot];
+        // The then-block is guarded only when the check reaches the if condition
+        // through positive conjunctions alone (no `!`, no `||` on the path).
+        const ifStmt = guard.getFirstAncestorByKind(SyntaxKind.IfStatement);
+        if (ifStmt !== undefined && conjunctionRoot === ifStmt.getExpression()) {
+            const thenBlock = ifStmt.getThenStatement();
+            if (!subjectReassignedWithin(thenBlock, subject)) scopes.push(thenBlock);
+        }
+
+        let rewrote = false;
+        for (const scope of scopes) {
+            const reads = scope
+                .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
+                .filter(
+                    pa =>
+                        !pa.wasForgotten() &&
+                        pa.getName() === 'code' &&
+                        pa.getExpression().getText() === subject &&
+                        !isShadowedWithin(pa, scope, subject)
+                );
+            for (const pa of reads.toReversed()) {
+                pa.getNameNode().replaceWithText('status');
+                changes++;
+                rewrote = true;
+            }
+        }
+        if (rewrote) {
+            diagnostics.push(
+                info(
+                    sourceFile.getFilePath(),
+                    guard.getStartLineNumber(),
+                    `Rewrote ${subject}.code to ${subject}.status under the instanceof SdkHttpError check — v2 carries ` +
+                        `the HTTP status on .status (.code is an SdkErrorCode string).`
+                )
+            );
+        }
+    }
+    return changes;
 }

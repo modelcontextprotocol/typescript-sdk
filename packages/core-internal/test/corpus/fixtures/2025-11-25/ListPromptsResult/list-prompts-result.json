@@ -1,0 +1,16 @@
+{
+    "prompts": [
+        {
+            "name": "code_review",
+            "title": "Request Code Review",
+            "description": "Asks the LLM to analyze code quality",
+            "arguments": [
+                {
+                    "name": "code",
+                    "description": "The code to review",
+                    "required": true
+                }
+            ]
+        }
+    ]
+}

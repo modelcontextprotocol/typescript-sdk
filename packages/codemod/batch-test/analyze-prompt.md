@@ -32,11 +32,13 @@ The goal is to find issues in the codemod itself — incorrect transforms, missi
     pnpm --filter @modelcontextprotocol/codemod batch-test
     ```
 
-3. Read `packages/codemod/batch-test/results/summary.json` for the overview. Note which repos have `postCodemodClean: false` and which check types have new errors.
+3. Read `packages/codemod/batch-test/results/*/summary.json` for the overview (there may be several config directories — one per `--sdk`/`--codemod` mode; read the run you're analyzing). Note which repos have `postCodemodClean: false` and which check types have new errors.
 
-4. For each repo with new errors, read its `packages/codemod/batch-test/results/<repo-slug>/report.json`. Compare `baseline` vs `postCodemod` for each check — only errors that appear in `postCodemod` but not in `baseline` are codemod-introduced.
+4. For each repo with new errors, read its `packages/codemod/batch-test/results/<config>/<repo-slug>/report.json` (the same `<config>` directory as the summary). Compare `baseline` vs `postCodemod` for each check — only errors that appear in `postCodemod` but not in `baseline`
+   are codemod-introduced.
 
-5. Also review the `codemod.diagnostics` array in each report — these are warnings the codemod itself emitted about patterns it couldn't fully handle.
+5. Also review the `codemod.diagnostics` array in each report — these are warnings the codemod itself emitted about patterns it couldn't fully handle. This applies only to local-codemod runs; when `config.codemodSource` is `published`, `codemod.diagnostics` is empty and
+   `codemod.cli` holds the raw CLI output instead.
 
 6. For each codemod-introduced error, look at the actual source file in the cloned repo (`packages/codemod/batch-test/repos/<repo-slug>/...`) to understand what the codemod produced and what it should have produced.
 

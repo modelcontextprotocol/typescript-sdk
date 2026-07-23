@@ -1,0 +1,9 @@
+{
+    "description": "A message with a jsonrpc member other than '2.0' is not a valid JSON-RPC message; dispatch reports it out-of-band and sends no response.",
+    "message": {
+        "jsonrpc": "1.0",
+        "id": 5,
+        "method": "ping"
+    },
+    "expect": "onerror"
+}
