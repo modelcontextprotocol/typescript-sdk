@@ -3408,4 +3408,43 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         resolveTool?.();
         await transport.close();
     });
+
+    it('should supersede the previous keep-alive timer when a replayed stream re-registers under the same stream id', async () => {
+        // Event store WITHOUT the optional getStreamIdForEventId — the replay
+        // path then skips its 409 conflict check, so a reconnect re-registers
+        // the same stream id. The predecessor's timer must be replaced, not
+        // orphaned (an orphaned timer's failing write would clear the live
+        // stream's keep-alive via stopKeepAlive on the shared stream id).
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                return 'evt-1';
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return 'stream-1';
+            }
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const replayHeaders = { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', 'Last-Event-ID': 'evt-1' };
+        const first = await transport.handleRequest(req('GET', { headers: replayHeaders }));
+        expect(first.status).toBe(200);
+
+        // Reconnect with the same Last-Event-ID — re-registers 'stream-1'
+        const second = await transport.handleRequest(req('GET', { headers: replayHeaders }));
+        expect(second.status).toBe(200);
+
+        // Exactly one keep-alive timer must remain armed (plus none orphaned)
+        expect(vi.getTimerCount()).toBe(1);
+
+        // The live (second) stream still receives keep-alive frames
+        const reader = second.body!.getReader();
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value } = await reader.read();
+        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        await transport.close();
+    });
 });

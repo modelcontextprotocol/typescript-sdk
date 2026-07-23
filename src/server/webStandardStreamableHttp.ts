@@ -265,13 +265,16 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     /**
      * Arms a keep-alive interval for an SSE stream that periodically writes an SSE
      * comment frame so intermediaries and idle timeouts don't kill the connection.
-     * The timer is cleared via stopKeepAlive when the stream is cleaned up, and
+     * Replaces any timer already armed for the same stream id (a resumed stream
+     * re-registered under the same id supersedes its predecessor's timer). The
+     * timer is cleared via stopKeepAlive when the stream is cleaned up, and
      * clears itself if a write fails (stream already closed/cancelled).
      */
     private startKeepAlive(streamId: string, controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
         if (this._keepAliveMs <= 0) {
             return;
         }
+        this.stopKeepAlive(streamId);
         const timer = setInterval(() => {
             try {
                 controller.enqueue(encoder.encode(': keepalive\n\n'));
