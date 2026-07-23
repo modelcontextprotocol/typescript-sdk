@@ -666,6 +666,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Runs `fn` as the currently in-flight handler for `requestId`, so that a
+     * notification sent from within it (directly via `this.notification()`,
+     * not through the per-request `ctx.mcpReq.notify` closure, which already
+     * stamps `relatedRequestId` unconditionally) can be tagged with the
+     * request it was triggered by instead of defaulting to no related request
+     * at all. The base implementation is a plain pass-through: `Protocol` has
+     * no notion of concurrent in-flight handlers and stays runtime-neutral
+     * (no `node:async_hooks` import here). `Server` overrides this with an
+     * `AsyncLocalStorage`-backed implementation.
+     */
+    protected _runHandlerInContext<T>(_requestId: RequestId, fn: () => T | Promise<T>): T | Promise<T> {
+        return fn();
+    }
+
+    /**
+     * The request id `_runHandlerInContext` is currently running a handler
+     * for, or `undefined` outside of any such context. Consulted by
+     * {@linkcode _notificationViaCodec} to default `relatedRequestId` when the
+     * caller didn't supply one. The base implementation always returns
+     * `undefined`, matching the pass-through default of
+     * {@linkcode _runHandlerInContext}.
+     */
+    protected _currentInflightRequestId(): RequestId | undefined {
+        return undefined;
+    }
+
+    /**
      * Attach this instance's outbound `_meta` envelope (when one is configured)
      * to a request or notification. A no-op when the seam returns `undefined`
      * — the message returns by reference, so the legacy-era wire stays
@@ -1096,7 +1123,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
-            .then(() => handler(request, ctx))
+            .then(() => this._runHandlerInContext(request.id, () => handler(request, ctx)))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
@@ -1608,10 +1635,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const jsonrpcNotification = this._envelopeOutbound({ jsonrpc: '2.0' as const, ...notification });
 
+        // A caller-supplied `relatedRequestId` always wins; otherwise, if this
+        // notification is being sent while a handler is in flight (tracked via
+        // `_runHandlerInContext`/`_currentInflightRequestId` — see `Server`'s
+        // `AsyncLocalStorage`-backed override), default to that request's id.
+        // This is what lets `sendToolListChanged()` and friends — which pass no
+        // options at all — still land on the current request's own response
+        // stream instead of unconditionally targeting the standalone stream,
+        // which may not exist (e.g. a stateless transport).
+        const relatedRequestId = options?.relatedRequestId ?? this._currentInflightRequestId();
+        const effectiveOptions = relatedRequestId === undefined ? options : { ...options, relatedRequestId };
+
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !effectiveOptions?.relatedRequestId;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
@@ -1635,14 +1673,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                this._transport?.send(jsonrpcNotification, effectiveOptions).catch(error => this._onerror(error));
             });
 
             // Return immediately.
             return;
         }
 
-        await this._transport.send(jsonrpcNotification, options);
+        await this._transport.send(jsonrpcNotification, effectiveOptions);
     }
 
     /**
