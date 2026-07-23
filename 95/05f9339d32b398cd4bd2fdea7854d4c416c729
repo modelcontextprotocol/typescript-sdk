@@ -1,0 +1,23 @@
+.changeset/streamable-http-sse-keepalive.md
+  s_6554e05bf70569::t_bb2db5efe5e40d 1-5
+packages/server/src/server/streamableHttp.ts
+  s_6554e05bf70569::t_cbf4fed2bbd451 151-163,177-179,266-267,285-325,535,557,567-568,630,657,686-691,904,929,942-943,1064-1069
+packages/server/test/server/streamableHttp.test.ts
+  s_6554e05bf70569::t_d8aa82f2936154 1410-1524
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9505f9339d32b398cd4bd2fdea7854d4c416c729",
+  "prompts": {},
+  "sessions": {
+    "s_6554e05bf70569": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c7fefde-eeda-4423-a160-f6cd6ad01574",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
