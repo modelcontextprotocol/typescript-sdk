@@ -149,6 +149,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     retryInterval?: number;
 
     /**
+     * Interval in milliseconds between SSE keep-alive comment frames (`: keepalive`)
+     * written to open SSE streams. Keep-alive frames prevent idle streams (e.g. the
+     * standalone `GET` stream, or a `POST` stream during a long-running tool call)
+     * from being killed by intermediaries and server idle timeouts, which clients
+     * observe as `SSE stream disconnected: TypeError: terminated`.
+     *
+     * Comment frames are ignored by SSE parsers and never surface as messages.
+     * Defaults to `15000` (per the WHATWG SSE spec recommendation of roughly every
+     * 15 seconds). Set to `0` to disable keep-alive frames.
+     */
+    keepAliveMs?: number;
+
+    /**
      * List of protocol versions that this transport will accept.
      * Used to validate the `mcp-protocol-version` header in incoming requests.
      *
@@ -160,6 +173,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      */
     supportedProtocolVersions?: string[];
 }
+
+/** Default interval between SSE keep-alive comment frames. */
+const DEFAULT_KEEP_ALIVE_MS = 15_000;
 
 /**
  * Options for handling a request
@@ -247,6 +263,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _keepAliveMs: number;
+    private _keepAliveTimers: Map<string, ReturnType<typeof setInterval>> = new Map();
 
     sessionId?: string;
     onclose?: () => void;
@@ -264,6 +282,49 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS;
+    }
+
+    /**
+     * Arms a keep-alive interval for an SSE stream that periodically writes an SSE
+     * comment frame so intermediaries and idle timeouts don't kill the connection.
+     * Replaces any timer already armed for the same stream id (a resumed stream
+     * re-registered under the same id supersedes its predecessor's timer). The
+     * timer is cleared via {@linkcode stopKeepAlive} when the stream is cleaned up,
+     * and clears itself if a write fails (stream already closed/cancelled).
+     */
+    private startKeepAlive(
+        streamId: string,
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        encoder: InstanceType<typeof TextEncoder>
+    ): void {
+        // A deferred arm (e.g. after an event-store await) must not outlive the
+        // transport: close()'s timer sweep has already run and never runs again.
+        if (this._keepAliveMs <= 0 || this._closed) {
+            return;
+        }
+        this.stopKeepAlive(streamId);
+        const timer = setInterval(() => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                this.stopKeepAlive(streamId);
+            }
+        }, this._keepAliveMs);
+        // Don't let the keep-alive timer hold the process open (Node.js only)
+        (timer as { unref?: () => void }).unref?.();
+        this._keepAliveTimers.set(streamId, timer);
+    }
+
+    /**
+     * Clears the keep-alive interval for a stream, if one is armed.
+     */
+    private stopKeepAlive(streamId: string): void {
+        const timer = this._keepAliveTimers.get(streamId);
+        if (timer !== undefined) {
+            clearInterval(timer);
+            this._keepAliveTimers.delete(streamId);
+        }
     }
 
     /**
@@ -473,6 +534,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 // it still points at THIS controller — a stale cancel must not
                 // delete a successor stream registered by a later GET/resume.
                 if (this._streamMapping.get(this._standaloneSseStreamId)?.controller === streamController) {
+                    this.stopKeepAlive(this._standaloneSseStreamId);
                     this._streamMapping.delete(this._standaloneSseStreamId);
                 }
             }
@@ -494,6 +556,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                this.stopKeepAlive(this._standaloneSseStreamId);
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -502,6 +565,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         });
+
+        this.startKeepAlive(this._standaloneSseStreamId, streamController!, encoder);
 
         return new Response(readable, { headers });
     }
@@ -564,6 +629,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // a stale cancel from an earlier resume must not delete a
                     // successor resumed stream a re-poll has since registered.
                     if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
+                        this.stopKeepAlive(replayedStreamId);
                         this._streamMapping.delete(replayedStreamId);
                     }
                 }
@@ -590,6 +656,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 encoder,
                 replayedEventIds,
                 cleanup: () => {
+                    this.stopKeepAlive(replayedStreamId!);
                     this._streamMapping.delete(replayedStreamId!);
                     try {
                         streamController!.close();
@@ -616,6 +683,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         // Controller might already be closed
                     }
                 }
+            }
+
+            // Only arm keep-alive if the stream is still registered — the
+            // no-in-flight-request path above may have already closed it.
+            if (this._streamMapping.get(replayedStreamId)?.controller === streamController!) {
+                this.startKeepAlive(replayedStreamId, streamController!, encoder);
             }
 
             return new Response(readable, { headers });
@@ -830,6 +903,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // resumed stream under the same streamId) must not delete
                     // the successor.
                     if (this._streamMapping.get(streamId)?.controller === streamController) {
+                        this.stopKeepAlive(streamId);
                         this._streamMapping.delete(streamId);
                     }
                 }
@@ -854,6 +928,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
+                            this.stopKeepAlive(streamId);
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
@@ -890,6 +965,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
+
+            // Arm keep-alive only after the fallible awaits above — an error
+            // path returning 400 discards the Response, so nothing could ever
+            // cancel the stream and clear an already-armed timer. Skip if the
+            // responses already completed and cleaned the stream up.
+            if (this._streamMapping.get(streamId)?.controller === streamController!) {
+                this.startKeepAlive(streamId, streamController!, encoder);
+            }
 
             return new Response(readable, { status: 200, headers });
         } catch (error) {
@@ -985,6 +1068,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             cleanup();
         }
         this._streamMapping.clear();
+
+        // Clear any keep-alive timers not already cleared by stream cleanup
+        for (const timer of this._keepAliveTimers.values()) {
+            clearInterval(timer);
+        }
+        this._keepAliveTimers.clear();
 
         // Clear any pending responses
         this._requestResponseMap.clear();
