@@ -46,12 +46,29 @@ describe('AjvJsonSchemaValidator lazy engine construction', () => {
         expect(engineSlot(provider)).toBe(fake);
     });
 
-    it('still rejects non-2020-12 $schema dialects before constructing the default engine', () => {
+    it('still rejects unknown $schema dialects before constructing the default engine', () => {
         const provider = new AjvJsonSchemaValidator();
-        expect(() => provider.getValidator({ $schema: 'http://json-schema.org/draft-07/schema#', type: 'object' })).toThrow(
+        expect(() => provider.getValidator({ $schema: 'http://json-schema.org/draft-04/schema#', type: 'object' })).toThrow(
             /unsupported dialect/
         );
         // The dialect check fires before engine construction — no engine was built for the rejected schema.
         expect(engineSlot(provider)).toBeUndefined();
+    });
+
+    it('a draft-07 schema builds only the draft-07 engine, not the 2020-12 one', () => {
+        const provider = new AjvJsonSchemaValidator();
+        const validate = provider.getValidator({ $schema: 'http://json-schema.org/draft-07/schema#', type: 'object' });
+        expect(validate({}).valid).toBe(true);
+        expect(engineSlot(provider)).toBeUndefined();
+        expect((provider as unknown as { _ajvDraft7: unknown })._ajvDraft7).toBeDefined();
+    });
+
+    it('a 2019-09 schema builds only the 2019-09 engine', () => {
+        const provider = new AjvJsonSchemaValidator();
+        const validate = provider.getValidator({ $schema: 'https://json-schema.org/draft/2019-09/schema', type: 'object' });
+        expect(validate({}).valid).toBe(true);
+        expect(engineSlot(provider)).toBeUndefined();
+        expect((provider as unknown as { _ajvDraft7: unknown })._ajvDraft7).toBeUndefined();
+        expect((provider as unknown as { _ajv2019: unknown })._ajv2019).toBeDefined();
     });
 });

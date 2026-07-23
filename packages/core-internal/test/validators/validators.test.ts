@@ -11,6 +11,7 @@ import { vi } from 'vitest';
 
 import { Ajv, AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
 import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
+import { declaredDialect } from '../../src/validators/dialects';
 import type { JsonSchemaType } from '../../src/validators/types';
 
 // Test with both AJV and CfWorker validators
@@ -625,15 +626,17 @@ describe('Missing dependencies', () => {
 });
 
 /**
- * SEP-1613 declares JSON Schema 2020-12 the dialect for tool schemas. The built-in providers
- * validate as 2020-12 only: a schema with no `$schema` (or `$schema: …2020-12…`) compiles; a
- * schema declaring any other `$schema` is rejected with a clear `Error`. The escape hatch is
- * the existing custom-engine constructor (caller-supplied Ajv instance / explicit `{draft}`).
+ * The spec honors a schema's declared `$schema` dialect (absent means 2020-12 per SEP-1613).
+ * The built-in providers dispatch: no `$schema` / 2020-12 → the 2020-12 engine; draft-07 /
+ * draft-06 → a draft-07 engine (draft-07's changes over draft-06 are additive). Any other
+ * declared dialect is rejected with a clear `Error`. The escape hatch is the existing
+ * custom-engine constructor (caller-supplied Ajv instance / explicit `{draft}`).
  *
- * Discriminator: `prefixItems` is a 2020-12 keyword that the draft-07 Ajv class silently
- * ignores under `strict:false`, so it proves the default engine is `Ajv2020`.
+ * Discriminators: `prefixItems` is a 2020-12 keyword the draft-07 engines silently ignore
+ * under lenient options, and the positional `items` array is draft-07's tuple form —
+ * together they prove which engine ran, not merely that compile stopped throwing.
  */
-describe('SEP-1613 $schema dialect handling (2020-12 only)', () => {
+describe('$schema dialect dispatch', () => {
     const DRAFT_07_URI = 'http://json-schema.org/draft-07/schema#';
     const DRAFT_2020_URI = 'https://json-schema.org/draft/2020-12/schema';
     const prefixItemsSchema = ($schema?: string): JsonSchemaType => ({
@@ -643,6 +646,13 @@ describe('SEP-1613 $schema dialect handling (2020-12 only)', () => {
     });
     /** Violates `prefixItems` (positions swapped). */
     const PREFIX_ITEMS_BAD: unknown = ['x', 1];
+    /** Draft-07 tuple form (positional `items` array — not representable in the 2020-12-shaped type). */
+    const tupleItemsSchema = ($schema: string): JsonSchemaType =>
+        ({
+            $schema,
+            type: 'array',
+            items: [{ type: 'number' }, { type: 'string' }]
+        }) as unknown as JsonSchemaType;
 
     describe.each(validators)('$name', ({ provider }) => {
         it('default → Ajv2020 / 2020-12 (prefixItems is enforced)', () => {
@@ -656,15 +666,113 @@ describe('SEP-1613 $schema dialect handling (2020-12 only)', () => {
             expect(v(PREFIX_ITEMS_BAD).valid).toBe(false);
         });
 
-        it('$schema: draft-07 → graceful Error', () => {
-            expect(() => provider.getValidator(prefixItemsSchema(DRAFT_07_URI))).toThrow(/unsupported dialect.*2020-12 only/);
+        it.each([
+            ['draft-07 http, trailing #', 'http://json-schema.org/draft-07/schema#'],
+            ['draft-07 https, no #', 'https://json-schema.org/draft-07/schema'],
+            ['draft-06 http', 'http://json-schema.org/draft-06/schema#'],
+            ['draft-06 https', 'https://json-schema.org/draft-06/schema'],
+            ['2019-09 https, trailing #', 'https://json-schema.org/draft/2019-09/schema#'],
+            ['2019-09 http', 'http://json-schema.org/draft/2019-09/schema']
+        ])('$schema %s → declared-dialect tuple semantics on `items`', (_label, uri) => {
+            const v = provider.getValidator(tupleItemsSchema(uri));
+            expect(v([1, 'x']).valid).toBe(true);
+            expect(v(['x', 1]).valid).toBe(false);
         });
 
-        it('$schema: 2019-09 → graceful Error', () => {
-            expect(() => provider.getValidator(prefixItemsSchema('https://json-schema.org/draft/2019-09/schema'))).toThrow(
-                /unsupported dialect/
+        it.each([
+            ['draft-04', 'http://json-schema.org/draft-04/schema#'],
+            ['version-less alias', 'http://json-schema.org/schema#'],
+            ['garbage', 'https://example.com/my-dialect']
+        ])('$schema %s → graceful Error listing supported dialects', (_label, uri) => {
+            expect(() => provider.getValidator(prefixItemsSchema(uri))).toThrow(
+                /unsupported dialect.*2020-12, 2019-09, draft-07, and draft-06/s
             );
         });
+    });
+
+    // The shared classifier is what both providers dispatch on — pinning it directly covers
+    // the CfWorker side, whose engine applies both keyword sets in either draft mode (so the
+    // dispatch is not observable through validation results there).
+    describe('declaredDialect classifier', () => {
+        it.each([
+            ['absent', undefined],
+            ['https', 'https://json-schema.org/draft/2020-12/schema'],
+            ['http, trailing #', 'http://json-schema.org/draft/2020-12/schema#']
+        ])('%s → 2020-12', (_label, uri) => {
+            expect(declaredDialect({ ...(uri ? { $schema: uri } : {}), type: 'object' }, 'r')).toBe('2020-12');
+        });
+
+        it.each([
+            ['https, trailing #', 'https://json-schema.org/draft/2019-09/schema#'],
+            ['http', 'http://json-schema.org/draft/2019-09/schema']
+        ])('2019-09 %s → 2019-09', (_label, uri) => {
+            expect(declaredDialect({ $schema: uri, type: 'object' }, 'r')).toBe('2019-09');
+        });
+
+        it.each([
+            ['draft-07 http #', 'http://json-schema.org/draft-07/schema#'],
+            ['draft-07 https', 'https://json-schema.org/draft-07/schema'],
+            ['draft-06 http #', 'http://json-schema.org/draft-06/schema#'],
+            ['draft-06 https', 'https://json-schema.org/draft-06/schema']
+        ])('%s → draft-7', (_label, uri) => {
+            expect(declaredDialect({ $schema: uri, type: 'object' }, 'r')).toBe('draft-7');
+        });
+
+        it('unknown → throws with the remedy appended', () => {
+            expect(() => declaredDialect({ $schema: 'https://example.com/dialect', type: 'object' }, 'REMEDY.')).toThrow(
+                /unsupported dialect.*2020-12, 2019-09, draft-07, and draft-06; REMEDY\.$/s
+            );
+        });
+    });
+
+    it('AJV: declared 2019-09 selects Ajv2019 (unevaluatedProperties enforced, tuple items compiles)', () => {
+        // Pins the engine against both wrong-engine mutations: Ajv2020 would reject the
+        // `items` array form at compile, and classic Ajv ignores `unevaluatedProperties`.
+        // (No CfWorker leg: @cfworker/json-schema applies both keyword sets in every draft mode.)
+        const v = new AjvJsonSchemaValidator().getValidator({
+            $schema: 'https://json-schema.org/draft/2019-09/schema',
+            type: 'object',
+            properties: { pair: { type: 'array', items: [{ type: 'number' }, { type: 'string' }] } },
+            unevaluatedProperties: false
+        } as unknown as JsonSchemaType);
+        expect(v({ pair: [1, 'x'] }).valid).toBe(true);
+        expect(v({ pair: ['x', 1] }).valid).toBe(false); // tuple semantics live
+        expect(v({ pair: [1, 'x'], extra: 1 }).valid).toBe(false); // 2019-09 keyword enforced
+    });
+
+    it('recorded contract: the engines DIVERGE on $ref siblings under draft-07', () => {
+        // Draft-07 says keywords adjacent to $ref MUST be ignored. Classic Ajv (v8)
+        // evaluates them anyway — non-configurable, and identical to v1's default
+        // engine — while @cfworker follows the spec. This test records that known
+        // difference so a dependency bump that changes either side is caught.
+        const schema: JsonSchemaType = {
+            $schema: DRAFT_07_URI,
+            type: 'object',
+            definitions: { name: { type: 'string' } },
+            properties: { a: { $ref: '#/definitions/name', maxLength: 2 } },
+            required: ['a']
+        } as unknown as JsonSchemaType;
+        const data = { a: 'hello' };
+
+        // Node engine: maxLength next to $ref is enforced → rejected (stricter than spec).
+        expect(new AjvJsonSchemaValidator().getValidator(schema)(data).valid).toBe(false);
+        // cfworker engine: sibling ignored per draft-07 → accepted.
+        expect(new CfWorkerJsonSchemaValidator().getValidator(schema)(data).valid).toBe(true);
+    });
+
+    it('AJV: declared draft-07 selects the draft-07 ENGINE (prefixItems ignored, items enforced)', () => {
+        // Contradictory keywords: under the classic engine the `items` tuple wins and
+        // `prefixItems` is unknown; `Ajv2020` would enforce `prefixItems` and reject the `items`
+        // array form at compile — so [1,'x'] passing pins the engine. (No CfWorker leg:
+        // @cfworker/json-schema applies both keyword sets in either draft mode.)
+        const v = new AjvJsonSchemaValidator().getValidator({
+            $schema: DRAFT_07_URI,
+            type: 'array',
+            items: [{ type: 'number' }, { type: 'string' }],
+            prefixItems: [{ type: 'string' }, { type: 'number' }]
+        } as unknown as JsonSchemaType);
+        expect(v([1, 'x']).valid).toBe(true);
+        expect(v(['x', 1]).valid).toBe(false);
     });
 
     it('AJV: custom Ajv instance bypasses the $schema check (caller owns dialect)', () => {
