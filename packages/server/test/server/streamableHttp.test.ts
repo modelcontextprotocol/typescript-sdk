@@ -360,6 +360,28 @@ describe('Zod v4', () => {
                 expect(response.headers.get('mcp-session-id')).toBe(sessionId);
             });
 
+            it('should send keep-alive comments on idle standalone SSE streams', async () => {
+                vi.useFakeTimers();
+                try {
+                    sessionId = await initializeServer();
+
+                    const request = createRequest('GET', undefined, { sessionId });
+                    const response = await transport.handleRequest(request);
+                    const reader = response.body!.getReader();
+                    const read = reader.read();
+
+                    await vi.advanceTimersByTimeAsync(15_000);
+
+                    const { value, done } = await read;
+                    expect(done).toBe(false);
+                    expect(new TextDecoder().decode(value)).toBe(': keep-alive\n\n');
+
+                    await reader.cancel();
+                } finally {
+                    vi.useRealTimers();
+                }
+            });
+
             it('should reject GET without Accept: text/event-stream', async () => {
                 sessionId = await initializeServer();
 
