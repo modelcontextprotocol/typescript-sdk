@@ -194,8 +194,9 @@ export interface CreateMcpHandlerOptions {
      */
     maxSubscriptions?: number;
     /**
-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
-     * in milliseconds. Set to `0` to disable.
+     * SSE comment-frame keepalive interval, in milliseconds, applied to
+     * `subscriptions/listen` streams and to the SSE streams of the legacy
+     * stateless fallback's per-request transport. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
@@ -306,7 +307,11 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
  * The entry passes its own `onerror` here when expanding the default, so
  * legacy-leg failures are never silently swallowed.
  */
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+export function legacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    transportOptions?: { keepAliveMs?: number }
+): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
@@ -317,7 +322,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 requestInfo: request
             });
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                ...(transportOptions?.keepAliveMs !== undefined && { keepAliveMs: transportOptions.keepAliveMs })
+            });
             await product.connect(transport);
 
             const teardown = () => {
@@ -632,7 +640,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
+    const legacyHandler: LegacyHttpHandler | undefined =
+        legacy === 'reject'
+            ? undefined
+            : legacyStatelessFallback(factory, reportError, {
+                  ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
+              });
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;

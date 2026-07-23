@@ -298,7 +298,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         controller: ReadableStreamDefaultController<Uint8Array>,
         encoder: InstanceType<typeof TextEncoder>
     ): void {
-        if (this._keepAliveMs <= 0) {
+        // A deferred arm (e.g. after an event-store await) must not outlive the
+        // transport: close()'s timer sweep has already run and never runs again.
+        if (this._keepAliveMs <= 0 || this._closed) {
             return;
         }
         this.stopKeepAlive(streamId);
@@ -939,8 +941,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
-            this.startKeepAlive(streamId, streamController!, encoder);
-
             // Write priming event if event store is configured (after mapping is set up)
             await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
 
@@ -965,6 +965,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
+
+            // Arm keep-alive only after the fallible awaits above — an error
+            // path returning 400 discards the Response, so nothing could ever
+            // cancel the stream and clear an already-armed timer. Skip if the
+            // responses already completed and cleaned the stream up.
+            if (this._streamMapping.get(streamId)?.controller === streamController!) {
+                this.startKeepAlive(streamId, streamController!, encoder);
+            }
 
             return new Response(readable, { status: 200, headers });
         } catch (error) {

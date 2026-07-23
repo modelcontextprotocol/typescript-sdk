@@ -1522,3 +1522,93 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         await transport.close();
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('should not arm keep-alive when the transport closes during an event-store replay await', async () => {
+        let releaseReplay: (() => void) | undefined;
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                return 'evt-1';
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                await new Promise<void>(resolve => {
+                    releaseReplay = resolve;
+                });
+                return 'stream-1';
+            }
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        // Enter replayEvents and park on the replayEventsAfter await
+        const pendingGet = transport.handleRequest(
+            createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': 'evt-1' } })
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(releaseReplay).toBeDefined();
+
+        // Close the transport mid-await, then let the replay continuation run
+        await transport.close();
+        releaseReplay?.();
+        await pendingGet;
+
+        // The deferred continuation must not have armed a timer close() can never sweep
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('should not leak a keep-alive timer when the priming event write fails on a POST SSE stream', async () => {
+        // Healthy during initialization, then the store starts failing — the
+        // tool call's priming event write must reject inside handlePostRequest
+        let storeFails = false;
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                if (storeFails) {
+                    throw new Error('event store unavailable');
+                }
+                return `evt-${randomUUID()}`;
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return 'stream-1';
+            }
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        mcpServer.registerTool('noop', { description: 'noop' }, async (): Promise<CallToolResult> => ({ content: [] }));
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+        expect(initResponse.status).toBe(200);
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+        // Let the init response finish sending (its send() stores an event and
+        // then cleans up the init stream's keep-alive) before failing the store
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(0);
+        storeFails = true;
+
+        const response = await transport.handleRequest(
+            createRequest(
+                'POST',
+                { jsonrpc: '2.0', method: 'tools/call', params: { name: 'noop', arguments: {} }, id: 'call-1' } as JSONRPCMessage,
+                {
+                    sessionId
+                }
+            )
+        );
+        expect(response.status).toBe(400);
+
+        // The discarded stream must not carry a permanently-firing timer
+        expect(vi.getTimerCount()).toBe(0);
+
+        await transport.close();
+    });
+});
