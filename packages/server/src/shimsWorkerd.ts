@@ -3,7 +3,16 @@
  *
  * This file is selected via package.json export conditions when running in workerd.
  */
-export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
+import { preloadSchemas } from '@modelcontextprotocol/core-internal';
+
+export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/cfWorker';
+
+// Platform asymmetry: isolate platforms like workerd evaluate module scope
+// during deployment/isolate warm-up, outside any request's billed CPU, while
+// lazy construction would land inside the first request each fresh isolate
+// serves. The Node and browser shims stay lazy — there, module evaluation is
+// process/page startup and boot latency is the cost that matters.
+preloadSchemas();
 
 /**
  * Stub process object for non-Node.js environments.

@@ -1,0 +1,9 @@
+{
+    "method": "prompts/get",
+    "params": {
+        "name": "code_review",
+        "arguments": {
+            "code": "def hello():\n    print('world')"
+        }
+    }
+}

@@ -1,11 +1,14 @@
 import type {
     BaseMetadata,
+    CacheHint,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
     GetPromptResult,
+    Icon,
     Implementation,
+    InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -23,24 +26,29 @@ import type {
     ToolExecution,
     Transport,
     Variables
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    assertValidCacheHint,
+    attachCacheHintFallback,
+    isInputRequiredResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
+    ResourceNotFoundError,
+    scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type * as z from 'zod/v4';
 
-import { getCompleter, isCompletable } from './completable.js';
-import type { ServerOptions } from './server.js';
-import { Server } from './server.js';
+import { getCompleter, isCompletable } from './completable';
+import type { ServerOptions } from './server';
+import { Server } from './server';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -67,6 +75,44 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    /**
+     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
+     * registration-time scan and the pre-dispatch validation step share one
+     * conversion instead of paying it twice per request under the
+     * per-request-factory `createMcpHandler` model.
+     */
+    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
+
+    /**
+     * The JSON-serialized `inputSchema` of a registered tool, or `undefined`
+     * when no such tool is registered. Used by the HTTP entry's pre-dispatch
+     * SEP-2243 `Mcp-Param-*` validation step (which needs the same JSON Schema
+     * `tools/list` would emit, before dispatch reaches the handler).
+     *
+     * @internal
+     */
+    toolInputSchemaJson(name: string): Record<string, unknown> | undefined {
+        const tool = this._registeredTools[name];
+        if (tool === undefined || !tool.enabled) return undefined;
+        if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
+        if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
+        // Lazy path: the memo slot is unset because `registerTool`'s eager
+        // conversion threw (and was swallowed per its "warn, never throw"
+        // contract) or `update({paramsSchema})`/rename invalidated it. The
+        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
+        // `tools/call` whose body-authoritative dispatch would otherwise
+        // succeed — return `undefined` so validation is skipped and the
+        // conversion failure stays where it always surfaced (`tools/list`).
+        // A successful re-derive is memoized so the per-request-factory
+        // `createMcpHandler` model does not re-convert on every call.
+        try {
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            this._toolInputSchemaJson[name] = json;
+            return json;
+        } catch {
+            return undefined;
+        }
+    }
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
@@ -143,11 +189,16 @@ export class McpServer {
                                 ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
+                            icons: tool.icons,
                             execution: tool.execution,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
+                            // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
+                            // `{type:'object',properties:{result:<natural>},required:['result']}` toward
+                            // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
+                            // — this handler is era-blind and emits the natural converted schema.
                             toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
                         }
 
@@ -156,7 +207,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult> => {
+        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
             const tool = this._registeredTools[request.params.name];
             if (!tool) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
@@ -169,7 +220,13 @@ export class McpServer {
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
-                return result;
+                if (isInputRequiredResult(result)) return result;
+                // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
+                // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
+                // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
+                // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
+                // wrapped) so the listing and the call cannot diverge.
+                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -228,8 +285,14 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult, toolName: string): Promise<void> {
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | InputRequiredResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) {
+            return;
+        }
+
+        // An input-required result is not the tool's final output: structured
+        // content is only required (and validated) on the completing result.
+        if (isInputRequiredResult(result)) {
             return;
         }
 
@@ -237,7 +300,11 @@ export class McpServer {
             return;
         }
 
-        if (!result.structuredContent) {
+        // SEP-2106: `structuredContent` may legally be any JSON value including `null`, `0`,
+        // `false`, `""`. The presence check is therefore `=== undefined` (not falsy); when present,
+        // the value is ALWAYS validated against the output schema — a falsy value against an
+        // object-typed schema fails validation, so this is not a guard weakening.
+        if (result.structuredContent === undefined) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
@@ -257,7 +324,11 @@ export class McpServer {
     /**
      * Executes a tool handler.
      */
-    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult> {
+    private async executeToolHandler(
+        tool: RegisteredTool,
+        args: unknown,
+        ctx: ServerContext
+    ): Promise<CallToolResult | InputRequiredResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
     }
@@ -405,7 +476,15 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/read', async (request, ctx) => {
-            const uri = new URL(request.params.uri);
+            let uri: URL;
+            try {
+                uri = new URL(request.params.uri);
+            } catch {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource URI ${request.params.uri} is invalid`, {
+                    uri: request.params.uri,
+                    reason: 'invalid_uri'
+                });
+            }
 
             // First check for exact resource match
             const resource = this._registeredResources[uri.toString()];
@@ -413,18 +492,24 @@ export class McpServer {
                 if (!resource.enabled) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
-                return resource.readCallback(uri, ctx);
+                // A per-resource cache hint is the most specific configured
+                // author for this result's 2026-07-28 cache fields; it rides a
+                // never-serialized carrier and is resolved at the encode seam.
+                return attachCacheHintFallback(await resource.readCallback(uri, ctx), resource.cacheHint);
             }
 
             // Then check templates
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
-                    return template.readCallback(uri, variables, ctx);
+                    return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
+            // Domain layer throws one neutral resource-not-found error; the
+            // era-aware encode seam (WireCodec.encodeErrorCode) selects the
+            // wire code (−32602 on every era).
+            throw new ResourceNotFoundError(request.params.uri);
         });
 
         this._resourceHandlersInitialized = true;
@@ -457,13 +542,14 @@ export class McpServer {
                             title: prompt.title,
                             description: prompt.description,
                             arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            icons: prompt.icons,
                             _meta: prompt._meta
                         };
                     })
             })
         );
 
-        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult> => {
+        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult | InputRequiredResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -499,19 +585,36 @@ export class McpServer {
      * );
      * ```
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
+        readCallback: ReadResourceCallback
+    ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
+        // The cache hint configures the encode-time cache fields of this
+        // resource's `resources/read` results (2026-07-28); it is not resource
+        // metadata and never appears on `resources/list` entries.
+        const cacheHint = config.cacheHint;
+        let metadata: ResourceMetadata = config;
+        if (cacheHint !== undefined) {
+            assertValidCacheHint(cacheHint, `resource ${name}`);
+            const rest = { ...config };
+            delete rest.cacheHint;
+            metadata = rest;
+        }
+
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -521,9 +624,12 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
                 readCallback as ReadResourceCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResource.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -537,9 +643,12 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
                 readCallback as ReadResourceTemplateCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResourceTemplate.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -627,6 +736,7 @@ export class McpServer {
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
+        icons: Icon[] | undefined,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -637,6 +747,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            icons,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -650,6 +761,7 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -697,12 +809,40 @@ export class McpServer {
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
+        icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
+
+        // SEP-2243 registration-time declaration-validity check (additive: warn,
+        // never throw — clients enforce by exclusion, servers by header
+        // validation; a malformed declaration here should not block local
+        // development against a stdio client that ignores it). The conversion
+        // is memoized so the pre-dispatch validation step in `createMcpHandler`
+        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
+        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
+        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
+        // the "warn, never throw" contract.
+        if (inputSchema !== undefined) {
+            try {
+                const json = standardSchemaToJsonSchema(inputSchema, 'input');
+                this._toolInputSchemaJson[name] = json;
+                const scan = scanXMcpHeaderDeclarations(json);
+                if (!scan.valid) {
+                    console.warn(
+                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                            `conforming Streamable HTTP clients: ${scan.reason}`
+                    );
+                }
+            } catch {
+                // Conversion failure: leave the cache slot unset so the lazy
+                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
+                // the failure where it always has.
+            }
+        }
 
         // Track current handler for executor regeneration
         let currentHandler = handler;
@@ -712,7 +852,9 @@ export class McpServer {
             description,
             inputSchema,
             outputSchema,
+            outputSchemaJson: convertOutputSchemaJson(outputSchema),
             annotations,
+            icons,
             execution,
             _meta,
             handler: handler,
@@ -722,12 +864,27 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
+                // The closure's `name` tracks the CURRENT registry key, not
+                // the original registration name — renaming reassigns it so
+                // subsequent paramsSchema/rename invalidations evict the live
+                // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    delete this._toolInputSchemaJson[name];
+                    if (updates.name) {
+                        // The TARGET key may already be occupied by another
+                        // tool (rename has no duplicate-name guard) — drop
+                        // its memo too, otherwise `toolInputSchemaJson()`
+                        // returns the displaced tool's converted schema and
+                        // the SEP-2243 pre-dispatch validation runs against
+                        // the wrong schema for this name.
+                        delete this._toolInputSchemaJson[updates.name];
+                        this._registeredTools[updates.name] = registeredTool;
+                        name = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
@@ -736,6 +893,7 @@ export class McpServer {
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
                     registeredTool.inputSchema = updates.paramsSchema;
+                    delete this._toolInputSchemaJson[name];
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
@@ -747,8 +905,12 @@ export class McpServer {
                     registeredTool.executor = createToolExecutor(registeredTool.inputSchema, currentHandler);
                 }
 
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
+                if (updates.outputSchema !== undefined) {
+                    registeredTool.outputSchema = updates.outputSchema;
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
+                if (updates.icons !== undefined) registeredTool.icons = updates.icons;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -796,6 +958,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -809,6 +972,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -821,6 +985,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -829,7 +994,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -838,6 +1003,7 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
+            icons,
             undefined,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
@@ -876,6 +1042,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -887,6 +1054,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -897,6 +1065,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
@@ -905,7 +1074,7 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, _meta } = config;
+        const { title, description, argsSchema, icons, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -913,6 +1082,7 @@ export class McpServer {
             description,
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
+            icons,
             _meta
         );
 
@@ -1050,13 +1220,19 @@ export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
-    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
+    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 export type BaseToolCallback<
     SendResultT extends Result,
@@ -1070,7 +1246,7 @@ export type BaseToolCallback<
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
 export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
+    CallToolResult | InputRequiredResult,
     ServerContext,
     Args
 >;
@@ -1083,14 +1259,24 @@ export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = und
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
  */
-type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult>;
+type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredTool = {
     title?: string;
     description?: string;
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
+    /**
+     * @hidden
+     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
+     * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
+     * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
+     * no `outputSchema` is registered or its conversion threw (see {@link convertOutputSchemaJson}).
+     */
+    outputSchemaJson?: Record<string, unknown>;
     annotations?: ToolAnnotations;
+    icons?: Icon[];
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
@@ -1106,6 +1292,7 @@ export type RegisteredTool = {
         paramsSchema?: StandardSchemaWithJSON;
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
+        icons?: Icon[];
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
@@ -1128,7 +1315,9 @@ function createToolExecutor(
     }
 
     // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-    const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    const callback = handler as (
+        ctx: ServerContext
+    ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
     return async (_args, ctx) => callback(ctx);
 }
 
@@ -1136,6 +1325,21 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/**
+ * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
+ * so `tools/call` passes the SAME advertised schema to the wire codec's `projectCallToolResult` that
+ * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
+ * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
+ */
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+    if (outputSchema === undefined) return undefined;
+    try {
+        return standardSchemaToJsonSchema(outputSchema, 'output');
+    } catch {
+        return undefined;
+    }
+}
 
 /**
  * Additional, optional information for annotating a resource.
@@ -1150,12 +1354,17 @@ export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult 
 /**
  * Callback to read a resource at a given URI.
  */
-export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourceResult | Promise<ReadResourceResult>;
+export type ReadResourceCallback = (
+    uri: URL,
+    ctx: ServerContext
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResource = {
     name: string;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this resource's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1178,12 +1387,14 @@ export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
     ctx: ServerContext
-) => ReadResourceResult | Promise<ReadResourceResult>;
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this template's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1200,21 +1411,28 @@ export type RegisteredResourceTemplate = {
 };
 
 export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = Args extends StandardSchemaWithJSON
-    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: StandardSchemaWithJSON.InferOutput<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 /**
  * Internal handler type that encapsulates parsing and callback invocation.
  * This allows type-safe handling without runtime type assertions.
  */
-type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
+type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult | InputRequiredResult>;
 
-type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+type ToolCallbackInternal = (
+    args: unknown,
+    ctx: ServerContext
+) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
+    icons?: Icon[];
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
@@ -1226,6 +1444,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        icons?: Icon[];
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
@@ -1243,7 +1462,10 @@ function createPromptHandler(
     callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
     if (argsSchema) {
-        const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            args: unknown,
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
             const parseResult = await validateStandardSchema(argsSchema, args);
@@ -1253,7 +1475,9 @@ function createPromptHandler(
             return typedCallback(parseResult.data, ctx);
         };
     } else {
-        const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (_args, ctx) => {
             return typedCallback(ctx);

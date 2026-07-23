@@ -4,9 +4,9 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { TextContent } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
+import type { TextContent } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { completable, fromJsonSchema as serverFromJsonSchema, inputRequired, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
 import * as v from 'valibot';
@@ -712,5 +712,42 @@ describe('Standard Schema Support', () => {
 
             expect((result.content[0] as TextContent).text).toBe('test: 42, enabled: true');
         });
+    });
+});
+
+describe('Standard Schema elicitation conversion', () => {
+    test('converts ArkType format schemas, dropping the library format-companion pattern', () => {
+        const schema = type({ email: 'string.email' });
+
+        const request = inputRequired.elicit({ message: 'Email?', requestedSchema: schema });
+
+        const emailSchema = (request.params as { requestedSchema: { properties: Record<string, Record<string, unknown>> } }).requestedSchema
+            .properties.email!;
+        expect(emailSchema.type).toBe('string');
+        expect(emailSchema.format).toBe('email');
+        expect(emailSchema.pattern).toBeUndefined();
+    });
+
+    test('converts Valibot schemas via toStandardJsonSchema', () => {
+        const schema = toStandardJsonSchema(
+            v.object({
+                email: v.pipe(v.string(), v.email()),
+                count: v.number()
+            })
+        );
+
+        const request = inputRequired.elicit({ message: 'Details?', requestedSchema: schema });
+
+        const requestedSchema = (request.params as { requestedSchema: { properties: Record<string, Record<string, unknown>> } })
+            .requestedSchema;
+        expect(requestedSchema.properties.email!.format).toBe('email');
+        expect(requestedSchema.properties.email!.pattern).toBeUndefined();
+        expect(requestedSchema.properties.count!.type).toBe('number');
+    });
+
+    test('rejects ArkType schemas the restricted wire schema cannot express', () => {
+        const nested = type({ address: { city: 'string' } });
+
+        expect(() => inputRequired.elicit({ message: 'Address?', requestedSchema: nested })).toThrow(TypeError);
     });
 });

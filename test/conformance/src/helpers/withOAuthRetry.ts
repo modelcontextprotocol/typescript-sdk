@@ -1,7 +1,13 @@
 import type { FetchLike, Middleware } from '@modelcontextprotocol/client';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from '@modelcontextprotocol/client';
+import {
+    auth,
+    computeScopeUnion,
+    extractWWWAuthenticateParams,
+    isStrictScopeSuperset,
+    UnauthorizedError
+} from '@modelcontextprotocol/client';
 
-import { ConformanceOAuthProvider } from './conformanceOAuthProvider.js';
+import { ConformanceOAuthProvider } from './conformanceOAuthProvider';
 
 export const handle401 = async (
     response: Response,
@@ -9,11 +15,26 @@ export const handle401 = async (
     next: FetchLike,
     serverUrl: string | URL
 ): Promise<void> => {
-    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+    const { resourceMetadataUrl, scope: challengedScope } = extractWWWAuthenticateParams(response);
+    // On a 403 insufficient_scope step-up, request the union of the previously
+    // granted scope and the challenged scope so the existing permissions are
+    // preserved (SEP-2350). On the initial 401 there is no prior token, so the
+    // union degenerates to the challenged scope.
+    const previousTokens = await provider.tokens();
+    const scope = response.status === 403 ? computeScopeUnion(previousTokens?.scope, challengedScope) : challengedScope;
+    // A 401 after we already held a token means it no longer authenticates the resource;
+    // drop cached discovery so auth() re-probes PRM and can detect an authorization-server
+    // migration (SEP-2352). 403 is a step-up at the same AS — keep the cache.
+    if (response.status === 401) {
+        provider.invalidateCredentials('discovery');
+    }
     let result = await auth(provider, {
         serverUrl,
         resourceMetadataUrl,
         scope,
+        // SEP-2350: when the union strictly exceeds the current token's granted scope,
+        // a refresh cannot widen it (RFC 6749 §6) — bypass refresh and re-authorize.
+        forceReauthorization: isStrictScopeSuperset(scope, previousTokens?.scope),
         fetchFn: next
     });
 
@@ -25,6 +46,7 @@ export const handle401 = async (
         // await provider.waitForCallback();
 
         const authorizationCode = await provider.getAuthCode();
+        const iss = provider.getIss();
 
         // TODO: this retry logic should be incorporated into the typescript SDK
         result = await auth(provider, {
@@ -32,6 +54,7 @@ export const handle401 = async (
             resourceMetadataUrl,
             scope,
             authorizationCode,
+            iss,
             fetchFn: next
         });
         if (result !== 'AUTHORIZED') {
@@ -47,8 +70,11 @@ export const handle401 = async (
  * - Does not throw UnauthorizedError on redirect, but instead retries
  * - Calls next() instead of throwing for redirect-based auth
  *
- * @param provider - OAuth client provider for authentication
- * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
+ * @param clientName - `client_name` for the auto-created ConformanceOAuthProvider (ignored when `existingProvider` is supplied)
+ * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL origin)
+ * @param handle401Fn - Challenge handler invoked on 401/403 (defaults to {@link handle401})
+ * @param clientMetadataUrl - CIMD URL for the auto-created provider (ignored when `existingProvider` is supplied)
+ * @param existingProvider - Pre-populated provider; when set, `clientName`/`clientMetadataUrl` are unused
  * @returns A fetch middleware function
  */
 export const withOAuthRetry = (
@@ -84,7 +110,7 @@ export const withOAuthRetry = (
 
             let response = await makeRequest();
 
-            // Handle 401 responses by attempting re-authentication
+            // Handle 401/403 responses by attempting re-authentication
             if (response.status === 401 || response.status === 403) {
                 const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
                 await handle401Fn(response, provider, next, serverUrl);
@@ -92,7 +118,7 @@ export const withOAuthRetry = (
                 response = await makeRequest();
             }
 
-            // If we still have a 401 after re-auth attempt, throw an error
+            // If we still have a 401/403 after re-auth attempt, throw an error
             if (response.status === 401 || response.status === 403) {
                 const url = typeof input === 'string' ? input : input.toString();
                 throw new UnauthorizedError(`Authentication failed for ${url}`);

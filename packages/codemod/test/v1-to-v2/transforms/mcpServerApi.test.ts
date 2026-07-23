@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { mcpServerApiTransform } from '../../../src/migrations/v1-to-v2/transforms/mcpServerApi.js';
-import type { TransformContext } from '../../../src/types.js';
+import { mcpServerApiTransform } from '../../../src/migrations/v1-to-v2/transforms/mcpServerApi';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 const MCP_IMPORT = `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`;
@@ -240,6 +240,43 @@ describe('mcp-server-api transform', () => {
         expect(result).not.toContain('inputSchema: { msg:');
     });
 
+    it('wraps raw outputSchema in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { outputSchema: { result: z.string() } }, async () => {`,
+            `    return { content: [], structuredContent: { result: 'ok' } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('outputSchema: { result:');
+    });
+
+    it('wraps both raw inputSchema and outputSchema in the same .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { inputSchema: { msg: z.string() }, outputSchema: { result: z.string() } }, async ({ msg }) => {`,
+            `    return { content: [], structuredContent: { result: msg } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('inputSchema: z.object({ msg: z.string() })');
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
+    it('does not double-wrap z.object() outputSchema in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { outputSchema: z.object({ result: z.string() }) }, async () => {`,
+            `    return { content: [], structuredContent: { result: 'ok' } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
     it('does not double-wrap z.object() in .registerTool() config', () => {
         const input = [
             `server.registerTool("echo", { inputSchema: z.object({ msg: z.string() }) }, async ({ msg }) => {`,
@@ -264,7 +301,7 @@ describe('mcp-server-api transform', () => {
         expect(result).not.toContain('z.object(z.object(');
     });
 
-    it('emits diagnostic for variable-valued schema in config', () => {
+    it('flags the variable-valued schema advisory as advisory-only', () => {
         const input = [
             `const promptArgsSchema = { city: z.string() };`,
             `server.registerPrompt("args-prompt", { argsSchema: promptArgsSchema }, (args) => {`,
@@ -275,25 +312,21 @@ describe('mcp-server-api transform', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
         const result = mcpServerApiTransform.apply(sourceFile, ctx);
-        const text = sourceFile.getFullText();
-        expect(text).toContain('argsSchema: promptArgsSchema');
-        expect(text).not.toContain('z.object(promptArgsSchema)');
-        expect(result.diagnostics.some(d => d.message.includes('not an object literal'))).toBe(true);
+        const advisory = result.diagnostics.find(d => d.message.includes('Could not verify'));
+        expect(advisory).toBeDefined();
+        // The runner drops advisory-only diagnostics for files no transform changed,
+        // so re-runs over migrated trees stay quiet while first runs keep them.
+        expect(advisory?.advisoryOnly).toBe(true);
     });
 
-    it('emits diagnostic for shorthand schema property in config', () => {
-        const input = [
-            `server.registerTool("echo", { inputSchema }, async ({ msg }) => {`,
-            `    return { content: [{ type: 'text', text: msg }] };`,
-            `});`,
-            ''
-        ].join('\n');
+    it('flags the shorthand schema advisory as advisory-only', () => {
+        const input = [`const inputSchema = mySchema;`, `server.registerTool("t", { inputSchema }, cb);`, ''].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
         const result = mcpServerApiTransform.apply(sourceFile, ctx);
-        const text = sourceFile.getFullText();
-        expect(text).toContain('{ inputSchema }');
-        expect(result.diagnostics.some(d => d.message.includes('Shorthand'))).toBe(true);
+        const advisory = result.diagnostics.find(d => d.message.includes('Shorthand'));
+        expect(advisory).toBeDefined();
+        expect(advisory?.advisoryOnly).toBe(true);
     });
 
     it('leaves .registerTool() without inputSchema unchanged', () => {
@@ -306,5 +339,350 @@ describe('mcp-server-api transform', () => {
         const result = applyTransform(input);
         expect(result).toContain('registerTool("ping", {}');
         expect(result).not.toContain('z.object');
+    });
+
+    it('flags taskStore in McpServer options as removed without modifying code', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: new InMemoryTaskStore() }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        const taskDiags = result.diagnostics.filter(d => d.message.includes("'taskStore'"));
+        expect(taskDiags).toHaveLength(1);
+        expect(taskDiags[0]!.message).toContain('experimental tasks removed in v2 (SEP-2663');
+        expect(taskDiags[0]!.message).toContain('No v2 equivalent');
+        expect(taskDiags[0]!.insertComment).toBe(true);
+    });
+
+    it('flags each task option separately when both are present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, taskMessageQueue: queue }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+        expect(result.diagnostics.some(d => d.message.includes("'taskMessageQueue'"))).toBe(true);
+    });
+
+    it('does not move task options into capabilities.tasks even when present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, capabilities: { tasks: {} } }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(sourceFile.getFullText()).toContain('taskStore: store');
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+    });
+
+    it('emits no task diagnostics for McpServer options without task options', () => {
+        const input = [`const server = new McpServer({ name: 'test', version: '1.0' }, { instructions: 'hi' });`, ''].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics).toHaveLength(0);
+    });
+});
+
+describe('zod import injection for wrapped shapes (sweep rollup)', () => {
+    it('adds the zod import when wrapping in a file without a z binding', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('t', { inputSchema: { name: nameSchema } }, cb);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('z.object(');
+        expect(text).toContain(`import { z } from "zod"`);
+        expect(result.diagnostics.some(d => d.message.includes('Added `import { z }'))).toBe(true);
+    });
+
+    it('marks a non-import z binding instead of redeclaring it', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `const { z } = require('zod');`,
+                `server.registerTool('t', { inputSchema: { name: nameSchema } }, cb);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, { projectType: 'server' });
+        expect(sourceFile.getFullText()).not.toContain(`import { z } from "zod"`);
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('not a value import from zod'))).toBe(true);
+    });
+
+    it('does not treat a type-only z import as a usable binding', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `import type { z as zt } from 'zod';`,
+                `server.registerTool('t', { inputSchema: { name: nameSchema } }, cb);`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, { projectType: 'server' });
+        expect(sourceFile.getFullText()).toContain(`import { z } from "zod"`);
+    });
+
+    it('does not add a second import when z is already bound', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `import * as z from 'zod/v4';`,
+                `server.registerTool('t', { inputSchema: { name: z.string() } }, cb);`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text.match(/from ['"]zod/g)?.length).toBe(1);
+    });
+});
+
+describe('nested and harness registrations (B4)', () => {
+    it('migrates a registration nested inside another handler without crashing', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `server.tool('outer', { x: z.string() }, async (args) => {`,
+                `    server.tool('inner', { y: z.number() }, async () => ({ content: [] }));`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(result.changesCount).toBeGreaterThan(0);
+        expect(text).toContain(`registerTool('outer'`);
+        expect(text).toContain(`registerTool('inner'`);
+        expect(text).not.toContain('server.tool(');
+    });
+
+    it('migrates legacy calls on property-access receivers without a direct McpServer import', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `harness.mcp.tool('t', { x: z.string() }, async () => ({ content: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toContain(`registerTool('t'`);
+        expect(result.changesCount).toBeGreaterThan(0);
+    });
+
+    it('migrates cross-category nesting (a .prompt() inside a .tool() handler)', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `server.tool('outer', { x: z.string() }, async () => {`,
+                `    server.prompt('greet', { name: z.string() }, cb);`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain(`registerTool('outer'`);
+        expect(text).toContain(`registerPrompt('greet'`);
+        expect(text).not.toContain('server.prompt(');
+    });
+
+    it('stays silent on shape-mismatched calls in fallback mode (2-arg .resource())', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [`import type { Tool } from '@modelcontextprotocol/sdk/types.js';`, `router.resource('users', usersController);`, ''].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toContain(`router.resource('users', usersController)`);
+        expect(result.diagnostics.some(d => d.message.includes('Could not automatically migrate'))).toBe(false);
+    });
+
+    it('does not rewrite shape-identical non-MCP calls when the receiver type is unknown', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `const name = await cli.prompt('What is your name?', validateName);`,
+                `app.resource('users', '/api/users', usersHandler);`,
+                `registry.tool('hammer', { weight: 2 }, describeTool);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain(`cli.prompt('What is your name?', validateName)`);
+        expect(text).toContain(`app.resource('users', '/api/users', usersHandler)`);
+        expect(text).toContain(`registry.tool('hammer'`);
+        expect(text).not.toContain('register');
+        expect(result.diagnostics).toHaveLength(0);
+    });
+
+    it('does not rewrite members hanging off a server-named receiver', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `this.server.cli.prompt('What is your name?', validateName);`,
+                `ctx.server.app.resource('users', '/api/users', usersHandler);`,
+                `observer.tool('t', { x: z.string() }, cb);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain(`this.server.cli.prompt('What is your name?', validateName)`);
+        expect(text).toContain(`ctx.server.app.resource('users'`);
+        expect(text).toContain(`observer.tool('t'`);
+        expect(result.diagnostics).toHaveLength(0);
+    });
+
+    it('migrates wrapped and word-named server receivers without a direct McpServer import', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `this.server!.tool('a', { x: z.string() }, cb);`,
+                `mockServer.prompt('b', cb);`,
+                `(testServer as any).resource('c', 'uri://c', readCb);`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain(`registerTool('a'`);
+        expect(text).toContain(`registerPrompt('b'`);
+        expect(text).toContain(`registerResource('c'`);
+    });
+
+    it('does not wrap register* schemas on non-MCP receivers in fallback mode', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `registry.registerTool('hammer', { inputSchema: { weight: z.number() } }, describeTool);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain('inputSchema: { weight: z.number() }');
+        expect(text).not.toContain('z.object');
+        expect(result.diagnostics).toHaveLength(0);
+    });
+
+    it('still wraps register* schemas on mcp-named receivers in fallback mode', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `mockServer.registerTool('t', { inputSchema: { a: z.string() } }, cb);`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toContain('inputSchema: z.object({ a: z.string() })');
+    });
+
+    it('still migrates mcp-named receivers without a direct McpServer import', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+                `this.mcpServer.tool('a', { x: z.string() }, cb);`,
+                `server.prompt('b', cb);`,
+                ''
+            ].join('\n')
+        );
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain(`registerTool('a'`);
+        expect(text).toContain(`registerPrompt('b'`);
+    });
+
+    it('stays silent on non-matching .tool() shapes when the receiver type is unknown', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [`import { Client } from '@modelcontextprotocol/sdk/client/index.js';`, `toolbox.tool('hammer');`, ''].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toContain(`toolbox.tool('hammer')`);
+        expect(result.diagnostics.some(d => d.message.includes('Could not automatically migrate'))).toBe(false);
+    });
+});
+
+describe('mock call-shape assertions (B6, #41)', () => {
+    it('notes objectContaining assertions pinning a registration schema', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `expect(register).toHaveBeenCalledWith('t', expect.objectContaining({ inputSchema: { x: expectAny } }), cb);`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const diag = result.diagnostics.find(d => d.message.includes('Call-shape assertion'));
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+
+    it('ignores objectContaining without schema keys', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `expect(fn).toHaveBeenCalledWith(expect.objectContaining({ title: 'x' }));`,
+                ''
+            ].join('\n')
+        );
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.some(d => d.message.includes('Call-shape assertion'))).toBe(false);
     });
 });

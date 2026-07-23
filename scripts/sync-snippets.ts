@@ -47,7 +47,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -484,6 +484,11 @@ function findMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
   const entries = readdirSync(dir, { withFileTypes: true, recursive: true });
 
+  // Generated API reference markdown (docs/api/, produced by `pnpm docs:api`) is skipped — its
+  // fences carry source="..." attributes copied from JSDoc whose relative paths don't resolve
+  // from the generated location.
+  const generatedApiDir = join(dir, 'api') + sep;
+
   for (const entry of entries) {
     if (!entry.isFile()) continue;
 
@@ -491,6 +496,8 @@ function findMarkdownFiles(dir: string): string[] {
     if (!entry.name.endsWith('.md')) continue;
 
     const fullPath = join(entry.parentPath, entry.name);
+    if (fullPath.startsWith(generatedApiDir)) continue;
+
     files.push(fullPath);
   }
 
@@ -516,7 +523,7 @@ function findPackageSrcDirs(packagesDir: string): string[] {
     const fullPath = join(entry.parentPath, entry.name);
 
     // Only include src dirs that are direct children of a package
-    // (e.g., packages/core/src, packages/middleware/express/src)
+    // (e.g., packages/core-internal/src, packages/middleware/express/src)
     // Skip nested src dirs like node_modules/*/src
     if (fullPath.includes('node_modules')) continue;
 

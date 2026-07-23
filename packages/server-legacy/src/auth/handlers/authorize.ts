@@ -1,15 +1,24 @@
-import type { RequestHandler } from 'express';
+import type { RequestHandler, Response } from 'express';
 import express from 'express';
 import type { Options as RateLimitOptions } from 'express-rate-limit';
 import { rateLimit } from 'express-rate-limit';
 import * as z from 'zod/v4';
 
-import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors.js';
-import { allowedMethods } from '../middleware/allowedMethods.js';
-import type { OAuthServerProvider } from '../provider.js';
+import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors';
+import { allowedMethods } from '../middleware/allowedMethods';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- AuthorizationParams referenced in JSDoc {@linkcode}
+import type { AuthorizationParams, OAuthServerProvider } from '../provider';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
+    /**
+     * The authorization server's issuer identifier. When set, the handler appends it as the
+     * `iss` query parameter (RFC 9207) to any redirect — success or error — that targets the
+     * client's validated `redirect_uri`, and also supplies it to the provider as
+     * {@linkcode AuthorizationParams.issuer}. `mcpAuthRouter` always sets this from its
+     * `issuerUrl`.
+     */
+    issuerUrl?: URL;
     /**
      * Rate limiting configuration for the authorization endpoint.
      * Set to false to disable rate limiting for this endpoint.
@@ -69,7 +78,8 @@ const RequestAuthorizationParamsSchema = z.object({
     resource: z.string().url().optional()
 });
 
-export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
+export function authorizationHandler({ provider, issuerUrl, rateLimit: rateLimitConfig }: AuthorizationHandlerOptions): RequestHandler {
+    const issuer = issuerUrl?.href;
     // Create a router to apply middleware
     const router = express.Router();
     router.use(allowedMethods(['GET', 'POST']));
@@ -158,7 +168,11 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
                 requestedScopes = scope.split(' ');
             }
 
-            // All validation passed, proceed with authorization
+            // All validation passed, proceed with authorization. RFC 9207: the metadata
+            // advertises `authorization_response_iss_parameter_supported`, so make that claim
+            // true from SDK code by appending `iss` to whatever redirect the provider issues
+            // back to the client's validated redirect_uri — the provider need not do anything.
+            // Redirects elsewhere (e.g. to an upstream authorize endpoint) are left untouched.
             await provider.authorize(
                 client,
                 {
@@ -166,17 +180,18 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
                     scopes: requestedScopes,
                     redirectUri: redirect_uri!,
                     codeChallenge: code_challenge,
-                    resource: resource ? new URL(resource) : undefined
+                    resource: resource ? new URL(resource) : undefined,
+                    issuer
                 },
-                res
+                issuer ? withIssOnCallbackRedirect(res, redirect_uri!, issuer) : res
             );
         } catch (error) {
             // Post-redirect errors - redirect with error parameters
             if (error instanceof OAuthError) {
-                res.redirect(302, createErrorRedirect(redirect_uri!, error, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, error, state, issuer));
             } else {
                 const serverError = new ServerError('Internal Server Error');
-                res.redirect(302, createErrorRedirect(redirect_uri!, serverError, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, serverError, state, issuer));
             }
         }
     });
@@ -185,9 +200,42 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
 }
 
 /**
+ * Wraps `res.redirect` so that when the provider redirects to the client's validated
+ * `redirect_uri` (i.e. the OAuth authorization response), `iss` is appended per RFC 9207.
+ * Only redirects whose origin and path match `redirectUri` are touched; an `iss` already
+ * set by the provider is preserved. This is what backs the
+ * `authorization_response_iss_parameter_supported: true` metadata claim without requiring
+ * `OAuthServerProvider.authorize()` implementations to change.
+ */
+function withIssOnCallbackRedirect(res: Response, redirectUri: string, issuer: string): Response {
+    const cb = new URL(redirectUri);
+    const appendIss = (url: string): string => {
+        let target: URL;
+        try {
+            target = new URL(url);
+        } catch {
+            return url;
+        }
+        if (target.origin === cb.origin && target.pathname === cb.pathname && !target.searchParams.has('iss')) {
+            target.searchParams.set('iss', issuer);
+            return target.href;
+        }
+        return url;
+    };
+    const original = res.redirect.bind(res) as (...args: unknown[]) => void;
+    res.redirect = ((statusOrUrl: number | string, maybeUrl?: string | number): void => {
+        if (typeof statusOrUrl === 'number') original(statusOrUrl, appendIss(String(maybeUrl)));
+        // Express 4 still accepts the deprecated reversed form `res.redirect(url, status)`.
+        else if (typeof maybeUrl === 'number') original(appendIss(statusOrUrl), maybeUrl);
+        else original(appendIss(statusOrUrl));
+    }) as Response['redirect'];
+    return res;
+}
+
+/**
  * Helper function to create redirect URL with error parameters
  */
-function createErrorRedirect(redirectUri: string, error: OAuthError, state?: string): string {
+function createErrorRedirect(redirectUri: string, error: OAuthError, state?: string, issuer?: string): string {
     const errorUrl = new URL(redirectUri);
     errorUrl.searchParams.set('error', error.errorCode);
     errorUrl.searchParams.set('error_description', error.message);
@@ -196,6 +244,10 @@ function createErrorRedirect(redirectUri: string, error: OAuthError, state?: str
     }
     if (state) {
         errorUrl.searchParams.set('state', state);
+    }
+    if (issuer) {
+        // RFC 9207 §2: the iss parameter is required on error responses too.
+        errorUrl.searchParams.set('iss', issuer);
     }
     return errorUrl.href;
 }

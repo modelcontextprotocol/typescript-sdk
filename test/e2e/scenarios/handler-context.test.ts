@@ -15,9 +15,9 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostPerSession, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { hostPerSession, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 verifies('mcpserver:context:log-from-handler', async ({ transport }: TestArgs) => {
     let releaseHandler!: () => void;
@@ -44,7 +44,10 @@ verifies('mcpserver:context:log-from-handler', async ({ transport }: TestArgs) =
 
     await using _ = await wire(transport, makeServer, client);
 
-    const inFlightCall = client.callTool({ name: 'emit-log', arguments: {} });
+    // On a 2026-era request the spec says an absent `_meta.logLevel` envelope key means the server MUST NOT
+    // send notifications/message — so the entryModern arm needs the key set explicitly for the log to be
+    // emitted. Legacy-era arms ignore the key (the session-scoped level applies; absent → no filter).
+    const inFlightCall = client.callTool({ name: 'emit-log', arguments: {}, _meta: { 'io.modelcontextprotocol/logLevel': 'debug' } });
     try {
         // The handler is parked on the gate, so the tools/call request is still in flight when the log arrives.
         await vi.waitFor(() => expect(logs).toHaveLength(1));

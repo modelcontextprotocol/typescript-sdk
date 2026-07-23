@@ -8,11 +8,11 @@
  * @module
  */
 
-import type { FetchLike } from '@modelcontextprotocol/core';
-import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 
-import type { ClientAuthMethod } from './auth.js';
-import { applyClientAuthentication, discoverAuthorizationServerMetadata } from './auth.js';
+import type { ClientAuthMethod } from './auth';
+import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.
@@ -124,6 +124,8 @@ export interface JwtAuthGrantResult {
 export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantOptions): Promise<JwtAuthGrantResult> {
     const { tokenEndpoint, audience, resource, idToken, clientId, clientSecret, scope, fetchFn = fetch } = options;
 
+    const tokenUrl = assertSecureTokenEndpoint(tokenEndpoint);
+
     // Prepare token exchange request per RFC 8693
     const params = new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:token-exchange',
@@ -145,7 +147,7 @@ export async function requestJwtAuthorizationGrant(options: RequestJwtAuthGrantO
         params.set('scope', scope);
     }
 
-    const response = await fetchFn(String(tokenEndpoint), {
+    const response = await fetchFn(tokenUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded'
@@ -260,6 +262,8 @@ export async function exchangeJwtAuthGrant(options: {
 }): Promise<{ access_token: string; token_type: string; expires_in?: number; scope?: string }> {
     const { tokenEndpoint, jwtAuthGrant, clientId, clientSecret, authMethod = 'client_secret_basic', fetchFn = fetch } = options;
 
+    const tokenUrl = assertSecureTokenEndpoint(tokenEndpoint);
+
     // Prepare JWT bearer grant request per RFC 7523
     const params = new URLSearchParams({
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
@@ -272,7 +276,7 @@ export async function exchangeJwtAuthGrant(options: {
 
     applyClientAuthentication(authMethod, { client_id: clientId, client_secret: clientSecret }, headers, params);
 
-    const response = await fetchFn(String(tokenEndpoint), {
+    const response = await fetchFn(tokenUrl, {
         method: 'POST',
         headers,
         body: params.toString()

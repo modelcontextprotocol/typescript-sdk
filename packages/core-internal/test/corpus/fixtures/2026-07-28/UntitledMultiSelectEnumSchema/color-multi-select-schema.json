@@ -1,0 +1,12 @@
+{
+  "type": "array",
+  "title": "Color Selection",
+  "description": "Choose your favorite colors",
+  "minItems": 1,
+  "maxItems": 2,
+  "items": {
+    "type": "string",
+    "enum": ["Red", "Green", "Blue"]
+  },
+  "default": ["Red", "Green"]
+}

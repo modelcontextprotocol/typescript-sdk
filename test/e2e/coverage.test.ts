@@ -13,7 +13,8 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from 'vitest';
 
-import { REQUIREMENTS } from './requirements.js';
+import { REQUIREMENTS } from './requirements';
+import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS, ENTRY_TRANSPORTS, TRANSPORT_SPEC_VERSIONS } from './types';
 
 const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -86,6 +87,34 @@ test('every transport-restricted requirement explains why in note', () => {
         .filter(([, r]) => r.transports !== undefined && !r.note)
         .map(([id]) => id);
     expect(missing).toEqual([]);
+});
+
+test('every entryExclusions annotation targets an entry arm the requirement would otherwise run on', () => {
+    const bad: string[] = [];
+    for (const [id, r] of Object.entries(REQUIREMENTS)) {
+        for (const exclusion of r.entryExclusions ?? []) {
+            const arms = exclusion.arm === undefined ? ENTRY_TRANSPORTS : [exclusion.arm];
+            for (const arm of arms) {
+                const transports = r.transports ?? ALL_TRANSPORTS;
+                if (!transports.includes(arm)) {
+                    bad.push(`${id}: entryExclusions targets '${arm}', which the requirement's transports never include`);
+                    continue;
+                }
+                const versions = ALL_SPEC_VERSIONS.filter(
+                    v =>
+                        (r.addedInSpecVersion === undefined || v >= r.addedInSpecVersion) &&
+                        (r.removedInSpecVersion === undefined || v < r.removedInSpecVersion) &&
+                        (TRANSPORT_SPEC_VERSIONS[arm]?.includes(v) ?? true)
+                );
+                if (versions.length === 0) {
+                    bad.push(
+                        `${id}: entryExclusions targets '${arm}', which registers no cells within the requirement's spec-version bounds`
+                    );
+                }
+            }
+        }
+    }
+    expect(bad).toEqual([]);
 });
 
 test('supersedes/supersededBy links are symmetric and resolve', () => {

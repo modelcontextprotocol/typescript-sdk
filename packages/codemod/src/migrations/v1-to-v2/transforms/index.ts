@@ -1,14 +1,13 @@
-import type { Transform } from '../../../types.js';
-import { contextTypesTransform } from './contextTypes.js';
-import { expressMiddlewareTransform } from './expressMiddleware.js';
-import { handlerRegistrationTransform } from './handlerRegistration.js';
-import { importPathsTransform } from './importPaths.js';
-import { mcpServerApiTransform } from './mcpServerApi.js';
-import { mockPathsTransform } from './mockPaths.js';
-import { removedApisTransform } from './removedApis.js';
-import { schemaParamRemovalTransform } from './schemaParamRemoval.js';
-import { specSchemaAccessTransform } from './specSchemaAccess.js';
-import { symbolRenamesTransform } from './symbolRenames.js';
+import type { Transform } from '../../../types';
+import { completableNestingTransform } from './completableNesting';
+import { contextTypesTransform } from './contextTypes';
+import { handlerRegistrationTransform } from './handlerRegistration';
+import { importPathsTransform } from './importPaths';
+import { mcpServerApiTransform } from './mcpServerApi';
+import { mockPathsTransform } from './mockPaths';
+import { removedApisTransform } from './removedApis';
+import { schemaParamRemovalTransform } from './schemaParamRemoval';
+import { symbolRenamesTransform } from './symbolRenames';
 
 // Ordering matters — do not reorder without understanding dependencies:
 //
@@ -28,12 +27,11 @@ import { symbolRenamesTransform } from './symbolRenames.js';
 //    to .registerTool() etc. contextTypes handles both old and new names,
 //    but running mcpServerApi first ensures consistent argument structure.
 //
-// 5. handlerRegistration, schemaParamRemoval, and expressMiddleware are
-//    independent of each other but all depend on importPaths having run.
+// 5. handlerRegistration and schemaParamRemoval are independent of each
+//    other but both depend on importPaths having run.
 //
-// 6. specSchemaAccess runs after handlerRegistration and schemaParamRemoval:
-//    those transforms remove spec schema references they handle. specSchemaAccess
-//    then processes remaining standalone usages (safeParse, parse, z.infer, etc.).
+// 6. completableNesting runs after importPaths (it matches the rewritten
+//    completable import) and is independent of the rest.
 //
 // 7. mockPaths runs last: handles test mocks and dynamic imports,
 //    independent of the other transforms.
@@ -44,8 +42,7 @@ export const v1ToV2Transforms: Transform[] = [
     mcpServerApiTransform,
     handlerRegistrationTransform,
     schemaParamRemovalTransform,
-    specSchemaAccessTransform,
-    expressMiddlewareTransform,
     contextTypesTransform,
+    completableNestingTransform,
     mockPathsTransform
 ];
