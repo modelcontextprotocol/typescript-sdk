@@ -22,6 +22,18 @@ test('should only yield a message after a newline', () => {
     expect(readBuffer.readMessage()).toBeNull();
 });
 
+test('should clear consumed buffer when newline is the final byte', () => {
+    const readBuffer = new ReadBuffer();
+
+    readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n'));
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+    expect((readBuffer as unknown as { _buffer?: Buffer })._buffer).toBeUndefined();
+
+    const nextChunk = Buffer.from(JSON.stringify(testMessage));
+    readBuffer.append(nextChunk);
+    expect((readBuffer as unknown as { _buffer?: Buffer })._buffer).toBe(nextChunk);
+});
+
 test('should be reusable after clearing', () => {
     const readBuffer = new ReadBuffer();
 
