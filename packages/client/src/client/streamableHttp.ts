@@ -600,6 +600,19 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
+            // A GET SSE response MUST be text/event-stream (spec: the server
+            // either returns text/event-stream or 405). Mirror the POST path's
+            // check so a proxy / captive portal answering 200 with a non-SSE
+            // body is surfaced as an error instead of being piped through the
+            // SSE parser, which silently yields no events.
+            const contentType = response.headers.get('content-type');
+            if (mediaTypeEssence(contentType) !== 'text/event-stream') {
+                await response.text?.().catch(() => {});
+                throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, `Unexpected content type: ${contentType}`, {
+                    contentType
+                });
+            }
+
             this._handleSseStream(response.body, options, true);
         } catch (error) {
             if (!isIntentionalAbort()) {
