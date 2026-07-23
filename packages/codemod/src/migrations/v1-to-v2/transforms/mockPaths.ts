@@ -7,7 +7,7 @@ import { isSdkSpecifier } from '../../../utils/importUtils';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
 import type { ImportMapping } from '../mappings/importMap';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
-import { isSharedSchemaConst, resolveRenamedName, symbolTargetOverride } from '../mappings/schemaRouting';
+import { isSharedSchemaConst, removedSymbolGuidance, resolveRenamedName, symbolTargetOverride } from '../mappings/schemaRouting';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 /**
@@ -28,7 +28,7 @@ function routeSymbols(symbols: string[], mapping: ImportMapping): { target?: str
     return { mixed: false };
 }
 
-const MOCK_METHODS = new Set([
+export const MOCK_METHODS: ReadonlySet<string> = new Set([
     'mock',
     'doMock',
     'unmock',
@@ -39,7 +39,7 @@ const MOCK_METHODS = new Set([
     'requireMock',
     'createMockFromModule'
 ]);
-const MOCK_CALLERS = new Set(['vi', 'jest']);
+export const MOCK_CALLERS: ReadonlySet<string> = new Set(['vi', 'jest']);
 
 export const mockPathsTransform: Transform = {
     name: 'Mock and dynamic import path rewrites',
@@ -147,6 +147,20 @@ function rewriteMockCall(
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
                 resolved.removalMessage ?? `Mock references removed SDK path: ${specifier}. Manual migration required.`
+            )
+        );
+        return 0;
+    }
+
+    const removedHits = factorySymbols.filter(sym => removedSymbolGuidance(sym, resolved.mapping) !== undefined);
+    if (removedHits.length > 0) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                `Mock factory from ${specifier} provides ${removedHits.join(', ')}, which no v2 package exports — rewriting the ` +
+                    `specifier would mock a module that never had the member. Restructure the test instead. ` +
+                    removedHits.map(sym => removedSymbolGuidance(sym, resolved.mapping)!).join(' ')
             )
         );
         return 0;
@@ -393,6 +407,20 @@ function rewriteDynamicImports(
                     sourceFile.getFilePath(),
                     node.getStartLineNumber(),
                     resolved.removalMessage ?? `Dynamic import references removed SDK path: ${specifier}. Manual migration required.`
+                )
+            );
+            return;
+        }
+
+        const removedHits = destructuredKeys.filter(sym => removedSymbolGuidance(sym, resolved.mapping) !== undefined);
+        if (removedHits.length > 0) {
+            diagnostics.push(
+                actionRequired(
+                    sourceFile.getFilePath(),
+                    node,
+                    `Dynamic import of ${specifier} destructures ${removedHits.join(', ')}, which no v2 package exports — the ` +
+                        `binding would be undefined at runtime. ` +
+                        removedHits.map(sym => removedSymbolGuidance(sym, resolved.mapping)!).join(' ')
                 )
             );
             return;

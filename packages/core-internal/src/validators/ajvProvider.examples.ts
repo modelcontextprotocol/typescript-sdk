@@ -7,7 +7,9 @@
  * @module
  */
 
-import { addFormats, Ajv, AjvJsonSchemaValidator } from './ajvProvider';
+import { Ajv2020 } from 'ajv/dist/2020.js';
+
+import { addFormats, AjvJsonSchemaValidator } from './ajvProvider';
 
 /**
  * Example: Default AJV instance.
@@ -21,10 +23,17 @@ function AjvJsonSchemaValidator_default() {
 
 /**
  * Example: Custom AJV instance.
+ *
+ * The SDK bundles ajv internally but does not re-export `Ajv2020` (its type graph tips downstream
+ * declaration bundling — see #2339). To construct a custom 2020-12 instance, add `ajv` to your own
+ * dependencies (matching the SDK's pinned version) and `import { Ajv2020 } from 'ajv/dist/2020.js'`
+ * so the custom instance keeps validating JSON Schema 2020-12 (SEP-1613). Passing `new Ajv(...)`
+ * (the draft-07 class) would silently downgrade dialect.
  */
 function AjvJsonSchemaValidator_customInstance() {
     //#region AjvJsonSchemaValidator_customInstance
-    const ajv = new Ajv({ strict: true, allErrors: true });
+    // import { Ajv2020 } from 'ajv/dist/2020.js';
+    const ajv = new Ajv2020({ strict: false, validateSchema: false, allErrors: true });
     const validator = new AjvJsonSchemaValidator(ajv);
     //#endregion AjvJsonSchemaValidator_customInstance
     return validator;
@@ -33,12 +42,15 @@ function AjvJsonSchemaValidator_customInstance() {
 /**
  * Example: Custom AJV instance with formats registered.
  *
- * `Ajv` and `addFormats` are re-exported from this module so customising the validator
- * requires no extra `package.json` dependencies — both come from the SDK's bundled copy.
+ * `addFormats` is re-exported from this module. The SDK bundles ajv internally but does not
+ * re-export `Ajv2020` (its type graph tips downstream declaration bundling — see #2339). To
+ * construct a custom 2020-12 instance, add `ajv` to your own dependencies (matching the SDK's
+ * pinned version) and `import { Ajv2020 } from 'ajv/dist/2020.js'`.
  */
 function AjvJsonSchemaValidator_withFormats() {
     //#region AjvJsonSchemaValidator_withFormats
-    const ajv = new Ajv({ strict: true, allErrors: true });
+    // import { Ajv2020 } from 'ajv/dist/2020.js';
+    const ajv = new Ajv2020({ strict: false, validateSchema: false, allErrors: true });
     addFormats(ajv);
     const validator = new AjvJsonSchemaValidator(ajv);
     //#endregion AjvJsonSchemaValidator_withFormats

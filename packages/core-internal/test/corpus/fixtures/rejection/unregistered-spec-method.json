@@ -1,0 +1,13 @@
+{
+    "description": "A spec request method with no registered handler is answered with -32601 (handler absence, not schema absence).",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "resources/subscribe",
+        "params": {
+            "uri": "file:///a.txt"
+        }
+    },
+    "expect": "error-response",
+    "errorCode": -32601
+}

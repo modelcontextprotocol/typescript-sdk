@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
 import { actionRequired, info } from '../../../utils/diagnostics';
-import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils';
+import { hasMcpImports, isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils';
 
 export const mcpServerApiTransform: Transform = {
     name: 'McpServer API migration',
@@ -12,9 +12,15 @@ export const mcpServerApiTransform: Transform = {
         const diagnostics: Diagnostic[] = [];
         let changesCount = 0;
 
-        if (!isOriginalNameImportedFromMcp(sourceFile, 'McpServer')) {
+        const hasServerImport = isOriginalNameImportedFromMcp(sourceFile, 'McpServer');
+        if (!hasServerImport && !hasMcpImports(sourceFile)) {
             return { changesCount: 0, diagnostics: [] };
         }
+        // Without a direct McpServer import (harness objects exposing an `mcp` field,
+        // wrapped servers), legacy-name calls still migrate when their shape provably
+        // matches the v1 signature; non-matching calls stay silent rather than
+        // collecting hard markers on receivers whose type the codemod cannot see.
+        const provableShapesOnly = !hasServerImport;
 
         const calls = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
 
@@ -30,98 +36,113 @@ export const mcpServerApiTransform: Transform = {
             if (!Node.isPropertyAccessExpression(expr)) continue;
             const methodName = expr.getName();
 
+            const legacyPrequalified =
+                !provableShapesOnly ||
+                (call.getArguments().length >= 2 &&
+                    isStringArg(call.getArguments()[0]!) &&
+                    receiverLooksLikeMcpServer(expr.getExpression()));
+            // The same receiver evidence gates the modern register* names: a file
+            // with only an MCP type import can carry an unrelated
+            // `registry.registerTool('x', { inputSchema }, cb)` whose schema must
+            // not be wrapped.
+            const registerQualified = !provableShapesOnly || receiverLooksLikeMcpServer(expr.getExpression());
             switch (methodName) {
                 case 'tool': {
-                    toolCalls.push(call);
+                    if (legacyPrequalified) toolCalls.push(call);
                     break;
                 }
                 case 'prompt': {
-                    promptCalls.push(call);
+                    if (legacyPrequalified) promptCalls.push(call);
                     break;
                 }
                 case 'resource': {
-                    resourceCalls.push(call);
+                    if (legacyPrequalified) resourceCalls.push(call);
                     break;
                 }
                 case 'registerTool': {
-                    registerToolCalls.push(call);
+                    if (registerQualified) registerToolCalls.push(call);
                     break;
                 }
                 case 'registerPrompt': {
-                    registerPromptCalls.push(call);
+                    if (registerQualified) registerPromptCalls.push(call);
                     break;
                 }
                 case 'registerResource': {
-                    registerResourceCalls.push(call);
+                    if (registerQualified) registerResourceCalls.push(call);
                     break;
                 }
             }
         }
 
-        for (const call of toolCalls) {
-            const result = migrateToolCall(call, sourceFile, diagnostics);
-            if (result) {
-                changesCount++;
-            } else {
-                diagnostics.push(
-                    actionRequired(
-                        sourceFile.getFilePath(),
-                        call,
-                        'Could not automatically migrate .tool() call. Manual migration required.'
-                    )
-                );
+        // ONE pass in reverse document order across every category: a registration
+        // nested inside another handler's body must migrate before the enclosing
+        // call's rewrite replaces the surrounding text and forgets the inner node —
+        // regardless of which category either call belongs to.
+        interface PendingCall {
+            call: CallExpression;
+            kind: 'tool' | 'prompt' | 'resource' | 'registerTool' | 'registerPrompt' | 'registerResource';
+        }
+        const orderedCalls: PendingCall[] = [
+            ...toolCalls.map(call => ({ call, kind: 'tool' as const })),
+            ...promptCalls.map(call => ({ call, kind: 'prompt' as const })),
+            ...resourceCalls.map(call => ({ call, kind: 'resource' as const })),
+            ...registerToolCalls.map(call => ({ call, kind: 'registerTool' as const })),
+            ...registerPromptCalls.map(call => ({ call, kind: 'registerPrompt' as const })),
+            ...registerResourceCalls.map(call => ({ call, kind: 'registerResource' as const }))
+        ].toSorted((a, b) => b.call.getPos() - a.call.getPos());
+
+        const legacyFailure = (call: CallExpression, method: string): void => {
+            // In fallback mode (no direct McpServer import) the receiver's type is
+            // unknown — failures stay silent rather than marking non-MCP code.
+            if (provableShapesOnly) return;
+            diagnostics.push(
+                actionRequired(
+                    sourceFile.getFilePath(),
+                    call,
+                    `Could not automatically migrate .${method}() call. Manual migration required.`
+                )
+            );
+        };
+
+        for (const { call, kind } of orderedCalls) {
+            if (call.wasForgotten()) continue;
+            switch (kind) {
+                case 'tool': {
+                    if (migrateToolCall(call, sourceFile, diagnostics)) changesCount++;
+                    else legacyFailure(call, 'tool');
+                    break;
+                }
+                case 'prompt': {
+                    if (migratePromptCall(call, sourceFile, diagnostics)) changesCount++;
+                    else legacyFailure(call, 'prompt');
+                    break;
+                }
+                case 'resource': {
+                    if (migrateResourceCall(call, sourceFile)) changesCount++;
+                    else legacyFailure(call, 'resource');
+                    break;
+                }
+                case 'registerTool': {
+                    if (wrapSchemaInConfig(call, 'inputSchema', sourceFile, diagnostics)) changesCount++;
+                    if (!call.wasForgotten() && wrapSchemaInConfig(call, 'outputSchema', sourceFile, diagnostics)) changesCount++;
+                    break;
+                }
+                case 'registerPrompt': {
+                    if (wrapSchemaInConfig(call, 'argsSchema', sourceFile, diagnostics)) changesCount++;
+                    break;
+                }
+                case 'registerResource': {
+                    if (wrapSchemaInConfig(call, 'uriSchema', sourceFile, diagnostics)) changesCount++;
+                    break;
+                }
             }
         }
 
-        for (const call of promptCalls) {
-            const result = migratePromptCall(call, sourceFile, diagnostics);
-            if (result) {
-                changesCount++;
-            } else {
-                diagnostics.push(
-                    actionRequired(
-                        sourceFile.getFilePath(),
-                        call,
-                        'Could not automatically migrate .prompt() call. Manual migration required.'
-                    )
-                );
-            }
-        }
+        flagRemovedTaskOptions(sourceFile, diagnostics);
 
-        for (const call of resourceCalls) {
-            const result = migrateResourceCall(call, sourceFile);
-            if (result) {
-                changesCount++;
-            } else {
-                diagnostics.push(
-                    actionRequired(
-                        sourceFile.getFilePath(),
-                        call,
-                        'Could not automatically migrate .resource() call. Manual migration required.'
-                    )
-                );
-            }
-        }
+        ensureZodImportForWraps(sourceFile, diagnostics);
 
-        for (const call of registerToolCalls) {
-            if (wrapSchemaInConfig(call, 'inputSchema', sourceFile, diagnostics)) {
-                changesCount++;
-            }
-        }
-
-        for (const call of registerPromptCalls) {
-            if (wrapSchemaInConfig(call, 'argsSchema', sourceFile, diagnostics)) {
-                changesCount++;
-            }
-        }
-
-        for (const call of registerResourceCalls) {
-            if (wrapSchemaInConfig(call, 'uriSchema', sourceFile, diagnostics)) {
-                changesCount++;
-            }
-        }
-
-        changesCount += migrateConstructorTaskOptions(sourceFile, diagnostics);
+        noteMockShapeAssertions(sourceFile, diagnostics);
 
         return { changesCount, diagnostics };
     }
@@ -138,6 +159,8 @@ function isZodObjectCall(node: Node): boolean {
     return expr.getName() === 'object' && expr.getExpression().getText() === 'z';
 }
 
+const WRAP_NOTE = 'wrapped with z.object().';
+
 function wrapWithZObject(schemaText: string): string {
     return `z.object(${schemaText})`;
 }
@@ -152,21 +175,17 @@ function maybeWrapSchema(node: Node): string {
 
 function emitWrapDiagnostic(node: Node, sourceFile: SourceFile, call: CallExpression, diagnostics: Diagnostic[]): void {
     if (Node.isObjectLiteralExpression(node)) {
-        diagnostics.push(
-            info(
-                sourceFile.getFilePath(),
-                call.getStartLineNumber(),
-                'Raw object literal wrapped with z.object(). Verify that zod (z) is imported in this file.'
-            )
-        );
+        diagnostics.push(info(sourceFile.getFilePath(), call.getStartLineNumber(), `Raw object literal ${WRAP_NOTE}`));
     } else if (!isZodObjectCall(node)) {
-        diagnostics.push(
-            actionRequired(
+        diagnostics.push({
+            ...actionRequired(
                 sourceFile.getFilePath(),
                 call,
-                'Schema argument is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.'
-            )
-        );
+                'Could not verify the schema argument is a schema object. Raw shapes are deprecated in v2 — ' +
+                    'pass a Standard Schema object (e.g. z.object({ … })); no change is needed if it already is one.'
+            ),
+            advisoryOnly: true
+        });
     }
 }
 
@@ -193,13 +212,15 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
     if (!schemaProp) return false;
 
     if (Node.isShorthandPropertyAssignment(schemaProp)) {
-        diagnostics.push(
-            actionRequired(
+        diagnostics.push({
+            ...actionRequired(
                 sourceFile.getFilePath(),
                 call,
-                `Shorthand \`{ ${schemaPropertyName} }\` in config: verify the value is a z.object() schema, not a raw object. V2 requires a Zod schema.`
-            )
-        );
+                `Shorthand \`{ ${schemaPropertyName} }\` in config: could not verify the value is a schema object. Raw shapes ` +
+                    `are deprecated in v2 — pass a Standard Schema object (e.g. z.object({ … })).`
+            ),
+            advisoryOnly: true
+        });
         return false;
     }
 
@@ -212,23 +233,21 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
         const wrapped = wrapWithZObject(initializer.getText());
         initializer.replaceWithText(wrapped);
         diagnostics.push(
-            info(
-                sourceFile.getFilePath(),
-                call.getStartLineNumber(),
-                `Raw object literal in ${schemaPropertyName} wrapped with z.object(). Verify that zod (z) is imported in this file.`
-            )
+            info(sourceFile.getFilePath(), call.getStartLineNumber(), `Raw object literal in ${schemaPropertyName} ${WRAP_NOTE}`)
         );
         return true;
     }
 
     if (!isZodObjectCall(initializer)) {
-        diagnostics.push(
-            actionRequired(
+        diagnostics.push({
+            ...actionRequired(
                 sourceFile.getFilePath(),
                 call,
-                `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
-            )
-        );
+                `Could not verify \`${schemaPropertyName}\` is a schema object. Raw shapes are deprecated in v2 — ` +
+                    `pass a Standard Schema object (e.g. z.object({ … })); no change is needed if it already is one.`
+            ),
+            advisoryOnly: true
+        });
     }
     return false;
 }
@@ -414,11 +433,17 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
 
 const TASK_OPTIONS = ['taskStore', 'taskMessageQueue'] as const;
 
-function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
+/**
+ * Flag v1 task runtime options on the McpServer constructor as removed.
+ *
+ * The experimental tasks runtime was removed in v2 (SEP-2663) with no replacement, so
+ * these options cannot be migrated automatically. Emit an action-required diagnostic
+ * matching the importMap removal entry for `experimental/tasks`; the source is left
+ * untouched.
+ */
+function flagRemovedTaskOptions(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
     const localName = resolveLocalImportName(sourceFile, 'McpServer');
-    if (!localName) return 0;
-
-    let changes = 0;
+    if (!localName) return;
 
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
         if (node.wasForgotten()) continue;
@@ -431,110 +456,135 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
         const optionsArg = args[1]!;
         if (!Node.isObjectLiteralExpression(optionsArg)) continue;
 
-        // Check if any task options are present at the top level
-        const propsToMove: string[] = [];
         for (const propName of TASK_OPTIONS) {
-            if (optionsArg.getProperty(propName)) {
-                propsToMove.push(propName);
-            }
+            if (!optionsArg.getProperty(propName)) continue;
+            diagnostics.push(
+                actionRequired(
+                    sourceFile.getFilePath(),
+                    node,
+                    `Remove '${propName}' from McpServer options — experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.`
+                )
+            );
         }
-        if (propsToMove.length === 0) continue;
+    }
+}
 
-        // Find the tasks object's position within the options text using AST,
-        // then do all mutations via a single text replacement to avoid node invalidation.
-        const capabilitiesProp = optionsArg.getProperty('capabilities');
-        let tasksObjStart = -1;
-        let tasksObjEnd = -1;
-        const optionsStart = optionsArg.getStart();
-        if (capabilitiesProp && Node.isPropertyAssignment(capabilitiesProp)) {
-            const capInit = capabilitiesProp.getInitializer();
-            if (capInit && Node.isObjectLiteralExpression(capInit)) {
-                const tasksProp = capInit.getProperty('tasks');
-                if (tasksProp && Node.isPropertyAssignment(tasksProp)) {
-                    const tasksInit = tasksProp.getInitializer();
-                    if (tasksInit && Node.isObjectLiteralExpression(tasksInit)) {
-                        tasksObjStart = tasksInit.getStart() - optionsStart;
-                        tasksObjEnd = tasksInit.getEnd() - optionsStart;
-                    }
-                }
-            }
-        }
+/**
+ * Wrapping a raw shape introduces a `z.object(...)` reference. When the file has no
+ * `z` binding, add `import { z } from 'zod'` so the rewrite does not leave a dangling
+ * identifier; the package must also declare zod (the manifest summary warns when its
+ * declared range cannot satisfy v2's >=4.2 floor).
+ */
+function ensureZodImportForWraps(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    const wrapped = diagnostics.some(d => d.message.includes(WRAP_NOTE));
+    if (!wrapped) return;
+    // A value import named `z` (type-only imports are erased and cannot back a
+    // runtime z.object() call).
+    const zValueImport = sourceFile.getImportDeclarations().some(decl => {
+        if (decl.isTypeOnly()) return false;
+        if (decl.getNamespaceImport()?.getText() === 'z') return true;
+        if (decl.getDefaultImport()?.getText() === 'z') return true;
+        return decl.getNamedImports().some(ni => !ni.isTypeOnly() && (ni.getAliasNode()?.getText() ?? ni.getName()) === 'z');
+    });
+    if (zValueImport) return;
+    // `z` bound some other way (a variable, or a destructured require) — adding an
+    // import would redeclare it, and the existing binding may not be zod at all.
+    const zOtherBinding =
+        sourceFile.getVariableDeclaration('z') !== undefined ||
+        sourceFile.getDescendantsOfKind(SyntaxKind.BindingElement).some(be => be.getName() === 'z');
+    if (zOtherBinding) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                sourceFile.getImportDeclarations()[0] ?? sourceFile,
+                `Raw shapes were ${WRAP_NOTE.slice(0, -1)}, but \`z\` in this file is not a value import from zod — ` +
+                    'wire the wrapped schemas to your zod instance manually (zod >=4.2.0 satisfies v2).'
+            )
+        );
+        return;
+    }
+    sourceFile.addImportDeclaration({ moduleSpecifier: 'zod', namedImports: ['z'] });
+    diagnostics.push({
+        ...info(
+            sourceFile.getFilePath(),
+            1,
+            "Added `import { z } from 'zod'` for the wrapped raw shapes. The owning package must declare zod " +
+                '(>=4.2.0 satisfies v2) — the manifest summary adds or warns accordingly.'
+        ),
+        tag: 'zod-injected'
+    });
+}
 
-        if (tasksObjStart === -1) {
-            for (const propName of propsToMove) {
-                diagnostics.push(
-                    actionRequired(
-                        sourceFile.getFilePath(),
-                        node,
-                        `Move '${propName}' from McpServer options into capabilities.tasks — v2 expects task runtime options inside the tasks capability.`
-                    )
-                );
-            }
+const SCHEMA_CONFIG_KEYS = new Set(['inputSchema', 'outputSchema', 'argsSchema', 'uriSchema']);
+
+/**
+ * `expect.objectContaining({ inputSchema: { … } })`-style call-shape assertions pin
+ * the v1 registration config; after migration the schemas are wrapped (z.object) and
+ * the literal shape no longer matches. The codemod cannot rewrite the assertion —
+ * note it.
+ */
+function noteMockShapeAssertions(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        if (call.wasForgotten()) continue;
+        const callee = call.getExpression();
+        if (!Node.isPropertyAccessExpression(callee) || callee.getName() !== 'objectContaining') continue;
+        const arg = call.getArguments()[0];
+        if (arg === undefined || !Node.isObjectLiteralExpression(arg)) continue;
+        const schemaProp = arg.getProperties().find(prop => {
+            const name = Node.isPropertyAssignment(prop) || Node.isShorthandPropertyAssignment(prop) ? prop.getName() : undefined;
+            return name !== undefined && SCHEMA_CONFIG_KEYS.has(name);
+        });
+        if (schemaProp === undefined) continue;
+        diagnostics.push({
+            ...actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                `Call-shape assertion pins a registration config schema — v2 configs carry wrapped schema objects ` +
+                    `(z.object({ … })), so a raw-shape literal no longer matches. Assert with the wrapped schema or ` +
+                    `expect.any(Object).`
+            ),
+            advisoryOnly: true
+        });
+    }
+}
+
+/**
+ * Without a direct `McpServer` import the receiver's type is unknown, so the only
+ * safe rewrites are calls whose receiver itself is named like an MCP server
+ * (`server.tool(…)`, `harness.mcp.tool(…)`, `this.mockServer.prompt(…)`). The check
+ * is strictly on the TERMINAL name of the receiver chain: a file that merely imports
+ * an MCP type can contain shape-identical non-MCP calls — `cli.prompt('q', cb)`,
+ * `app.resource('users', '/u', handler)`, and members hanging off a server such as
+ * `this.server.cli.prompt(…)` — which must not be touched.
+ */
+function receiverLooksLikeMcpServer(receiver: Node): boolean {
+    const unwrapped = unwrapReceiver(receiver);
+    if (Node.isIdentifier(unwrapped)) return nameHasMcpServerWord(unwrapped.getText());
+    if (Node.isPropertyAccessExpression(unwrapped)) return nameHasMcpServerWord(unwrapped.getName());
+    return false;
+}
+
+/** Strip wrappers that do not change which object the method is called on. */
+function unwrapReceiver(node: Node): Node {
+    let current = node;
+    for (;;) {
+        if (
+            Node.isParenthesizedExpression(current) ||
+            Node.isNonNullExpression(current) ||
+            Node.isAsExpression(current) ||
+            Node.isSatisfiesExpression(current)
+        ) {
+            current = current.getExpression();
             continue;
         }
-
-        // Single text replacement: remove top-level props and insert into tasks object.
-        // Use AST nodes (already located via getProperty) to get brace-balanced text and
-        // exact positions, avoiding regex truncation on values containing commas/braces.
-        // Collect all properties first, then process in reverse position order so each
-        // removal doesn't invalidate the positions of subsequent removals.
-        let optionsText = optionsArg.getText();
-        const argStart = optionsArg.getStart();
-        const propsWithPositions: { text: string; start: number; end: number }[] = [];
-        for (const propName of propsToMove) {
-            const prop = optionsArg.getProperty(propName);
-            if (!prop) continue;
-            propsWithPositions.push({
-                text: prop.getText(),
-                start: prop.getStart() - argStart,
-                end: prop.getEnd() - argStart
-            });
-        }
-        const propTexts = propsWithPositions.map(p => p.text);
-
-        // Remove in reverse position order so earlier positions remain valid
-        const sortedProps = propsWithPositions.toSorted((a, b) => b.start - a.start);
-        for (const { start, end } of sortedProps) {
-            let remStart = start;
-            let remEnd = end;
-            // Consume trailing comma and whitespace
-            const afterProp = optionsText.slice(remEnd);
-            const trailingMatch = afterProp.match(/^\s*,?\s*/);
-            if (trailingMatch) {
-                remEnd += trailingMatch[0].length;
-            }
-            // Consume leading whitespace/newline
-            const beforeProp = optionsText.slice(0, remStart);
-            const leadingMatch = beforeProp.match(/[\n\r]?\s*$/);
-            if (leadingMatch) {
-                remStart -= leadingMatch[0].length;
-            }
-            optionsText = optionsText.slice(0, remStart) + optionsText.slice(remEnd);
-            // Adjust tasks position if removal was before it
-            if (remStart < tasksObjStart) {
-                const shift = remEnd - remStart;
-                tasksObjStart -= shift;
-                tasksObjEnd -= shift;
-            }
-        }
-
-        if (propTexts.length === 0) continue;
-
-        // Insert into the tasks object (just before its closing brace)
-        const tasksText = optionsText.slice(tasksObjStart, tasksObjEnd);
-        const closingBrace = tasksText.lastIndexOf('}');
-        const before = tasksText.slice(0, closingBrace).trimEnd();
-        const sep = before.length > 1 ? ',\n' : '\n';
-        const newTasksText = before + sep + propTexts.join(',\n') + '\n' + tasksText.slice(closingBrace);
-        optionsText = optionsText.slice(0, tasksObjStart) + newTasksText + optionsText.slice(tasksObjEnd);
-
-        // Clean up double/trailing commas
-        optionsText = optionsText.replaceAll(/,(\s*,)/g, ',');
-        optionsText = optionsText.replaceAll(/,(\s*})/g, '$1');
-
-        optionsArg.replaceWithText(optionsText);
-        changes += propTexts.length;
+        return current;
     }
+}
 
-    return changes;
+/** True when one of the identifier's camelCase / snake_case words is `mcp` or `server`. */
+function nameHasMcpServerWord(name: string): boolean {
+    return name
+        .split(/[^a-zA-Z0-9]+|(?=[A-Z])/)
+        .filter(Boolean)
+        .some(word => /^(mcp|server)$/i.test(word));
 }

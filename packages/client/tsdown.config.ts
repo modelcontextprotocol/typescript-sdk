@@ -11,7 +11,8 @@ export default defineConfig({
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts'
     ],
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true,
     sourcemap: true,
@@ -20,10 +21,11 @@ export default defineConfig({
     shims: true,
     dts: {
         resolver: 'tsc',
-        resolve: ['ajv', 'ajv-formats'],
+        resolve: ['ajv', 'ajv-formats', 'json-schema-typed'],
         compilerOptions: {
             baseUrl: '.',
             paths: {
+                'fast-uri': ['../core-internal/src/validators/fastUriShim.d.ts'],
                 '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
                 '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
                 '@modelcontextprotocol/core-internal/validators/ajv': ['../core-internal/src/validators/ajvProvider.ts'],
@@ -32,5 +34,8 @@ export default defineConfig({
         }
     },
     noExternal: ['@modelcontextprotocol/core-internal', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
-    external: ['@modelcontextprotocol/client/_shims']
+    // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
+    // bundled core-internal shims import them via the './internal' subpath, which must stay an
+    // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
+    external: ['@modelcontextprotocol/client/_shims', '@modelcontextprotocol/core/internal']
 });

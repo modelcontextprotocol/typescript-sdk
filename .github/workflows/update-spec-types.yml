@@ -1,3 +1,14 @@
+# Nightly refresh of the draft-tracking spec anchor (2026-07-28).
+#
+# Anchor lifecycle (see packages/core-internal/src/types/README.md for the full policy):
+# - Draft anchors float: this job regenerates the draft-tracking anchor from the
+#   latest upstream draft schema and, on drift, opens a refresh PR for review.
+#   It only ever proposes — it never merges.
+# - Released anchors are frozen: generation for released revisions is pinned in
+#   scripts/fetch-spec-types.ts (RELEASED_REVISION_PINS) and is not refreshed by
+#   this job. Repinning a released revision — including the freeze of a newly
+#   published revision, when its schema moves out of schema/draft/ — must land
+#   in the same commit that retargets this workflow.
 name: Update Spec Types
 
 on:
@@ -15,7 +26,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0

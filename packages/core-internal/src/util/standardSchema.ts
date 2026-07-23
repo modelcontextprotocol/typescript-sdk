@@ -8,6 +8,8 @@
 
 import * as z from 'zod/v4';
 
+import type { StringSchema } from '../types/types';
+
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -164,21 +166,25 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
 
 let warnedZodFallback = false;
 
+/** JSON Schema draft targeted by every conversion; shared so pattern references above stay in lockstep. */
+export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
+
 /**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
- * MCP requires `type: "object"` at the root of tool inputSchema/outputSchema and
- * prompt argument schemas. Zod's discriminated unions emit `{oneOf: [...]}` without
- * a top-level `type`, so this function defaults `type` to `"object"` when absent.
- *
- * Throws if the schema has an explicit non-object `type` (e.g. `z.string()`),
- * since that cannot satisfy the MCP spec.
+ * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
+ * argument schemas; `outputSchema` may have any JSON Schema root (SEP-2106).
+ * Zod's discriminated unions emit `{oneOf: [...]}` without a top-level `type`,
+ * so for `io: 'input'` this function defaults `type` to `"object"` when absent
+ * and throws on an explicit non-object `type` (e.g. `z.string()`). For
+ * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
+ * applied only when the root is provably object-shaped.
  */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
-        result = std.jsonSchema[io]({ target: 'draft-2020-12' });
+        result = std.jsonSchema[io]({ target: JSON_SCHEMA_CONVERSION_TARGET });
     } else if (std.vendor === 'zod') {
         // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
         // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
@@ -197,12 +203,27 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                     'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
             );
         }
-        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io }) as Record<string, unknown>;
+        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: JSON_SCHEMA_CONVERSION_TARGET, io }) as Record<string, unknown>;
     } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
                 `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
         );
+    }
+    if (io === 'output') {
+        // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
+        // not) is returned as-is. A typeless root only gets `type:'object'` defaulted when it is
+        // PROVABLY object-shaped — either it carries object keywords at the root, or every
+        // member of a root `oneOf`/`anyOf`/`allOf` is itself `type:'object'` (the
+        // `z.discriminatedUnion(...)`, `z.union([z.object(...), ...])`, `z.intersection(...)`
+        // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
+        // so the stamp is kept where it is provably safe. A typeless root that is NOT provably
+        // object-shaped (e.g. `z.union([z.string(), z.number()])` → `{anyOf:[…]}`) is returned
+        // as-is — stamping there would be self-contradictory. Anything that does not end up
+        // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
+        // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
+        if (result.type !== undefined) return result;
+        return isProvablyObjectShapedRoot(result) ? { type: 'object', ...result } : result;
     }
     if (result.type !== undefined && result.type !== 'object') {
         throw new Error(
@@ -211,6 +232,31 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         );
     }
     return { type: 'object', ...result };
+}
+
+/**
+ * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
+ * directly (`properties`/`patternProperties`/`additionalProperties`/`required`), or it is a
+ * composition (`oneOf`/`anyOf`/`allOf`) whose every member is itself `type:'object'` or recursively
+ * provably object-shaped (e.g. a nested `discriminatedUnion`). `$ref` is not followed. Used to
+ * decide whether stamping `type:'object'` is safe (redundant-but-valid) versus self-contradictory.
+ */
+function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
+    if ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema) {
+        return true;
+    }
+    for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
+        const members = schema[key];
+        if (Array.isArray(members) && members.length > 0) {
+            return members.every(
+                m =>
+                    m !== null &&
+                    typeof m === 'object' &&
+                    ((m as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(m as Record<string, unknown>))
+            );
+        }
+    }
+    return false;
 }
 
 // Validation
@@ -232,6 +278,66 @@ export async function validateStandardSchema<T extends StandardSchemaV1>(
         return { success: false, error: result.issues.map(i => formatIssue(i)).join(', ') };
     }
     return { success: true, data: (result as StandardSchemaV1.SuccessResult<unknown>).value as StandardSchemaV1.InferOutput<T> };
+}
+
+/*
+ * Format-companion patterns: libraries realize a string `format` check as a companion
+ * `pattern` regex, which the elicitation wire schema cannot carry. zod's are derived
+ * from the resolved zod at runtime (never vendored — in-range releases change them), so
+ * customized zod patterns are distinguishable and reject; other vendors' realizations
+ * are unknowable (e.g. ArkType's `string.email`), so their patterns are trusted-and-dropped.
+ */
+
+function zodEmittedPattern(schema: z.ZodType): string | undefined {
+    const jsonSchema = z.toJSONSchema(schema, { target: JSON_SCHEMA_CONVERSION_TARGET, io: 'input' }) as Record<string, unknown>;
+    return typeof jsonSchema.pattern === 'string' ? jsonSchema.pattern : undefined;
+}
+
+const DATETIME_FRACTION_DIGITS = /\\\.\\d\{(\d+)\}/;
+
+function datetimeReferenceSchemas(pattern: string): z.ZodType[] {
+    // Options (offset/local/precision) vary the emission; recovering the fraction-digit
+    // count keeps the candidate set finite.
+    const fractionDigits = DATETIME_FRACTION_DIGITS.exec(pattern);
+    const precisions: Array<number | undefined> = [undefined, -1, 0];
+    if (fractionDigits) {
+        precisions.push(Number(fractionDigits[1]));
+    }
+    return [false, true].flatMap(local =>
+        [false, true].flatMap(offset => precisions.map(precision => z.iso.datetime({ local, offset, precision })))
+    );
+}
+
+// Exhaustive over the wire's format enum: a new spec format is a compile error here.
+function referencePatternsForFormat(format: NonNullable<StringSchema['format']>, pattern: string): ReadonlySet<string> {
+    let referenceSchemas: z.ZodType[];
+    switch (format) {
+        case 'email': {
+            referenceSchemas = [z.email()];
+            break;
+        }
+        case 'uri': {
+            referenceSchemas = [z.url()];
+            break;
+        }
+        case 'date': {
+            referenceSchemas = [z.iso.date()];
+            break;
+        }
+        case 'date-time': {
+            referenceSchemas = datetimeReferenceSchemas(pattern);
+            break;
+        }
+    }
+    return new Set(referenceSchemas.map(schema => zodEmittedPattern(schema)).filter((emitted): emitted is string => emitted !== undefined));
+}
+
+/** Whether `pattern` is the library's own realization of `format` (droppable) rather than a user customization. */
+export function isLibraryFormatPattern(format: NonNullable<StringSchema['format']>, pattern: string, vendor: string): boolean {
+    if (vendor !== 'zod') {
+        return true;
+    }
+    return referencePatternsForFormat(format, pattern).has(pattern);
 }
 
 // Prompt argument extraction

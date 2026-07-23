@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import type { CallToolResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
 import {
     InitializeResultSchema,
     InMemoryTransport,
@@ -196,6 +196,118 @@ describe('Server', () => {
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 
             await server.close();
+        });
+
+        it('counter-offers only released versions when a draft revision is requested', async () => {
+            // ORDERING PIN — counter-offer leak guard. The initialize accept
+            // check and counter-offer are now ERA-AWARE: they consult only the
+            // legacy (pre-2026-07-28) subset of `supportedProtocolVersions`,
+            // because a 2026-07-28-or-later revision is never negotiated via
+            // the legacy initialize handshake (it is only selected through
+            // server/discover). This pin holds even after a future
+            // LATEST/SUPPORTED constant bump adds a modern revision: the
+            // counter-offer can never name it. The dual-era list arms live in
+            // discover.test.ts ("era-aware counter-offer ordering").
+            const DRAFT_REVISION = '2026-07-28';
+            expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(DRAFT_REVISION);
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const respondedVersion = await initializeServer(server, DRAFT_REVISION);
+
+            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(respondedVersion).not.toBe(DRAFT_REVISION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('tools/call handler-result validation (content default)', () => {
+        // Pin for the v1-parity authoring affordance: content-less handler
+        // results normalize to content: [] before era validation, on every
+        // leg; other result families are not normalized.
+        async function callToolOnServer(result: CallToolResult): Promise<JSONRPCMessage> {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.setRequestHandler('tools/call', () => result);
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const received: JSONRPCMessage[] = [];
+            clientTransport.onmessage = message => void received.push(message);
+            await server.connect(serverTransport);
+            await clientTransport.start();
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            });
+            await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await clientTransport.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'echo', arguments: {} } });
+            await new Promise(resolve => setTimeout(resolve, 10));
+            await server.close();
+
+            const response = received.find(message => (message as { id?: unknown }).id === 2);
+            if (!response) {
+                throw new Error('no tools/call response received');
+            }
+            return response;
+        }
+
+        it('defaults a structured-only handler result (no content) to content: [] on the wire (v1 parity)', async () => {
+            // Runtime defaults structured-only results (v1 parity); the wire
+            // stays spec-valid with content: [].
+            const response = await callToolOnServer({ structuredContent: { ok: true } } as unknown as CallToolResult);
+
+            const result = (response as { result?: { content?: unknown; structuredContent?: unknown } }).result;
+            expect(result).toBeDefined();
+            expect(result!.content).toEqual([]);
+            expect(result!.structuredContent).toEqual({ ok: true });
+        });
+
+        it('does not normalize an array handler result — rejected loudly', async () => {
+            const response = await callToolOnServer([{ type: 'text', text: 'hi' }] as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('does not normalize a foreign-family body with an explicit content: undefined', async () => {
+            const response = await callToolOnServer({
+                task: { taskId: 't-1', status: 'working' },
+                content: undefined
+            } as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('does not normalize a body carrying another result family — rejected loudly', async () => {
+            const response = await callToolOnServer({
+                inputRequests: { r1: { method: 'elicitation/create' } }
+            } as unknown as CallToolResult);
+
+            const error = (response as { error?: { code: number; message: string } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('passes an authored-content result through to the wire', async () => {
+            const response = await callToolOnServer({
+                content: [{ type: 'text', text: 'hi' }],
+                structuredContent: { ok: true }
+            });
+
+            if (!isJSONRPCResultResponse(response)) {
+                throw new Error(`Expected a result response, got: ${JSON.stringify(response)}`);
+            }
+            const result = response.result as { content: unknown; structuredContent: unknown };
+            expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
+            expect(result.structuredContent).toEqual({ ok: true });
         });
     });
 });

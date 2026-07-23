@@ -2,17 +2,17 @@
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
+> **This is the `main` branch — v2 of the SDK, now in beta** (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`), implementing the [2026-07-28 MCP spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/).
 >
-> We anticipate a stable v2 release in Q3 2026 along with the [updated MCP spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/). Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+> **Have feedback? Please [open a v2 issue](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml)** — it is the most useful thing you can do for the SDK right now. The [v2 documentation](https://ts.sdk.modelcontextprotocol.io/v2/) starts with a ten-minute server tutorial.
 >
-> For v1 documentation, see the [V1 API docs](https://ts.sdk.modelcontextprotocol.io/). For v2 API docs, see [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
+> We expect a stable release alongside the full release of the 2026-07-28 spec on July 28, 2026. Until then, **v1.x remains the supported release for production**; it keeps receiving bug fixes and security updates for at least 6 months after v2 ships. v1 documentation: [ts.sdk.modelcontextprotocol.io](https://ts.sdk.modelcontextprotocol.io/) · v2: [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
 <!-- prettier-ignore -->
 > [!WARNING]
-> **We're temporarily restricting PRs to contributors only to manage reviewer capacity while implementation work for the [new spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) is ongoing**
+> **We're limiting pull requests to 1 per new contributor while we land the [2026-07-28 spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) implementation.**
 >
-> Please continue to submit issues as your main source of feedback. We anticipate reopening once we have a stable release for the new spec, currently slated to launch on July 28, 2026.
+> [Issues](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml) are the most useful feedback right now — we'll reopen PRs as v2 stabilizes.
 
 [![NPM Version - Server](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver?label=%40modelcontextprotocol%2Fserver)](https://www.npmjs.com/package/@modelcontextprotocol/server)
 [![NPM Version - Client](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient?label=%40modelcontextprotocol%2Fclient)](https://www.npmjs.com/package/@modelcontextprotocol/client) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
@@ -129,36 +129,37 @@ async function main() {
 main();
 ```
 
-Ready to build something real? Follow the step-by-step quickstart tutorials:
+Ready to build something real? Follow the step-by-step tutorials:
 
-- [Build a weather server](docs/server-quickstart.md) — server quickstart
-- [Build an LLM-powered chatbot](docs/client-quickstart.md) — client quickstart
+- [Build your first server](docs/get-started/first-server.md) — a stdio weather-alert server, from `npm init` to a tool call
+- [Build your first client](docs/get-started/first-client.md) — connect to that server, list its tools, and call them
 
-The complete code for each tutorial is in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/) and
-[`examples/client-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/). For more advanced runnable examples, see:
+For runnable, end-to-end examples beyond the tutorials, see:
 
-- [`examples/server/README.md`](examples/server/README.md) — server examples index
-- [`examples/client/README.md`](examples/client/README.md) — client examples index
+- [`examples/README.md`](examples/README.md) — runnable, self-verifying client/server example pairs (one story per directory)
 
 ## Documentation
 
-- [Server Guide](docs/server.md) — building MCP servers: transports, tools, resources, prompts, server-initiated requests, and deployment
-- [Client Guide](docs/client.md) — building MCP clients: connecting, tools, resources, prompts, server-initiated requests, and error handling
-- [FAQ](docs/faq.md) — frequently asked questions and troubleshooting
-- [API docs](https://modelcontextprotocol.github.io/typescript-sdk/)
+- [Build a server](docs/get-started/first-server.md) — your first MCP server, step by step
+- [Build a client](docs/get-started/first-client.md) — your first MCP client, step by step
+- [Documentation site](https://ts.sdk.modelcontextprotocol.io/v2/) — the full guides: tools, resources, prompts, serving over HTTP and stdio, clients, OAuth, and migration
+- [Troubleshooting](docs/troubleshooting.md) — common errors and their fixes
+- [API reference](https://ts.sdk.modelcontextprotocol.io/v2/api/)
 - [MCP documentation](https://modelcontextprotocol.io/docs)
 - [MCP specification](https://modelcontextprotocol.io/specification/latest)
 
 ### Building docs locally
 
-To generate the API reference documentation locally:
+To work on the documentation site locally:
 
 ```bash
-pnpm docs          # Generate V2 docs only (output: tmp/docs/)
-pnpm docs:multi    # Generate combined V1 + V2 docs (output: tmp/docs-combined/)
+pnpm docs:api      # Generate the API reference markdown (output: docs/api/)
+pnpm docs:dev      # Start the VitePress dev server for the V2 site
+pnpm docs:build    # Build the V2 site (output: docs/.vitepress/dist/)
+pnpm docs:multi    # Build the combined V1 + V2 site (output: tmp/docs-combined/)
 ```
 
-The `docs:multi` script checks out both the `v1.x` and `main` branches via git worktrees, builds each, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
+The `docs:multi` script builds the V2 site from the current checkout, checks out the `v1.x` branch via a git worktree to build the V1 site, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
 
 ## v1 (legacy) documentation and fixes
 

@@ -2734,8 +2734,86 @@ describe('Zod v4', () => {
                     }
                 })
             ).rejects.toMatchObject({
-                code: ProtocolErrorCode.ResourceNotFound,
-                message: expect.stringContaining('not found')
+                // SEP-2164: resources/read miss is −32602 Invalid Params on the wire
+                // (every protocol revision); the encode seam maps a handler-thrown
+                // −32002 to −32602, and `data.uri` echoes the requested URI.
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringMatching(/not found/i),
+                data: { uri: 'test://nonexistent' }
+            });
+        });
+
+        test('should echo the exact requested URI for nonexistent resources', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            const requestedUri = 'HTTP://example.com:80/docs/../missing file.txt';
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: requestedUri
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found'),
+                data: { uri: requestedUri }
+            });
+        });
+
+        test('should return invalid params for syntactically invalid resource URIs', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            const requestedUri = 'not a valid URI';
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: requestedUri
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('invalid'),
+                data: { uri: requestedUri, reason: 'invalid_uri' }
             });
         });
 
