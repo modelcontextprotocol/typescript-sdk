@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Project } from 'ts-morph';
 
+import { IMPORT_MAP } from '../../../src/migrations/v1-to-v2/mappings/importMap';
 import { importPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/importPaths';
 import type { TransformContext } from '../../../src/types';
 
@@ -9,6 +10,13 @@ function applyTransform(code: string, context: TransformContext = { projectType:
     const sourceFile = project.createSourceFile('test.ts', code);
     importPathsTransform.apply(sourceFile, context);
     return sourceFile.getFullText();
+}
+
+function applyWithDiagnostics(code: string, context: TransformContext = { projectType: 'server' }) {
+    const project = new Project({ useInMemoryFileSystem: true });
+    const sourceFile = project.createSourceFile('test.ts', code);
+    const result = importPathsTransform.apply(sourceFile, context);
+    return { text: sourceFile.getFullText(), result };
 }
 
 describe('import-paths transform', () => {
@@ -465,6 +473,38 @@ describe('import-paths transform', () => {
         const input = `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';\n`;
         const result = applyTransform(input);
         expect(result).toContain(`from "@modelcontextprotocol/express"`);
+    });
+
+    it('rewrites server/express.js import to @modelcontextprotocol/express', () => {
+        const input = `import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('createMcpExpressApp');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites deep middleware/hostHeaderValidation.js import to @modelcontextprotocol/express', () => {
+        const input = `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('hostHeaderValidation');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites client/auth-extensions.js import to @modelcontextprotocol/client', () => {
+        const input = `import { discoverAuthorizationServerMetadata } from '@modelcontextprotocol/sdk/client/auth-extensions.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/client"`);
+        expect(result).toContain('discoverAuthorizationServerMetadata');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('moves deep server/auth/middleware/bearerAuth.js to server-legacy/auth via catch-all', () => {
+        const input = `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('requireBearerAuth');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
     });
 
     it('renames body references when renamedSymbols applies', () => {
@@ -957,5 +997,203 @@ describe('import-paths transform', () => {
             expect(result).toContain(`from "@modelcontextprotocol/server"`);
             expect(result).toContain('jsonSchemaValidator');
         });
+    });
+});
+
+describe('auth types routing (B3)', () => {
+    it('routes AuthInfo from server/auth/types.js by context, not to server-legacy', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';\nimport { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`
+        );
+        importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(text).not.toContain('server-legacy');
+    });
+});
+
+describe('Protocol and mergeCapabilities route like other shared/protocol.js symbols', () => {
+    it('rewrites a Protocol import to the context package root', () => {
+        const input = `import { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toMatch(/import \{ Protocol \} from ['"]@modelcontextprotocol\/server['"]/);
+        expect(text).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.filter(d => d.insertComment)).toEqual([]);
+    });
+
+    it('keeps Protocol alongside its siblings in a mixed import', () => {
+        const input = `import { Protocol, type ProtocolOptions } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('Protocol');
+        expect(text).toContain('ProtocolOptions');
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(result.diagnostics.filter(d => d.insertComment)).toEqual([]);
+    });
+
+    it('rewrites a mergeCapabilities import with no spread guidance', () => {
+        const input = `import { mergeCapabilities } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toMatch(/import \{ mergeCapabilities \} from ['"]@modelcontextprotocol\/server['"]/);
+        expect(result.diagnostics.some(d => d.message.includes('object spread'))).toBe(false);
+    });
+
+    it('rewrites a named re-export of Protocol', () => {
+        const input = `export { Protocol } from '@modelcontextprotocol/sdk/shared/protocol.js';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toMatch(/export \{ Protocol \} from ['"]@modelcontextprotocol\/server['"]/);
+        expect(result.diagnostics.some(d => d.message.includes('no v2 export'))).toBe(false);
+    });
+});
+
+describe('symbols with no v2 export (removedSymbols)', () => {
+    // No live mapping uses removedSymbols today (Protocol/mergeCapabilities were the
+    // last, until they became public exports). The machinery stays for future
+    // removals; these tests pin it against a synthetic mapping.
+    const SYNTHETIC = '@modelcontextprotocol/sdk/shared/synthetic.js';
+
+    beforeAll(() => {
+        IMPORT_MAP[SYNTHETIC] = {
+            target: 'RESOLVE_BY_CONTEXT',
+            status: 'moved',
+            removedSymbols: {
+                GoneClass: 'The GoneClass base class is not exported by the v2 packages. ' + 'See the migration guide for the replacement.',
+                goneHelper: 'goneHelper() is not exported by the v2 packages. Use a plain object spread.'
+            }
+        };
+    });
+
+    afterAll(() => {
+        delete IMPORT_MAP[SYNTHETIC];
+    });
+
+    it('drops a removed symbol from an import and flags it', () => {
+        const input = `import { GoneClass } from '${SYNTHETIC}';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).not.toContain('GoneClass }');
+        expect(text).not.toContain('@modelcontextprotocol/sdk');
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('GoneClass base class'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('migration guide');
+    });
+
+    it('routes surviving siblings while dropping the removed symbol', () => {
+        const input = `import { GoneClass, type Survivor } from '${SYNTHETIC}';\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('Survivor');
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(text).not.toMatch(/\bGoneClass\b/);
+        expect(result.diagnostics.some(d => d.message.includes('GoneClass base class'))).toBe(true);
+    });
+
+    it('flags a removed helper with its configured guidance', () => {
+        const input = `import { goneHelper } from '${SYNTHETIC}';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const diag = result.diagnostics.find(d => d.message.includes('goneHelper'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('object spread');
+    });
+
+    it('does not resolve a context package for an import of only removed symbols', () => {
+        const input = `import { GoneClass } from '${SYNTHETIC}';\n`;
+        const { result } = applyWithDiagnostics(input, { projectType: 'unknown' });
+        // projectType 'unknown' would emit a could-not-determine warning if context were resolved.
+        expect(result.diagnostics.some(d => d.message.includes('could not determine'))).toBe(false);
+    });
+
+    it('flags qualified accesses to removed symbols on a namespace import', () => {
+        const input = `import * as synth from '${SYNTHETIC}';\nclass Mine extends synth.GoneClass {}\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('GoneClass base class'))).toBe(true);
+    });
+
+    it('warns on a named re-export of a removed symbol with module-scoped guidance', () => {
+        const input = `export { GoneClass } from '${SYNTHETIC}';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const diag = result.diagnostics.find(d => d.message.includes('Re-exported GoneClass has no v2 export'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('migration guide');
+    });
+
+    it('flags a star re-export of a module with removed symbols', () => {
+        const input = `export * from '${SYNTHETIC}';\n`;
+        const { result } = applyWithDiagnostics(input);
+        const messages = result.diagnostics.map(d => d.message);
+        expect(messages.some(m => m.includes('Star re-export') && m.includes('GoneClass'))).toBe(true);
+        expect(messages.some(m => m.includes('Star re-export') && m.includes('goneHelper'))).toBe(true);
+    });
+
+    it('flags type-position namespace accesses (QualifiedName) to removed symbols', () => {
+        const input = `import * as synth from '${SYNTHETIC}';\nexport function f(p: synth.GoneClass): void {}\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain('@modelcontextprotocol/server');
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('GoneClass base class'))).toBe(true);
+    });
+
+    it('anchors the dropped-symbol marker to a usage site that survives the rewrite', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { GoneClass } from '${SYNTHETIC}';\n\nexport class Mine extends GoneClass {}\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.message.includes('GoneClass base class'));
+        expect(diag).toBeDefined();
+        // resolveCurrentLine resolves against the live usage node, not the removed import.
+        const finalLine =
+            sourceFile
+                .getFullText()
+                .split('\n')
+                .findIndex(l => l.includes('extends GoneClass')) + 1;
+        expect(diag?.resolveCurrentLine?.()).toBe(finalLine);
+    });
+});
+
+describe('RS-only auth helper markers (B2)', () => {
+    it('marks requireBearerAuth routed to server-legacy/auth', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('requireBearerAuth'));
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('@modelcontextprotocol/express');
+        expect(diag?.message).toContain('OAuthError');
+    });
+
+    it('downgrades type-only RS imports to an info note', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import type { OAuthTokenVerifier } from '@modelcontextprotocol/sdk/server/auth/provider.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('OAuthTokenVerifier'))).toBe(false);
+        expect(result.diagnostics.some(d => d.message.includes('type-only import'))).toBe(true);
+    });
+
+    it('marks RS helpers re-exported from a barrel', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `export { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const diag = result.diagnostics.find(d => d.insertComment && d.message.includes('Re-exported requireBearerAuth'));
+        expect(diag).toBeDefined();
+    });
+
+    it('does not mark AS-only helpers routed to server-legacy/auth', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('@modelcontextprotocol/express'))).toBe(false);
     });
 });

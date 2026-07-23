@@ -1,0 +1,11 @@
+{
+  "level": "error",
+  "logger": "database",
+  "data": {
+    "error": "Connection failed",
+    "details": {
+      "host": "localhost",
+      "port": 5432
+    }
+  }
+}

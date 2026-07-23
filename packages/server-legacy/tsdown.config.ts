@@ -3,7 +3,8 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
     failOnWarn: 'ci-only',
     entry: ['src/index.ts', 'src/sse/index.ts', 'src/auth/index.ts'],
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true,
     sourcemap: true,
@@ -20,5 +21,9 @@ export default defineConfig({
             }
         }
     },
-    noExternal: ['@modelcontextprotocol/core-internal']
+    noExternal: ['@modelcontextprotocol/core-internal'],
+    // The schema modules live in @modelcontextprotocol/core (a real runtime dependency); the
+    // bundled core-internal shims import them via the './internal' subpath, which must stay an
+    // external import (explicit entry — the tsconfig paths alias would otherwise inline it).
+    external: ['@modelcontextprotocol/core/internal']
 });

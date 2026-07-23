@@ -727,6 +727,369 @@ describe('Zod v4', () => {
             // Should have id: field in the SSE event
             expect(text).toContain('id:');
         });
+
+        it('should store request-related events emitted after closeSSEStream() and not throw on the final response', async () => {
+            // The SEP-1699 poll-and-replay flow: handler closes the per-request
+            // SSE stream, then emits a notification and its final result while
+            // the client has not yet reconnected. Both must be persisted to the
+            // eventStore (so they replay on Last-Event-ID reconnect) and the
+            // final-response send must not surface a spurious error.
+            mcpServer.registerTool(
+                'poll',
+                { description: 'closeSSE then emit', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    ctx.http?.closeSSE?.();
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: { progressToken: 'poll-1', progress: 75 }
+                    });
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+
+            const sendErrors: unknown[] = [];
+            mcpServer.server.onerror = e => sendErrors.push(e);
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'poll', arguments: {} },
+                id: 'poll-1'
+            };
+            const response = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            // closeSSE() in the handler closes the controller; drain the (now
+            // closed) body so the Response is fully consumed.
+            await response.text().catch(() => {});
+            // Let the async handler chain (notify + final response send) settle.
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            const stored = [...storedEvents.values()].map(e => e.message);
+            expect(
+                stored.some(m => 'method' in m && m.method === 'notifications/progress'),
+                'progress notification should be stored for replay after closeSSE()'
+            ).toBe(true);
+            expect(
+                stored.some(m => 'id' in m && m.id === 'poll-1' && 'result' in m),
+                'final response should be stored for replay after closeSSE()'
+            ).toBe(true);
+            expect(sendErrors).toEqual([]);
+        });
+
+        it('should store request-related events after a client disconnect while the request is still in flight', async () => {
+            // Per 2025-11-25 transports.mdx, disconnection SHOULD NOT be
+            // interpreted as the client cancelling its request — storage is
+            // keyed on request-in-flight (_requestToStreamMapping), not on
+            // whether a live SSE writer exists. The final-response send must
+            // not throw and must clear the request id from the mapping.
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            mcpServer.registerTool(
+                'disconnect',
+                { description: 'emit after client disconnect', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    await gate;
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: { progressToken: 'disconnect-1', progress: 50 }
+                    });
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            const sendErrors: unknown[] = [];
+            mcpServer.server.onerror = e => sendErrors.push(e);
+
+            sessionId = await initializeServer();
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'disconnect', arguments: {} },
+                id: 'disconnect-1'
+            };
+            const response = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            storedEvents.clear();
+            // Client disconnect: cancel the per-request stream (the ReadableStream
+            // cancel callback deletes the _streamMapping entry — no live writer).
+            await response.body?.cancel();
+            await new Promise(resolve => setTimeout(resolve, 10));
+            release();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            const stored = [...storedEvents.values()].map(e => e.message);
+            expect(
+                stored.some(m => 'method' in m && m.method === 'notifications/progress'),
+                'progress notification should be stored while request is in flight (disconnect ≠ cancel)'
+            ).toBe(true);
+            expect(
+                stored.some(m => 'id' in m && m.id === 'disconnect-1' && 'result' in m),
+                'final response should be stored for replay when no live writer exists'
+            ).toBe(true);
+            expect(sendErrors).toEqual([]);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestToStreamMapping.has('disconnect-1')).toBe(false);
+        });
+
+        it('should accept Last-Event-ID reconnect after closeSSEStream() and replay stored events', async () => {
+            // closeSSEStream() removes the _streamMapping entry, so the
+            // replayEvents() conflict check sees no active connection and the
+            // reconnect succeeds (200), replaying the stored notification.
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            mcpServer.registerTool(
+                'reconnect',
+                { description: 'closeSSE, emit, then wait for reconnect', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    ctx.http?.closeSSE?.();
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: { progressToken: 'reconnect-1', progress: 75 }
+                    });
+                    await gate;
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            mcpServer.server.onerror = () => {};
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'reconnect', arguments: {} },
+                id: 'reconnect-1'
+            };
+            const response = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            // Read the priming event so we have a Last-Event-ID to reconnect with.
+            const primingText = await response.text().catch(() => '');
+            const primingId = /id:\s*(\S+)/.exec(primingText)?.[1];
+            expect(primingId).toBeDefined();
+            // Let the closeSSE + notify settle (handler is now gated on `gate`).
+            await new Promise(resolve => setTimeout(resolve, 30));
+
+            // Reconnect with Last-Event-ID while the request is still in flight.
+            const reconnect = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect.status).toBe(200);
+            release();
+            const replayed = await readSSEEvent(reconnect);
+            expect(replayed).toContain('notifications/progress');
+        });
+
+        it('should close and unregister the resumed stream when reconnecting after the request was already retired', async () => {
+            // Retire-then-reconnect: handler closeSSE → emit + result. With no
+            // live writer the final response is stored and the request id is
+            // retired by the clean-return path. A subsequent Last-Event-ID
+            // reconnect must replay the stored response AND close the resumed
+            // stream (per spec: server SHOULD close the SSE stream after the
+            // JSON-RPC response) so a second reconnect is not refused with 409.
+            mcpServer.registerTool(
+                'retire',
+                { description: 'closeSSE then emit then return', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    ctx.http?.closeSSE?.();
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: { progressToken: 'retire-1', progress: 75 }
+                    });
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            mcpServer.server.onerror = () => {};
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'retire', arguments: {} },
+                id: 'retire-1'
+            };
+            const response = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            // Read the priming event so we have a Last-Event-ID to reconnect with.
+            const primingText = await response.text().catch(() => '');
+            const primingId = /id:\s*(\S+)/.exec(primingText)?.[1];
+            expect(primingId).toBeDefined();
+            // Let the handler chain (notify + final response send → clean-return) settle.
+            await new Promise(resolve => setTimeout(resolve, 50));
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestToStreamMapping.has('retire-1')).toBe(false);
+
+            // Reconnect after the request was retired.
+            const reconnect = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect.status).toBe(200);
+            const replayed = await reconnect.text();
+            expect(replayed).toContain('notifications/progress');
+            expect(replayed).toContain('"id":"retire-1"');
+            expect(replayed, 'replay should include the stored final response').toContain('"result"');
+
+            // Resumed stream must have been closed and unregistered: a second
+            // reconnect with the same Last-Event-ID is accepted (200), not 409.
+            const reconnect2 = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect2.status).toBe(200);
+            await reconnect2.body?.cancel();
+        });
+
+        it('should write to a stream resumed during the storeEvent() await (re-read after await, no TOCTOU)', async () => {
+            // send() reads _streamMapping[streamId] before `await storeEvent()`
+            // and decides on that snapshot. A Last-Event-ID reconnect during
+            // the await registers a resumed stream — send() must re-read after
+            // the await so the final response is written to it (and the
+            // all-responses-ready path closes/unregisters it), not silently
+            // dropped into the clean-return.
+            let handlerRelease!: () => void;
+            const handlerGate = new Promise<void>(resolve => {
+                handlerRelease = resolve;
+            });
+            mcpServer.registerTool(
+                'toctou',
+                { description: 'closeSSE, gate, then return', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    ctx.http?.closeSSE?.();
+                    await handlerGate;
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            mcpServer.server.onerror = () => {};
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            // Gate storeEvent() only after we flip `gateStores` (the priming
+            // event must store and flush ungated so we have a Last-Event-ID).
+            let gateStores = false;
+            let storeRelease!: () => void;
+            const storeGate = new Promise<void>(resolve => {
+                storeRelease = resolve;
+            });
+            const realStoreEvent = eventStore.storeEvent.bind(eventStore);
+            eventStore.storeEvent = async (sid, msg) => {
+                const id = await realStoreEvent(sid, msg);
+                if (gateStores) {
+                    await storeGate;
+                }
+                return id;
+            };
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'toctou', arguments: {} },
+                id: 'toctou-1'
+            };
+            const response = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            const primingText = await response.text().catch(() => '');
+            const primingId = /id:\s*(\S+)/.exec(primingText)?.[1];
+            expect(primingId).toBeDefined();
+
+            // Arm the storeEvent gate, then let the handler return so send()
+            // for the final response enters `await storeEvent()` and parks.
+            gateStores = true;
+            handlerRelease();
+            await new Promise(resolve => setTimeout(resolve, 30));
+
+            // Reconnect while storeEvent() is pending — registers a resumed
+            // stream under the same streamId. The request is still in flight
+            // (send() is parked on the await), so replayEvents() leaves it open.
+            const reconnect = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect.status).toBe(200);
+
+            // Release storeEvent — send() re-reads _streamMapping, sees the
+            // resumed stream, writes the result, and the all-responses-ready
+            // path closes/unregisters it.
+            storeRelease();
+            const body = await reconnect.text();
+            expect(body, 'final response must be written to the resumed stream').toContain('"id":"toctou-1"');
+            expect(body).toContain('"result"');
+            // Exactly-once on the resumed stream: replay may have written it,
+            // and send() must dedup against replayedEventIds (no double write).
+            expect(body.match(/"id":"toctou-1"/g)?.length, 'result must be delivered exactly once').toBe(1);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestToStreamMapping.has('toctou-1')).toBe(false);
+            // Resumed stream was closed/unregistered: second reconnect → 200.
+            const reconnect2 = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect2.status).toBe(200);
+            await reconnect2.body?.cancel();
+        });
+
+        it('should not let a stale per-request cancel delete a successor resumed stream (identity-guarded)', async () => {
+            // EventStore without getStreamIdForEventId → replayEvents() skips
+            // the conflict check and registers the resumed stream under the
+            // SAME streamId, OVERWRITING the original entry. A late cancel of
+            // the original POST body must identity-check before deleting so
+            // the successor survives and receives subsequent send()s.
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            delete (eventStore as any).getStreamIdForEventId;
+
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            mcpServer.registerTool(
+                'stalecancel',
+                { description: 'gate then return', inputSchema: z.object({}) },
+                async (): Promise<CallToolResult> => {
+                    await gate;
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            mcpServer.server.onerror = () => {};
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'stalecancel', arguments: {} },
+                id: 'stalecancel-1'
+            };
+            const original = await transport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            const reader = original.body!.getReader();
+            const { value } = await reader.read();
+            const primingText = new TextDecoder().decode(value);
+            const primingId = /id:\s*(\S+)/.exec(primingText)?.[1];
+            expect(primingId).toBeDefined();
+
+            // Reconnect while the original is still mapped (no conflict check
+            // without getStreamIdForEventId) — successor overwrites the entry.
+            const reconnect = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
+            );
+            expect(reconnect.status).toBe(200);
+
+            // Late cancel of the ORIGINAL per-request stream — its source
+            // cancel callback fires now. Identity-guard must keep the
+            // successor's _streamMapping entry intact.
+            await reader.cancel();
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Handler returns → send() finds the successor and writes to it.
+            release();
+            const body = await reconnect.text();
+            expect(body, 'result must reach the successor resumed stream').toContain('"id":"stalecancel-1"');
+            expect(body).toContain('"result"');
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestToStreamMapping.has('stalecancel-1')).toBe(false);
+        });
     });
 
     describe('HTTPServerTransport - Protocol Version Validation', () => {
@@ -815,6 +1178,56 @@ describe('Zod v4', () => {
             const response = await transport.handleRequest(request);
             return response.headers.get('mcp-session-id') as string;
         }
+
+        it('should call onerror when the per-request stream disconnects mid-handler with no eventStore configured', async () => {
+            // Sessionful transport WITHOUT an eventStore: a final response sent
+            // while no live writer exists is undeliverable AND not stored. The
+            // drop must be observable via onerror, and the request id retired.
+            // Fresh server (the suite beforeEach connects before any tool is
+            // registered, which would trip registerCapabilities).
+            let release!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            const localServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            localServer.registerTool(
+                'disconnect',
+                { description: 'return after client disconnect', inputSchema: z.object({}) },
+                async (): Promise<CallToolResult> => {
+                    await gate;
+                    return { content: [{ type: 'text', text: 'done' }] };
+                }
+            );
+            const localTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+            const localErrors: Error[] = [];
+            localServer.server.onerror = e => localErrors.push(e as Error);
+            await localServer.connect(localTransport);
+
+            const initRes = await localTransport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            const sessionId = initRes.headers.get('mcp-session-id') as string;
+
+            const callMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'disconnect', arguments: {} },
+                id: 'disconnect-1'
+            };
+            const response = await localTransport.handleRequest(createRequest('POST', callMessage, { sessionId }));
+            // Client hard-disconnect: cancel the per-request stream (the
+            // ReadableStream cancel callback drops the _streamMapping entry).
+            await response.body?.cancel();
+            await new Promise(resolve => setTimeout(resolve, 10));
+            release();
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(localErrors.length, 'onerror should surface the undeliverable response').toBeGreaterThan(0);
+            expect(localErrors[0]?.message).toMatch(/undeliverable.*no eventStore is configured/);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((localTransport as any)._requestToStreamMapping.has('disconnect-1')).toBe(false);
+            await localTransport.close();
+        });
 
         it('should call onerror for invalid JSON', async () => {
             const request = new Request('http://localhost/mcp', {

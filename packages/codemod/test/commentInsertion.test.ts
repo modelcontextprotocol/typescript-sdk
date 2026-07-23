@@ -189,6 +189,36 @@ describe('comment insertion', () => {
         expect(nextLine).toContain('setRequestHandler');
     });
 
+    it('reports a diagnostic line matching the saved file when a dropped shebang is restored', () => {
+        const dir = createTempDir();
+        // The imports transform drops the leading `#!` shebang (it is leading trivia of the first
+        // import); the runner restores it before saving. The reported diagnostic line must account for
+        // the restored shebang, i.e. point at the line it actually occupies in the saved file — not the
+        // shebang-stripped text it was resolved against.
+        const input = [
+            `#!/usr/bin/env node`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
+            ``
+        ].join('\n');
+        writeFileSync(path.join(dir, 'cli.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'cli.ts'), 'utf8');
+        // Shebang survived the migration...
+        expect(output.startsWith('#!/usr/bin/env node\n')).toBe(true);
+        // ...and the comment-bearing diagnostic's reported line points exactly at its inserted
+        // @mcp-codemod-error comment in the saved file (regression guard: without the shebang
+        // adjustment the line is N=2 too high and lands on unrelated code).
+        const diag = result.diagnostics.find(d => d.insertComment)!;
+        expect(diag).toBeDefined();
+        const outputLines = output.split('\n');
+        expect(outputLines[diag.line - 1]).toContain(CODEMOD_ERROR_PREFIX);
+    });
+
     it('merges same-line diagnostics into a single comment', () => {
         const dir = createTempDir();
         // Two custom-schema handler registrations on the SAME physical line -> two same-line diagnostics
@@ -296,5 +326,34 @@ describe('comment insertion', () => {
         expect(commentIdx).toBeGreaterThan(-1);
         expect(lines[commentIdx]!.trim()).toMatch(/^\/\*.*\*\/$/);
         expect(lines[commentIdx + 1]).toContain('setRequestHandler');
+    });
+});
+
+describe('markers whose import-declaration anchor is removed by the same pass', () => {
+    it('inserts the resource-server auth helper marker at the usage site', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } })
+        );
+        const file = path.join(dir, 'auth.ts');
+        writeFileSync(
+            file,
+            [
+                `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';`,
+                ``,
+                `export const guard = requireBearerAuth({ verifier });`,
+                ''
+            ].join('\n')
+        );
+
+        run(migration, { targetDir: dir, dryRun: false });
+
+        const output = readFileSync(file, 'utf8');
+        expect(output).toContain('@mcp-codemod-error');
+        expect(output).toContain('frozen');
+        const lines = output.split('\n');
+        const markerIndex = lines.findIndex(line => line.includes('@mcp-codemod-error'));
+        expect(lines[markerIndex + 1]).toContain('requireBearerAuth({ verifier })');
     });
 });

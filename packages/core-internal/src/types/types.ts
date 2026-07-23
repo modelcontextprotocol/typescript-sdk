@@ -4,7 +4,17 @@
 
 import type * as z from 'zod/v4';
 
-import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants';
+import type {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    LOG_LEVEL_META_KEY,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY
+} from './constants';
 import type {
     AnnotationsSchema,
     AudioContentSchema,
@@ -62,10 +72,8 @@ import type {
     InitializeRequestSchema,
     InitializeResultSchema,
     JSONRPCErrorResponseSchema,
-    JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
     JSONRPCRequestSchema,
-    JSONRPCResponseSchema,
     JSONRPCResultResponseSchema,
     LegacyTitledEnumSchemaSchema,
     ListPromptsRequestSchema,
@@ -108,7 +116,6 @@ import type {
     ReadResourceResultSchema,
     RelatedTaskMetadataSchema,
     RequestIdSchema,
-    RequestMetaEnvelopeSchema,
     RequestMetaSchema,
     RequestSchema,
     ResourceContentsSchema,
@@ -120,6 +127,7 @@ import type {
     ResourceTemplateSchema,
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
+    ResultMetaObjectSchema,
     ResultSchema,
     RoleSchema,
     RootSchema,
@@ -137,6 +145,13 @@ import type {
     StringSchemaSchema,
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
+    SubscriptionFilterSchema,
+    SubscriptionsAcknowledgedNotificationParamsSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
+    SubscriptionsListenRequestParamsSchema,
+    SubscriptionsListenRequestSchema,
+    SubscriptionsListenResultMetaSchema,
+    SubscriptionsListenResultSchema,
     TaskAugmentedRequestParamsSchema,
     TaskCreationParamsSchema,
     TaskMetadataSchema,
@@ -161,10 +176,8 @@ import type {
     UntitledSingleSelectEnumSchemaSchema
 } from './schemas';
 
-/* JSON types */
-export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-export type JSONObject = { [key: string]: JSONValue };
-export type JSONArray = JSONValue[];
+/* JSON types — moved to @modelcontextprotocol/core (packages/core/src/types.ts). */
+export type { JSONArray, JSONObject, JSONValue } from '@modelcontextprotocol/core/internal';
 
 /**
  * Utility types
@@ -186,31 +199,65 @@ type Flatten<T> = T extends Primitive
 
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
+/**
+ * Wire-only members hidden from the public types.
+ *
+ * `resultType` is the protocol-revision-2026-07-28 wire discrimination field
+ * on results. It is consumed by the SDK's protocol layer (and stripped before
+ * results reach consumers), so the public result types do not declare it.
+ * The wire schemas continue to model it internally.
+ */
+type WireOnlyResultKey = 'resultType';
+
+/**
+ * Removes wire-only members from a (possibly union) schema-inferred type
+ * while preserving every other declared member, optionality, and the loose
+ * index signature.
+ */
+type StripWireOnly<T> = T extends unknown ? { [K in keyof T as K extends WireOnlyResultKey ? never : K]: T[K] } : never;
+
 /* JSON-RPC types */
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
-export type Result = Infer<typeof ResultSchema>;
+export type Result = StripWireOnly<Infer<typeof ResultSchema>>;
 export type RequestId = Infer<typeof RequestIdSchema>;
 export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
-export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
-export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
+// The response/message envelopes embed result objects, so they are rebuilt
+// from the public (wire-only-stripped) `Result` rather than schema-inferred.
+export type JSONRPCResultResponse = Omit<Infer<typeof JSONRPCResultResponseSchema>, 'result'> & { result: Result };
+export type JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse;
+export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
 export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
 export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
 /**
  * The per-request `_meta` envelope carried by every request under protocol revision
  * 2026-07-28 (protocol version, client info, client capabilities, optional log level).
+ *
+ * Neutral hand-written shape keyed by the public meta-key constants — never
+ * inferred from a wire-module schema (this neutral layer does not import from
+ * `wire/rev*`). A `type` alias rather than an interface so it stays assignable
+ * to `_meta`'s string-indexed object slot.
  */
-export type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
+export type RequestMetaEnvelope = {
+    [PROTOCOL_VERSION_META_KEY]: string;
+    /**
+     * Optional since spec PR #3002: clients SHOULD send it, servers must not
+     * require it (and should not rely on it for behavior or security).
+     */
+    [CLIENT_INFO_META_KEY]?: Implementation;
+    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilities;
+    [LOG_LEVEL_META_KEY]?: LoggingLevel;
+};
 
 /* Empty result */
-export type EmptyResult = Infer<typeof EmptyResultSchema>;
+export type EmptyResult = StripWireOnly<Infer<typeof EmptyResultSchema>>;
 
 /* Cancellation */
 export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
@@ -243,12 +290,12 @@ export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
  * months. See `ServerCapabilitiesSchema`.
  */
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
+export type InitializeResult = StripWireOnly<Infer<typeof InitializeResultSchema>>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
 
 /* Discovery */
 export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
-export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
+export type DiscoverResult = StripWireOnly<Infer<typeof DiscoverResultSchema>>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -258,28 +305,52 @@ export type Progress = Infer<typeof ProgressSchema>;
 export type ProgressNotificationParams = Infer<typeof ProgressNotificationParamsSchema>;
 export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 
-/* Tasks */
+/* Tasks
+ *
+ * The task wire surface defined by the 2025-11-25 protocol revision. These
+ * types stay importable as wire vocabulary for interoperability with peers on
+ * that revision, but they appear in no SDK API signature: the SDK has no task
+ * runtime, and the typed method maps (RequestMethod/RequestTypeMap/
+ * ResultTypeMap/NotificationTypeMap) do not include the task methods.
+ * Removable at the major version that drops 2025-era support.
+ */
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type Task = Infer<typeof TaskSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskStatus = Infer<typeof TaskStatusSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
-export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export type CreateTaskResult = StripWireOnly<Infer<typeof CreateTaskResultSchema>>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
-export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export type GetTaskResult = StripWireOnly<Infer<typeof GetTaskResultSchema>>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
-export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export type ListTasksResult = StripWireOnly<Infer<typeof ListTasksResultSchema>>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
-export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
-export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export type CancelTaskResult = StripWireOnly<Infer<typeof CancelTaskResultSchema>>;
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export type GetTaskPayloadResult = StripWireOnly<Infer<typeof GetTaskPayloadResultSchema>>;
 
 /* Pagination */
 export type PaginatedRequestParams = Infer<typeof PaginatedRequestParamsSchema>;
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
-export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
+export type PaginatedResult = StripWireOnly<Infer<typeof PaginatedResultSchema>>;
 
 /* Resources */
 export type ResourceContents = Infer<typeof ResourceContentsSchema>;
@@ -289,13 +360,13 @@ export type Resource = Infer<typeof ResourceSchema>;
 // TODO: Overlaps with exported `ResourceTemplate` class from `server`.
 export type ResourceTemplateType = Infer<typeof ResourceTemplateSchema>;
 export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
-export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
+export type ListResourcesResult = StripWireOnly<Infer<typeof ListResourcesResultSchema>>;
 export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
+export type ListResourceTemplatesResult = StripWireOnly<Infer<typeof ListResourceTemplatesResultSchema>>;
 export type ResourceRequestParams = Infer<typeof ResourceRequestParamsSchema>;
 export type ReadResourceRequestParams = Infer<typeof ReadResourceRequestParamsSchema>;
 export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
-export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
+export type ReadResourceResult = StripWireOnly<Infer<typeof ReadResourceResultSchema>>;
 export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
 export type SubscribeRequestParams = Infer<typeof SubscribeRequestParamsSchema>;
 export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
@@ -304,23 +375,42 @@ export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
 export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
 export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
 
+/* Subscriptions (protocol revision 2026-07-28) */
+export type SubscriptionFilter = Infer<typeof SubscriptionFilterSchema>;
+export type SubscriptionsListenRequestParams = Infer<typeof SubscriptionsListenRequestParamsSchema>;
+export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
+export type SubscriptionsAcknowledgedNotificationParams = Infer<typeof SubscriptionsAcknowledgedNotificationParamsSchema>;
+export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
+export type SubscriptionsListenResultMeta = Infer<typeof SubscriptionsListenResultMetaSchema>;
+export type SubscriptionsListenResult = StripWireOnly<Infer<typeof SubscriptionsListenResultSchema>>;
+
 /* Prompts */
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
 export type Prompt = Infer<typeof PromptSchema>;
 export type ListPromptsRequest = Infer<typeof ListPromptsRequestSchema>;
-export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
+export type ListPromptsResult = StripWireOnly<Infer<typeof ListPromptsResultSchema>>;
 export type GetPromptRequestParams = Infer<typeof GetPromptRequestParamsSchema>;
 export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
 export type AudioContent = Infer<typeof AudioContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type ResourceLink = Infer<typeof ResourceLinkSchema>;
 export type ContentBlock = Infer<typeof ContentBlockSchema>;
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
-export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
+export type GetPromptResult = StripWireOnly<Infer<typeof GetPromptResultSchema>>;
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
 
 /* Tools */
@@ -328,31 +418,106 @@ export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type ToolExecution = Infer<typeof ToolExecutionSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
-export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
+export type ListToolsResult = StripWireOnly<Infer<typeof ListToolsResultSchema>>;
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
-export type CallToolResult = Infer<typeof CallToolResultSchema>;
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
+export type CallToolResult = StripWireOnly<Infer<typeof CallToolResultSchema>>;
+export type CompatibilityCallToolResult = StripWireOnly<Infer<typeof CompatibilityCallToolResultSchema>>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
 /* Logging */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
 /* Sampling */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ModelHint = Infer<typeof ModelHintSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingContent = Infer<typeof SamplingContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
-export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
-export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
+export type CreateMessageResult = StripWireOnly<Infer<typeof CreateMessageResultSchema>>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
+export type CreateMessageResultWithTools = StripWireOnly<Infer<typeof CreateMessageResultWithToolsSchema>>;
 
 /* Elicitation */
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
@@ -371,44 +536,153 @@ export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
 export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
+/** @deprecated Removed from the spec by #2891 (2026-07-28). 2025-era only; the 2026-07-28 wire codec excludes this notification. */
 export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
+/** @deprecated Removed from the spec by #2891 (2026-07-28). 2025-era only; the 2026-07-28 wire codec excludes this notification. */
 export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
-export type ElicitResult = Infer<typeof ElicitResultSchema>;
+export type ElicitResult = StripWireOnly<Infer<typeof ElicitResultSchema>>;
 
 /* Autocomplete */
 export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
-export type CompleteResult = Infer<typeof CompleteResultSchema>;
+export type CompleteResult = StripWireOnly<Infer<typeof CompleteResultSchema>>;
 
 /* Roots */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type Root = Infer<typeof RootSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
-export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
+export type ListRootsResult = StripWireOnly<Infer<typeof ListRootsResultSchema>>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
+
+/* Multi round-trip requests (protocol revision 2026-07-28)
+ *
+ * On the 2026-07-28 revision the server obtains client input (elicitation,
+ * sampling, roots) in-band: instead of sending a server→client JSON-RPC
+ * request, a handler for one of the multi-round-trip methods (`tools/call`,
+ * `prompts/get`, `resources/read`) returns an input-required result carrying
+ * de-JSON-RPC'd embedded requests; the client fulfils them and retries the
+ * original request with the responses. These are the NEUTRAL shapes of that
+ * surface — handlers author them and the 2026-07-28 wire codec alone maps
+ * them to/from the wire.
+ */
+
+/**
+ * A single embedded (de-JSON-RPC'd) input request inside an
+ * {@linkcode InputRequiredResult}: an elicitation, sampling, or roots request
+ * object carried in-band rather than sent as a server→client JSON-RPC request.
+ */
+export type InputRequest = CreateMessageRequest | ListRootsRequest | ElicitRequest;
+
+/**
+ * A single embedded (de-JSON-RPC'd) input response inside a retried request's
+ * `inputResponses`: the bare result object for the corresponding
+ * {@linkcode InputRequest} (never wrapped in a `{method, result}` envelope).
+ */
+export type InputResponse = CreateMessageResult | ListRootsResult | ElicitResult;
+
+/**
+ * A map of embedded input requests, keyed by server-assigned identifiers that
+ * are unique within the scope of the request.
+ */
+export interface InputRequests {
+    [key: string]: InputRequest;
+}
+
+/**
+ * A map of embedded input responses. Keys correspond to the keys of the
+ * {@linkcode InputRequests} map the server sent; values are the client's bare
+ * result for each request.
+ */
+export interface InputResponses {
+    [key: string]: InputResponse;
+}
+
+/**
+ * The input-required result a handler for a multi-round-trip method
+ * (`tools/call`, `prompts/get`, `resources/read`) returns to request more
+ * input from the client (protocol revision 2026-07-28). Build it with the
+ * `inputRequired()` builder; hand-built literals are equally legal —
+ * `resultType: 'input_required'` is the discriminator, and the SDK re-checks
+ * the at-least-one rule at the seam.
+ *
+ * This is the one place the wire discriminator `resultType` appears on the
+ * neutral surface: the handler authors it, the 2026-07-28 codec passes it
+ * through to the wire, and consumers receiving results never see it (complete
+ * results are lifted).
+ *
+ * At least one of `inputRequests` or `requestState` must be present.
+ *
+ * `requestState` is an opaque, server-minted string echoed back verbatim by
+ * the client on retry. It travels through the client and MUST be treated by
+ * the server as attacker-controlled input on re-entry: if it influences
+ * authorization, resource access, or business logic, the server MUST protect
+ * its integrity (e.g. HMAC or AEAD) and MUST reject state that fails
+ * verification (spec: basic/patterns/mrtr §Server Requirements). The SDK
+ * applies no integrity protection by default — without a configured
+ * `ServerOptions.requestState.verify` hook, `ctx.mcpReq.requestState()`
+ * returns the raw, unverified string; with one, the seam rejects state the
+ * hook refuses and the accessor returns the hook's decoded payload.
+ */
+export interface InputRequiredResult extends Result {
+    resultType: 'input_required';
+    /** Embedded requests the client must fulfil before retrying. */
+    inputRequests?: InputRequests;
+    /** Opaque server state the client echoes back verbatim on retry. */
+    requestState?: string;
+}
 
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
 export type ClientNotification = Infer<typeof ClientNotificationSchema>;
-export type ClientResult = Infer<typeof ClientResultSchema>;
+export type ClientResult = StripWireOnly<Infer<typeof ClientResultSchema>>;
 
 /* Server messages */
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
-export type ServerResult = Infer<typeof ServerResultSchema>;
+export type ServerResult = StripWireOnly<Infer<typeof ServerResultSchema>>;
 
 /* Protocol type maps */
 type MethodToTypeMap<U> = {
     [T in U as T extends { method: infer M extends string } ? M : never]: T;
 };
-export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
-export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
-export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
-export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+/**
+ * Task methods are 2025-11-25 wire vocabulary with no SDK runtime: the task
+ * wire types stay importable (see the Tasks section above), but the typed
+ * method surface — `request()`, `setRequestHandler()`, `ctx.mcpReq.send()` —
+ * does not offer them. The wire schemas keep parsing task vocabulary for
+ * interoperability with 2025-11-25 peers.
+ */
+type TaskRequestMethod = 'tasks/get' | 'tasks/result' | 'tasks/list' | 'tasks/cancel';
+type TaskNotificationMethod = 'notifications/tasks/status';
+export type RequestMethod = Exclude<ClientRequest['method'] | ServerRequest['method'], TaskRequestMethod>;
+export type NotificationMethod = Exclude<ClientNotification['method'] | ServerNotification['method'], TaskNotificationMethod>;
+export type RequestTypeMap = MethodToTypeMap<Exclude<ClientRequest | ServerRequest, { method: TaskRequestMethod }>>;
+export type NotificationTypeMap = MethodToTypeMap<Exclude<ClientNotification | ServerNotification, { method: TaskNotificationMethod }>>;
 export type ResultTypeMap = {
     ping: EmptyResult;
     initialize: InitializeResult;
+    'server/discover': DiscoverResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;
@@ -418,15 +692,33 @@ export type ResultTypeMap = {
     'resources/read': ReadResourceResult;
     'resources/subscribe': EmptyResult;
     'resources/unsubscribe': EmptyResult;
-    'tools/call': CallToolResult | CreateTaskResult;
+    // `subscriptions/listen` receives a JSON-RPC result only on a server-side
+    // graceful close (the empty `SubscriptionsListenResult`). Listen requests
+    // never reach `request()` / the typed result map — `Client.listen()` sends
+    // directly on the transport and demuxes the response in `_onresponse`.
+    'subscriptions/listen': SubscriptionsListenResult;
+    'tools/call': CallToolResult;
     'tools/list': ListToolsResult;
-    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
-    'elicitation/create': ElicitResult | CreateTaskResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
+    'elicitation/create': ElicitResult;
     'roots/list': ListRootsResult;
-    'tasks/get': GetTaskResult;
-    'tasks/result': Result;
-    'tasks/list': ListTasksResult;
-    'tasks/cancel': CancelTaskResult;
+};
+
+/**
+ * The handler-return counterpart of {@linkcode ResultTypeMap}: what a
+ * registered request handler may RETURN for each method. Identical to
+ * `ResultTypeMap` except that the multi-round-trip methods (`tools/call`,
+ * `prompts/get`, `resources/read`) additionally accept an
+ * {@linkcode InputRequiredResult} (protocol revision 2026-07-28).
+ *
+ * `ResultTypeMap` itself — what a *requester* receives — is deliberately NOT
+ * widened: `client.callTool()` returns a plain {@linkcode CallToolResult} on
+ * both protocol eras.
+ */
+export type HandlerResultTypeMap = {
+    [M in keyof ResultTypeMap]: M extends 'tools/call' | 'prompts/get' | 'resources/read'
+        ? ResultTypeMap[M] | InputRequiredResult
+        : ResultTypeMap[M];
 };
 
 /**
@@ -485,7 +777,20 @@ export interface InternalError extends JSONRPCErrorObject {
 }
 
 /**
- * Data carried by a `-32004` UnsupportedProtocolVersion protocol error
+ * Data carried by a `-32021` MissingRequiredClientCapability protocol error
+ * (protocol revision 2026-07-28).
+ */
+export interface MissingRequiredClientCapabilityErrorData {
+    /**
+     * The capabilities the server requires from the client to process the
+     * request, in the `ClientCapabilities` shape (only the missing
+     * capabilities are listed).
+     */
+    requiredCapabilities: ClientCapabilities;
+}
+
+/**
+ * Data carried by a `-32022` UnsupportedProtocolVersion protocol error
  * (protocol revision 2026-07-28).
  */
 export interface UnsupportedProtocolVersionErrorData {
@@ -556,6 +861,30 @@ export type ListChangedHandlers = {
 };
 
 /**
+ * Protocol-era classification of an inbound message.
+ *
+ * Populated by transports that classify messages at the edge (e.g. an HTTP
+ * entry distinguishing 2025-era from 2026-era traffic). The wire era itself
+ * is connection state (the negotiated protocol version held by the
+ * `Client`/`Server` instance); the protocol layer validates a classified
+ * message against that instance era at dispatch — a mismatch is treated as
+ * an entry/routing error, never a per-message era switch. Unclassified
+ * traffic is dispatched on the instance era unchanged.
+ */
+export interface MessageClassification {
+    /**
+     * The wire era the message was classified into: `legacy` for the
+     * 2025-11-25 family of revisions, `modern` for 2026-07-28 and later.
+     */
+    era: 'legacy' | 'modern';
+
+    /**
+     * The exact protocol revision, when the classifier derived one.
+     */
+    revision?: string;
+}
+
+/**
  * Extra information about a message.
  */
 export interface MessageExtraInfo {
@@ -563,6 +892,14 @@ export interface MessageExtraInfo {
      * The original HTTP request.
      */
     request?: globalThis.Request;
+
+    /**
+     * Protocol-era classification of the message, when the transport
+     * classified it at the edge. Validated by the protocol layer against the
+     * instance's negotiated era at dispatch (the edge→instance handoff
+     * check); it does not select the era itself.
+     */
+    classification?: MessageClassification;
 
     /**
      * The authentication information.
@@ -584,15 +921,28 @@ export interface MessageExtraInfo {
 
 export type MetaObject = Record<string, unknown>;
 export type RequestMetaObject = RequestMeta;
+/**
+ * The contents of a result's `_meta` field (the 2026-07-28 `ResultMetaObject`):
+ * loose, with the optional self-reported serverInfo key typed when present.
+ */
+export type ResultMetaObject = Infer<typeof ResultMetaObjectSchema>;
 
 /**
  * {@linkcode CreateMessageRequestParams} without tools - for backwards-compatible overload.
  * Excludes tools/toolChoice to indicate they should not be provided.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
 
 /**
  * {@linkcode CreateMessageRequestParams} with required tools - for tool-enabled overload.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
     tools: Tool[];

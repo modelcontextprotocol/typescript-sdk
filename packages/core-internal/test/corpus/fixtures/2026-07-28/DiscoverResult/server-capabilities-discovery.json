@@ -1,0 +1,17 @@
+{
+  "resultType": "complete",
+  "supportedVersions": ["2026-07-28"],
+  "capabilities": {
+    "tools": {},
+    "resources": {}
+  },
+  "_meta": {
+    "io.modelcontextprotocol/serverInfo": {
+      "name": "ExampleServer",
+      "version": "1.0.0"
+    }
+  },
+  "instructions": "This server provides weather and resource utilities. Prefer `get_weather` for forecast lookups.",
+  "ttlMs": 3600000,
+  "cacheScope": "public"
+}

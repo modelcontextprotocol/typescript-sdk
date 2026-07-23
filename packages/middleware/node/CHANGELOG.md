@@ -1,5 +1,94 @@
 # @modelcontextprotocol/node
 
+## 2.0.0-beta.5
+
+### Patch Changes
+
+- Updated dependencies [[`1480241`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1480241e2a2a7f0ceee8e7723b2adcf88579bb36), [`f413763`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f4137630c05dc9a4fb14d4d3777f5cb167bd6313)]:
+    - @modelcontextprotocol/server@2.0.0-beta.5
+
+## 2.0.0-beta.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c49b47`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7c49b47fb3a58b51cec8fd0b337f656515f1a2b7), [`e0a0ab7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e0a0ab74d9baed74572c9f435313fb6daef1b989), [`8e1d2e9`](https://github.com/modelcontextprotocol/typescript-sdk/commit/8e1d2e92b1720d2520122b3a5f20ea084edaf3c4), [`3f07a32`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3f07a325c6741b2374ce2255846dfa0c25f74d03)]:
+    - @modelcontextprotocol/server@2.0.0-beta.4
+
+## 2.0.0-beta.3
+
+### Patch Changes
+
+- [#2441](https://github.com/modelcontextprotocol/typescript-sdk/pull/2441) [`561c6d8`](https://github.com/modelcontextprotocol/typescript-sdk/commit/561c6d83456ef98d6c713bbda9837e64337f22c9) Thanks [@felixweinberger](https://github.com/felixweinberger)! - POSTs whose `Content-Type` media type is not `application/json` are now
+  rejected with `415 Unsupported Media Type`; the header is parsed instead of
+  substring-matched. Previously any value merely containing the substring
+  passed the check (for example `text/plain; a=application/json`), case
+  variants were wrongly rejected, and the 2026-07-28 entry did not inspect
+  `Content-Type` at all — requests with a missing or non-JSON header that used
+  to be served on that path now also answer 415. Values with parameters
+  (`application/json; charset=utf-8`, including malformed parameter sections
+  like `application/json;`) continue to work. SDK clients always send the
+  correct header and are unaffected.
+
+    The new `isJsonContentType(header)` helper is exported for transport and
+    framework-adapter authors — custom entries composing the exported building
+    blocks (`classifyInboundRequest`, `PerRequestHTTPServerTransport`) must apply
+    it themselves. The hono adapter's JSON body pre-parse and the client's
+    response dispatch now use the same parsed-media-type comparison.
+
+- [#2445](https://github.com/modelcontextprotocol/typescript-sdk/pull/2445) [`78fabea`](https://github.com/modelcontextprotocol/typescript-sdk/commit/78fabea44557bd49f5a050b92e57ccd22dab14ad) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Document composing the host and origin validation guards in front of `toNodeHandler` for hand-wired `node:http` servers, matching the protected wiring the examples and serving guide now demonstrate.
+
+- Updated dependencies [[`44797d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/44797d77792953d0ce70b68922bb6bb69e697c32), [`1b90c96`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1b90c96d11fd17016d2977cae9dd661de3fb84df), [`561c6d8`](https://github.com/modelcontextprotocol/typescript-sdk/commit/561c6d83456ef98d6c713bbda9837e64337f22c9), [`ce2f65d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/ce2f65db0e019506f4d2526466ec8cc7106de98e), [`7e69735`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7e697354de95111ca2c70a12ac9f5d3ec96b56c3), [`e8de519`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e8de519d3129f46b7528d2999b7641f55be1f091), [`0ab5d14`](https://github.com/modelcontextprotocol/typescript-sdk/commit/0ab5d1471d6c7375878316df2930fca77eee1d2a), [`24be404`](https://github.com/modelcontextprotocol/typescript-sdk/commit/24be4040d454a9c5983901229068477c7a9ea796), [`7635115`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7635115d0112c3f980b45a9773a4770660af8aae), [`61866d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/61866d7a5ff4475663ceb525c88447c497c1b92a)]:
+    - @modelcontextprotocol/server@2.0.0-beta.3
+
+## 2.0.0-beta.2
+
+### Patch Changes
+
+- [#2405](https://github.com/modelcontextprotocol/typescript-sdk/pull/2405) [`f172626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f172626a8e98b2ae2f0f690e4afb4dc74dbf6011) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Ship CommonJS builds alongside ESM. Each package now emits both `.mjs`/`.d.mts`
+  and `.cjs`/`.d.cts` (via tsdown `format: ['esm', 'cjs']`), and its `exports` map
+  adds a `require` condition so `require('@modelcontextprotocol/…')` works from
+  CommonJS consumers. Output extensions are normalized across all packages
+  (`@modelcontextprotocol/core` moves from `.js`/`.d.ts` to `.mjs`/`.d.mts`); the
+  public import paths are unchanged.
+- Updated dependencies [[`f172626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f172626a8e98b2ae2f0f690e4afb4dc74dbf6011), [`3c7ddaf`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3c7ddafa05d8f17fb52168bf4638f09251c3d0ff)]:
+    - @modelcontextprotocol/server@2.0.0-beta.2
+
+## 2.0.0-beta.1
+
+### Patch Changes
+
+- [#2402](https://github.com/modelcontextprotocol/typescript-sdk/pull/2402) [`a400259`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a4002596b914c675d17ac22471d1287976dbb52a) Thanks [@felixweinberger](https://github.com/felixweinberger)! - First beta release of SDK v2 with support for the MCP 2026-07-28 specification
+  revision. See the migration guides for upgrading from v1
+  (`docs/migration/upgrade-to-v2.md`) and adopting the 2026-07-28 revision
+  (`docs/migration/support-2026-07-28.md`).
+- Updated dependencies [[`a400259`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a4002596b914c675d17ac22471d1287976dbb52a)]:
+    - @modelcontextprotocol/server@2.0.0-beta.1
+
+## 2.0.0-alpha.4
+
+### Minor Changes
+
+- [#2286](https://github.com/modelcontextprotocol/typescript-sdk/pull/2286) [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771) Thanks [@felixweinberger](https://github.com/felixweinberger)! - `createMcpHandler` now returns a web-standards-only `{ fetch, close, notify, bus }` handler — the shape Workers/Bun/Deno expect from `export default`. The duck-typed `.node(req, res, parsedBody?)` face is removed; Node frameworks (Express, Fastify, plain `node:http`) wrap the
+  handler once with the new `toNodeHandler(handler, { onerror? })` exported from `@modelcontextprotocol/node`, which converts the Node request to a web-standard `Request`, calls `handler.fetch`, and writes the `Response` back honoring write backpressure. The optional `onerror`
+  receives the adapter-level error fallback (request conversion / `handler.fetch` throw) before the `500` response is written, restoring observability parity with the removed `.node` face. `NodeIncomingMessageLike` and `NodeServerResponseLike` move from
+  `@modelcontextprotocol/server` to `@modelcontextprotocol/node`.
+
+- [#2390](https://github.com/modelcontextprotocol/typescript-sdk/pull/2390) [`6cc7b1c`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6cc7b1cb66cabf23423ba0fdf06e2d1c2fcf936f) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Export `toWebRequest(req, parsedBody?, options?)` — the Node `IncomingMessage` → web-standard `Request` conversion `toNodeHandler` already performs internally. Use it to feed `isLegacyRequest()` (or `handler.fetch()`) from a hand-wired Node/Express `(req, res)` handler instead of assembling a `globalThis.Request` from `req.headers` by hand. When a body parser already consumed the Node stream (`express.json()`), pass the parsed value as `parsedBody`; pass `options.signal` to tie the constructed request to client disconnect, the way `toNodeHandler` does.
+
+- [#2286](https://github.com/modelcontextprotocol/typescript-sdk/pull/2286) [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add Origin header validation alongside the existing Host header validation. The server package gains framework-agnostic helpers (`validateOriginHeader`, `localhostAllowedOrigins`, `originValidationResponse`); the Express, Hono and Fastify adapters gain `originValidation` /
+  `localhostOriginValidation` middleware and a new `allowedOrigins` option on their app factories, which now arm Origin validation by default for localhost-class binds (mirroring the Host validation ladder; the 0.0.0.0-without-allowlist warning is unchanged). Requests
+  without an `Origin` header pass — non-browser MCP clients are unaffected — while a present `Origin` that is not allowed or cannot be parsed (including the opaque `null` origin) is rejected with `403`. The Node adapter ships `hostHeaderValidation` / `originValidation`
+  request guards for plain `node:http` servers, which previously had no validation helpers.
+
+### Patch Changes
+
+- [#2394](https://github.com/modelcontextprotocol/typescript-sdk/pull/2394) [`801111e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/801111ea152c1ba08f6dda0b27d712759aeb46bf) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Fix the published declaration files for consumers compiling with `skipLibCheck: false`: the bundled `.d.mts` no longer leaves a dangling `URIComponent` reference (ajv's published types import it from `fast-uri`, whose export-assigned namespace the dts bundler cannot link — the type is now inlined via a dts-only path mapping), and no longer imports `json-schema-typed` from an undeclared dependency (it is inlined via `dts.resolve`). `@modelcontextprotocol/node` and `@modelcontextprotocol/server` drop stale `typesVersions` entries pointing at subpaths that never shipped. Package READMEs note that TypeScript >=6.0 requires `"types": ["node"]` since the published declarations reference `Buffer`.
+
+- [#2286](https://github.com/modelcontextprotocol/typescript-sdk/pull/2286) [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Forward `setSupportedProtocolVersions` from `NodeStreamableHTTPServerTransport` to the wrapped Web Standard transport. Previously a server's `supportedProtocolVersions` option never reached the Node adapter's `MCP-Protocol-Version` header validation, which silently kept
+  validating against the default version list.
+- Updated dependencies [[`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`801111e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/801111ea152c1ba08f6dda0b27d712759aeb46bf), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`6cc7b1c`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6cc7b1cb66cabf23423ba0fdf06e2d1c2fcf936f), [`f0bf785`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f0bf785239af67f0cfce24575fec9c1193deaff1), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771)]:
+    - @modelcontextprotocol/server@2.0.0-alpha.4
+
 ## 2.0.0-alpha.3
 
 ### Patch Changes

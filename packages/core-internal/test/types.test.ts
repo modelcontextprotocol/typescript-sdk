@@ -14,13 +14,14 @@ import {
     DiscoverResultSchema,
     ElicitRequestFormParamsSchema,
     EmptyResultSchema,
+    isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     LOG_LEVEL_META_KEY,
     PromptMessageSchema,
     PROTOCOL_VERSION_META_KEY,
-    RequestMetaEnvelopeSchema,
     ResourceLinkSchema,
     ResultSchema,
+    SubscriptionsListenResultMetaSchema,
     SamplingMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     ToolChoiceSchema,
@@ -28,6 +29,12 @@ import {
     ToolSchema,
     ToolUseContentSchema
 } from '../src/types/index';
+// Wire-era modules (Q1 increment 2): the per-request envelope lives in the
+// 2026-era schemas; the era-faithful 2025 role unions (incl. tasks) live in
+// the 2025-era schemas.
+import { getRequestSchema } from '../src/wire/rev2025-11-25/registry';
+import { ClientRequestSchema as Wire2025ClientRequestSchema } from '../src/wire/rev2025-11-25/schemas';
+import { RequestMetaEnvelopeSchema } from '../src/wire/rev2026-07-28/schemas';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
@@ -291,10 +298,15 @@ describe('Types', () => {
             }
         });
 
-        test('should validate empty content array with default', () => {
-            const toolResult = {};
-
-            const result = CallToolResultSchema.safeParse(toolResult);
+        test('tolerates absent content: the empty-object result parses with content [] (v1 parity restored)', () => {
+            // BEHAVIOR MIGRATION (reversal, ledgered): content.default([]) is
+            // back on the neutral layer + 2025 era; T6 closed at the wire seam.
+            const empty = CallToolResultSchema.safeParse({});
+            expect(empty.success).toBe(true);
+            if (empty.success) {
+                expect(empty.data.content).toEqual([]);
+            }
+            const result = CallToolResultSchema.safeParse({ content: [] });
             expect(result.success).toBe(true);
             if (result.success) {
                 expect(result.data.content).toEqual([]);
@@ -489,7 +501,7 @@ describe('Types', () => {
             expect(result.success).toBe(false);
         });
 
-        test('should still require type: object at root for outputSchema', () => {
+        test('SEP-2106: outputSchema accepts any JSON Schema root (the public schema; the 2025 wire schema still rejects)', () => {
             const tool = {
                 name: 'test',
                 inputSchema: { type: 'object' },
@@ -498,7 +510,7 @@ describe('Types', () => {
                 }
             };
             const result = ToolSchema.safeParse(tool);
-            expect(result.success).toBe(false);
+            expect(result.success).toBe(true);
         });
 
         test('should accept simple minimal schema (backward compatibility)', () => {
@@ -567,6 +579,9 @@ describe('Types', () => {
             const toolResult = {
                 type: 'tool_result',
                 toolUseId: 'call_123',
+                // content is spec-required (the wire default([]) was removed —
+                // Q1 increment 2, ledgered; changeset: codec-split-wire-break).
+                content: [],
                 structuredContent: { temperature: 72, condition: 'sunny' }
             };
 
@@ -583,6 +598,7 @@ describe('Types', () => {
             const toolResult = {
                 type: 'tool_result',
                 toolUseId: 'call_456',
+                content: [],
                 structuredContent: { error: 'API_ERROR', message: 'Service unavailable' },
                 isError: true
             };
@@ -1025,9 +1041,15 @@ describe('Types', () => {
 });
 
 describe('2025-11-25 task wire interop (task feature removed; wire types remain)', () => {
-    test('tasks/get parses through the client request union', () => {
-        const result = ClientRequestSchema.safeParse({ method: 'tasks/get', params: { taskId: 'task-123' } });
+    test('tasks/get parses through the 2025-era wire request union and registry', () => {
+        // The task wire surface moved into the 2025-era codec module (Q1
+        // increment 2): interop with task-capable 2025 peers is served by the
+        // era registry, and the NEUTRAL ClientRequestSchema no longer carries
+        // task vocabulary (deletions are physical on the 2026 era).
+        const result = Wire2025ClientRequestSchema.safeParse({ method: 'tasks/get', params: { taskId: 'task-123' } });
         expect(result.success).toBe(true);
+        expect(getRequestSchema('tasks/get')).toBeDefined();
+        expect(ClientRequestSchema.options.some(option => (option.shape.method.value as string) === 'tasks/get')).toBe(false);
     });
 
     test('task-augmented tools/call params parse and retain the task field', () => {
@@ -1092,14 +1114,18 @@ describe('2026-07-28 wire shapes', () => {
             }
         });
 
-        test.each([PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY])(
-            'rejects an envelope missing %s',
-            key => {
-                const incomplete: Record<string, unknown> = { ...envelope };
-                delete incomplete[key];
-                expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
-            }
-        );
+        test.each([PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY])('rejects an envelope missing %s', key => {
+            const incomplete: Record<string, unknown> = { ...envelope };
+            delete incomplete[key];
+            expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
+        });
+
+        test('accepts an envelope without clientInfo (SHOULD since spec PR #3002), but rejects a malformed one', () => {
+            const withoutClientInfo: Record<string, unknown> = { ...envelope };
+            delete withoutClientInfo[CLIENT_INFO_META_KEY];
+            expect(RequestMetaEnvelopeSchema.safeParse(withoutClientInfo).success).toBe(true);
+            expect(RequestMetaEnvelopeSchema.safeParse({ ...envelope, [CLIENT_INFO_META_KEY]: 'not-an-object' }).success).toBe(false);
+        });
 
         test('rejects an invalid log level', () => {
             const result = RequestMetaEnvelopeSchema.safeParse({ ...envelope, [LOG_LEVEL_META_KEY]: 'loud' });
@@ -1126,48 +1152,91 @@ describe('2026-07-28 wire shapes', () => {
     describe('DiscoverResult', () => {
         const result = {
             supportedVersions: ['2026-07-28'],
-            capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: 'test-server', version: '1.0.0' }
+            capabilities: { tools: { listChanged: true } }
         };
 
-        test('parses a discover result', () => {
-            const parsed = DiscoverResultSchema.safeParse({ ...result, resultType: 'complete', instructions: 'Use the echo tool.' });
+        test('parses a discover result (serverInfo in _meta since spec PR #3002)', () => {
+            const parsed = DiscoverResultSchema.safeParse({
+                ...result,
+                resultType: 'complete',
+                _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'test-server', version: '1.0.0' } },
+                instructions: 'Use the echo tool.'
+            });
             expect(parsed.success).toBe(true);
             if (parsed.success) {
                 expect(parsed.data.supportedVersions).toEqual(['2026-07-28']);
                 expect(parsed.data.capabilities).toEqual({ tools: { listChanged: true } });
-                expect(parsed.data.serverInfo).toEqual({ name: 'test-server', version: '1.0.0' });
+                expect(parsed.data._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'test-server', version: '1.0.0' });
                 expect(parsed.data.instructions).toBe('Use the echo tool.');
             }
         });
 
-        test.each(['supportedVersions', 'capabilities', 'serverInfo'])('rejects a discover result missing %s', key => {
+        test.each(['supportedVersions', 'capabilities'])('rejects a discover result missing %s', key => {
             const incomplete: Record<string, unknown> = { ...result };
             delete incomplete[key];
             expect(DiscoverResultSchema.safeParse(incomplete).success).toBe(false);
         });
     });
 
-    describe('Result resultType passthrough', () => {
-        test('accepts results with and without resultType (absent means "complete")', () => {
+    describe('Result _meta serverInfo — receive-side leniency on the NEUTRAL layer (#3002)', () => {
+        // The neutral ResultMetaObjectSchema sits inside
+        // JSONRPCResultResponseSchema, whose guard classifies every inbound
+        // message on BOTH eras — a strict serverInfo key here would drop
+        // whole responses (probe timeouts, hung requests) over a bad
+        // display-only stamp. Malformed drops to absent, exactly like the
+        // 2026 wire schema.
+        const MALFORMED_META = { 'io.modelcontextprotocol/serverInfo': 'not-an-implementation', 'com.example/keep': 1 };
+
+        test('a malformed _meta serverInfo drops to absent; foreign keys survive', () => {
+            const parsed = ResultSchema.safeParse({ _meta: MALFORMED_META });
+            expect(parsed.success).toBe(true);
+            if (parsed.success) {
+                expect(parsed.data._meta?.['io.modelcontextprotocol/serverInfo']).toBeUndefined();
+                expect(parsed.data._meta?.['com.example/keep']).toBe(1);
+            }
+        });
+
+        test('the message-classification guard accepts responses carrying a malformed stamp (either era)', () => {
+            expect(isJSONRPCResultResponse({ jsonrpc: '2.0', id: 1, result: { _meta: MALFORMED_META } })).toBe(true);
+            // 2025-era shaped body: the reserved key's value must not drop
+            // legacy frames either (the era the stamp never touches).
+            expect(isJSONRPCResultResponse({ jsonrpc: '2.0', id: 2, result: { tools: [], _meta: MALFORMED_META } })).toBe(true);
+        });
+
+        test('the listen result meta keeps subscriptionId strict (load-bearing demux) while serverInfo stays lenient', () => {
+            expect(
+                SubscriptionsListenResultMetaSchema.safeParse({
+                    'io.modelcontextprotocol/subscriptionId': 'sub-1',
+                    'io.modelcontextprotocol/serverInfo': 'bogus'
+                }).success
+            ).toBe(true);
+            expect(
+                SubscriptionsListenResultMetaSchema.safeParse({
+                    'io.modelcontextprotocol/serverInfo': { name: 'a', version: '1' }
+                }).success
+            ).toBe(false);
+        });
+    });
+
+    describe('Result resultType (cut from the neutral schemas — Q1 increment 2, ledgered)', () => {
+        test('the base ResultSchema no longer declares resultType; the key is loose passthrough only', () => {
+            // BEHAVIOR MIGRATION: the optional resultType member — the
+            // masking surface that let 2026 vocabulary through every
+            // legacy-leg parse — is gone. The wire member lives only in the
+            // 2026-era codec module. A foreign resultType still transits the
+            // loose base parse as an UNDECLARED sibling (it can no longer
+            // type-check, and the protocol path strips/consumes it per era).
             const withIt = ResultSchema.safeParse({ resultType: 'complete' });
             expect(withIt.success).toBe(true);
-            if (withIt.success) {
-                expect(withIt.data.resultType).toBe('complete');
-            }
-            const withoutIt = ResultSchema.safeParse({});
-            expect(withoutIt.success).toBe(true);
-            if (withoutIt.success) {
-                expect(withoutIt.data.resultType).toBeUndefined();
-            }
+            // Non-string values are no longer schema-rejected here (the
+            // member is undeclared): era handling owns the raw value.
+            expect(ResultSchema.safeParse({ resultType: 42 }).success).toBe(true);
+            expect(Object.keys(ResultSchema.shape)).toEqual(['_meta']);
         });
 
-        test('rejects a non-string resultType', () => {
-            expect(ResultSchema.safeParse({ resultType: 42 }).success).toBe(false);
-        });
-
-        test('EmptyResult accepts resultType but still rejects unknown keys', () => {
-            expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(true);
+        test('EmptyResult rejects resultType like any unknown key (deliberate flip)', () => {
+            // Changeset: codec-split-wire-break.
+            expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(false);
             expect(EmptyResultSchema.safeParse({ unexpected: true }).success).toBe(false);
         });
     });

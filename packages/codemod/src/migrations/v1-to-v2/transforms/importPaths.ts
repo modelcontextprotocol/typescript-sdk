@@ -1,14 +1,14 @@
-import type { SourceFile } from 'ts-morph';
+import type { Node, SourceFile } from 'ts-morph';
 import { SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
-import { renameAllReferences } from '../../../utils/astUtils';
+import { findFirstIdentifierOutsideImports, renameAllReferences } from '../../../utils/astUtils';
 import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics';
 import type { NamedImportSpec } from '../../../utils/importUtils';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
 import { AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../mappings/authSchemaNames';
-import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
+import { isAuthImport, lookupImportMapping, RS_ONLY_AUTH_SYMBOLS } from '../mappings/importMap';
 import { isSharedSchemaConst, resolveRenamedName, symbolTargetOverride } from '../mappings/schemaRouting';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
@@ -102,6 +102,48 @@ export const importPathsTransform: Transform = {
                 continue;
             }
 
+            // Resource-server helpers have a maintained v2 home in @modelcontextprotocol/express;
+            // the server-legacy/auth copy they are routed to is a frozen v1 snapshot. The re-point
+            // is a judgment call (the express middleware answers verifier throws of the v1 error
+            // classes with a generic 500, so verifiers must move to the v2 OAuthError with it) —
+            // mark the import so the call sites get looked at instead of quietly staying on legacy.
+            if (mapping.target === '@modelcontextprotocol/server-legacy/auth') {
+                const matched = namedImports.filter(n => RS_ONLY_AUTH_SYMBOLS.has(n.getName()));
+                const valueMatchedSpecifiers = matched.filter(n => !typeOnly && !n.isTypeOnly());
+                const valueMatched = valueMatchedSpecifiers.map(n => n.getName());
+                const typeMatched = matched.filter(n => typeOnly || n.isTypeOnly()).map(n => n.getName());
+                if (valueMatched.length > 0) {
+                    // The marker must outlive this pass: the import declaration it
+                    // describes is removed when the path is rerouted, so anchor at the
+                    // first use of one of the helpers (the import line otherwise).
+                    const usageAnchor =
+                        valueMatchedSpecifiers
+                            .map(n => findFirstIdentifierOutsideImports(sourceFile, n.getAliasNode()?.getText() ?? n.getName()))
+                            .find(node => node !== undefined) ?? imp;
+                    diagnostics.push(
+                        actionRequired(
+                            filePath,
+                            usageAnchor,
+                            `${valueMatched.join(', ')}: resource-server auth helpers routed to the frozen ` +
+                                `@modelcontextprotocol/server-legacy/auth copy. The maintained v2 home is ` +
+                                `@modelcontextprotocol/express — when re-pointing, verifiers must throw the v2 OAuthError ` +
+                                `(the express middleware does not recognize the legacy error classes). ` +
+                                `See the migration guide's server auth split section.`
+                        )
+                    );
+                }
+                if (typeMatched.length > 0) {
+                    diagnostics.push(
+                        info(
+                            filePath,
+                            line,
+                            `${typeMatched.join(', ')}: type-only import routed to @modelcontextprotocol/server-legacy/auth; ` +
+                                `the maintained v2 type lives in @modelcontextprotocol/express — re-point when convenient.`
+                        )
+                    );
+                }
+            }
+
             if (mapping.status === 'removed') {
                 imp.remove();
                 changesCount++;
@@ -122,7 +164,11 @@ export const importPathsTransform: Transform = {
                 const needsContext =
                     namespaceImport != null ||
                     defaultImport != null ||
-                    namedImports.some(n => symbolTargetOverride(n.getName(), mapping!) === undefined);
+                    namedImports.some(
+                        n =>
+                            mapping!.removedSymbols?.[n.getName()] === undefined &&
+                            symbolTargetOverride(n.getName(), mapping!) === undefined
+                    );
                 if (needsContext) {
                     const base = resolveTypesPackage(context, hasClientImport, hasServerImport, { filePath, line, diagnostics });
                     targetPackage = mapping.subpathSuffix ? `${base}${mapping.subpathSuffix}` : base;
@@ -179,6 +225,36 @@ export const importPathsTransform: Transform = {
                         );
                     }
                 }
+                // Qualified accesses to symbols with no v2 export (`ns.GoneClass`) can't be fixed by
+                // moving the namespace binding — flag each accessed one. Expression positions are
+                // PropertyAccessExpressions; type positions (`let p: ns.GoneClass`) are QualifiedNames.
+                if (mapping.removedSymbols) {
+                    const nsName = namespaceImport.getText();
+                    const accessedRemoved = new Map<string, Node>();
+                    for (const pa of sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+                        const memberName = pa.getName();
+                        if (
+                            pa.getExpression().getText() === nsName &&
+                            mapping.removedSymbols[memberName] !== undefined &&
+                            !accessedRemoved.has(memberName)
+                        ) {
+                            accessedRemoved.set(memberName, pa);
+                        }
+                    }
+                    for (const qn of sourceFile.getDescendantsOfKind(SyntaxKind.QualifiedName)) {
+                        const memberName = qn.getRight().getText();
+                        if (
+                            qn.getLeft().getText() === nsName &&
+                            mapping.removedSymbols[memberName] !== undefined &&
+                            !accessedRemoved.has(memberName)
+                        ) {
+                            accessedRemoved.set(memberName, qn);
+                        }
+                    }
+                    for (const [name, node] of accessedRemoved) {
+                        diagnostics.push(actionRequired(filePath, node, mapping.removedSymbols[name]!));
+                    }
+                }
                 usedPackages.add(effectiveTarget);
                 imp.setModuleSpecifier(effectiveTarget);
                 if (mapping.renamedSymbols) {
@@ -203,6 +279,18 @@ export const importPathsTransform: Transform = {
 
             for (const n of namedImports) {
                 const name = n.getName();
+                const removalGuidance = mapping.removedSymbols?.[name];
+                if (removalGuidance !== undefined) {
+                    // No v2 package exports this symbol — dropping it (with a marker) beats
+                    // emitting an import of a member the target package does not have. Anchor
+                    // the marker to a usage site: it survives the import rewrites, so the
+                    // runner resolves a live line, and it is where the user must act anyway.
+                    const usageName = n.getAliasNode()?.getText() ?? name;
+                    diagnostics.push(
+                        actionRequired(filePath, findFirstIdentifierOutsideImports(sourceFile, usageName) ?? imp, removalGuidance)
+                    );
+                    continue;
+                }
                 const alias = n.getAliasNode()?.getText();
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
@@ -332,6 +420,17 @@ function rewriteExportDeclarations(
             }
         }
 
+        // A star re-export of a module with removed symbols silently drops them from the
+        // barrel (the new target never exported them) — flag each, mirroring the
+        // schema-constant star-export diagnostic below.
+        if (mapping.removedSymbols && exp.getNamedExports().length === 0) {
+            for (const [name, guidance] of Object.entries(mapping.removedSymbols)) {
+                diagnostics.push(
+                    actionRequired(filePath, exp, `Star re-export of ${specifier} will no longer provide ${name}. ${guidance}`)
+                );
+            }
+        }
+
         if (mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) {
             const namedExports = exp.getNamedExports();
             // A star re-export (`export * from …`, including `export * as ns from …`) has no named
@@ -375,7 +474,21 @@ function rewriteExportDeclarations(
                 if (!spec.getAliasNode()) spec.setAlias(name);
                 spec.setName(newName);
             }
-            if (REEXPORT_WARNINGS[name]) {
+            const removalGuidance = mapping.removedSymbols?.[name];
+            if (removalGuidance !== undefined) {
+                diagnostics.push(
+                    actionRequired(filePath, exp, `Re-exported ${name} has no v2 export — remove this re-export. ${removalGuidance}`)
+                );
+            } else if (RS_ONLY_AUTH_SYMBOLS.has(name) && targetPackage === '@modelcontextprotocol/server-legacy/auth') {
+                diagnostics.push(
+                    actionRequired(
+                        filePath,
+                        exp,
+                        `Re-exported ${name} now points at the frozen @modelcontextprotocol/server-legacy/auth copy; the ` +
+                            `maintained v2 home is @modelcontextprotocol/express. Re-point this barrel entry deliberately.`
+                    )
+                );
+            } else if (REEXPORT_WARNINGS[name]) {
                 diagnostics.push(actionRequired(filePath, exp, REEXPORT_WARNINGS[name]!));
             }
         }

@@ -47,6 +47,18 @@ export default defineConfig(
             'unicorn/prevent-abbreviations': 'off',
             'unicorn/no-null': 'off',
             'unicorn/prefer-add-event-listener': 'off',
+            'no-restricted-syntax': [
+                'error',
+                {
+                    selector:
+                        ":matches(CallExpression[callee.property.name='includes'], CallExpression[callee.property.name='indexOf'], " +
+                        "CallExpression[callee.property.name='startsWith'])[arguments.0.value='application/json']",
+                    message:
+                        "Substring-matching 'application/json' misclassifies Content-Type values whose media type is different " +
+                        "(e.g. 'text/plain; a=application/json') and mishandles parameters and case. " +
+                        'Parse the media type instead: isJsonContentType() from core-internal.'
+                }
+            ],
             'unicorn/no-useless-undefined': ['error', { checkArguments: false }],
             '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
             'n/prefer-node-protocol': 'error',
@@ -93,6 +105,11 @@ export default defineConfig(
             '@typescript-eslint/no-unused-vars': 'off',
             'no-console': 'off'
         }
+    },
+    {
+        // Ignore build artifacts everywhere (mirrors .prettierignore). A flat-config
+        // object with only `ignores` is a global ignore; ESLint does not skip dist by default.
+        ignores: ['**/dist/**', '**/build/**', '**/coverage/**']
     },
     {
         // Ignore generated protocol types everywhere

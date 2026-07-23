@@ -30,7 +30,7 @@ import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
 import type { HttpHandler } from '../helpers/index';
-import { hostPerSession, hostStateless } from '../helpers/index';
+import { defined, hostPerSession, hostStateless } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
@@ -72,12 +72,6 @@ function recordingFetch(
         records.push({ method: req.method, url: u, headers: headersToRecord(req.headers), body });
         return baseHandler(req);
     };
-}
-
-/** Narrows away `undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
-function defined<T>(value: T | undefined, label: string): T {
-    if (value === undefined) throw new Error(`expected ${label} to be defined`);
-    return value;
 }
 
 verifies('client-transport:http:session-stored', async (_args: TestArgs) => {

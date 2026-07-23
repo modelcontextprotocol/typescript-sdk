@@ -47,6 +47,17 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
 
     skipLocalPkceValidation = true;
 
+    /**
+     * The proxy redirects the browser to the upstream AS's authorize endpoint with
+     * `redirect_uri = params.redirectUri`, so the upstream — not this proxy — issues the
+     * callback. The proxy cannot append its own `iss`, and any `iss` the upstream emits is the
+     * upstream's issuer, not `issuerUrl`. Advertise `false` so the metadata does not over-claim —
+     * a callback *without* `iss` then passes validation. Note: an upstream that *does* emit its
+     * own `iss` will still mismatch this proxy's issuer and be rejected by RFC 9207 clients
+     * regardless of this flag.
+     */
+    authorizationResponseIssParameterSupported = false;
+
     revokeToken?: (client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest) => Promise<void>;
 
     constructor(options: ProxyOptions) {

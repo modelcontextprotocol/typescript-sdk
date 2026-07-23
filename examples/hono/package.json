@@ -1,0 +1,28 @@
+{
+    "name": "@mcp-examples/hono",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "dual",
+        "path": "/mcp",
+        "//": "createMcpHandler.fetch hosting is era-agnostic (default 'stateless' posture serves both)."
+    }
+}

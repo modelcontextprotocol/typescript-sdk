@@ -1,19 +1,60 @@
 /**
- * Compares the SDK's types against the frozen 2025-11-25 release schema
- * (spec.types.2025-11-25.ts). The 2026-07-28 comparison lives in
+ * Per-revision parity against the FROZEN 2025-11-25 release schema
+ * (spec.types.2025-11-25.ts). The draft comparison lives in
  * spec.types.2026-07-28.test.ts.
  *
- * This contains:
- * - Static type checks to verify the Spec's types are compatible with the SDK's types
- *   (mutually assignable — no type-level workarounds should be needed)
- * - Runtime checks to verify each Spec type has a static check
- *   (note: a few don't have SDK types, see MISSING_SDK_TYPES below)
+ * Q1 increment 2 retired the 20 `@ts-expect-error` affordances this file
+ * used to carry: where the neutral public types deliberately follow the
+ * 2026-07-28 typing (the shared-tier adjudications), the comparisons now
+ * target the 2025-era WIRE-VIEW types (`wire/rev2025-11-25/wireTypes.ts`),
+ * which restate the anchor shape exactly and document each adjudication in
+ * one place. Zero affordances remain: every check below is exact, both
+ * directions, and the key-parity pins include the previously-suppressed
+ * names (PromptArgument/PromptReference `title`, the capabilities key sets).
  */
 import fs from 'node:fs';
 import path from 'node:path';
 
 import type * as SpecTypes from '../src/types/spec.types.2025-11-25';
 import type * as SDKTypes from '../src/types/index';
+// The era-faithful 2025 wire role unions (Q1 increment 2): the NEUTRAL role
+// aggregates no longer carry task vocabulary — the 2025-era wire module does.
+// Role-union comparisons against this FROZEN revision's anchor therefore
+// target the wire-era artifacts.
+import type * as Wire2025 from '../src/wire/rev2025-11-25/schemas';
+import type {
+    Wire2025ClientCapabilities,
+    Wire2025ClientRequestView,
+    Wire2025CreateMessageRequest,
+    Wire2025CreateMessageRequestParams,
+    Wire2025InitializeRequest,
+    Wire2025InitializeRequestParams,
+    Wire2025InitializeResult,
+    Wire2025ListToolsResult,
+    Wire2025PromptArgument,
+    Wire2025PromptReference,
+    Wire2025ServerCapabilities,
+    Wire2025ServerRequestView,
+    Wire2025Tool
+} from '../src/wire/rev2025-11-25/wireTypes';
+import type * as z4 from 'zod/v4';
+
+// SEP-2106 adjudication: the public/neutral SDK types widen `structuredContent` (`unknown`)
+// and `outputSchema` (open JSON Schema document); the 2025 wire-exact pins target the FROZEN
+// copies in `wire/rev2025-11-25/schemas.ts`. The public widening is pinned in
+// `types/publicTypeShapes.test.ts`.
+type Wire2025CallToolResult = z4.infer<typeof Wire2025.CallToolResultSchema>;
+type Wire2025SamplingMessage = z4.infer<typeof Wire2025.SamplingMessageSchema>;
+type Wire2025CreateMessageResultWithTools = z4.infer<typeof Wire2025.CreateMessageResultWithToolsSchema>;
+type Wire2025ToolResultContent = z4.infer<typeof Wire2025.ToolResultContentSchema>;
+type Wire2025SamplingMessageContentBlock = z4.infer<typeof Wire2025.SamplingMessageContentBlockSchema>;
+
+type Wire2025ClientRequest = z4.infer<typeof Wire2025.ClientRequestSchema>;
+type Wire2025ClientNotification = z4.infer<typeof Wire2025.ClientNotificationSchema>;
+type Wire2025ClientResult = z4.infer<typeof Wire2025.ClientResultSchema>;
+type Wire2025ServerRequest = z4.infer<typeof Wire2025.ServerRequestSchema>;
+type Wire2025ServerNotification = z4.infer<typeof Wire2025.ServerNotificationSchema>;
+type Wire2025ServerResult = z4.infer<typeof Wire2025.ServerResultSchema>;
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
@@ -36,8 +77,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    InitializeRequestParams: (sdk: SDKTypes.InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
-        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    InitializeRequestParams: (sdk: Wire2025InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
         sdk = spec;
         spec = sdk;
     },
@@ -87,10 +127,8 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageRequestParams: (sdk: SDKTypes.CreateMessageRequestParams, spec: SpecTypes.CreateMessageRequestParams) => {
-        // @ts-expect-error 2025-11-25 types `metadata` as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    CreateMessageRequestParams: (sdk: Wire2025CreateMessageRequestParams, spec: SpecTypes.CreateMessageRequestParams) => {
         sdk = spec;
-        // @ts-expect-error the SDK's JSONValue-typed tool inputSchema properties are not assignable to 2025-11-25's `object`
         spec = sdk;
     },
     CompleteRequestParams: (sdk: SDKTypes.CompleteRequestParams, spec: SpecTypes.CompleteRequestParams) => {
@@ -220,15 +258,15 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientResult: (sdk: SDKTypes.ClientResult, spec: SpecTypes.ClientResult) => {
+    ClientResult: (sdk: Wire2025ClientResult, spec: SpecTypes.ClientResult) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientNotification: (sdk: WithJSONRPC<SDKTypes.ClientNotification>, spec: SpecTypes.ClientNotification) => {
+    ClientNotification: (sdk: WithJSONRPC<Wire2025ClientNotification>, spec: SpecTypes.ClientNotification) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerResult: (sdk: SDKTypes.ServerResult, spec: SpecTypes.ServerResult) => {
+    ServerResult: (sdk: Wire2025ServerResult, spec: SpecTypes.ServerResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -244,23 +282,19 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    Tool: (sdk: SDKTypes.Tool, spec: SpecTypes.Tool) => {
-        // @ts-expect-error 2025-11-25 types inputSchema/outputSchema properties as `object`; the SDK follows the 2026-07-28 schema's JSONValue
+    Tool: (sdk: Wire2025Tool, spec: SpecTypes.Tool) => {
         sdk = spec;
-        // @ts-expect-error the SDK's JSONValue-typed inputSchema/outputSchema properties are not assignable to 2025-11-25's `object`
         spec = sdk;
     },
     ListToolsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    ListToolsResult: (sdk: SDKTypes.ListToolsResult, spec: SpecTypes.ListToolsResult) => {
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 Tool typing; see the Tool check above
+    ListToolsResult: (sdk: Wire2025ListToolsResult, spec: SpecTypes.ListToolsResult) => {
         sdk = spec;
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 Tool typing; see the Tool check above
         spec = sdk;
     },
-    CallToolResult: (sdk: SDKTypes.CallToolResult, spec: SpecTypes.CallToolResult) => {
+    CallToolResult: (sdk: Wire2025CallToolResult, spec: SpecTypes.CallToolResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -297,11 +331,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessage: (sdk: SDKTypes.SamplingMessage, spec: SpecTypes.SamplingMessage) => {
+    SamplingMessage: (sdk: Wire2025SamplingMessage, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: SDKTypes.CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
+    CreateMessageResult: (sdk: Wire2025CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -476,48 +510,39 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageRequest: (sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of params metadata/tools; see the CreateMessageRequestParams check above
-        sdk = spec;
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of params metadata/tools; see the CreateMessageRequestParams check above
-        spec = sdk;
-    },
-    InitializeRequest: (sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
-        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    CreateMessageRequest: (sdk: WithJSONRPCRequest<Wire2025CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    InitializeResult: (sdk: SDKTypes.InitializeResult, spec: SpecTypes.InitializeResult) => {
-        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    InitializeRequest: (sdk: WithJSONRPCRequest<Wire2025InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
-        // @ts-expect-error 2025-11-25 types experimental/sampling/elicitation/tasks blobs as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    InitializeResult: (sdk: Wire2025InitializeResult, spec: SpecTypes.InitializeResult) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: SpecTypes.ServerCapabilities) => {
-        // @ts-expect-error 2025-11-25 types experimental/logging/completions/tasks blobs as `object`; the SDK follows the 2026-07-28 schema's JSONObject
+    ClientCapabilities: (sdk: Wire2025ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: SpecTypes.ClientRequest) => {
-        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object` (via the InitializeRequest member); the SDK follows the 2026-07-28 schema's JSONObject
+    ServerCapabilities: (sdk: Wire2025ServerCapabilities, spec: SpecTypes.ServerCapabilities) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerRequest: (sdk: WithJSONRPCRequest<SDKTypes.ServerRequest>, spec: SpecTypes.ServerRequest) => {
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
+    ClientRequest: (sdk: WithJSONRPCRequest<Wire2025ClientRequestView>, spec: SpecTypes.ClientRequest) => {
         sdk = spec;
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
+        spec = sdk;
+    },
+    ServerRequest: (sdk: WithJSONRPCRequest<Wire2025ServerRequestView>, spec: SpecTypes.ServerRequest) => {
+        sdk = spec;
         spec = sdk;
     },
     LoggingMessageNotification: (sdk: WithJSONRPC<SDKTypes.LoggingMessageNotification>, spec: SpecTypes.LoggingMessageNotification) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerNotification: (sdk: WithJSONRPC<SDKTypes.ServerNotification>, spec: SpecTypes.ServerNotification) => {
+    ServerNotification: (sdk: WithJSONRPC<Wire2025ServerNotification>, spec: SpecTypes.ServerNotification) => {
         sdk = spec;
         spec = sdk;
     },
@@ -549,11 +574,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ToolResultContent: (sdk: SDKTypes.ToolResultContent, spec: SpecTypes.ToolResultContent) => {
+    ToolResultContent: (sdk: Wire2025ToolResultContent, spec: SpecTypes.ToolResultContent) => {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessageContentBlock: (sdk: SDKTypes.SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
+    SamplingMessageContentBlock: (sdk: Wire2025SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
         sdk = spec;
         spec = sdk;
     },
@@ -662,14 +687,6 @@ type AssertExactKeys<
 /** Constraint: T must resolve to `true`. */
 type Assert<T extends true> = T;
 
-/**
- * Same as {@link AssertExactKeys}, but tolerates the SDK's `resultType` key on
- * result shapes: the SDK follows the 2026-07-28 schema's optional `resultType`
- * passthrough (absent means "complete"), which is not in released 2025-11-25.
- * Every other key still has to match exactly.
- */
-type AssertExactKeysWithResultType<A, B> = AssertExactKeys<A, B & { resultType?: unknown }>;
-
 /*
  * Excluded from key-level assertions (21 entries):
  *
@@ -710,38 +727,34 @@ type _K_ElicitRequestURLParams = Assert<AssertExactKeys<SDKTypes.ElicitRequestUR
 type _K_PaginatedRequestParams = Assert<AssertExactKeys<SDKTypes.PaginatedRequestParams, SpecTypes.PaginatedRequestParams>>;
 type _K_BaseMetadata = Assert<AssertExactKeys<SDKTypes.BaseMetadata, SpecTypes.BaseMetadata>>;
 type _K_Implementation = Assert<AssertExactKeys<SDKTypes.Implementation, SpecTypes.Implementation>>;
-type _K_PaginatedResult = Assert<AssertExactKeysWithResultType<SDKTypes.PaginatedResult, SpecTypes.PaginatedResult>>;
-type _K_ListRootsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListRootsResult, SpecTypes.ListRootsResult>>;
+type _K_PaginatedResult = Assert<AssertExactKeys<SDKTypes.PaginatedResult, SpecTypes.PaginatedResult>>;
+type _K_ListRootsResult = Assert<AssertExactKeys<SDKTypes.ListRootsResult, SpecTypes.ListRootsResult>>;
 type _K_Root = Assert<AssertExactKeys<SDKTypes.Root, SpecTypes.Root>>;
-type _K_ElicitResult = Assert<AssertExactKeysWithResultType<SDKTypes.ElicitResult, SpecTypes.ElicitResult>>;
-type _K_CompleteResult = Assert<AssertExactKeysWithResultType<SDKTypes.CompleteResult, SpecTypes.CompleteResult>>;
+type _K_ElicitResult = Assert<AssertExactKeys<SDKTypes.ElicitResult, SpecTypes.ElicitResult>>;
+type _K_CompleteResult = Assert<AssertExactKeys<SDKTypes.CompleteResult, SpecTypes.CompleteResult>>;
 type _K_Request = Assert<AssertExactKeys<SDKTypes.Request, SpecTypes.Request>>;
-type _K_Result = Assert<AssertExactKeysWithResultType<SDKTypes.Result, SpecTypes.Result>>;
+type _K_Result = Assert<AssertExactKeys<SDKTypes.Result, SpecTypes.Result>>;
 type _K_JSONRPCRequest = Assert<AssertExactKeys<SDKTypes.JSONRPCRequest, SpecTypes.JSONRPCRequest>>;
 type _K_JSONRPCNotification = Assert<AssertExactKeys<SDKTypes.JSONRPCNotification, SpecTypes.JSONRPCNotification>>;
-type _K_EmptyResult = Assert<AssertExactKeysWithResultType<SDKTypes.EmptyResult, SpecTypes.EmptyResult>>;
+type _K_EmptyResult = Assert<AssertExactKeys<SDKTypes.EmptyResult, SpecTypes.EmptyResult>>;
 type _K_Notification = Assert<AssertExactKeys<SDKTypes.Notification, SpecTypes.Notification>>;
 type _K_ResourceTemplateReference = Assert<AssertExactKeys<SDKTypes.ResourceTemplateReference, SpecTypes.ResourceTemplateReference>>;
-// @ts-expect-error Genuine mismatch: SDK PromptReference is missing 'title' from spec
-type _K_PromptReference = Assert<AssertExactKeys<SDKTypes.PromptReference, SpecTypes.PromptReference>>;
+type _K_PromptReference = Assert<AssertExactKeys<Wire2025PromptReference, SpecTypes.PromptReference>>;
 type _K_ToolAnnotations = Assert<AssertExactKeys<SDKTypes.ToolAnnotations, SpecTypes.ToolAnnotations>>;
 type _K_Tool = Assert<AssertExactKeys<SDKTypes.Tool, SpecTypes.Tool>>;
-type _K_ListToolsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
-type _K_CallToolResult = Assert<AssertExactKeysWithResultType<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
-type _K_ListResourcesResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListResourcesResult, SpecTypes.ListResourcesResult>>;
-type _K_ListResourceTemplatesResult = Assert<
-    AssertExactKeysWithResultType<SDKTypes.ListResourceTemplatesResult, SpecTypes.ListResourceTemplatesResult>
->;
-type _K_ReadResourceResult = Assert<AssertExactKeysWithResultType<SDKTypes.ReadResourceResult, SpecTypes.ReadResourceResult>>;
+type _K_ListToolsResult = Assert<AssertExactKeys<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
+type _K_CallToolResult = Assert<AssertExactKeys<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
+type _K_ListResourcesResult = Assert<AssertExactKeys<SDKTypes.ListResourcesResult, SpecTypes.ListResourcesResult>>;
+type _K_ListResourceTemplatesResult = Assert<AssertExactKeys<SDKTypes.ListResourceTemplatesResult, SpecTypes.ListResourceTemplatesResult>>;
+type _K_ReadResourceResult = Assert<AssertExactKeys<SDKTypes.ReadResourceResult, SpecTypes.ReadResourceResult>>;
 type _K_ResourceContents = Assert<AssertExactKeys<SDKTypes.ResourceContents, SpecTypes.ResourceContents>>;
 type _K_TextResourceContents = Assert<AssertExactKeys<SDKTypes.TextResourceContents, SpecTypes.TextResourceContents>>;
 type _K_BlobResourceContents = Assert<AssertExactKeys<SDKTypes.BlobResourceContents, SpecTypes.BlobResourceContents>>;
 type _K_Resource = Assert<AssertExactKeys<SDKTypes.Resource, SpecTypes.Resource>>;
-// @ts-expect-error Genuine mismatch: SDK PromptArgument is missing 'title' from spec
-type _K_PromptArgument = Assert<AssertExactKeys<SDKTypes.PromptArgument, SpecTypes.PromptArgument>>;
+type _K_PromptArgument = Assert<AssertExactKeys<Wire2025PromptArgument, SpecTypes.PromptArgument>>;
 type _K_Prompt = Assert<AssertExactKeys<SDKTypes.Prompt, SpecTypes.Prompt>>;
-type _K_ListPromptsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListPromptsResult, SpecTypes.ListPromptsResult>>;
-type _K_GetPromptResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetPromptResult, SpecTypes.GetPromptResult>>;
+type _K_ListPromptsResult = Assert<AssertExactKeys<SDKTypes.ListPromptsResult, SpecTypes.ListPromptsResult>>;
+type _K_GetPromptResult = Assert<AssertExactKeys<SDKTypes.GetPromptResult, SpecTypes.GetPromptResult>>;
 type _K_TextContent = Assert<AssertExactKeys<SDKTypes.TextContent, SpecTypes.TextContent>>;
 type _K_ImageContent = Assert<AssertExactKeys<SDKTypes.ImageContent, SpecTypes.ImageContent>>;
 type _K_AudioContent = Assert<AssertExactKeys<SDKTypes.AudioContent, SpecTypes.AudioContent>>;
@@ -764,11 +777,9 @@ type _K_TitledMultiSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.TitledMult
 type _K_LegacyTitledEnumSchema = Assert<AssertExactKeys<SDKTypes.LegacyTitledEnumSchema, SpecTypes.LegacyTitledEnumSchema>>;
 type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorResponse, SpecTypes.JSONRPCErrorResponse>>;
 type _K_JSONRPCResultResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCResultResponse, SpecTypes.JSONRPCResultResponse>>;
-type _K_InitializeResult = Assert<AssertExactKeysWithResultType<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
-// @ts-expect-error SDK follows the 2026-07-28 schema's `extensions` capability key; not in released 2025-11-25
-type _K_ClientCapabilities = Assert<AssertExactKeys<SDKTypes.ClientCapabilities, SpecTypes.ClientCapabilities>>;
-// @ts-expect-error SDK follows the 2026-07-28 schema's `extensions` capability key; not in released 2025-11-25
-type _K_ServerCapabilities = Assert<AssertExactKeys<SDKTypes.ServerCapabilities, SpecTypes.ServerCapabilities>>;
+type _K_InitializeResult = Assert<AssertExactKeys<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
+type _K_ClientCapabilities = Assert<AssertExactKeys<Wire2025ClientCapabilities, SpecTypes.ClientCapabilities>>;
+type _K_ServerCapabilities = Assert<AssertExactKeys<Wire2025ServerCapabilities, SpecTypes.ServerCapabilities>>;
 type _K_SamplingMessage = Assert<AssertExactKeys<SDKTypes.SamplingMessage, SpecTypes.SamplingMessage>>;
 type _K_Icon = Assert<AssertExactKeys<SDKTypes.Icon, SpecTypes.Icon>>;
 type _K_Icons = Assert<AssertExactKeys<SDKTypes.Icons, SpecTypes.Icons>>;
@@ -783,11 +794,11 @@ type _K_TaskMetadata = Assert<AssertExactKeys<SDKTypes.TaskMetadata, SpecTypes.T
 type _K_RelatedTaskMetadata = Assert<AssertExactKeys<SDKTypes.RelatedTaskMetadata, SpecTypes.RelatedTaskMetadata>>;
 type _K_TaskAugmentedRequestParams = Assert<AssertExactKeys<SDKTypes.TaskAugmentedRequestParams, SpecTypes.TaskAugmentedRequestParams>>;
 type _K_Task = Assert<AssertExactKeys<SDKTypes.Task, SpecTypes.Task>>;
-type _K_CreateTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
-type _K_GetTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
-type _K_GetTaskPayloadResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
-type _K_ListTasksResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
-type _K_CancelTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
+type _K_CreateTaskResult = Assert<AssertExactKeys<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
+type _K_GetTaskResult = Assert<AssertExactKeys<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
+type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
+type _K_ListTasksResult = Assert<AssertExactKeys<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
+type _K_CancelTaskResult = Assert<AssertExactKeys<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
 type _K_TaskStatusNotificationParams = Assert<
     AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>
 >;
@@ -855,7 +866,7 @@ type _K_CancelTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.C
 // -- Name mismatches (2) --
 // SDK exports these under different names than the spec.
 
-type _K_CreateMessageResult = Assert<AssertExactKeysWithResultType<SDKTypes.CreateMessageResultWithTools, SpecTypes.CreateMessageResult>>;
+type _K_CreateMessageResult = Assert<AssertExactKeys<SDKTypes.CreateMessageResultWithTools, SpecTypes.CreateMessageResult>>;
 type _K_ResourceTemplate = Assert<AssertExactKeys<SDKTypes.ResourceTemplateType, SpecTypes.ResourceTemplate>>;
 
 // Types excluded from the key-parity completeness guard: union types and primitive aliases

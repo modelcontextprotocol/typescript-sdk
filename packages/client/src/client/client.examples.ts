@@ -7,8 +7,6 @@
  * @module
  */
 
-import type { Prompt, Resource, Tool } from '@modelcontextprotocol/core-internal';
-
 import { Client } from './client';
 import { SSEClientTransport } from './sse';
 import { StdioClientTransport } from './stdio';
@@ -107,9 +105,13 @@ async function Client_callTool_structuredOutput(client: Client) {
         arguments: { weightKg: 70, heightM: 1.75 }
     });
 
-    // Machine-readable output for the client application
-    if (result.structuredContent) {
-        console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+    // Machine-readable output for the client application. SEP-2106: structuredContent is
+    // `unknown` (any JSON value). Check for presence with `!== undefined` and narrow before use.
+    if (result.structuredContent !== undefined) {
+        const sc: unknown = result.structuredContent; // e.g. { bmi: 22.86 }
+        if (typeof sc === 'object' && sc !== null && 'bmi' in sc) {
+            console.log(sc.bmi);
+        }
     }
     //#endregion Client_callTool_structuredOutput
 }
@@ -137,61 +139,43 @@ function Client_setRequestHandler_sampling(client: Client) {
 }
 
 /**
- * Example: List tools with cursor-based pagination.
+ * Example: List tools (auto-aggregated across pages).
  */
 async function Client_listTools_pagination(client: Client) {
     //#region Client_listTools_pagination
-    const allTools: Tool[] = [];
-    let cursor: string | undefined;
-    // Note: an empty-string cursor is valid and does not signal the end of results.
-    do {
-        const { tools, nextCursor } = await client.listTools({ cursor });
-        allTools.push(...tools);
-        cursor = nextCursor;
-    } while (cursor !== undefined);
+    // No cursor → all pages aggregated for you.
+    const { tools } = await client.listTools();
     console.log(
         'Available tools:',
-        allTools.map(t => t.name)
+        tools.map(t => t.name)
     );
     //#endregion Client_listTools_pagination
 }
 
 /**
- * Example: List prompts with cursor-based pagination.
+ * Example: List prompts (auto-aggregated across pages).
  */
 async function Client_listPrompts_pagination(client: Client) {
     //#region Client_listPrompts_pagination
-    const allPrompts: Prompt[] = [];
-    let cursor: string | undefined;
-    // Note: an empty-string cursor is valid and does not signal the end of results.
-    do {
-        const { prompts, nextCursor } = await client.listPrompts({ cursor });
-        allPrompts.push(...prompts);
-        cursor = nextCursor;
-    } while (cursor !== undefined);
+    // No cursor → all pages aggregated for you.
+    const { prompts } = await client.listPrompts();
     console.log(
         'Available prompts:',
-        allPrompts.map(p => p.name)
+        prompts.map(p => p.name)
     );
     //#endregion Client_listPrompts_pagination
 }
 
 /**
- * Example: List resources with cursor-based pagination.
+ * Example: List resources (auto-aggregated across pages).
  */
 async function Client_listResources_pagination(client: Client) {
     //#region Client_listResources_pagination
-    const allResources: Resource[] = [];
-    let cursor: string | undefined;
-    // Note: an empty-string cursor is valid and does not signal the end of results.
-    do {
-        const { resources, nextCursor } = await client.listResources({ cursor });
-        allResources.push(...resources);
-        cursor = nextCursor;
-    } while (cursor !== undefined);
+    // No cursor → all pages aggregated for you.
+    const { resources } = await client.listResources();
     console.log(
         'Available resources:',
-        allResources.map(r => r.name)
+        resources.map(r => r.name)
     );
     //#endregion Client_listResources_pagination
 }

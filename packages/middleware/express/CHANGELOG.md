@@ -1,5 +1,86 @@
 # @modelcontextprotocol/express
 
+## 2.0.0-beta.5
+
+### Patch Changes
+
+- Updated dependencies [[`1480241`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1480241e2a2a7f0ceee8e7723b2adcf88579bb36), [`f413763`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f4137630c05dc9a4fb14d4d3777f5cb167bd6313)]:
+    - @modelcontextprotocol/server@2.0.0-beta.5
+
+## 2.0.0-beta.4
+
+### Patch Changes
+
+- Updated dependencies [[`7c49b47`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7c49b47fb3a58b51cec8fd0b337f656515f1a2b7), [`e0a0ab7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e0a0ab74d9baed74572c9f435313fb6daef1b989), [`8e1d2e9`](https://github.com/modelcontextprotocol/typescript-sdk/commit/8e1d2e92b1720d2520122b3a5f20ea084edaf3c4), [`3f07a32`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3f07a325c6741b2374ce2255846dfa0c25f74d03)]:
+    - @modelcontextprotocol/server@2.0.0-beta.4
+
+## 2.0.0-beta.3
+
+### Patch Changes
+
+- [#2420](https://github.com/modelcontextprotocol/typescript-sdk/pull/2420) [`7635115`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7635115d0112c3f980b45a9773a4770660af8aae) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add runtime-neutral Bearer authentication to `@modelcontextprotocol/server`:
+  `requireBearerAuth` gates web-standard `fetch(request)` hosts (Cloudflare
+  Workers, Deno, Bun, Hono), built on the exported `verifyBearerToken` and
+  `bearerAuthChallengeResponse` pieces, with `OAuthTokenVerifier` now defined
+  here. The Express middleware adapts the same core and is unchanged in
+  behavior, except that `WWW-Authenticate` challenge values are now RFC 7235
+  quoted-string sanitized (quotes and backslashes escaped, control and
+  non-ASCII characters replaced); `@modelcontextprotocol/express` re-exports
+  `OAuthTokenVerifier` as before.
+
+- [#2422](https://github.com/modelcontextprotocol/typescript-sdk/pull/2422) [`61866d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/61866d7a5ff4475663ceb525c88447c497c1b92a) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add runtime-neutral OAuth discovery serving to `@modelcontextprotocol/server`:
+  `oauthMetadataResponse` serves the RFC 9728 Protected Resource Metadata and
+  RFC 8414 Authorization Server metadata documents from web-standard
+  `fetch(request)` hosts, built on the exported
+  `buildOAuthProtectedResourceMetadata`, with
+  `getOAuthProtectedResourceMetadataUrl` now defined here. The Express metadata
+  router adapts the same core and is unchanged in behavior; the insecure-issuer
+  escape hatch is an explicit `dangerouslyAllowInsecureIssuerUrl` option in the
+  neutral core instead of a module-scope environment read. The web-standard
+  matcher validates lazily so unmatched traffic always falls through, tolerates
+  a trailing slash, supports HEAD, and marks reflected CORS preflights with
+  `Vary`.
+- Updated dependencies [[`44797d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/44797d77792953d0ce70b68922bb6bb69e697c32), [`1b90c96`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1b90c96d11fd17016d2977cae9dd661de3fb84df), [`561c6d8`](https://github.com/modelcontextprotocol/typescript-sdk/commit/561c6d83456ef98d6c713bbda9837e64337f22c9), [`ce2f65d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/ce2f65db0e019506f4d2526466ec8cc7106de98e), [`7e69735`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7e697354de95111ca2c70a12ac9f5d3ec96b56c3), [`e8de519`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e8de519d3129f46b7528d2999b7641f55be1f091), [`0ab5d14`](https://github.com/modelcontextprotocol/typescript-sdk/commit/0ab5d1471d6c7375878316df2930fca77eee1d2a), [`24be404`](https://github.com/modelcontextprotocol/typescript-sdk/commit/24be4040d454a9c5983901229068477c7a9ea796), [`7635115`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7635115d0112c3f980b45a9773a4770660af8aae), [`61866d7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/61866d7a5ff4475663ceb525c88447c497c1b92a)]:
+    - @modelcontextprotocol/server@2.0.0-beta.3
+
+## 2.0.0-beta.2
+
+### Patch Changes
+
+- [#2405](https://github.com/modelcontextprotocol/typescript-sdk/pull/2405) [`f172626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f172626a8e98b2ae2f0f690e4afb4dc74dbf6011) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Ship CommonJS builds alongside ESM. Each package now emits both `.mjs`/`.d.mts`
+  and `.cjs`/`.d.cts` (via tsdown `format: ['esm', 'cjs']`), and its `exports` map
+  adds a `require` condition so `require('@modelcontextprotocol/…')` works from
+  CommonJS consumers. Output extensions are normalized across all packages
+  (`@modelcontextprotocol/core` moves from `.js`/`.d.ts` to `.mjs`/`.d.mts`); the
+  public import paths are unchanged.
+- Updated dependencies [[`f172626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f172626a8e98b2ae2f0f690e4afb4dc74dbf6011), [`3c7ddaf`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3c7ddafa05d8f17fb52168bf4638f09251c3d0ff)]:
+    - @modelcontextprotocol/server@2.0.0-beta.2
+
+## 2.0.0-beta.1
+
+### Patch Changes
+
+- [#2402](https://github.com/modelcontextprotocol/typescript-sdk/pull/2402) [`a400259`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a4002596b914c675d17ac22471d1287976dbb52a) Thanks [@felixweinberger](https://github.com/felixweinberger)! - First beta release of SDK v2 with support for the MCP 2026-07-28 specification
+  revision. See the migration guides for upgrading from v1
+  (`docs/migration/upgrade-to-v2.md`) and adopting the 2026-07-28 revision
+  (`docs/migration/support-2026-07-28.md`).
+- Updated dependencies [[`a400259`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a4002596b914c675d17ac22471d1287976dbb52a)]:
+    - @modelcontextprotocol/server@2.0.0-beta.1
+
+## 2.0.0-alpha.4
+
+### Minor Changes
+
+- [#2286](https://github.com/modelcontextprotocol/typescript-sdk/pull/2286) [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add Origin header validation alongside the existing Host header validation. The server package gains framework-agnostic helpers (`validateOriginHeader`, `localhostAllowedOrigins`, `originValidationResponse`); the Express, Hono and Fastify adapters gain `originValidation` /
+  `localhostOriginValidation` middleware and a new `allowedOrigins` option on their app factories, which now arm Origin validation by default for localhost-class binds (mirroring the Host validation ladder; the 0.0.0.0-without-allowlist warning is unchanged). Requests
+  without an `Origin` header pass — non-browser MCP clients are unaffected — while a present `Origin` that is not allowed or cannot be parsed (including the opaque `null` origin) is rejected with `403`. The Node adapter ships `hostHeaderValidation` / `originValidation`
+  request guards for plain `node:http` servers, which previously had no validation helpers.
+
+### Patch Changes
+
+- Updated dependencies [[`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`801111e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/801111ea152c1ba08f6dda0b27d712759aeb46bf), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`6cc7b1c`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6cc7b1cb66cabf23423ba0fdf06e2d1c2fcf936f), [`f0bf785`](https://github.com/modelcontextprotocol/typescript-sdk/commit/f0bf785239af67f0cfce24575fec9c1193deaff1), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771), [`1823aae`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1823aae891837ebb5e3db885ec635f9efefd5771)]:
+    - @modelcontextprotocol/server@2.0.0-alpha.4
+
 ## 2.0.0-alpha.3
 
 ### Minor Changes

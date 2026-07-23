@@ -12,9 +12,9 @@ describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
         // the rewritten import would have no exported member. AUTH_SCHEMA_NAMES is the v1 auth-schema set,
         // a SUBSET of core's auth exports: core may export more (v2-only schemas such as
         // IdJagTokenExchangeResponseSchema) that v1 never had and the codemod never encounters. Read
-        // core's barrel directly (the `export { … } from '…/core-internal/auth'` block) so they cannot drift.
+        // core's barrel directly (the `export { … } from './auth'` block) so they cannot drift.
         const src = readFileSync(fileURLToPath(new URL('../../../core/src/index.ts', import.meta.url)), 'utf8');
-        const closeIdx = src.indexOf("} from '@modelcontextprotocol/core-internal/auth'");
+        const closeIdx = src.indexOf("} from './auth'");
         const openIdx = src.lastIndexOf('export {', closeIdx);
         const block = src.slice(openIdx + 'export {'.length, closeIdx);
         const coreAuthExports = new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]));

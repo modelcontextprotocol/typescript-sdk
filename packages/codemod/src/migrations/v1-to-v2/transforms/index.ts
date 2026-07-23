@@ -1,6 +1,6 @@
 import type { Transform } from '../../../types';
+import { completableNestingTransform } from './completableNesting';
 import { contextTypesTransform } from './contextTypes';
-import { expressMiddlewareTransform } from './expressMiddleware';
 import { handlerRegistrationTransform } from './handlerRegistration';
 import { importPathsTransform } from './importPaths';
 import { mcpServerApiTransform } from './mcpServerApi';
@@ -27,10 +27,13 @@ import { symbolRenamesTransform } from './symbolRenames';
 //    to .registerTool() etc. contextTypes handles both old and new names,
 //    but running mcpServerApi first ensures consistent argument structure.
 //
-// 5. handlerRegistration, schemaParamRemoval, and expressMiddleware are
-//    independent of each other but all depend on importPaths having run.
+// 5. handlerRegistration and schemaParamRemoval are independent of each
+//    other but both depend on importPaths having run.
 //
-// 6. mockPaths runs last: handles test mocks and dynamic imports,
+// 6. completableNesting runs after importPaths (it matches the rewritten
+//    completable import) and is independent of the rest.
+//
+// 7. mockPaths runs last: handles test mocks and dynamic imports,
 //    independent of the other transforms.
 export const v1ToV2Transforms: Transform[] = [
     importPathsTransform,
@@ -39,7 +42,7 @@ export const v1ToV2Transforms: Transform[] = [
     mcpServerApiTransform,
     handlerRegistrationTransform,
     schemaParamRemovalTransform,
-    expressMiddlewareTransform,
     contextTypesTransform,
+    completableNestingTransform,
     mockPathsTransform
 ];
