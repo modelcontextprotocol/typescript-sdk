@@ -327,6 +327,7 @@ export class StreamableHTTPClientTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+    onsessionexpired?: () => void | Promise<void>;
 
     /**
      * Streamable HTTP opens one POST (and SSE response stream) per outbound
@@ -901,7 +902,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers?: Readonly<Record<string, string>>;
         }
     ): Promise<void> {
-        return this._send(message, options, false);
+        return this._send(message, options, false, false);
     }
 
     private async _send(
@@ -916,6 +917,7 @@ export class StreamableHTTPClientTransport implements Transport {
               }
             | undefined,
         isAuthRetry: boolean,
+        isSessionRetry = false,
         stepUpRetries = 0
     ): Promise<void> {
         try {
@@ -1004,7 +1006,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, options, true, stepUpRetries);
+                        return this._send(message, options, true, isSessionRetry, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -1018,6 +1020,15 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 const text = await response.text?.().catch(() => null);
 
+                if (response.status === 404 && this._sessionId && !isSessionRetry) {
+                    this._sessionId = undefined;
+                    await this.onsessionexpired?.();
+
+                    if (this._sessionId) {
+                        return this._send(message, options, isAuthRetry, true, stepUpRetries);
+                    }
+                }
+
                 if (response.status === 403) {
                     const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
 
@@ -1029,7 +1040,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (result !== 'AUTHORIZED') {
                             throw new UnauthorizedError();
                         }
-                        return this._send(message, options, isAuthRetry, stepUpRetries + 1);
+                        return this._send(message, options, isAuthRetry, isSessionRetry, stepUpRetries + 1);
                     }
                 }
 

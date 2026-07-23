@@ -370,6 +370,7 @@ verifies('client-transport:http:404-surfaces', async (_args: TestArgs) => {
 
         await client.connect(transport);
         sessionIdToBreak = transport.sessionId;
+        transport.onsessionexpired = undefined;
 
         const call = client.ping();
         await expect(call).rejects.toThrow();

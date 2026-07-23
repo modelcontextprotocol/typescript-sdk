@@ -347,6 +347,10 @@ export type ClientOptions = ProtocolOptions & {
     defaultCacheTtlMs?: number;
 };
 
+type SessionExpiringTransport = Transport & {
+    onsessionexpired?: () => void | Promise<void>;
+};
+
 /**
  * Options for {@linkcode Client.connect}. Extends {@linkcode RequestOptions}
  * (the timeout/signal apply to the connect-time handshake or probe) with the
@@ -1000,6 +1004,13 @@ export class Client extends Protocol<ClientContext> {
      */
     private async _connectPlainLegacy(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
+        (transport as SessionExpiringTransport).onsessionexpired = async () => {
+            this._serverCapabilities = undefined;
+            this._serverVersion = undefined;
+            this._negotiatedProtocolVersion = undefined;
+            await this._initialize(transport, options);
+        };
+
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
         // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
@@ -1038,64 +1049,69 @@ export class Client extends Protocol<ClientContext> {
         // revision is negotiated exclusively via server/discover.
         const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
         try {
-            const offeredVersion = legacyVersions[0];
-            if (offeredVersion === undefined) {
-                throw new SdkError(
-                    SdkErrorCode.EraNegotiationFailed,
-                    'Cannot run the initialize handshake: supportedProtocolVersions contains no pre-2026-07-28 protocol version'
-                );
-            }
-            const result = await this.request(
-                {
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: offeredVersion,
-                        capabilities: this._capabilities,
-                        clientInfo: this._clientInfo
-                    }
-                },
-                options
-            );
-
-            if (result === undefined) {
-                throw new Error(`Server sent invalid initialize result: ${result}`);
-            }
-
-            if (!legacyVersions.includes(result.protocolVersion)) {
-                throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
-            }
-
-            this._serverCapabilities = result.capabilities;
-            this._serverVersion = result.serverInfo;
-            this._cache.setServerIdentity(this._deriveServerIdentity(transport));
-            // HTTP transports must set the protocol version in each header after initialization.
-            if (transport.setProtocolVersion) {
-                transport.setProtocolVersion(result.protocolVersion);
-            }
-
-            this._instructions = result.instructions;
-
-            await this.notification({
-                method: 'notifications/initialized'
-            });
-
-            // Handshake completion: the negotiated version becomes the
-            // instance's connection state, and with it the wire era for
-            // everything this connection sends/receives from here on (the
-            // negotiated version cashes out as the negotiated wire ERA —
-            // Q1-SD1). Set AFTER the initialized notification: the initialize
-            // EXCHANGE is the legacy handshake by definition and completes on
-            // that era.
-            this._negotiatedProtocolVersion = result.protocolVersion;
-
-            // Set up list changed handlers now that we know server capabilities
-            if (this._listChangedConfig) {
-                this._setupListChangedHandlers(this._listChangedConfig);
-            }
+            await this._initialize(transport, options);
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
             throw error;
+        }
+    }
+
+    private async _initialize(transport: Transport, options?: RequestOptions): Promise<void> {
+        const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
+        const offeredVersion = legacyVersions[0];
+        if (offeredVersion === undefined) {
+            throw new SdkError(
+                SdkErrorCode.EraNegotiationFailed,
+                'Cannot run the initialize handshake: supportedProtocolVersions contains no pre-2026-07-28 protocol version'
+            );
+        }
+        const result = await this.request(
+            {
+                method: 'initialize',
+                params: {
+                    protocolVersion: offeredVersion,
+                    capabilities: this._capabilities,
+                    clientInfo: this._clientInfo
+                }
+            },
+            options
+        );
+
+        if (result === undefined) {
+            throw new Error(`Server sent invalid initialize result: ${result}`);
+        }
+
+        if (!legacyVersions.includes(result.protocolVersion)) {
+            throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+        }
+
+        this._serverCapabilities = result.capabilities;
+        this._serverVersion = result.serverInfo;
+        this._cache.setServerIdentity(this._deriveServerIdentity(transport));
+        // HTTP transports must set the protocol version in each header after initialization.
+        if (transport.setProtocolVersion) {
+            transport.setProtocolVersion(result.protocolVersion);
+        }
+
+        this._instructions = result.instructions;
+
+        await this.notification({
+            method: 'notifications/initialized'
+        });
+
+        // Handshake completion: the negotiated version becomes the
+        // instance's connection state, and with it the wire era for
+        // everything this connection sends/receives from here on (the
+        // negotiated version cashes out as the negotiated wire ERA —
+        // Q1-SD1). Set AFTER the initialized notification: the initialize
+        // EXCHANGE is the legacy handshake by definition and completes on
+        // that era.
+        this._negotiatedProtocolVersion = result.protocolVersion;
+
+        // Set up list changed handlers now that we know server capabilities
+        if (this._listChangedConfig) {
+            this._setupListChangedHandlers(this._listChangedConfig);
         }
     }
 
