@@ -1,0 +1,19 @@
+.changeset/streamable-http-sse-keepalive.md
+  s_6554e05bf70569::t_1b890d04c9b982 5-6
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2bdf8c5402aca897e6e555b550724e6dc992c6d4",
+  "prompts": {},
+  "sessions": {
+    "s_6554e05bf70569": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c7fefde-eeda-4423-a160-f6cd6ad01574",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
