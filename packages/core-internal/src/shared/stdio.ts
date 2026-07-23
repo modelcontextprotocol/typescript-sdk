@@ -31,7 +31,8 @@ export class ReadBuffer {
             }
 
             const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
-            this._buffer = this._buffer.subarray(index + 1);
+            const remainder = this._buffer.subarray(index + 1);
+            this._buffer = remainder.length === 0 ? undefined : remainder;
 
             try {
                 return deserializeMessage(line);
