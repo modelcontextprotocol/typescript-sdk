@@ -1,0 +1,19 @@
+src/server/webStandardStreamableHttp.ts
+  s_074b8d4601561f::t_35ad47706a3c13 277-279,683-684
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "15a556f3a7dd2f24c5068111ce90e96d5c017688",
+  "prompts": {},
+  "sessions": {
+    "s_074b8d4601561f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93ed-4d1e-73be-acb0-6f89a93e9980",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
