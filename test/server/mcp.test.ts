@@ -6931,4 +6931,74 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             taskStore.cleanup();
         });
     });
+
+    // Zod v4's toJSONSchema options were hardcoded (issue #2464): the server ships
+    // a tool's raw structuredContent object as-is, without running it through the
+    // schema's output transform, so the advertised schema must describe that raw
+    // shape rather than the fully-resolved (defaults-applied, closed) shape.
+    if (entry.isV4) {
+        describe('zod v4 toJSONSchema options (issue #2464)', () => {
+            test('z.date() in an input schema no longer crashes tools/list', async () => {
+                const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+                const client = new Client({ name: 'test client', version: '1.0' });
+
+                mcpServer.registerTool('schedule', { inputSchema: { when: z.date() } }, async () => ({
+                    content: [{ type: 'text', text: 'ok' }]
+                }));
+
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+                await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const whenSchema = result.tools[0].inputSchema.properties?.when as Record<string, unknown>;
+                expect(whenSchema).toEqual({ type: 'string', format: 'date-time' });
+            });
+
+            test('a defaulted output field is not advertised as required, and a response omitting it validates', async () => {
+                const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+                const client = new Client({ name: 'test client', version: '1.0' });
+
+                mcpServer.registerTool(
+                    'lookup',
+                    {
+                        inputSchema: { id: z.string() },
+                        outputSchema: { id: z.string(), count: z.number().default(1) }
+                    },
+                    async ({ id }) => ({
+                        content: [{ type: 'text', text: id }],
+                        structuredContent: { id }
+                    })
+                );
+
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+                await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+                const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const outputSchema = listResult.tools[0].outputSchema as { required?: string[] };
+                expect(outputSchema.required).not.toContain('count');
+
+                const callResult = await client.callTool({ name: 'lookup', arguments: { id: '42' } });
+                expect(callResult.isError).toBeFalsy();
+            });
+
+            test('an output schema does not set additionalProperties:false, so extra returned fields validate', async () => {
+                const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+                const client = new Client({ name: 'test client', version: '1.0' });
+
+                mcpServer.registerTool('extra', { inputSchema: {}, outputSchema: { id: z.string() } }, async () => ({
+                    content: [{ type: 'text', text: 'ok' }],
+                    structuredContent: { id: '1', extraField: 'surprise' }
+                }));
+
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+                await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+                const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                expect(listResult.tools[0].outputSchema).not.toHaveProperty('additionalProperties');
+
+                const callResult = await client.callTool({ name: 'extra', arguments: {} });
+                expect(callResult.isError).toBeFalsy();
+            });
+        });
+    }
 });
