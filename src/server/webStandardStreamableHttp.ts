@@ -71,6 +71,12 @@ interface StreamMapping {
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
+    /**
+     * Event IDs delivered to this stream by replay when it was registered.
+     * Lets send() avoid re-delivering events the replay already wrote when a
+     * resume raced in-flight event-store writes.
+     */
+    replayedEventIds?: Set<string>;
 }
 
 /**
@@ -586,6 +592,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             });
 
             // Replay events - returns the streamId for backwards compatibility
+            const replayedEventIds = new Set<string>();
             replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
@@ -596,6 +603,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         } catch {
                             // Controller might already be closed
                         }
+                    } else {
+                        replayedEventIds.add(eventId);
                     }
                 }
             });
@@ -620,6 +629,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
+                replayedEventIds,
                 cleanup: () => {
                     if (keepAliveTimer !== undefined) {
                         clearInterval(keepAliveTimer);
@@ -748,6 +758,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(400, -32700, 'Parse error: Invalid JSON-RPC message');
             }
 
+            // close() may have run while awaiting the request body above: don't
+            // initialize a session (or fire onsessioninitialized) on a transport
+            // whose cleanups have already run.
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32001, 'Session not found');
+            }
+
             // Check if this is an initialization request
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
             const isInitializationRequest = messages.some(isInitializeRequest);
@@ -784,6 +801,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 if (protocolError) {
                     return protocolError;
                 }
+            }
+
+            // close() may have run while awaiting the request body or the session
+            // initialization callback above: don't register streams into maps the
+            // close sweep has already cleared, or hand out a stream that nothing
+            // will ever write to.
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32001, 'Session not found');
             }
 
             // check if it contains requests
@@ -1095,8 +1120,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return;
             }
 
-            // Send the message to the standalone SSE stream
-            if (standaloneSse.controller && standaloneSse.encoder) {
+            // Send the message to the standalone SSE stream, unless this stream
+            // was registered by a replay that already delivered this event (the
+            // store made it visible before this call resumed).
+            if (
+                standaloneSse.controller &&
+                standaloneSse.encoder &&
+                (eventId === undefined || !standaloneSse.replayedEventIds?.has(eventId))
+            ) {
                 this.writeSSEEvent(standaloneSse.controller, standaloneSse.encoder, message, eventId);
             }
             return;
@@ -1108,17 +1139,27 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             throw new Error(`No connection established for request ID: ${String(requestId)}`);
         }
 
-        const stream = this._streamMapping.get(streamId);
+        let stream = this._streamMapping.get(streamId);
 
-        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
-            // For SSE responses, generate event ID if event store is provided
+        if (!this._enableJsonResponse) {
+            // Store the event even if the stream is disconnected (e.g. after
+            // closeSSEStream switched the client to polling), so it can be
+            // replayed on reconnect — mirroring the standalone stream path.
             let eventId: string | undefined;
 
             if (this._eventStore) {
                 eventId = await this._eventStore.storeEvent(streamId, message);
+                // Re-fetch after the await: a resume completing meanwhile replaces
+                // this stream's registration with a successor, and the message
+                // must go to the live stream, not the evicted one.
+                stream = this._streamMapping.get(streamId);
             }
-            // Write the event to the response stream
-            this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+            // Skip the write if the stream was registered by a replay that
+            // already delivered this event (the store made it visible before
+            // this call resumed).
+            if (stream?.controller && stream?.encoder && (eventId === undefined || !stream.replayedEventIds?.has(eventId))) {
+                this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+            }
         }
 
         if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
@@ -1132,6 +1173,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
+                    if (!this._enableJsonResponse && this._eventStore) {
+                        // The stream went away (client disconnect, or
+                        // closeSSEStream switched the client to polling), but the
+                        // response was stored above and will be replayed on
+                        // resume — release the correlations rather than throwing.
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                        return;
+                    }
+                    // Without resumability (or in JSON response mode, where the
+                    // pending HTTP response can never be settled by a replay),
+                    // a missing stream means the response cannot be delivered.
                     throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {
