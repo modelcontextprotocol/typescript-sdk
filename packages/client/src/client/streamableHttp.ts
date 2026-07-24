@@ -323,6 +323,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _pendingAuthPromise?: Promise<void>;
+    private _authReject?: (error: Error) => void;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -499,6 +501,9 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
+        if (this._pendingAuthPromise) {
+            await this._pendingAuthPromise;
+        }
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -867,17 +872,35 @@ export class StreamableHTTPClientTransport implements Transport {
             { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
         );
 
-        const result = await auth(this._oauthProvider, {
-            serverUrl: this._url,
-            authorizationCode,
-            iss: issParam,
-            resourceMetadataUrl: this._resourceMetadataUrl,
-            scope: this._scope,
-            fetchFn: this._fetchWithInit,
-            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
+        let authResolve: () => void;
+        this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+            authResolve = resolve;
+            this._authReject = reject;
         });
-        if (result !== 'AUTHORIZED') {
-            throw new UnauthorizedError('Failed to authorize');
+        // Prevent UnhandledPromiseRejection if it fails and no one awaits it
+        this._pendingAuthPromise.catch(() => {});
+
+        try {
+            const result = await auth(this._oauthProvider, {
+                serverUrl: this._url,
+                authorizationCode,
+                iss: issParam,
+                resourceMetadataUrl: this._resourceMetadataUrl,
+                scope: this._scope,
+                fetchFn: this._fetchWithInit,
+                skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
+            });
+            if (result !== 'AUTHORIZED') {
+                throw new UnauthorizedError('Failed to authorize');
+            }
+            authResolve!();
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            this._authReject?.(err);
+            throw error;
+        } finally {
+            this._pendingAuthPromise = undefined;
+            this._authReject = undefined;
         }
     }
 
@@ -887,6 +910,13 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
+
+            if (this._authReject) {
+                this._authReject(new Error('Transport closed'));
+                this._pendingAuthPromise = undefined;
+                this._authReject = undefined;
+            }
+
             this.onclose?.();
         }
     }
@@ -918,6 +948,9 @@ export class StreamableHTTPClientTransport implements Transport {
         isAuthRetry: boolean,
         stepUpRetries = 0
     ): Promise<void> {
+        if (this._pendingAuthPromise) {
+            await this._pendingAuthPromise;
+        }
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
 
