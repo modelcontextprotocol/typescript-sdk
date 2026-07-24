@@ -1,0 +1,31 @@
+.changeset/streamable-http-sse-keepalive.md
+  s_404633d8355141::t_9ad8d028d4ca57 5
+packages/server/test/server/perRequestStreaming.test.ts
+  s_404633d8355141::t_5b39b6f12978b8 330
+packages/server/test/server/streamableHttp.test.ts
+  s_90de8aa6df6bc1::t_16df0b6412ac6e 1478
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "49f886cdda1e3fa8ad6cb270171d2570c33c510c",
+  "prompts": {},
+  "sessions": {
+    "s_404633d8355141": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93e8-ad28-797b-8636-a6538dbbb43a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_90de8aa6df6bc1": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93e8-0720-7778-a066-738c64cde4bc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
