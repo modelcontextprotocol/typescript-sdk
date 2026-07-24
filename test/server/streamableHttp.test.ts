@@ -270,6 +270,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('text/event-stream');
+            expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
             expect(response.headers.get('x-accel-buffering')).toBe('no');
             expect(response.headers.get('mcp-session-id')).toBeDefined();
         });
@@ -487,6 +488,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
+            expect(sseResponse.headers.get('cache-control')).toBe('no-cache, no-transform');
             expect(sseResponse.headers.get('x-accel-buffering')).toBe('no');
 
             // Send a notification (server-initiated message) that should appear on SSE stream
@@ -1446,6 +1448,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(reconnectResponse.status).toBe(200);
+            expect(reconnectResponse.headers.get('cache-control')).toBe('no-cache, no-transform');
             expect(reconnectResponse.headers.get('x-accel-buffering')).toBe('no');
 
             // Read the replayed notification
@@ -3566,5 +3569,87 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         expect(internals._requestToStreamMapping.size).toBe(0);
 
         await transport.close();
+    });
+
+    it('should not reclaim a successor mapping that reused the failed POST request id', async () => {
+        let failPriming = false;
+        let rejectPriming: (() => void) | undefined;
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                if (failPriming) {
+                    return new Promise<EventId>((_resolve, reject) => {
+                        rejectPriming = () => reject(new Error('event store unavailable'));
+                    });
+                }
+                return `evt-${randomUUID()}`;
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return 'stream-1';
+            }
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        mcpServer.registerTool('noop', { description: 'noop' }, async () => ({ content: [] }));
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+        await vi.advanceTimersByTimeAsync(0);
+        failPriming = true;
+
+        const pending = transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'noop', arguments: {} }, id: 'same-id' },
+                headers: withSession(sessionId)
+            })
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(rejectPriming).toBeDefined();
+
+        const internals = transport as unknown as {
+            _streamMapping: Map<string, unknown>;
+            _requestToStreamMapping: Map<unknown, string>;
+        };
+        const failedStreamId = internals._requestToStreamMapping.get('same-id');
+        expect(failedStreamId).toBeDefined();
+        internals._requestToStreamMapping.set('same-id', 'successor-stream');
+
+        rejectPriming?.();
+        await pending;
+
+        expect(internals._streamMapping.has(failedStreamId!)).toBe(false);
+        expect(internals._requestToStreamMapping.get('same-id')).toBe('successor-stream');
+        internals._requestToStreamMapping.delete('same-id');
+        await transport.close();
+    });
+
+    it('should not register a POST stream after close races session initialization', async () => {
+        let releaseInitialization: (() => void) | undefined;
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: async () => {
+                await new Promise<void>(resolve => {
+                    releaseInitialization = resolve;
+                });
+            }
+        });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+
+        const pendingInit = transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(releaseInitialization).toBeDefined();
+
+        await transport.close();
+        releaseInitialization?.();
+        const response = await pendingInit;
+
+        expect(response.status).toBe(404);
+        expect(vi.getTimerCount()).toBe(0);
+        const internals = transport as unknown as {
+            _streamMapping: Map<string, unknown>;
+            _requestToStreamMapping: Map<unknown, string>;
+        };
+        expect(internals._streamMapping.size).toBe(0);
+        expect(internals._requestToStreamMapping.size).toBe(0);
     });
 });
