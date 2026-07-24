@@ -227,6 +227,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _closed: boolean = false;
     private _hasHandledRequest: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -271,7 +272,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * clears itself if a write fails (stream already closed/cancelled).
      */
     private startKeepAlive(streamId: string, controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
-        if (this._keepAliveMs <= 0) {
+        // A deferred arm (e.g. after an event-store await that straddled
+        // close()) must not outlive the transport: close()'s timer sweep has
+        // already run. The `> 0` polarity disables keep-alive for non-finite
+        // values (NaN fails every comparison) instead of arming a
+        // Node-clamped ~1ms interval.
+        if (!(this._keepAliveMs > 0) || this._closed) {
             return;
         }
         this.stopKeepAlive(streamId);
@@ -842,8 +848,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
-            this.startKeepAlive(streamId, streamController!, encoder);
-
             // Write priming event if event store is configured (after mapping is set up)
             await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
 
@@ -868,6 +872,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
+
+            // Arm keep-alive only after the fallible awaits above — an error
+            // path returning 400 discards the Response, so nothing could ever
+            // cancel the stream and clear an already-armed timer. Skip if the
+            // responses already completed and cleaned the stream up.
+            if (this._streamMapping.get(streamId)?.controller === streamController!) {
+                this.startKeepAlive(streamId, streamController!, encoder);
+            }
 
             return new Response(readable, { status: 200, headers });
         } catch (error) {
@@ -961,6 +973,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        this._closed = true;
+
         // Close all SSE connections
         this._streamMapping.forEach(({ cleanup }) => {
             cleanup();
