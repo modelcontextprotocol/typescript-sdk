@@ -3412,9 +3412,9 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
     it('should supersede the previous keep-alive timer when a replayed stream re-registers under the same stream id', async () => {
         // Event store WITHOUT the optional getStreamIdForEventId — the replay
         // path then skips its 409 conflict check, so a reconnect re-registers
-        // the same stream id. The predecessor's timer must be replaced, not
-        // orphaned (an orphaned timer's failing write would clear the live
-        // stream's keep-alive via stopKeepAlive on the shared stream id).
+        // the same stream id. The predecessor stream must be closed and its
+        // timer cleared, not left orphaned; each timer is owned by its stream,
+        // so a stale timer's failing write only ever clears itself.
         const eventStore: EventStore = {
             async storeEvent(): Promise<EventId> {
                 return 'evt-1';
@@ -3444,6 +3444,231 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         await vi.advanceTimersByTimeAsync(15000);
         const { value } = await reader.read();
         expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        await transport.close();
+    });
+});
+
+describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', () => {
+    /** Shorthand to build a Web Standard Request for direct transport testing. */
+    function req(method: string, opts?: { body?: unknown; headers?: Record<string, string> }): Request {
+        const headers: Record<string, string> = { ...opts?.headers };
+        if (method === 'POST') {
+            headers['Accept'] ??= 'application/json, text/event-stream';
+            headers['Content-Type'] ??= 'application/json';
+        } else if (method === 'GET') {
+            headers['Accept'] ??= 'text/event-stream';
+        }
+        return new Request('http://localhost/mcp', {
+            method,
+            headers,
+            body: opts?.body !== undefined ? JSON.stringify(opts.body) : undefined
+        });
+    }
+
+    /**
+     * Minimal event store WITHOUT the optional getStreamIdForEventId, so the
+     * replay path re-registers a stream id without a 409 conflict check —
+     * the reconnect shape these tests exercise.
+     */
+    function createSimpleEventStore(): EventStore {
+        const events: { id: EventId; streamId: StreamId; message: JSONRPCMessage }[] = [];
+        let counter = 0;
+        return {
+            async storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId> {
+                const id = `${streamId}#${counter++}`;
+                events.push({ id, streamId, message });
+                return id;
+            },
+            async replayEventsAfter(lastEventId: EventId, { send }): Promise<StreamId> {
+                const index = events.findIndex(e => e.id === lastEventId);
+                const streamId = events[index]?.streamId ?? '_GET_stream';
+                for (const event of events.slice(index + 1).filter(e => e.streamId === streamId)) {
+                    await send(event.id, event.message);
+                }
+                return streamId;
+            }
+        };
+    }
+
+    async function createTransport(options?: {
+        keepAliveMs?: number;
+        eventStore?: EventStore;
+    }): Promise<{ transport: WebStandardStreamableHTTPServerTransport; sessionId: string }> {
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), ...options });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        expect(initResponse.status).toBe(200);
+        return { transport, sessionId: initResponse.headers.get('mcp-session-id') as string };
+    }
+
+    function get(sessionId: string, lastEventId?: string): Request {
+        const headers: Record<string, string> = { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' };
+        if (lastEventId !== undefined) {
+            headers['Last-Event-ID'] = lastEventId;
+        }
+        return req('GET', { headers });
+    }
+
+    /** Opens the standalone GET stream and returns a real stored event id to resume from. */
+    async function openGetStreamWithEvent(
+        transport: WebStandardStreamableHTTPServerTransport,
+        sessionId: string
+    ): Promise<{ reader: ReadableStreamDefaultReader<Uint8Array>; eventId: string }> {
+        const response = await transport.handleRequest(get(sessionId));
+        expect(response.status).toBe(200);
+        const reader = response.body!.getReader();
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'x' } });
+        const { value } = await reader.read();
+        const eventId = /^id: (.+)$/m.exec(new TextDecoder().decode(value))?.[1];
+        expect(eventId).toBeDefined();
+        return { reader, eventId: eventId! };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('should keep the resumed stream alive when the predecessor connection is cancelled late', async () => {
+        const { transport, sessionId } = await createTransport({ eventStore: createSimpleEventStore() });
+        const { reader: staleReader, eventId } = await openGetStreamWithEvent(transport, sessionId);
+
+        // Client reconnects and resumes while the old connection is still half-open
+        const resumed = await transport.handleRequest(get(sessionId, eventId));
+        expect(resumed.status).toBe(200);
+        const resumedReader = resumed.body!.getReader();
+
+        // The old connection's socket finally dies. This must not tear down the
+        // resumed stream's keep-alive timer or its stream registration.
+        await staleReader.cancel();
+
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value: frame } = await resumedReader.read();
+        expect(new TextDecoder().decode(frame)).toBe(': keepalive\n\n');
+
+        // Server-to-client messages must still reach the resumed stream too
+        await transport.send({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: 'after' } });
+        const { value: notification } = await resumedReader.read();
+        expect(new TextDecoder().decode(notification)).toContain('notifications/message');
+
+        await transport.close();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('should close the predecessor stream when a resume re-registers its stream id', async () => {
+        const { transport, sessionId } = await createTransport({ eventStore: createSimpleEventStore() });
+        const { reader: staleReader, eventId } = await openGetStreamWithEvent(transport, sessionId);
+
+        await transport.handleRequest(get(sessionId, eventId));
+
+        // The superseded stream must end cleanly rather than hang as a zombie
+        const { done } = await staleReader.read();
+        expect(done).toBe(true);
+
+        await transport.close();
+    });
+
+    it('should not arm keep-alive when the transport closes during an event-store replay await', async () => {
+        let releaseReplay: (() => void) | undefined;
+        const eventStore: EventStore = {
+            async storeEvent(): Promise<EventId> {
+                return 'evt-1';
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                await new Promise<void>(resolve => {
+                    releaseReplay = resolve;
+                });
+                return '_GET_stream';
+            }
+        };
+        const { transport, sessionId } = await createTransport({ eventStore });
+
+        // Enter replayEvents and park on the replayEventsAfter await
+        const pendingGet = transport.handleRequest(get(sessionId, 'evt-1'));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(releaseReplay).toBeDefined();
+
+        // Close the transport mid-await, then let the replay continuation run.
+        // The deferred continuation must not arm a timer close() can never clear,
+        // and must not hand out a 200 SSE stream nothing will ever write to.
+        await transport.close();
+        releaseReplay!();
+        const response = await pendingGet;
+
+        expect(response.status).toBe(404);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('should not leave a keep-alive timer armed when the priming event write fails', async () => {
+        let failStore = false;
+        const eventStore: EventStore = {
+            async storeEvent(streamId: StreamId): Promise<EventId> {
+                if (failStore) {
+                    throw new Error('store unavailable');
+                }
+                return `${streamId}#0`;
+            },
+            async replayEventsAfter(): Promise<StreamId> {
+                return '_GET_stream';
+            }
+        };
+        const { transport, sessionId } = await createTransport({ eventStore });
+        // Let the init response complete so its own stream cleanup has run
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vi.getTimerCount()).toBe(0);
+
+        failStore = true;
+        const response = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'req-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+
+        // The 400 discards the Response, so nothing could ever cancel the stream —
+        // no timer may be left behind.
+        expect(response.status).toBe(400);
+        expect(vi.getTimerCount()).toBe(0);
+
+        // The failed request's stream and correlation must be released too: a
+        // late response for it has nowhere to go and must say so, rather than
+        // being written to a dead stream.
+        await expect(transport.send({ jsonrpc: '2.0', id: 'req-1', result: { tools: [] } })).rejects.toThrow(
+            'No connection established for request ID'
+        );
+
+        await transport.close();
+    });
+
+    it.each([NaN, Infinity])('should disable keep-alive for non-finite keepAliveMs (%s)', async keepAliveMs => {
+        const { transport, sessionId } = await createTransport({ keepAliveMs });
+
+        const response = await transport.handleRequest(get(sessionId));
+        expect(response.status).toBe(200);
+
+        // A non-finite interval must disable keep-alive, not arm a broken timer
+        // (setInterval would clamp it to ~1ms and flood the stream).
+        expect(vi.getTimerCount()).toBe(0);
+
+        await transport.close();
+    });
+
+    it('should clamp keepAliveMs above 2^31-1 instead of flooding the stream', async () => {
+        const { transport, sessionId } = await createTransport({ keepAliveMs: 2 ** 31 });
+
+        const response = await transport.handleRequest(get(sessionId));
+        const reader = response.body!.getReader();
+
+        // Un-clamped, setInterval treats 2^31 as ~1ms and floods; clamped, no
+        // frame is due for a very long time.
+        await vi.advanceTimersByTimeAsync(60000);
+        const read = reader.read();
+        const raced = await Promise.race([read, Promise.resolve('pending')]);
+        expect(raced).toBe('pending');
 
         await transport.close();
     });
