@@ -1,0 +1,21 @@
+packages/server/src/server/perRequestTransport.ts
+  s_074b8d4601561f::t_26de23a9dee377 423-424,427
+packages/server/src/server/streamableHttp.ts
+  s_074b8d4601561f::t_42e0590ba3a5df 303-305,548-549,608-609,658-672,772-777,940-941,970-978,1016
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a606d7d78a7abeaefde2b065286e9fca49200f53",
+  "prompts": {},
+  "sessions": {
+    "s_074b8d4601561f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93ed-4d1e-73be-acb0-6f89a93e9980",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
