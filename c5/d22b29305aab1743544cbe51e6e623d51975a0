@@ -1,0 +1,19 @@
+test/server/streamableHttp.test.ts
+  s_6554e05bf70569::t_71a2bfa4be6fc1 3293-3296,3454-3545
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c5d22b29305aab1743544cbe51e6e623d51975a0",
+  "prompts": {},
+  "sessions": {
+    "s_6554e05bf70569": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "5c7fefde-eeda-4423-a160-f6cd6ad01574",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
