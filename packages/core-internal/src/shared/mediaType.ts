@@ -55,3 +55,39 @@ export function isJsonContentType(header: string | null | undefined): boolean {
     }
     return mediaTypeEssence(header) === 'application/json';
 }
+
+function splitHttpList(header: string): string[] {
+    const values: string[] = [];
+    let start = 0;
+    let quoted = false;
+    let escaped = false;
+
+    for (let index = 0; index < header.length; index += 1) {
+        const char = header[index];
+        if (escaped) {
+            escaped = false;
+        } else if (quoted && char === '\\') {
+            escaped = true;
+        } else if (char === '"') {
+            quoted = !quoted;
+        } else if (char === ',' && !quoted) {
+            values.push(header.slice(start, index));
+            start = index + 1;
+        }
+    }
+
+    values.push(header.slice(start));
+    return values;
+}
+
+/**
+ * Whether an `Accept` header lists a concrete media type. Parameters and
+ * quality values are ignored; wildcards intentionally do not match because MCP
+ * transport requirements name exact response media types.
+ */
+export function listsMediaType(header: string | null | undefined, mediaType: string): boolean {
+    const expected = mediaType.toLowerCase();
+    return splitHttpList(header ?? '')
+        .map(part => mediaTypeEssence(part))
+        .includes(expected);
+}
