@@ -156,7 +156,8 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      *
      * Comment frames are ignored by SSE parsers and never surface as messages.
      * Defaults to 15000 (per the WHATWG SSE spec recommendation of roughly every
-     * 15 seconds). Set to 0 to disable keep-alive frames.
+     * 15 seconds). Set to 0 to disable keep-alive frames; values below 1, above
+     * 2147483647, or non-finite values also disable the timer.
      */
     keepAliveMs?: number;
 }
@@ -276,7 +277,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // close()) must not outlive the transport: close()'s timer sweep has
         // already run. Invalid timer delays disable keep-alive rather than
         // letting setInterval clamp them to ~1ms and flood every stream.
-        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs <= 0 || this._keepAliveMs > 2_147_483_647 || this._closed) {
+        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs < 1 || this._keepAliveMs > 2_147_483_647 || this._closed) {
             return;
         }
         this.stopKeepAlive(streamId);
@@ -493,7 +494,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
         };
 
         // After initialization, always include the session ID if we have one
@@ -552,7 +554,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             if (this.sessionId !== undefined) {
@@ -839,7 +842,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             // After initialization, always include the session ID if we have one

@@ -270,6 +270,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('text/event-stream');
+            expect(response.headers.get('x-accel-buffering')).toBe('no');
             expect(response.headers.get('mcp-session-id')).toBeDefined();
         });
 
@@ -486,6 +487,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
 
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
+            expect(sseResponse.headers.get('x-accel-buffering')).toBe('no');
 
             // Send a notification (server-initiated message) that should appear on SSE stream
             const notification: JSONRPCMessage = {
@@ -1444,6 +1446,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
 
             expect(reconnectResponse.status).toBe(200);
+            expect(reconnectResponse.headers.get('x-accel-buffering')).toBe('no');
 
             // Read the replayed notification
             const reconnectReader = reconnectResponse.body?.getReader();
@@ -3452,7 +3455,7 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         await transport.close();
     });
 
-    it.each([Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+    it.each([0.5, Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
         'should disable keep-alive for invalid keepAliveMs %s instead of arming a clamped interval',
         async keepAliveMs => {
             const { transport, sessionId } = await createTransport({ keepAliveMs });
