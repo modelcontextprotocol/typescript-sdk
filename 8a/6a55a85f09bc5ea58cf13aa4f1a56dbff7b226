@@ -1,0 +1,37 @@
+packages/server/src/server/listenRouter.ts
+  s_6b2b0878d5bce2::t_2bd45aec5fec30 248
+packages/server/src/server/perRequestTransport.ts
+  s_6b2b0878d5bce2::t_f7d637b5e2cf21 407
+packages/server/src/server/streamableHttp.ts
+  s_6b2b0878d5bce2::t_017b44bafeaccd 416-419,873-878,947,981
+packages/server/test/server/createMcpHandlerListen.test.ts
+  s_6b2b0878d5bce2::t_948716afa26374 108-109
+packages/server/test/server/perRequestStreaming.test.ts
+  s_6b2b0878d5bce2::t_066b24363d853f 97
+packages/server/test/server/streamableHttp.test.ts
+  s_90de8aa6df6bc1::t_4319dd6ab9b2ca 168,362,864,1662-1744
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8a6a55a85f09bc5ea58cf13aa4f1a56dbff7b226",
+  "prompts": {},
+  "sessions": {
+    "s_6b2b0878d5bce2": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93de-9411-7948-8709-d5e5e9de5cfa",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_90de8aa6df6bc1": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93e8-0720-7778-a066-738c64cde4bc",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
