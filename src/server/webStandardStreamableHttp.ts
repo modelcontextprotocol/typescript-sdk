@@ -274,10 +274,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private startKeepAlive(streamId: string, controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
         // A deferred arm (e.g. after an event-store await that straddled
         // close()) must not outlive the transport: close()'s timer sweep has
-        // already run. The `> 0` polarity disables keep-alive for non-finite
-        // values (NaN fails every comparison) instead of arming a
-        // Node-clamped ~1ms interval.
-        if (!(this._keepAliveMs > 0) || this._closed) {
+        // already run. Non-finite intervals (NaN, Infinity) and non-positive
+        // ones disable keep-alive: setInterval would clamp them to ~1ms and
+        // flood every stream with comment frames.
+        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs <= 0 || this._closed) {
             return;
         }
         this.stopKeepAlive(streamId);
@@ -589,6 +589,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
+            // The transport may have closed while the replay await was parked:
+            // its cleanup sweep ran before this stream was registered, so
+            // registering now would strand a mapping (and an open controller)
+            // on a dead transport, hang the client on a stream that never
+            // ends, and 409-block a later resume of this stream id. End the
+            // stream instead so the client observes termination.
+            if (this._closed) {
+                try {
+                    streamController!.close();
+                } catch {
+                    // Controller might already be closed
+                }
+                return new Response(readable, { headers });
+            }
+
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
@@ -664,6 +679,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles POST requests containing JSON-RPC messages
      */
     private async handlePostRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        // Set once the SSE stream bookkeeping has been registered, so the
+        // catch below can reclaim it: an error after registration (a failed
+        // priming event write, a throwing message handler) returns 400 and
+        // discards the Response, leaving nothing that could ever cancel the
+        // stream or retire the request mappings.
+        let reclaimSseBookkeeping: (() => void) | undefined;
         try {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
@@ -848,6 +869,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
+            reclaimSseBookkeeping = () => {
+                this._streamMapping.get(streamId)?.cleanup();
+                for (const message of messages) {
+                    if (isJSONRPCRequest(message)) {
+                        this._requestToStreamMapping.delete(message.id);
+                    }
+                }
+            };
+
             // Write priming event if event store is configured (after mapping is set up)
             await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
 
@@ -885,6 +915,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         } catch (error) {
             // return JSON-RPC formatted error
             this.onerror?.(error as Error);
+            reclaimSseBookkeeping?.();
             return this.createJsonErrorResponse(400, -32700, 'Parse error', { data: String(error) });
         }
     }
