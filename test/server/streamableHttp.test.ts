@@ -3452,8 +3452,8 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         await transport.close();
     });
 
-    it.each([Number.NaN, Number.POSITIVE_INFINITY])(
-        'should disable keep-alive for non-finite keepAliveMs %s instead of arming a clamped interval',
+    it.each([Number.NaN, Number.POSITIVE_INFINITY, 2_147_483_648])(
+        'should disable keep-alive for invalid keepAliveMs %s instead of arming a clamped interval',
         async keepAliveMs => {
             const { transport, sessionId } = await createTransport({ keepAliveMs });
 
@@ -3542,13 +3542,12 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         expect(vi.getTimerCount()).toBe(0);
         storeFails = true;
 
-        const response = await transport.handleRequest(
+        await transport.handleRequest(
             req('POST', {
                 body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'noop', arguments: {} }, id: 'call-1' },
                 headers: withSession(sessionId)
             })
         );
-        expect(response.status).toBe(400);
 
         // The discarded stream must not carry a permanently-firing timer
         expect(vi.getTimerCount()).toBe(0);

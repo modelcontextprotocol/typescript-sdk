@@ -274,10 +274,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private startKeepAlive(streamId: string, controller: ReadableStreamDefaultController<Uint8Array>, encoder: TextEncoder): void {
         // A deferred arm (e.g. after an event-store await that straddled
         // close()) must not outlive the transport: close()'s timer sweep has
-        // already run. Non-finite intervals (NaN, Infinity) and non-positive
-        // ones disable keep-alive: setInterval would clamp them to ~1ms and
-        // flood every stream with comment frames.
-        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs <= 0 || this._closed) {
+        // already run. Invalid timer delays disable keep-alive rather than
+        // letting setInterval clamp them to ~1ms and flood every stream.
+        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs <= 0 || this._keepAliveMs > 2_147_483_647 || this._closed) {
             return;
         }
         this.stopKeepAlive(streamId);
@@ -681,8 +680,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private async handlePostRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         // Set once the SSE stream bookkeeping has been registered, so the
         // catch below can reclaim it: an error after registration (a failed
-        // priming event write, a throwing message handler) returns 400 and
-        // discards the Response, leaving nothing that could ever cancel the
+        // priming event write, a throwing message handler) returns an error
+        // response, leaving nothing that could ever cancel the discarded
         // stream or retire the request mappings.
         let reclaimSseBookkeeping: (() => void) | undefined;
         try {
