@@ -242,4 +242,35 @@ describe('Server', () => {
             expect(result.structuredContent).toEqual({ ok: true });
         });
     });
+
+    describe('sendResourceUpdated capability warning', () => {
+        async function connectServer(server: Server): Promise<void> {
+            const [, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+        }
+
+        it('warns once when resources.subscribe is not advertised', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+            await connectServer(server);
+
+            await server.sendResourceUpdated({ uri: 'test://resource' });
+            await server.sendResourceUpdated({ uri: 'test://resource-2' });
+
+            expect(warnSpy).toHaveBeenCalledTimes(1);
+            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('resources.subscribe'));
+            warnSpy.mockRestore();
+        });
+
+        it('does not warn when resources.subscribe is advertised', async () => {
+            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+            await connectServer(server);
+
+            await server.sendResourceUpdated({ uri: 'test://resource' });
+
+            expect(warnSpy).not.toHaveBeenCalled();
+            warnSpy.mockRestore();
+        });
+    });
 });

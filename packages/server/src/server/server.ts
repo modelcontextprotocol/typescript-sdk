@@ -289,6 +289,8 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
+    /** Emit at most one warn when sendResourceUpdated is used without resources.subscribe. */
+    private _warnedResourceUpdatedWithoutSubscribe = false;
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
@@ -1298,6 +1300,19 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
+        // Resource update notifications only reach clients that subscribed via
+        // resources/subscribe. That method is gated on the advertised
+        // `resources.subscribe` capability — without it, clients cannot opt in
+        // and the notification is effectively a no-op for them. Warn once so
+        // the missing capability is easy to spot during development (#2545).
+        if (!this._capabilities.resources?.subscribe && !this._warnedResourceUpdatedWithoutSubscribe) {
+            this._warnedResourceUpdatedWithoutSubscribe = true;
+            console.warn(
+                '[mcp-sdk] sendResourceUpdated() called without advertising capabilities.resources.subscribe. ' +
+                    'Clients cannot subscribe to resource updates unless the server sets ' +
+                    '{ resources: { subscribe: true } } in its capabilities.'
+            );
+        }
         return this.notification({
             method: 'notifications/resources/updated',
             params
