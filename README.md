@@ -31,6 +31,30 @@ npm install @modelcontextprotocol/sdk zod
 
 This SDK has a **required peer dependency** on `zod` for schema validation. The SDK internally imports from `zod/v4`, but maintains backwards compatibility with projects using Zod v3.25 or later. You can use either API in your code by importing from `zod/v3` or `zod/v4`:
 
+### Optional peer dependencies (HTTP / SSE / OAuth transports)
+
+The HTTP, SSE, and OAuth helpers ship as **optional peer dependencies** so that
+stdio-only consumers can install `@modelcontextprotocol/sdk` without pulling in
+Express, Hono, or related transitive packages
+([#1924](https://github.com/modelcontextprotocol/typescript-sdk/issues/1924)).
+
+Install only what you actually use:
+
+| You use… | Install |
+| --- | --- |
+| `StdioClientTransport`, `StdioServerTransport` | nothing extra (just the SDK + `zod`) |
+| `StreamableHTTPServerTransport` (Node) | `@hono/node-server` |
+| `SSEServerTransport` | `raw-body content-type` |
+| `SSEClientTransport` | `eventsource` |
+| `StreamableHTTPClientTransport` | `eventsource-parser` |
+| `createMcpExpressApp`, OAuth `mcpAuthRouter`, host-header middleware | `express cors express-rate-limit` |
+| `createPrivateKeyJwtAuth` (RFC 7523) | `jose` |
+
+If you import a transport without its peer installed, Node will throw a clear
+`ERR_MODULE_NOT_FOUND` at load time pointing at the missing package — install
+it and you're done. Existing apps that already depend on Express / Hono via
+their own `package.json` continue to work unchanged.
+
 ## Quick Start
 
 To see the SDK in action end-to-end, start from the runnable examples in `src/examples`:
@@ -117,7 +141,7 @@ The SDK ships runnable examples under `src/examples`. Use these tables to find t
 
 ### Server examples
 
-| Scenario                                            | Description                                                                                       | Example file(s)                                                                                          | Related docs                                                             |
+| Scenario                                            | Description                                                                                       | Example file(s)                                                                                          | Related docs                                                               |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
 | Streamable HTTP server (stateful)                   | Feature-rich server with tools, resources, prompts, logging, tasks, sampling, and optional OAuth. | [`simpleStreamableHttp.ts`](src/examples/server/simpleStreamableHttp.ts)                                 | [`server.md`](docs/server.md), [`capabilities.md`](docs/capabilities.md) |
 | Streamable HTTP server (stateless)                  | No session tracking; good for simple API-style servers.                                           | [`simpleStatelessStreamableHttp.ts`](src/examples/server/simpleStatelessStreamableHttp.ts)               | [`server.md`](docs/server.md)                                            |
@@ -132,8 +156,8 @@ The SDK ships runnable examples under `src/examples`. Use these tables to find t
 
 ### Client examples
 
-| Scenario                                            | Description                                                                        | Example file(s)                                                                                                                                                                                                                        | Related docs                                                 |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
+| Scenario                                            | Description                                                                        | Example file(s)                                                                                                                                                                                                                       | Related docs                                                 |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Interactive Streamable HTTP client                  | CLI client that exercises tools, resources, prompts, elicitation, and tasks.       | [`simpleStreamableHttp.ts`](src/examples/client/simpleStreamableHttp.ts)                                                                                                                                                               | [`client.md`](docs/client.md)                                |
 | Backwards-compatible client (Streamable HTTP → SSE) | Tries Streamable HTTP first, then falls back to SSE on 4xx responses.              | [`streamableHttpWithSseFallbackClient.ts`](src/examples/client/streamableHttpWithSseFallbackClient.ts)                                                                                                                                 | [`client.md`](docs/client.md), [`server.md`](docs/server.md) |
 | SSE polling client                                  | Polls a legacy SSE server and demonstrates notification handling.                  | [`ssePollingClient.ts`](src/examples/client/ssePollingClient.ts)                                                                                                                                                                       | [`client.md`](docs/client.md)                                |
