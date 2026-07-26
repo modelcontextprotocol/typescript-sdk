@@ -243,34 +243,42 @@ describe('Server', () => {
         });
     });
 
-    describe('sendResourceUpdated capability warning', () => {
+    describe('resource subscription capabilities (#2545)', () => {
         async function connectServer(server: Server): Promise<void> {
             const [, serverTransport] = InMemoryTransport.createLinkedPair();
             await server.connect(serverTransport);
         }
 
-        it('warns once when resources.subscribe is not advertised', async () => {
-            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        it('sendResourceUpdated throws without resources.subscribe', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
             await connectServer(server);
 
-            await server.sendResourceUpdated({ uri: 'test://resource' });
-            await server.sendResourceUpdated({ uri: 'test://resource-2' });
-
-            expect(warnSpy).toHaveBeenCalledTimes(1);
-            expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('resources.subscribe'));
-            warnSpy.mockRestore();
+            await expect(server.sendResourceUpdated({ uri: 'test://resource' })).rejects.toThrow(/resource subscriptions/);
         });
 
-        it('does not warn when resources.subscribe is advertised', async () => {
-            const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        it('sendResourceUpdated succeeds when resources.subscribe is advertised', async () => {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
             await connectServer(server);
 
-            await server.sendResourceUpdated({ uri: 'test://resource' });
+            await expect(server.sendResourceUpdated({ uri: 'test://resource' })).resolves.toBeUndefined();
+        });
 
-            expect(warnSpy).not.toHaveBeenCalled();
-            warnSpy.mockRestore();
+        it('setRequestHandler rejects resources/subscribe without the capability', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+
+            expect(() => server.setRequestHandler('resources/subscribe', async () => ({}))).toThrow(/resource subscriptions/);
+        });
+
+        it('setRequestHandler rejects resources/unsubscribe without the capability', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: {} } });
+
+            expect(() => server.setRequestHandler('resources/unsubscribe', async () => ({}))).toThrow(/resource subscriptions/);
+        });
+
+        it('setRequestHandler allows resources/subscribe when the capability is advertised', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+
+            expect(() => server.setRequestHandler('resources/subscribe', async () => ({}))).not.toThrow();
         });
     });
 });
