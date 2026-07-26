@@ -1,0 +1,30 @@
+packages/server/src/server/perRequestTransport.ts
+  s_ddb8094a758708::t_f91e50c3ac37b4 61-62,84-85,114,148,153,353-355,395,402,413-414
+  s_ddb8094a758708::t_478a3e4ad40394 415
+packages/server/test/server/createMcpHandler.test.ts
+  s_074b8d4601561f::t_d0de3f22034c24 823-876
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3c4e82f4c302edc6190d6d69ccff451a50490150",
+  "prompts": {},
+  "sessions": {
+    "s_074b8d4601561f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "019f93ed-4d1e-73be-acb0-6f89a93e9980",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_ddb8094a758708": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3cf0eb75-fa5e-4f10-820a-9dbf6611c182",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
