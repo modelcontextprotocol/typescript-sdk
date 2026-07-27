@@ -516,7 +516,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client:jsonschema:unsupported-dialect-graceful': {
         source: 'sdk',
         behavior:
-            'A tool whose advertised outputSchema declares a $schema dialect URI the built-in validator does not recognise is refused gracefully on the client: callTool throws InvalidParams with a clear "unsupported dialect … 2020-12 only" message instead of having the underlying engine fail opaquely.'
+            'A tool whose advertised outputSchema declares a $schema dialect URI the built-in validator does not recognise (2020-12, 2019-09, draft-07, and draft-06 are supported) is refused gracefully on the client: callTool throws InvalidParams with a clear "unsupported dialect" message instead of having the underlying engine fail opaquely.'
     },
     'client:jsonschema:bad-schema-isolates-tool': {
         source: 'sdk',
