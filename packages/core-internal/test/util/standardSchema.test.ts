@@ -250,6 +250,12 @@ describe('zod conversion options (#2464)', () => {
             /must describe objects/
         );
         expect(() => standardSchemaToJsonSchema(z.promise(z.bigint()), 'input')).toThrow(/must describe objects/);
+        // `.nonoptional()` is a transparent wrapper like its siblings.
+        expect(() => standardSchemaToJsonSchema(z.bigint().nonoptional(), 'input')).toThrow(/must describe objects/);
+        // Compositions: a union is non-object when EVERY member is, an intersection
+        // when ANY side is.
+        expect(() => standardSchemaToJsonSchema(z.union([z.bigint(), z.symbol()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.bigint(), z.bigint()), 'input')).toThrow(/must describe objects/);
         // Wrapped OBJECT roots stay accepted.
         expect(standardSchemaToJsonSchema(z.object({ a: z.string() }).optional(), 'input').type).toBe('object');
         expect(
@@ -258,6 +264,28 @@ describe('zod conversion options (#2464)', () => {
                 'input'
             ).type
         ).toBe('object');
+        // A union with one representable object member stays accepted.
+        expect(standardSchemaToJsonSchema(z.union([z.bigint(), z.object({ a: z.string() })]), 'input').type).toBe('object');
+    });
+
+    test('symbol- and function-valued output fields are not advertised as required', () => {
+        const schema = z.object({ s: z.symbol(), f: z.function(), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // JSON.stringify drops Symbol- and function-valued keys from the payload, so
+        // no serialized result can ever carry them.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a .catch() wrapping a union keeps a composition type skeleton (root still proves object)', () => {
+        const schema = z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]).catch({ a: 'd' });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The catch node emits {anyOf, default} with no `type`; deleting `anyOf`
+        // would leave the root typeless and flip the 2025-era legacy wrap.
+        expect(result.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
     });
 
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {

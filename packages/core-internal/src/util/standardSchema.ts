@@ -191,12 +191,13 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   absent from the shipped payload (`.default()`, undefined-accepting types) from
  *   `required`: zod fills defaults during validation, but ships the raw object.
  * - Output `.catch()` nodes drop their constraint keywords (`properties`, `required`,
- *   `additionalProperties`, …) but keep the emitted `type`, annotations, and
- *   `default`: catch-validation accepts any raw value — the fallback replaces it
- *   only in the parsed result, which the server never ships. `type` is kept at every
- *   position (zod deduplicates reused instances, so the verdict must be
- *   position-independent) and preserves the 2025-era legacy-wrap object proof at the
- *   root and in root-level compositions.
+ *   `additionalProperties`, …) but keep the emitted `type` (with composition keywords
+ *   reduced to member type skeletons), annotations, and `default`: catch-validation
+ *   accepts any raw value — the fallback replaces it only in the parsed result, which
+ *   the server never ships. The type signal is kept at every position (zod
+ *   deduplicates reused instances, so the verdict must be position-independent) and
+ *   preserves the 2025-era legacy-wrap object proof at the root and in root-level
+ *   compositions.
  *
  * Known residual gaps:
  * - Input schemas (tool `inputSchema`, prompt `argsSchema`) containing `z.date()`
@@ -240,17 +241,23 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 // `.catch()` accepts any raw value — invalid input is replaced by the
                 // fallback only in the parsed result, which the server never ships — so
                 // no inner constraint is enforced on the wire: drop the constraint
-                // keywords but KEEP the emitted `type`. The verdict must be
+                // keywords but KEEP the emitted `type`, and reduce composition keywords
+                // (`anyOf`/`oneOf`/`allOf`, emitted when the catch wraps a union or
+                // intersection) to member type skeletons. The verdict must be
                 // position-independent — zod deduplicates reused instances and runs
                 // this hook once per instance, so one shared node can sit at both a
-                // nested position and a root(-composition) position — and deleting
-                // `type` at the latter would break the output epilogue's root object
-                // proof and flip the 2025-era legacy-wrap predicate
+                // nested position and a root(-composition) position — and losing the
+                // type signal at the latter would break the output epilogue's root
+                // object proof and flip the 2025-era legacy-wrap predicate
                 // (`isNonObjectJsonSchemaRoot`), silently changing the wire shape.
                 for (const key of Object.keys(ctx.jsonSchema)) {
                     // `x-*` vendor extensions are annotation-only (same convention as the
                     // elicitation walker) and carry no validation constraint.
                     if (key === 'type' || ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-')) continue;
+                    if ((key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(ctx.jsonSchema[key])) {
+                        ctx.jsonSchema[key] = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+                        continue;
+                    }
                     delete ctx.jsonSchema[key];
                 }
                 return;
@@ -285,6 +292,25 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
 }
 
 /**
+ * Reduces a degraded node's composition member to its type skeleton — `type` plus
+ * recursively-skeletonized nested compositions, nothing else — so the output
+ * epilogue's `isProvablyObjectShapedRoot` proof survives the `.catch()` degrade
+ * without advertising any unenforced member constraint.
+ */
+function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
+    if (typeof node !== 'object' || node === null) return {};
+    const source = node as Record<string, unknown>;
+    const skeleton: Record<string, unknown> = {};
+    if (source.type !== undefined) skeleton.type = source.type;
+    for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
+        if (Array.isArray(source[key])) {
+            skeleton[key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+        }
+    }
+    return skeleton;
+}
+
+/**
  * JSON Schema annotation-vocabulary keywords (plus `default`, itself an annotation)
  * preserved when a node's constraints are degraded because validation does not enforce
  * them on the raw value (`.catch()` nodes).
@@ -316,6 +342,11 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     // keep the field required.
     const defType = field._zod.def.type;
     if (defType === 'default' || defType === 'prefault') return true;
+    // JSON.stringify drops Symbol- and function-valued keys from the serialized
+    // payload entirely (the same mechanism that drops undefined-valued keys), so
+    // such fields can never appear on the wire.
+    const unwrapped = unwrappedZodDefType(field);
+    if (unwrapped === 'symbol' || unwrapped === 'function') return true;
     try {
         const result = field['~standard'].validate(undefined);
         if (result instanceof Promise) {
@@ -427,15 +458,71 @@ export function standardSchemaToJsonSchema(
     // so misregistered roots keep failing loudly instead of being advertised as
     // permanently-uncallable `{type: 'object'}` tools.
     if (result.type === undefined) {
-        const defType = unwrappedZodDefType(schema);
-        if (defType !== undefined && NON_OBJECT_TYPELESS_ROOTS.has(defType)) {
+        const nonObjectType = nonObjectTypelessRootType(schema);
+        if (nonObjectType !== undefined) {
             throw new Error(
-                `MCP tool and prompt schemas must describe objects (got a non-object ${defType} schema). ` +
+                `MCP tool and prompt schemas must describe objects (got a non-object ${nonObjectType} schema). ` +
                     `Wrap your schema in z.object({...}) or equivalent.`
             );
         }
     }
     return { type: 'object', ...result };
+}
+
+/**
+ * The def type of a zod root that emits a typeless node yet provably cannot describe
+ * an object, or `undefined` when the root may. Unwraps via {@linkcode unwrappedZodDefType}'s
+ * wrapper rules, then also recurses into compositions: a union is non-object when EVERY
+ * member is (one representable object member keeps it accepted), an intersection when
+ * ANY side is (the value must satisfy both). The shared seen-set bounds recursive lazies.
+ */
+function nonObjectTypelessRootType(schema: unknown, seen: Set<unknown> = new Set()): string | undefined {
+    let current = schema;
+    while (typeof current === 'object' && current !== null && !seen.has(current)) {
+        seen.add(current);
+        const def = (
+            current as {
+                _zod?: {
+                    def?: {
+                        type?: string;
+                        innerType?: unknown;
+                        getter?: unknown;
+                        in?: unknown;
+                        options?: unknown;
+                        left?: unknown;
+                        right?: unknown;
+                    };
+                };
+            }
+        )._zod?.def;
+        if (def === undefined || typeof def.type !== 'string') return undefined;
+        if (def.type === 'lazy' && typeof def.getter === 'function') {
+            try {
+                current = (def.getter as () => unknown)();
+            } catch {
+                return undefined;
+            }
+            continue;
+        }
+        if (def.type === 'pipe' && def.in !== undefined) {
+            current = def.in;
+            continue;
+        }
+        if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
+            current = def.innerType;
+            continue;
+        }
+        if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
+            return def.options.every(option => nonObjectTypelessRootType(option, seen) !== undefined) ? 'union' : undefined;
+        }
+        if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
+            return nonObjectTypelessRootType(def.left, seen) !== undefined || nonObjectTypelessRootType(def.right, seen) !== undefined
+                ? 'intersection'
+                : undefined;
+        }
+        return NON_OBJECT_TYPELESS_ROOTS.has(def.type) ? def.type : undefined;
+    }
+    return undefined;
 }
 
 /**
@@ -460,7 +547,16 @@ const NON_OBJECT_TYPELESS_ROOTS: ReadonlySet<string> = new Set([
 ]);
 
 /** Transparent wrapper def types whose `innerType` carries the real root semantics. */
-const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set(['optional', 'nullable', 'readonly', 'default', 'prefault', 'catch', 'promise']);
+const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set([
+    'optional',
+    'nonoptional',
+    'nullable',
+    'readonly',
+    'default',
+    'prefault',
+    'catch',
+    'promise'
+]);
 
 /**
  * The innermost def type of a zod schema, unwrapped through transparent wrappers
