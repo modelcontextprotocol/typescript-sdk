@@ -956,13 +956,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'logging:set-level:invalid-level': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling',
-        behavior: 'logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0.'
-            }
-        ]
+        behavior: 'logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).'
     },
     'logging:out-of-band:basic': {
         transports: STATEFUL_TRANSPORTS,
