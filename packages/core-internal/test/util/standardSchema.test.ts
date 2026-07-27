@@ -158,15 +158,16 @@ describe('zod conversion options (#2464)', () => {
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         // Catch-validation accepts any raw value (the fallback replaces it only in the
-        // parsed result, which never ships), so no inner constraint may be advertised.
-        // The emitted `type` is kept: the verdict must be position-independent (zod
-        // deduplicates reused instances), and root positions need it for the 2025-era
-        // legacy-wrap object proof.
+        // parsed result, which never ships), so no inner constraint may be advertised —
+        // including a non-object `type`, which would reject the wrong-typed raw values
+        // catch exists to tolerate. Only `type: 'object'` is kept: the verdict must be
+        // position-independent (zod deduplicates reused instances), and it is all the
+        // 2025-era legacy-wrap object proof consumes.
         const properties = result.properties as Record<string, Record<string, unknown>>;
         expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' }, type: 'object' });
-        expect(properties.scalar).toEqual({ default: 0, type: 'number' });
+        expect(properties.scalar).toEqual({ default: 0 });
         // `x-*` vendor extensions are annotation-only and must survive the degrade.
-        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1, type: 'number' });
+        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1 });
         // A raw payload omitting the catch fields also validates, so they are not required.
         expect(result.required).toEqual(['name']);
     });
@@ -266,6 +267,26 @@ describe('zod conversion options (#2464)', () => {
         ).toBe('object');
         // A union with one representable object member stays accepted.
         expect(standardSchemaToJsonSchema(z.union([z.bigint(), z.object({ a: z.string() })]), 'input').type).toBe('object');
+    });
+
+    test('shared-instance union members each get a real verdict', () => {
+        // The cycle guard tracks only the current traversal path, so a schema constant
+        // reused across union arms must not short-circuit the second member's verdict.
+        const shared = z.bigint();
+        expect(() => standardSchemaToJsonSchema(z.union([shared, shared]), 'input')).toThrow(/must describe objects/);
+    });
+
+    test('representable literal unions keep listing (idiomatic zod enum spelling)', () => {
+        // Regression: these converted and listed pre-#2464 — classifying every literal
+        // member as non-object made one such registration fail the ENTIRE tools/list.
+        expect(standardSchemaToJsonSchema(z.union([z.literal('admin'), z.literal('member')]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal('a')), 'input').type).toBe('object');
+        // Representable non-object members also keep the composition accepted, exactly
+        // as such roots converted pre-#2464.
+        expect(standardSchemaToJsonSchema(z.union([z.string(), z.number()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.literal('a'), z.null()]), 'input').type).toBe('object');
+        // Literals with unrepresentable values still reject inside compositions.
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(undefined), z.bigint()]), 'input')).toThrow(/must describe objects/);
     });
 
     test('symbol- and function-valued output fields are not advertised as required', () => {

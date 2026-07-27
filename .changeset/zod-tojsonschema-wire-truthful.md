@@ -23,8 +23,12 @@ the sanitization hook on a schema reused both bare and via a `.describe()`/`.met
 in the same conversion; full per-node sanitization requires zod >=4.3.0. And the
 `z.date()` advertisement assumes a serializing transport: `InMemoryTransport` passes the
 raw `Date` by reference, so a validating client rejects it over that testing transport.
-On the input side, a `z.date()` tool/prompt argument is advertised as `string`/`date-time`
-but input validation still runs the raw zod schema, which rejects strings — use
-`z.iso.date()`/`z.iso.datetime()` for date-valued inputs.) Elicitation is unaffected:
+On the input side, a required tool/prompt argument of a type JSON cannot carry makes the
+tool listed yet uncallable: `z.date()` is advertised as `string`/`date-time` and other
+unrepresentable types (`z.bigint()`, `z.map()`, `z.set()`, `z.symbol()`) as an
+unconstrained `{}`, but input validation still runs the raw zod schema, which rejects
+every JSON payload — use a JSON-representable type such as `z.iso.date()`/
+`z.iso.datetime()`, `z.number()`, `z.record(...)`, or `z.array(...)`, or make the field
+optional.) Elicitation is unaffected:
 `inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
 round-trip, including `z.date()`.
