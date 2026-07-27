@@ -132,6 +132,47 @@ describe('zod conversion options (#2464)', () => {
         expect(result.required).toEqual(['likes', 'shares']);
     });
 
+    test('a defaulted field with an async stage is still dropped from output required', () => {
+        const schema = z.object({
+            d: z
+                .number()
+                .default(0)
+                .refine(async () => true),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The async refine pushes the validate(undefined) probe to a Promise, but a
+        // defaulted field accepts a missing key by construction — decided structurally.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('.catch() output nodes degrade to an unconstrained schema (annotations kept)', () => {
+        const schema = z.object({
+            inner: z.object({ n: z.string() }).catch({ n: 'd' }).describe('lenient'),
+            scalar: z.number().catch(0),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Catch-validation accepts any raw value (the fallback replaces it only in the
+        // parsed result, which never ships), so no inner constraint may be advertised.
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' } });
+        expect(properties.scalar).toEqual({ default: 0 });
+        // A raw payload omitting the catch fields also validates, so they are not required.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('unrepresentable non-object roots still throw on the input path', () => {
+        // `unrepresentable: 'any'` degrades these roots to a typeless {}, which must not
+        // be stamped `type: 'object'` — the tool would be advertised but never callable.
+        expect(() => standardSchemaToJsonSchema(z.bigint(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.map(z.string(), z.number()), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.set(z.string()), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.symbol(), 'input')).toThrow(/must describe objects/);
+    });
+
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {
         const schema = z.object({ n: z.unknown().transform(v => (v as string).length), name: z.string() });
         const result = standardSchemaToJsonSchema(schema, 'output');

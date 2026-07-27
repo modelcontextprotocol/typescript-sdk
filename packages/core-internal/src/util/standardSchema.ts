@@ -190,6 +190,9 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  * - Output objects and enum-keyed records drop properties that may be legitimately
  *   absent from the shipped payload (`.default()`, undefined-accepting types) from
  *   `required`: zod fills defaults during validation, but ships the raw object.
+ * - Output `.catch()` nodes degrade to an unconstrained schema (annotations and the
+ *   emitted `default` kept): catch-validation accepts any raw value — the fallback
+ *   replaces it only in the parsed result, which the server never ships.
  *
  * Known residual gaps:
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
@@ -203,6 +206,10 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   `if (!seen.isParent)` guard in `v4/core/to-json-schema.js`, removed in zod
  *   4.3.0), so a schema reused both bare and via a clone leaves the bare node
  *   unsanitized. Full per-node sanitization requires zod >=4.3.0.
+ * - The `z.date()` → `string`/`date-time` advertisement assumes a serializing
+ *   transport. `InMemoryTransport` passes messages by reference with no JSON
+ *   round-trip, so the raw `Date` the server must ship reaches a validating client
+ *   as a `Date` instance and fails the advertised schema there.
  */
 function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
@@ -217,6 +224,15 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 return;
             }
             if (io !== 'output') return;
+            if (def.type === 'catch') {
+                // `.catch()` accepts any raw value — invalid input is replaced by the
+                // fallback only in the parsed result, which the server never ships — so
+                // no inner constraint is enforced on the wire.
+                for (const key of Object.keys(ctx.jsonSchema)) {
+                    if (!ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key)) delete ctx.jsonSchema[key];
+                }
+                return;
+            }
             if (def.type === 'record') {
                 // Enum-keyed records emit a `required` list too. Every key shares the one
                 // value schema, so tolerance for missing keys is all-or-nothing.
@@ -247,6 +263,22 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
 }
 
 /**
+ * JSON Schema annotation-vocabulary keywords (plus `default`, itself an annotation)
+ * preserved when a node's constraints are degraded because validation does not enforce
+ * them on the raw value (`.catch()` nodes).
+ */
+const ANNOTATION_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
+    '$comment',
+    'default',
+    'deprecated',
+    'description',
+    'examples',
+    'readOnly',
+    'title',
+    'writeOnly'
+]);
+
+/**
  * Whether a raw payload that omits this field still passes validation (zod treats a
  * missing key as `undefined` — true for `.default()`/`.prefault()`, `z.any()`,
  * `z.unknown()`, `z.undefined()`, and unions with them), so the wire schema must not
@@ -256,6 +288,12 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
  */
 function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     if (field === undefined) return false;
+    // Defaulted fields accept a missing key by construction (zod fills the default
+    // before any refinement runs) — decide structurally, since an async stage
+    // (`.refine(async ...)`) would push the probe below to a Promise and wrongly
+    // keep the field required.
+    const defType = field._zod.def.type;
+    if (defType === 'default' || defType === 'prefault') return true;
     try {
         const result = field['~standard'].validate(undefined);
         if (result instanceof Promise) {
@@ -362,8 +400,27 @@ export function standardSchemaToJsonSchema(
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
     }
+    // `unrepresentable: 'any'` erases the explicit non-object `type` the guard above keys
+    // on (e.g. a bare `z.bigint()` root emits `{}`); recover the signal from the zod def
+    // so misregistered roots keep failing loudly instead of being advertised as
+    // permanently-uncallable `{type: 'object'}` tools.
+    if (result.type === undefined) {
+        const defType = (schema as { _zod?: { def?: { type?: string } } })._zod?.def?.type;
+        if (defType !== undefined && NON_OBJECT_UNREPRESENTABLE_ROOTS.has(defType)) {
+            throw new Error(
+                `MCP tool and prompt schemas must describe objects (got an unrepresentable ${defType} schema). ` +
+                    `Wrap your schema in z.object({...}) or equivalent.`
+            );
+        }
+    }
     return { type: 'object', ...result };
 }
+
+/**
+ * Zod root types that `unrepresentable: 'any'` degrades to a typeless `{}` but which
+ * provably do not describe objects — the input-root guard must keep rejecting them.
+ */
+const NON_OBJECT_UNREPRESENTABLE_ROOTS: ReadonlySet<string> = new Set(['bigint', 'symbol', 'map', 'set']);
 
 /**
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords

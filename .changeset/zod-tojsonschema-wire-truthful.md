@@ -18,7 +18,9 @@ these schema shapes. (Output schemas containing `.transform()`/`.pipe()`/`z.coer
 advertise the post-transform shape while the server ships the raw pre-transform value — a
 pre-existing gap this change does not address. And on zod 4.0–4.2.x, `toJSONSchema` skips
 the sanitization hook on a schema reused both bare and via a `.describe()`/`.meta()` clone
-in the same conversion; full per-node sanitization requires zod >=4.3.0.) Elicitation is
-unaffected:
+in the same conversion; full per-node sanitization requires zod >=4.3.0. And the
+`z.date()` advertisement assumes a serializing transport: `InMemoryTransport` passes the
+raw `Date` by reference, so a validating client rejects it over that testing transport.)
+Elicitation is unaffected:
 `inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
 round-trip, including `z.date()`.
