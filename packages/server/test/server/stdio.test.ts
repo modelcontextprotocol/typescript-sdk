@@ -250,7 +250,35 @@ test('should reject send() when stdout errors before drain', async () => {
 
     await expect(sendPromise).rejects.toThrow('write EPIPE');
     expect(slowOutput.listenerCount('drain')).toBe(0);
-    expect(slowOutput.listenerCount('error')).toBe(0);
+    // send()'s per-send listeners are cleaned up; only the transport's post-close
+    // swallow-only 'error' listener remains (the stdout error triggered close()).
+    expect(slowOutput.listenerCount('error')).toBe(1);
+});
+
+test('should swallow stdout errors that surface after close (late EPIPE from a pending write)', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => resolve();
+    });
+
+    await server.start();
+
+    // Fast-path send: write() returns true, so the per-send 'error' listener is
+    // detached immediately — but the OS-level write may still be pending.
+    await server.send({ jsonrpc: '2.0', id: 1, method: 'ping' });
+
+    // The client hangs up: stdin EOF closes the transport.
+    input.push(null);
+    await closed;
+
+    // The pending write now fails (e.g. EPIPE because the client's read end is
+    // gone). If stdout had no 'error' listener left, this emit would throw
+    // ERR_UNHANDLED_ERROR — in a real process, an uncaught exception and exit 1.
+    expect(() => output.emit('error', new Error('write EPIPE'))).not.toThrow();
 });
 
 test('should reject send() after transport is closed', async () => {

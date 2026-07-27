@@ -65,6 +65,14 @@ export class StdioServerTransport implements Transport {
             // Ignore errors during close — we're already in an error path
         });
     };
+    _onstdouterrorafterclose = () => {
+        // Swallow stdout errors that surface after close. A write accepted before
+        // close (`write()` returned true) can still fail asynchronously at the OS
+        // level — e.g. EPIPE when the client that hung up also stops reading our
+        // stdout. The transport is already closed, so there is nothing to do; but
+        // with no listener attached, that late 'error' event would crash the
+        // process with an uncaught exception.
+    };
     _onstdinclose = () => {
         // stdin reaching EOF (or being destroyed) means the client has hung up and no
         // further input can ever arrive. The MCP stdio binding says servers should exit
@@ -121,6 +129,11 @@ export class StdioServerTransport implements Transport {
         this._stdin.off('end', this._onstdinclose);
         this._stdin.off('close', this._onstdinclose);
         this._stdout.off('error', this._onstdouterror);
+        // Keep a swallow-only 'error' listener on stdout: a write that was accepted
+        // before close may still be pending at the OS level and can fail after close
+        // (e.g. EPIPE when the client hangs up), and an 'error' event on a
+        // listener-less stream would crash the process.
+        this._stdout.on('error', this._onstdouterrorafterclose);
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');
