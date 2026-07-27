@@ -382,6 +382,12 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
         case 'send-error': {
             const error = reply.error;
             if (error instanceof SdkHttpError) {
+                if (error.code === SdkErrorCode.ClientHttpRedirectNotFollowed) {
+                    // A redirect answer is transport-level, not era evidence:
+                    // surface the remedy-naming redirect error instead of
+                    // reading the 3xx as a legacy signal.
+                    return { kind: 'network-error', error };
+                }
                 const text = (error.data as { text?: unknown } | undefined)?.text;
                 return { kind: 'http-error', status: error.data.status, body: typeof text === 'string' ? text : undefined };
             }
