@@ -346,11 +346,11 @@ const ANNOTATION_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
 function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     if (field === undefined) return false;
     // Defaulted fields accept a missing key by construction (zod fills the default
-    // before any refinement runs) — decide structurally, since an async stage
-    // (`.refine(async ...)`) would push the probe below to a Promise and wrongly
-    // keep the field required.
-    const defType = field._zod.def.type;
-    if (defType === 'default' || defType === 'prefault') return true;
+    // before any refinement or transform runs) — decide structurally, since an async
+    // stage (`.refine(async ...)`, `.transform(async ...)`) would push the probe
+    // below to a Promise and wrongly keep the field required. The default may hide
+    // inside a pipe's input side (`.default(7).transform(...)` is outer-`'pipe'`).
+    if (hasStructuralDefault(field)) return true;
     // JSON.stringify drops Symbol- and function-valued keys from the serialized
     // payload entirely (the same mechanism that drops undefined-valued keys), so
     // such fields can never appear on the wire.
@@ -367,6 +367,37 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     } catch {
         return false;
     }
+}
+
+/**
+ * Whether the field's def chain carries a `default`/`prefault` node, unwinding pipe
+ * INPUT sides, lazies, and transparent wrappers — so
+ * `z.number().default(7).transform(async v => v)` (outer def `'pipe'`, the ZodDefault
+ * at `def.in`) is recognized structurally. A missing key resolves against the pipe's
+ * input side first, where the default fills before any later stage runs. `ancestors`
+ * tracks the current traversal path so recursive lazies stay bounded.
+ */
+function hasStructuralDefault(field: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
+    if (typeof field !== 'object' || field === null || ancestors.has(field)) return false;
+    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown } } })._zod?.def;
+    if (def === undefined || typeof def.type !== 'string') return false;
+    if (def.type === 'default' || def.type === 'prefault') return true;
+    const path = new Set(ancestors);
+    path.add(field);
+    if (def.type === 'lazy' && typeof def.getter === 'function') {
+        try {
+            return hasStructuralDefault((def.getter as () => unknown)(), path);
+        } catch {
+            return false;
+        }
+    }
+    if (def.type === 'pipe' && def.in !== undefined) {
+        return hasStructuralDefault(def.in, path);
+    }
+    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
+        return hasStructuralDefault(def.innerType, path);
+    }
+    return false;
 }
 
 /** Options for {@linkcode standardSchemaToJsonSchema}. */
@@ -558,16 +589,22 @@ function isNonObjectTypelessLiteral(values: unknown): boolean {
         if (valueType !== 'string' && valueType !== 'number' && valueType !== 'boolean') {
             return true; // undefined / bigint / symbol values are unrepresentable
         }
+        if (valueType === 'number' && !Number.isFinite(value as number)) {
+            return true; // Infinity / -Infinity / NaN cannot ride JSON either
+        }
         jsonTypes.add(valueType);
     }
     return jsonTypes.size > 1;
 }
 
 /**
- * Zod def types that are genuinely unrepresentable in JSON Schema (they degrade to a
- * typeless `{}` under `unrepresentable: 'any'`) and whose values can never be a JSON
- * object — the input-root guard must keep rejecting roots and compositions built from
- * them. `custom` and bare `transform` are deliberately excluded (they can legitimately
+ * Zod def types that are genuinely unrepresentable in JSON Schema and whose values can
+ * never be a JSON object — the input-root guard must keep rejecting roots and
+ * compositions built from them. Most degrade to a typeless `{}` under
+ * `unrepresentable: 'any'`; `date` is instead rewritten to `string`/`date-time` (so a
+ * bare date ROOT throws via the explicit-type guard), but a `Date` value can never be
+ * a JSON object either, so date composition MEMBERS classify as non-object here.
+ * `custom` and bare `transform` are deliberately excluded (they can legitimately
  * accept objects), and typeless literals are classified separately by value in
  * {@linkcode isNonObjectTypelessLiteral}.
  */
@@ -579,7 +616,8 @@ const NON_OBJECT_UNREPRESENTABLE_TYPES: ReadonlySet<string> = new Set([
     'void',
     'undefined',
     'nan',
-    'function'
+    'function',
+    'date'
 ]);
 
 /** Transparent wrapper def types whose `innerType` carries the real root semantics. */

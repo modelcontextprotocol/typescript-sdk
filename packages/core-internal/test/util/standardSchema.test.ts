@@ -148,6 +148,26 @@ describe('zod conversion options (#2464)', () => {
         expect(result.required).toEqual(['name']);
     });
 
+    test('a defaulted field piped through a transform is still dropped from output required', () => {
+        const schema = z.object({
+            asyncPiped: z
+                .number()
+                .default(7)
+                .transform(async v => v),
+            syncPiped: z
+                .number()
+                .default(7)
+                .transform(v => v),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `.default(7).transform(...)` is outer-'pipe' with the ZodDefault at def.in;
+        // the structural check must unwind the pipe's input side, since the async
+        // stage pushes the validate(undefined) probe to a Promise.
+        expect(result.required).toEqual(['name']);
+    });
+
     test('.catch() output nodes degrade to an unconstrained schema (annotations kept)', () => {
         const schema = z.object({
             inner: z.object({ n: z.string() }).catch({ n: 'd' }).describe('lenient'),
@@ -287,6 +307,21 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(z.union([z.literal('a'), z.null()]), 'input').type).toBe('object');
         // Literals with unrepresentable values still reject inside compositions.
         expect(() => standardSchemaToJsonSchema(z.union([z.literal(undefined), z.bigint()]), 'input')).toThrow(/must describe objects/);
+    });
+
+    test('date members and non-finite literals classify as non-object inside compositions', () => {
+        // A Date value can never be a JSON object; at member position the rewritten
+        // string/date-time node nests inside anyOf and evades the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.date()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.date()), 'input')).toThrow(
+            /must describe objects/
+        );
+        // Infinity/-Infinity/NaN literals are typeof 'number' but cannot ride JSON.
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Number.NaN), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // A representable member keeps the composition accepted (every-member rule).
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
     });
 
     test('symbol- and function-valued output fields are not advertised as required', () => {
