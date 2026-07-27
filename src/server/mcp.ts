@@ -146,13 +146,15 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: (() => {
+                                if (!tool.inputSchema) return EMPTY_OBJECT_JSON_SCHEMA;
+                                // Fallback to the original schema when normalizeObjectSchema can't unwrap
+                                // it (e.g. .refine/.superRefine/.transform/.pipe). The converter walks
+                                // those wrappers natively and emits the underlying object's properties.
                                 const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
+                                return toJsonSchemaCompat(obj ?? (tool.inputSchema as AnySchema), {
+                                    strictUnions: true,
+                                    pipeStrategy: 'input'
+                                }) as Tool['inputSchema'];
                             })(),
                             annotations: tool.annotations,
                             execution: tool.execution,
@@ -161,12 +163,10 @@ export class McpServer {
 
                         if (tool.outputSchema) {
                             const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                                    strictUnions: true,
-                                    pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
-                            }
+                            toolDefinition.outputSchema = toJsonSchemaCompat(obj ?? (tool.outputSchema as AnySchema), {
+                                strictUnions: true,
+                                pipeStrategy: 'output'
+                            }) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
