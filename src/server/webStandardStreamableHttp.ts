@@ -1052,6 +1052,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
         // Stop any deferred keep-alive arm (e.g. a replay await resolving after
         // close) from creating a timer nothing can clear.
         this._closed = true;

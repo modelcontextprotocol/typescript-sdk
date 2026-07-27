@@ -4310,4 +4310,17 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
         expect(errors.filter(e => e.message.includes('No connection established'))).toHaveLength(0);
         expect(vi.getTimerCount()).toBe(0);
     });
+
+    it('should make close() idempotent', async () => {
+        const { transport } = await createTransport();
+        let oncloseCalls = 0;
+        transport.onclose = () => {
+            oncloseCalls++;
+        };
+
+        await transport.close();
+        await transport.close();
+
+        expect(oncloseCalls).toBe(1);
+    });
 });
