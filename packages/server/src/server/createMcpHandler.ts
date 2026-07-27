@@ -59,13 +59,14 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { invoke } from './invoke';
-import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
+import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
+import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
 
 /* ------------------------------------------------------------------------ *
@@ -194,8 +195,8 @@ export interface CreateMcpHandlerOptions {
      */
     maxSubscriptions?: number;
     /**
-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
-     * in milliseconds. Set to `0` to disable.
+     * SSE comment-frame keepalive interval for every SSE stream this handler
+     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
@@ -306,7 +307,11 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
  * The entry passes its own `onerror` here when expanding the default, so
  * legacy-leg failures are never silently swallowed.
  */
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+function createLegacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    keepAliveMs?: number
+): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
@@ -317,7 +322,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 requestInfo: request
             });
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                ...(keepAliveMs !== undefined && { keepAliveMs })
+            });
             await product.connect(transport);
 
             const teardown = () => {
@@ -388,6 +396,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
             return internalServerErrorResponse(echoableRequestId(options?.parsedBody));
         }
     };
+}
+
+export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+    return createLegacyStatelessFallback(factory, onerror);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -619,7 +631,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
-        keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
+        keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
         onerror: reportError
     });
     if (responseMode === 'json') {
@@ -632,7 +644,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
+    const legacyHandler: LegacyHttpHandler | undefined =
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -778,7 +791,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(responseMode !== undefined && { responseMode })
+                ...(responseMode !== undefined && { responseMode }),
+                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
