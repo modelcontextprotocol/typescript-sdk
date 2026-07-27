@@ -366,7 +366,7 @@ function withLocalDiscoverResponse(serverInfo: { name: string; version: string }
                                 // list/read/get calls reach the real mock; callers that
                                 // only use tools are unaffected by the extra entries.
                                 capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} },
-                                serverInfo
+                                _meta: { 'io.modelcontextprotocol/serverInfo': serverInfo }
                             }
                         },
                         { status: 200, headers: { 'Content-Type': 'application/json' } }

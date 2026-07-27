@@ -85,6 +85,19 @@ Call list-trips before book-trip. Dates are ISO 8601.
 
 The capability object gates every verb on [the next page](./calling.md): only ask for what the server advertised. `getInstructions()` is the server's usage guide for the model — put it in the system prompt.
 
+A fourth accessor, `getDiscoverResult()`, tells the eras apart at connect time. Present, it is the modern-era `DiscoverResult` — persistable with `JSON.stringify` and usable on a later connect as `prior: { kind: 'modern', discover }` to skip the probe. Absent on a connected client, the era is legacy. This page's client used the default legacy handshake:
+
+```ts source="../../examples/guides/clients/connect.examples.ts#connect_discoverResult"
+// The default mode ran the legacy initialize handshake — no DiscoverResult.
+console.log(client.getDiscoverResult());
+```
+
+```
+undefined
+```
+
+Under `versionNegotiation: { mode: 'auto' }` against a 2026-era server it returns the advertisement — see [Protocol versions](../protocol-versions.md#skip-the-probe-with-a-cached-verdict) for the cached-verdict shapes and [Caching discovery verdicts](../advanced/gateway.md#caching-discovery-verdicts) for the full host-side loop.
+
 ## Disconnect cleanly
 
 Over Streamable HTTP, terminate the server-side session, then close the client.
@@ -101,6 +114,6 @@ await client.close();
 - `new Client({ name, version })`, a transport, and `connect()` are the whole setup; `connect()` runs the `initialize` handshake.
 - `StreamableHTTPClientTransport` connects to remote servers; `StdioClientTransport`, from `@modelcontextprotocol/client/stdio`, spawns local ones; `SSEClientTransport` is the fallback for SSE-only servers.
 - `InMemoryTransport.createLinkedPair()` links a client and a server in one process.
-- After `connect()`, `getServerVersion()`, `getServerCapabilities()`, and `getInstructions()` return what the server declared.
+- After `connect()`, `getServerVersion()`, `getServerCapabilities()`, and `getInstructions()` return what the server declared; `getDiscoverResult()` tells the eras apart (present = modern, absent = legacy).
 - `close()` tears down the transport and rejects in-flight requests.
 - Protocol-revision differences live on the protocol versions page, not here.

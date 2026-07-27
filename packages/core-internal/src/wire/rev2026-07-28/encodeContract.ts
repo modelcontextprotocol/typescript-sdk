@@ -17,6 +17,10 @@
  *     server layer, then the conservative defaults
  *     `{ ttlMs: 0, cacheScope: 'private' }`. Invalid handler-returned values
  *     never reach the wire — they fall through to the next author.
+ *  3. {@linkcode stampServerInfoMeta} — the `_meta` serverInfo key on every
+ *     result (spec PR #3002: servers SHOULD identify themselves on every
+ *     response). A handler-authored value wins; without a supplied identity
+ *     the step is the identity function.
  *
  * Ordering matters and is pinned by tests: the stamp runs before the fill, so
  * an `input_required` result is never given cache fields.
@@ -29,9 +33,10 @@ import {
     isValidCacheTtlMs,
     RESULT_CACHE_HINT_FALLBACK
 } from '../../shared/resultCacheHints';
+import { SERVER_INFO_META_KEY } from '../../types/constants';
 import { ProtocolErrorCode } from '../../types/enums';
 import { ProtocolError } from '../../types/errors';
-import type { Result } from '../../types/types';
+import type { Implementation, Result } from '../../types/types';
 
 /** The default cache policy when neither the handler nor configuration provides one. */
 export const DEFAULT_CACHE_TTL_MS = 0;
@@ -110,6 +115,42 @@ export function fillCacheFields(method: string, result: Result): Result {
     const filled = { ...provided, ttlMs, cacheScope } as Record<string | symbol, unknown>;
     delete filled[RESULT_CACHE_HINT_FALLBACK];
     return filled as Result;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Step 3 of the encode contract: stamp the server's identity into the
+ * result's `_meta` under `io.modelcontextprotocol/serverInfo` (spec PR #3002:
+ * servers SHOULD include it on every response).
+ *
+ * - No `serverInfo` supplied (a client instance, or a hand-constructed
+ *   protocol object) → identity function.
+ * - The result's `_meta` already carries the key → kept as-is (the handler
+ *   is the more specific author; mirrors the cache-fill resolution order).
+ * - A present-but-non-object `_meta` (a dynamic-caller bug) → kept as-is:
+ *   the stamp never rewrites handler material, and the malformed value fails
+ *   loudly at the peer instead of being silently replaced here.
+ * - Otherwise → the key is added, preserving any other `_meta` entries.
+ *
+ * Runs for every result regardless of `resultType`: the anchor types
+ * `Result._meta` as `ResultMetaObject` on all results, `input_required`
+ * included.
+ */
+export function stampServerInfoMeta(result: Result, serverInfo: Implementation | undefined): Result {
+    if (serverInfo === undefined) return result;
+    const meta = (result as Record<string, unknown>)['_meta'];
+    if (meta === undefined) {
+        return { ...result, _meta: { [SERVER_INFO_META_KEY]: serverInfo } } as Result;
+    }
+    if (!isPlainObject(meta)) return result;
+    // Value check, not `in`: a present-but-undefined key (an unset optional in
+    // handler code) must not suppress the stamp — JSON would drop the key and
+    // the response would ship with no identity at all.
+    if (meta[SERVER_INFO_META_KEY] !== undefined) return result;
+    return { ...result, _meta: { ...meta, [SERVER_INFO_META_KEY]: serverInfo } } as Result;
 }
 
 function resolveTtlMs(fallback: CacheHint | undefined): number {

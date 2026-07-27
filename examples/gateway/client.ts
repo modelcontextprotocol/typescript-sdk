@@ -7,8 +7,8 @@
  * 2. The result is `JSON.stringify`-ed (the "persist" step — in a real gateway
  *    you would write this to Redis, a config map, or a process-local cache).
  * 3. Three fresh worker clients connect with
- *    `connect(transport, { prior: JSON.parse(persisted) })`: each connect()
- *    sends nothing on the wire, and `callTool` works immediately.
+ *    `connect(transport, { prior: { kind: 'modern', discover: JSON.parse(persisted) } })`:
+ *    each connect() sends nothing on the wire, and `callTool` works immediately.
  * 4. The server's `request_count` tool proves it: after three worker connects
  *    the count is unchanged (no extra discover/initialize from the workers).
  *
@@ -19,7 +19,7 @@
  * `DiscoverResult` across principals.
  */
 import { check, parseExampleArgs } from '@mcp-examples/shared';
-import type { DiscoverResult } from '@modelcontextprotocol/client';
+import type { DiscoverResult, PriorDiscovery } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 async function requestCount(client: Client): Promise<number> {
@@ -38,7 +38,9 @@ check.equal(bootstrap.getNegotiatedProtocolVersion(), '2026-07-28');
 
 const discovered = bootstrap.getDiscoverResult();
 check.ok(discovered, 'bootstrap connect populated getDiscoverResult()');
-check.deepEqual(discovered?.serverInfo, { name: 'gateway-target', version: '1.0.0' });
+// Server identity: getServerVersion() resolves it from the discover result's
+// `_meta['io.modelcontextprotocol/serverInfo']` (spec PR #3002).
+check.deepEqual(bootstrap.getServerVersion(), { name: 'gateway-target', version: '1.0.0' });
 
 // The probe was the only request so far; the request_count call is the
 // second. (createMcpHandler builds one server instance per request.)
@@ -56,7 +58,7 @@ await bootstrap.close();
 // round trips each. Every worker presents the same authorization context
 // as the bootstrap (unauthenticated here), so reuse is safe.
 // ---------------------------------------------------------------------
-const prior: DiscoverResult = JSON.parse(persisted) as DiscoverResult;
+const prior: PriorDiscovery = { kind: 'modern', discover: JSON.parse(persisted) as DiscoverResult };
 const workers = await Promise.all(
     ['worker-a', 'worker-b', 'worker-c'].map(async name => {
         const worker = new Client({ name, version: '1.0.0' });

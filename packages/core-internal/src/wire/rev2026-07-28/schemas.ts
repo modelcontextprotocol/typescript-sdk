@@ -98,6 +98,7 @@ export const ToolResultContentSchema = s.ToolResultContentSchema;
 export const SamplingMessageContentBlockSchema = s.SamplingMessageContentBlockSchema;
 export const SamplingMessageSchema = s.SamplingMessageSchema;
 export const ResultTypeSchema = s.ResultTypeSchema;
+export const ResultMetaSchema = s.ResultMetaSchema;
 export const ResultSchema = s.ResultSchema;
 export const PaginatedResultSchema = s.PaginatedResultSchema;
 export const CallToolResultSchema = s.CallToolResultSchema;

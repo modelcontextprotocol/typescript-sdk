@@ -41,9 +41,11 @@ export interface VersionNegotiationProbeOptions {
      *
      * The timeout verdict is transport-aware: on stdio, a probe that gets no
      * response within the timeout indicates a legacy server and falls back to
-     * the `initialize` handshake on the same stream; on HTTP, where a deployed
-     * server answers and silence means an outage, `connect()` rejects with the
-     * standard typed timeout error instead.
+     * the `initialize` handshake (measured on the disposable sibling for the
+     * SDK's own stdio transport, with the fallback running on the session
+     * child's fresh pipe; in place for custom stdio-shaped transports); on
+     * HTTP, where a deployed server answers and silence means an outage,
+     * `connect()` rejects with the standard typed timeout error instead.
      *
      * @default the standard request timeout (`DEFAULT_REQUEST_TIMEOUT_MSEC`, or the `timeout` passed to `connect()`)
      */
@@ -67,11 +69,19 @@ export interface VersionNegotiationProbeOptions {
  * - `'legacy'` — no negotiation: the plain 2025 connect sequence, byte-identical
  *   to a client without this option.
  * - `'auto'` — probe with `server/discover` at connect; conservative fallback to
- *   the plain legacy `initialize` handshake on the same connection unless the
- *   outcome is definitive modern evidence. Network outage rejects with a typed
- *   connect error; a probe timeout falls back to `initialize` on stdio (a silent
- *   server on a local pipe is a legacy server) and rejects with a typed timeout
- *   error on HTTP (silence there is an outage).
+ *   the plain legacy `initialize` handshake unless the outcome is definitive
+ *   modern evidence. Network outage rejects with a typed connect error; a
+ *   probe timeout falls back to `initialize` on stdio (a silent server on a
+ *   local pipe is a legacy server) and rejects with a typed timeout error on
+ *   HTTP (silence there is an outage). On the SDK's stdio transport (the base
+ *   `StdioClientTransport` exactly; subclasses probe in place) the probe
+ *   runs on a short-lived sibling process spawned from the same parameters
+ *   (its stderr is discarded) and the caller's transport starts once, after
+ *   the era is known — so a child that exits on the unrecognized probe, the
+ *   shape of servers built on SDKs that terminate on any pre-`initialize`
+ *   request, is simply a legacy server. A mid-probe connection close on HTTP
+ *   (or on a custom stdio-shaped transport, which probes in place) rejects
+ *   with the typed connect error.
  * - `{ pin: '<version>' }` — modern era at exactly the pinned revision: the
  *   connect-time `server/discover` must offer it. No fallback — anything else
  *   fails loudly with a typed error.
@@ -149,7 +159,7 @@ export function detectProbeEnvironment(): ProbeEnvironment {
 }
 
 /**
- * Detect the transport class for the transport-aware timeout verdict (see
+ * Detect the transport class for the transport-aware timeout and closed verdicts (see
  * {@linkcode ProbeTransportKind}). The stdio child-process transport is
  * recognized structurally (`stderr`/`pid` accessors, no `instanceof` — safe
  * across bundles); everything else is treated like HTTP.
@@ -269,24 +279,76 @@ class ProbeWindow {
         this._pending = undefined;
         this._transport.onmessage = this._savedOnMessage;
         this._transport.onerror = this._savedOnError;
-        this._transport.onclose = this._closeDelivered ? undefined : this._savedOnClose;
+        if (this._closeDelivered && this._savedOnClose !== undefined) {
+            // The forwarded mid-window close is spent — the caller's cleanup
+            // close() must not re-deliver it — but the slot must not be emptied
+            // either: the caller still owns the transport, and its observer must
+            // keep seeing later closes. The skip is scoped to the cleanup close
+            // via disarmSpentCloseGuard(): transports whose close() re-fires
+            // onclose (HTTP) consume it there; transports that never re-fire
+            // (stdio: onclose comes only from the child's close event, which
+            // already happened) would otherwise leave it armed to swallow the
+            // NEXT genuine close after a restart.
+            const saved = this._savedOnClose;
+            const transport = this._transport;
+            let spent = false;
+            const wrapper = () => {
+                if (!spent) {
+                    spent = true;
+                    return;
+                }
+                saved();
+            };
+            transport.onclose = wrapper;
+            pendingSpentCloseGuards.set(transport, () => {
+                // Restore by identity — never clobber a handler the caller
+                // replaced in the meantime.
+                if (transport.onclose === wrapper) {
+                    transport.onclose = saved;
+                }
+            });
+        } else {
+            this._transport.onclose = this._savedOnClose;
+        }
     }
 
     /** Detach the handlers and arm the one-shot `start()` pass-through for the `Protocol.connect()` handover. */
     release(): void {
         this.detach();
         const transport = this._transport;
-        const originalStart = transport.start.bind(transport);
+        // Save the raw property value (not a bound copy) so the restore below
+        // returns `transport.start` to its original identity — no wrapper or
+        // bind layer accretes across repeated connects on the same transport.
+        const originalStart = transport.start;
         let armed = true;
-        transport.start = async (): Promise<void> => {
+        transport.start = async function (this: unknown): Promise<void> {
             if (armed) {
                 armed = false;
                 transport.start = originalStart;
                 return;
             }
-            return originalStart();
+            return originalStart.call(transport);
         };
     }
+}
+
+/**
+ * Spent-close guards from failed negotiations, pending disarm by the cleanup
+ * site (keyed weakly — an abandoned transport carries its guard to GC).
+ */
+const pendingSpentCloseGuards = new WeakMap<Transport, () => void>();
+
+/**
+ * Disarm a failed negotiation's spent-close guard once the cleanup `close()`
+ * has settled. Any re-delivery of the spent mid-window close happens DURING
+ * that close (HTTP transports re-fire `onclose` there; stdio transports never
+ * do — their close event already fired), so after it every close is genuine
+ * and must reach the caller's pre-set observer.
+ */
+export function disarmSpentCloseGuard(transport: Transport): void {
+    const disarm = pendingSpentCloseGuards.get(transport);
+    pendingSpentCloseGuards.delete(transport);
+    disarm?.();
 }
 
 /** Build the probe request: `server/discover` carrying the full per-request `_meta` envelope. */
@@ -339,7 +401,9 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
             return { kind: 'network-error', error };
         }
         case 'closed': {
-            return { kind: 'network-error', error: new Error('Connection closed during the version negotiation probe') };
+            // Not folded into network-error: the classifier's closed row is
+            // transport-aware (stdio legacy signal vs typed error).
+            return { kind: 'closed' };
         }
         case 'timeout': {
             return { kind: 'timeout', timeoutMs };
@@ -352,10 +416,18 @@ export interface NegotiationDeps {
     clientInfo: Implementation;
     capabilities: ClientCapabilities;
     environment: ProbeEnvironment;
-    /** The transport class, for the transport-aware timeout verdict (see {@linkcode ProbeTransportKind}). */
+    /** The transport class, for the transport-aware timeout and closed verdicts (see {@linkcode ProbeTransportKind}). */
     transportKind: ProbeTransportKind;
     /** The standard request timeout for this connect (probe inherits it unless `probe.timeoutMs` overrides). */
     defaultTimeoutMs: number;
+    /**
+     * The probe transport is a disposable sibling (see
+     * {@linkcode negotiateStdioViaSibling}): a mid-probe close is ordinary
+     * legacy evidence — the probe child spent itself — never a connect-fatal
+     * condition. Absent for in-place probes, where a closed connection has no
+     * fallback stream and stays a typed error.
+     */
+    disposableProbe?: boolean;
 }
 
 export type NegotiationResult = { era: 'modern'; version: string; discover: DiscoverResult } | { era: 'legacy' };
@@ -421,11 +493,18 @@ export async function negotiateEra(
                     continue;
                 }
                 case 'legacy': {
+                    // A closed outcome carries its own cause — diagnostics must
+                    // name the close instead of implying a server/discover
+                    // verdict that never happened.
+                    const closedCause = outcome.kind === 'closed' ? 'the connection closed during the server/discover probe' : undefined;
                     if (negotiation.kind === 'pin') {
                         throw new SdkError(
                             SdkErrorCode.EraNegotiationFailed,
-                            `Version negotiation failed: the server did not offer pinned protocol version ${negotiation.version} ` +
-                                `via server/discover (no fallback in pin mode)`
+                            closedCause === undefined
+                                ? `Version negotiation failed: the server did not offer pinned protocol version ${negotiation.version} ` +
+                                  `via server/discover (no fallback in pin mode)`
+                                : `Version negotiation failed: ${closedCause} before the server offered ` +
+                                  `pinned protocol version ${negotiation.version} (no fallback in pin mode)`
                         );
                     }
                     if (!negotiation.fallbackAvailable) {
@@ -433,8 +512,22 @@ export async function negotiateEra(
                         // unavailable and must never carry a 2026-era version string.
                         throw new SdkError(
                             SdkErrorCode.EraNegotiationFailed,
-                            'Version negotiation failed: the server gave no modern evidence and this client supports no ' +
-                                'pre-2026-07-28 protocol version to fall back to'
+                            closedCause === undefined
+                                ? 'Version negotiation failed: the server gave no modern evidence and this client supports no ' +
+                                  'pre-2026-07-28 protocol version to fall back to'
+                                : `Version negotiation failed: ${closedCause} and this client supports no ` +
+                                  'pre-2026-07-28 protocol version to fall back to'
+                        );
+                    }
+                    if (closedCause !== undefined && deps.disposableProbe !== true) {
+                        // In-place probe: the connection died with the child and
+                        // there is no disposable sibling to spend — the
+                        // same-stream initialize fallback is impossible, so this
+                        // stays a typed connect error.
+                        throw new SdkError(
+                            SdkErrorCode.EraNegotiationFailed,
+                            `Version negotiation failed: ${closedCause} ` +
+                                "(this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)"
                         );
                     }
                     return { era: 'legacy' };
@@ -457,4 +550,110 @@ export async function negotiateEra(
     }
     window.release();
     return result;
+}
+
+/**
+ * Structural read of the SDK stdio transport's retained spawn parameters —
+ * `undefined` for stdio-shaped transports that do not expose them, and for
+ * SUBCLASSES of the SDK transport (those probe in place, where a mid-probe
+ * close stays a typed connect error). The sibling path requires the transport
+ * to be exactly the base class: a subclass cannot be faithfully cloned by
+ * re-invoking its constructor with the retained params alone (extra ctor
+ * arguments, transformed state, side effects). Exactness is checked without
+ * importing the class (the negotiation graph must stay runtime-neutral): only
+ * the base class's own prototype carries the internal `_dispose` reaper the
+ * sibling flow depends on — a subclass's prototype does not own it.
+ */
+export function readStdioServerParams(transport: Transport): Record<string, unknown> | undefined {
+    const proto = Object.getPrototypeOf(transport) as object | null;
+    if (proto === null || !Object.prototype.hasOwnProperty.call(proto, '_dispose')) {
+        return undefined;
+    }
+    const params = (transport as { _serverParams?: unknown })._serverParams;
+    return typeof params === 'object' && params !== null && typeof (params as { command?: unknown }).command === 'string'
+        ? (params as Record<string, unknown>)
+        : undefined;
+}
+
+/**
+ * stdio era negotiation on a DISPOSABLE SIBLING: stdio servers built on SDKs
+ * that terminate on any pre-`initialize` request exit when the probe arrives,
+ * so the probe must not spend the caller's one process life. `server/discover`
+ * runs on a short-lived sibling spawned from the same parameters; the caller's
+ * transport starts exactly once, after the era is known. The sibling is
+ * invisible infrastructure: its stderr is discarded, and it is reaped before
+ * this resolves (signal escalation awaiting process exit — a helper holding
+ * its pipes never blocks disposal). A caller `close()` on the session
+ * transport during the probe aborts the connect with the typed negotiation
+ * error, and the session transport is never started.
+ */
+export async function negotiateStdioViaSibling(
+    negotiation: Extract<ResolvedVersionNegotiation, { kind: 'auto' | 'pin' }>,
+    sessionTransport: Transport,
+    params: Record<string, unknown>,
+    deps: Omit<NegotiationDeps, 'transport' | 'transportKind' | 'disposableProbe'>
+): Promise<NegotiationResult> {
+    const SiblingTransport = sessionTransport.constructor as new (params: Record<string, unknown>) => Transport;
+    const sibling = new SiblingTransport({ ...params, stderr: 'ignore' });
+
+    // The session transport is unstarted while the sibling probes, and closing
+    // an unstarted transport records nothing — so watch its close() for the
+    // window's duration (raw property saved; identity restored in the finally).
+    // The abort races the probe: a caller close rejects promptly instead of
+    // waiting out the probe timeout.
+    const originalClose = sessionTransport.close;
+    let callerClosed = false;
+    let signalClosed: (() => void) | undefined;
+    const closedSignal = new Promise<never>((_, reject) => {
+        signalClosed = () => reject(callerCloseAbortError());
+    });
+    sessionTransport.close = async function (): Promise<void> {
+        callerClosed = true;
+        signalClosed?.();
+        return originalClose.call(sessionTransport);
+    };
+
+    let result: NegotiationResult;
+    try {
+        const negotiated = negotiateEra(negotiation, {
+            ...deps,
+            transport: sibling,
+            transportKind: 'stdio',
+            disposableProbe: true
+        });
+        // The abort may orphan the probe promise; its late settlement (the
+        // disposed sibling's close, a timeout) must not surface anywhere.
+        negotiated.catch(() => {});
+        result = await Promise.race([negotiated, closedSignal]);
+    } finally {
+        // Dispose FIRST, with the close watch still armed: a caller close()
+        // landing during the disposal window must still trip the abort below —
+        // only once the sibling is reaped does the caller get its close back.
+        await disposeSibling(sibling);
+        sessionTransport.close = originalClose;
+    }
+    if (callerClosed) {
+        // Checked AFTER the finally so a close during either the probe or the
+        // disposal window aborts: the session transport is never started.
+        throw callerCloseAbortError();
+    }
+    return result;
+}
+
+/** The typed abort for a caller `close()` landing while the sibling probes. */
+function callerCloseAbortError(): SdkError {
+    return new SdkError(
+        SdkErrorCode.EraNegotiationFailed,
+        'Version negotiation failed: the transport was closed during the server/discover probe'
+    );
+}
+
+/** Reap a probe sibling — best-effort; a sibling that cannot be reaped must not turn a settled verdict into an error. */
+async function disposeSibling(sibling: Transport): Promise<void> {
+    try {
+        const dispose = (sibling as { _dispose?: () => Promise<void> })._dispose;
+        await (typeof dispose === 'function' ? dispose.call(sibling) : sibling.close());
+    } catch {
+        // ignore
+    }
 }

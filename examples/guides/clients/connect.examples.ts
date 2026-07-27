@@ -68,6 +68,11 @@ console.log(client.getServerCapabilities());
 console.log(client.getInstructions());
 //#endregion connect_introspect
 
+//#region connect_discoverResult
+// The default mode ran the legacy initialize handshake — no DiscoverResult.
+console.log(client.getDiscoverResult());
+//#endregion connect_discoverResult
+
 // ## Disconnect cleanly
 
 //#region connect_close

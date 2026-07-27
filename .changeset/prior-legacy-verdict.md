@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/client': minor
+---
+
+`ConnectOptions.prior` accepts a cached era verdict — the new exported type `PriorDiscovery`. `{ kind: 'modern', discover }` adopts a previously obtained `DiscoverResult` with zero round trips; `{ kind: 'legacy' }` skips the `server/discover` probe and runs the plain `initialize` handshake directly, for servers known out-of-band to be legacy — without pinning the client to `mode: 'legacy'`: stop supplying the verdict and `connect()` falls back to the configured `versionNegotiation` mode (under `'auto'`, it re-probes and rediscovers an upgraded server). Freshness is the supplying host's responsibility — a stale legacy verdict succeeds silently against an upgraded server, so hosts must date cached legacy verdicts in their own storage and stop supplying them past their policy horizon. Persisted-blob plumbing is hardened: `prior: null` is treated as absent, the modern arm's `discover` payload is schema-validated before any connection state changes, and an unrecognized shape rejects with a typed `SdkError(EraNegotiationFailed)` instead of a `TypeError`.

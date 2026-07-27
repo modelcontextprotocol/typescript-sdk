@@ -53,6 +53,20 @@ const DEPLOYED_SESSION_REQUIRED_BODY = JSON.stringify({
     error: { code: -32_000, message: 'Bad Request: Server not initialized' }
 });
 
+/**
+ * The exact discover result a go-sdk v1.7.0-pre.3 server answers the probe
+ * with (spec PR #3002 final 2026-07-28 shape): `serverInfo` lives in the
+ * result `_meta`, the body field is gone.
+ */
+const GO_V17_DISCOVER_RESULT = {
+    resultType: 'complete',
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'server', version: 'v0.0.1' } },
+    ttlMs: 0,
+    cacheScope: 'public',
+    supportedVersions: ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'],
+    capabilities: { logging: {} }
+};
+
 interface CorpusRow {
     name: string;
     outcome: ProbeOutcome;
@@ -75,10 +89,10 @@ const CORPUS: CorpusRow[] = [
     },
     // --- T9 edge 3: probe success but no version overlap → initialize on the SAME connection.
     {
-        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize on the same connection)',
+        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize fallback)',
         outcome: {
             kind: 'result',
-            result: { supportedVersions: ['2027-01-01'], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+            result: { supportedVersions: ['2027-01-01'], capabilities: {} }
         },
         expected: 'legacy'
     },
@@ -86,7 +100,7 @@ const CORPUS: CorpusRow[] = [
         name: 'T9: DiscoverResult with no mutual version + NO fallback (pin / modern-only) → typed error, never initialize',
         outcome: {
             kind: 'result',
-            result: { supportedVersions: ['2027-01-01'], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+            result: { supportedVersions: ['2027-01-01'], capabilities: {} }
         },
         context: { fallbackAvailable: false },
         expected: 'error'
@@ -164,6 +178,26 @@ const CORPUS: CorpusRow[] = [
         name: 'wire-real: -32601 method-not-found → legacy fallback',
         outcome: { kind: 'rpc-error', code: -32_601, message: 'Method not found' },
         expected: 'legacy'
+    },
+    // --- Wire-real shape C: the #3002 final-revision DiscoverResult (go v1.7.0-pre.3).
+    // Regression: before the #3002 alignment the wire schema required body
+    // `serverInfo`, so this conforming response failed parse and misclassified
+    // legacy — the client then attempted `initialize` against a modern server.
+    {
+        name: 'wire-real: go v1.7.0-pre.3 DiscoverResult (#3002 shape, serverInfo in _meta) → modern',
+        outcome: { kind: 'result', result: GO_V17_DISCOVER_RESULT },
+        expected: 'modern'
+    },
+    // A malformed _meta serverInfo is display-only material and must not
+    // demote a conforming DiscoverResult to legacy (receiver leniency: the
+    // wire schema drops the bad value instead of failing the parse).
+    {
+        name: 'recognizer: DiscoverResult with a malformed _meta serverInfo → still modern',
+        outcome: {
+            kind: 'result',
+            result: { ...GO_V17_DISCOVER_RESULT, _meta: { 'io.modelcontextprotocol/serverInfo': 'bogus' } }
+        },
+        expected: 'modern'
     }
 ];
 
@@ -179,7 +213,7 @@ describe('T9/T11 merged probe fixture corpus (probe classifier)', () => {
         const verdict = classifyProbeOutcome(
             {
                 kind: 'result',
-                result: { supportedVersions: [MODERN], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                result: { supportedVersions: [MODERN], capabilities: {} }
             },
             baseContext
         );
