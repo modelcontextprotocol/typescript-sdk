@@ -170,6 +170,57 @@ let warnedZodFallback = false;
 export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
 
 /**
+ * Zod-specific `toJSONSchema` options, passed as `libraryOptions` on the Standard JSON
+ * Schema path (scoped to `vendor === 'zod'`) and spread into the zod 4.0–4.1
+ * `z.toJSONSchema()` fallback.
+ *
+ * The SDK validates payloads with the user's zod schema but ships the tool's *raw*
+ * object — validation never replaces `structuredContent` — so the advertised schema
+ * must describe the raw object's serialized wire form (#2464):
+ *
+ * - `unrepresentable: 'any'`: a single unrepresentable type (e.g. `z.bigint()`) degrades
+ *   to an unconstrained `{}` instead of throwing and failing the entire `tools/list`.
+ * - `z.date()` is rewritten to `{type: 'string', format: 'date-time'}` — the shape
+ *   `JSON.stringify` actually produces for a `Date` (and what the zod 3 converter emitted).
+ * - Output objects drop `additionalProperties: false` unless the object is strict:
+ *   zod validation tolerates unknown keys on plain `z.object()`, and the raw payload
+ *   ships them.
+ * - Output objects drop `.default()`-carrying properties from `required`: zod fills
+ *   defaults during validation, but the shipped payload may legitimately omit them.
+ */
+function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
+    return {
+        unrepresentable: 'any',
+        override: ctx => {
+            const def = ctx.zodSchema._zod.def;
+            if (def.type === 'date') {
+                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
+                ctx.jsonSchema.type = 'string';
+                ctx.jsonSchema.format = 'date-time';
+                return;
+            }
+            if (io !== 'output' || def.type !== 'object') return;
+            const isStrict = def.catchall?._zod.def.type === 'never';
+            if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
+                delete ctx.jsonSchema.additionalProperties;
+            }
+            const properties = ctx.jsonSchema.properties;
+            const required = ctx.jsonSchema.required;
+            if (properties && Array.isArray(required)) {
+                const filtered = required.filter(name => {
+                    const property = properties[name];
+                    return typeof property !== 'object' || property.default === undefined;
+                });
+                if (filtered.length !== required.length) {
+                    if (filtered.length === 0) delete ctx.jsonSchema.required;
+                    else ctx.jsonSchema.required = filtered;
+                }
+            }
+        }
+    };
+}
+
+/**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
  * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
@@ -184,7 +235,11 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
-        result = std.jsonSchema[io]({ target: JSON_SCHEMA_CONVERSION_TARGET });
+        result = std.jsonSchema[io]({
+            target: JSON_SCHEMA_CONVERSION_TARGET,
+            // Non-zod vendors receive no libraryOptions, so their behavior is unchanged.
+            libraryOptions: std.vendor === 'zod' ? zodConversionOptions(io) : undefined
+        });
     } else if (std.vendor === 'zod') {
         // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
         // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
@@ -203,7 +258,11 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                     'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
             );
         }
-        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: JSON_SCHEMA_CONVERSION_TARGET, io }) as Record<string, unknown>;
+        result = z.toJSONSchema(schema as unknown as z.ZodType, {
+            target: JSON_SCHEMA_CONVERSION_TARGET,
+            io,
+            ...zodConversionOptions(io)
+        }) as Record<string, unknown>;
     } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
