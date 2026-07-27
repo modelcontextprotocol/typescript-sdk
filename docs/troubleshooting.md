@@ -154,6 +154,10 @@ Rewrite the imports:
 
 The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMetadataRouter` and `OAuthTokenVerifier` are first-class in `@modelcontextprotocol/express` — see [Authorization](./serving/authorization.md). `@modelcontextprotocol/server-legacy` is frozen and receives no new features; serve new code over [Streamable HTTP](./serving/http.md), which still reaches 2025-era clients through [legacy client support](./serving/legacy-clients.md). A client limited to the HTTP+SSE transport is the one case that still needs the frozen `@modelcontextprotocol/server-legacy/sse` import above.
 
+## `SSE stream disconnected: TypeError: terminated`
+
+HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
+
 ## Recap
 
 - Every heading on this page is the exact message you searched for.
