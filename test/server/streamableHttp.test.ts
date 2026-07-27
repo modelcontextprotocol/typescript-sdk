@@ -4093,4 +4093,44 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
 
         await transport.close();
     });
+
+    it('should close the transport when the onsessionclosed callback throws on DELETE', async () => {
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessionclosed: () => {
+                throw new Error('session registry unavailable');
+            }
+        });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        // Open the standalone stream so a keep-alive timer is armed
+        const getResponse = await transport.handleRequest(get(sessionId));
+        expect(getResponse.status).toBe(200);
+        expect(vi.getTimerCount()).toBe(1);
+
+        await expect(
+            transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'DELETE',
+                    headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+                })
+            )
+        ).rejects.toThrow('session registry unavailable');
+
+        // The callback threw, but the transport must still have been closed:
+        // timers swept and subsequent requests rejected.
+        expect(vi.getTimerCount()).toBe(0);
+        const after = await transport.handleRequest(get(sessionId));
+        expect(after.status).toBe(404);
+    });
+
+    it('should reject requests with 404 after the transport is closed', async () => {
+        const { transport, sessionId } = await createTransport();
+        await transport.close();
+
+        const response = await transport.handleRequest(get(sessionId));
+        expect(response.status).toBe(404);
+    });
 });

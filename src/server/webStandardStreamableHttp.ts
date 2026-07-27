@@ -10,6 +10,7 @@
 import { isJsonContentType } from '../shared/mediaType.js';
 import { Transport } from '../shared/transport.js';
 import { AuthInfo } from './auth/types.js';
+import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive.js';
 import {
     MessageExtraInfo,
     RequestInfo,
@@ -154,22 +155,11 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     retryInterval?: number;
 
     /**
-     * Interval in milliseconds between SSE keep-alive comment frames (`: keepalive`)
-     * written to open SSE streams. Keep-alive frames prevent idle streams (e.g. the
-     * standalone GET stream, or a POST stream during a long-running tool call) from
-     * being killed by intermediaries and server idle timeouts, which clients observe
-     * as `SSE stream disconnected: TypeError: terminated`.
-     *
-     * Comment frames are ignored by SSE parsers and never surface as messages.
-     * Defaults to 15000 (per the WHATWG SSE spec recommendation of roughly every
-     * 15 seconds). Set to 0 to disable keep-alive frames. Non-finite values also
-     * disable; intervals above 2^31-1 ms are clamped to that maximum.
+     * Interval in milliseconds between SSE keep-alive comment frames.
+     * Defaults to `15000`; values below 1 (including `0`) disable keep-alive.
      */
     keepAliveMs?: number;
 }
-
-/** Default interval between SSE keep-alive comment frames. */
-const DEFAULT_KEEP_ALIVE_MS = 15_000;
 
 /**
  * Options for handling a request
@@ -266,7 +256,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
-        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_KEEP_ALIVE_MS;
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
     }
 
     /**
@@ -280,24 +270,16 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         controller: ReadableStreamDefaultController<Uint8Array>,
         encoder: TextEncoder
     ): ReturnType<typeof setInterval> | undefined {
-        // Non-finite values disable keep-alive rather than arming a broken timer,
-        // and delays above 2^31-1 are clamped (setInterval treats them as 1ms).
         // After close() nothing may arm: the stream cleanups have already run.
-        if (!Number.isFinite(this._keepAliveMs) || this._keepAliveMs <= 0 || this._closed) {
-            return undefined;
-        }
-        const timer = setInterval(
-            () => {
-                try {
-                    controller.enqueue(encoder.encode(': keepalive\n\n'));
-                } catch {
-                    clearInterval(timer);
-                }
-            },
-            Math.min(this._keepAliveMs, 2 ** 31 - 1)
-        );
-        // Don't let the keep-alive timer hold the process open (Node.js only)
-        (timer as { unref?: () => void }).unref?.();
+        if (this._closed) return undefined;
+
+        const timer = armSseKeepAlive(this._keepAliveMs, () => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                if (timer !== undefined) clearInterval(timer);
+            }
+        });
         return timer;
     }
 
@@ -379,6 +361,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a Response object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        if (this._closed) {
+            return this.createJsonErrorResponse(404, -32001, 'Session not found');
+        }
+
         // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
         // Reusing a stateless transport causes message ID collisions between clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
@@ -498,7 +484,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
         };
 
         // After initialization, always include the session ID if we have one
@@ -559,7 +546,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             if (this.sessionId !== undefined) {
@@ -880,8 +868,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                'Cache-Control': 'no-cache, no-transform',
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             // After initialization, always include the session ID if we have one
@@ -978,9 +967,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return protocolError;
         }
 
-        await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
-        await this.close();
-        return new Response(null, { status: 200 });
+        try {
+            await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+            return new Response(null, { status: 200 });
+        } finally {
+            await this.close();
+        }
     }
 
     /**
@@ -1187,6 +1179,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // Without resumability (or in JSON response mode, where the
                     // pending HTTP response can never be settled by a replay),
                     // a missing stream means the response cannot be delivered.
+                    // Release the correlations so the entries don't outlive the
+                    // undeliverable response.
+                    for (const id of relatedIds) {
+                        this._requestResponseMap.delete(id);
+                        this._requestToStreamMapping.delete(id);
+                    }
                     throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {
