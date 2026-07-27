@@ -190,11 +190,13 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  * - Output objects and enum-keyed records drop properties that may be legitimately
  *   absent from the shipped payload (`.default()`, undefined-accepting types) from
  *   `required`: zod fills defaults during validation, but ships the raw object.
- * - Output `.catch()` nodes (below the root) degrade to an unconstrained schema
- *   (annotations and the emitted `default` kept): catch-validation accepts any raw
- *   value — the fallback replaces it only in the parsed result, which the server
- *   never ships. The conversion root keeps its emitted shape so the 2025-era
- *   legacy-wrap decision is unchanged.
+ * - Output `.catch()` nodes drop their constraint keywords (`properties`, `required`,
+ *   `additionalProperties`, …) but keep the emitted `type`, annotations, and
+ *   `default`: catch-validation accepts any raw value — the fallback replaces it
+ *   only in the parsed result, which the server never ships. `type` is kept at every
+ *   position (zod deduplicates reused instances, so the verdict must be
+ *   position-independent) and preserves the 2025-era legacy-wrap object proof at the
+ *   root and in root-level compositions.
  *
  * Known residual gaps:
  * - Input schemas (tool `inputSchema`, prompt `argsSchema`) containing `z.date()`
@@ -237,17 +239,19 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             if (def.type === 'catch') {
                 // `.catch()` accepts any raw value — invalid input is replaced by the
                 // fallback only in the parsed result, which the server never ships — so
-                // no inner constraint is enforced on the wire. At positions that feed
-                // the output epilogue's root object proof (the conversion ROOT and
-                // members of root-level compositions), keep the node as emitted:
-                // deleting `type: 'object'` there would flip the 2025-era codec's
-                // legacy-wrap predicate (`isNonObjectJsonSchemaRoot`) and silently
-                // change the wire shape of previously-working registrations.
-                if (feedsRootObjectProof(ctx.path)) return;
+                // no inner constraint is enforced on the wire: drop the constraint
+                // keywords but KEEP the emitted `type`. The verdict must be
+                // position-independent — zod deduplicates reused instances and runs
+                // this hook once per instance, so one shared node can sit at both a
+                // nested position and a root(-composition) position — and deleting
+                // `type` at the latter would break the output epilogue's root object
+                // proof and flip the 2025-era legacy-wrap predicate
+                // (`isNonObjectJsonSchemaRoot`), silently changing the wire shape.
                 for (const key of Object.keys(ctx.jsonSchema)) {
                     // `x-*` vendor extensions are annotation-only (same convention as the
                     // elicitation walker) and carry no validation constraint.
-                    if (!ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) && !key.startsWith('x-')) delete ctx.jsonSchema[key];
+                    if (key === 'type' || ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-')) continue;
+                    delete ctx.jsonSchema[key];
                 }
                 return;
             }
@@ -278,19 +282,6 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             }
         }
     };
-}
-
-/**
- * Whether a node's emitted `type` feeds the output epilogue's root object proof: the
- * conversion root itself, or a member of root-level (possibly nested) compositions —
- * `isProvablyObjectShapedRoot` recurses through `anyOf`/`oneOf`/`allOf` members.
- */
-function feedsRootObjectProof(path: ReadonlyArray<string | number>): boolean {
-    for (let i = 0; i < path.length; i += 2) {
-        const key = path[i];
-        if ((key !== 'anyOf' && key !== 'oneOf' && key !== 'allOf') || typeof path[i + 1] !== 'number') return false;
-    }
-    return true;
 }
 
 /**
@@ -469,21 +460,23 @@ const NON_OBJECT_TYPELESS_ROOTS: ReadonlySet<string> = new Set([
 ]);
 
 /** Transparent wrapper def types whose `innerType` carries the real root semantics. */
-const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set(['optional', 'nullable', 'readonly', 'default', 'prefault', 'catch']);
+const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set(['optional', 'nullable', 'readonly', 'default', 'prefault', 'catch', 'promise']);
 
 /**
  * The innermost def type of a zod schema, unwrapped through transparent wrappers
- * (`optional`/`nullable`/`readonly`/`default`/`prefault`/`catch` via `innerType`,
- * `lazy` via its getter) so `z.bigint().optional()` and `z.lazy(() => z.bigint())`
- * report `'bigint'`. A seen-set bounds recursive lazies; non-zod schemas and
- * throwing lazy getters yield `undefined`.
+ * (`optional`/`nullable`/`readonly`/`default`/`prefault`/`catch`/`promise` via
+ * `innerType`, `lazy` via its getter, and `pipe` via its INPUT side `def.in` — the
+ * side `io: 'input'` conversion and input validation both consume) so
+ * `z.bigint().optional()`, `z.lazy(() => z.bigint())`, and
+ * `z.bigint().transform(...)` all report `'bigint'`. A seen-set bounds recursive
+ * lazies; non-zod schemas and throwing lazy getters yield `undefined`.
  */
 function unwrappedZodDefType(schema: unknown): string | undefined {
     const seen = new Set<unknown>();
     let current = schema;
     while (typeof current === 'object' && current !== null && !seen.has(current)) {
         seen.add(current);
-        const def = (current as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown } } })._zod?.def;
+        const def = (current as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown } } })._zod?.def;
         if (def === undefined || typeof def.type !== 'string') return undefined;
         if (def.type === 'lazy' && typeof def.getter === 'function') {
             try {
@@ -491,6 +484,10 @@ function unwrappedZodDefType(schema: unknown): string | undefined {
             } catch {
                 return undefined;
             }
+            continue;
+        }
+        if (def.type === 'pipe' && def.in !== undefined) {
+            current = def.in;
             continue;
         }
         if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {

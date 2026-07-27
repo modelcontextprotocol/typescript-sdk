@@ -159,13 +159,39 @@ describe('zod conversion options (#2464)', () => {
 
         // Catch-validation accepts any raw value (the fallback replaces it only in the
         // parsed result, which never ships), so no inner constraint may be advertised.
+        // The emitted `type` is kept: the verdict must be position-independent (zod
+        // deduplicates reused instances), and root positions need it for the 2025-era
+        // legacy-wrap object proof.
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' } });
-        expect(properties.scalar).toEqual({ default: 0 });
+        expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' }, type: 'object' });
+        expect(properties.scalar).toEqual({ default: 0, type: 'number' });
         // `x-*` vendor extensions are annotation-only and must survive the degrade.
-        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1 });
+        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1, type: 'number' });
         // A raw payload omitting the catch fields also validates, so they are not required.
         expect(result.required).toEqual(['name']);
+    });
+
+    test('a .catch() instance reused at nested and root-proof positions is safe in both orderings', () => {
+        // zod deduplicates reused instances and runs the override once per instance,
+        // so the degrade verdict is shared by every occurrence — it must not depend
+        // on which position is seen first.
+        for (const makeUnion of [
+            (c: z.ZodType) => z.union([z.object({ x: c }), c]), // nested seen first
+            (c: z.ZodType) => z.union([c, z.object({ x: c })]) // root member seen first
+        ]) {
+            const shared = z.object({ q: z.string() }).catch({ q: 'd' });
+            const result = standardSchemaToJsonSchema(makeUnion(shared), 'output');
+
+            // The root object proof must hold (no 2025-era legacy-wrap flip) ...
+            expect(result.type).toBe('object');
+            expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+            const members = result.anyOf as Array<Record<string, unknown>>;
+            const nested = members.find(m => m.properties !== undefined)!;
+            const rootMember = members.find(m => m.properties === undefined)!;
+            // ... and no occurrence may advertise the unenforced inner constraints.
+            expect((nested.properties as Record<string, Record<string, unknown>>).x).toEqual({ default: { q: 'd' }, type: 'object' });
+            expect(rootMember).toEqual({ default: { q: 'd' }, type: 'object' });
+        }
     });
 
     test('a root-position .catch() output schema keeps its emitted object root', () => {
@@ -213,8 +239,25 @@ describe('zod conversion options (#2464)', () => {
         // Typeless literal roots (unrepresentable or mixed-type values) are not objects.
         expect(() => standardSchemaToJsonSchema(z.literal(undefined), 'input')).toThrow(/must describe objects/);
         expect(() => standardSchemaToJsonSchema(z.literal(['a', 1]), 'input')).toThrow(/must describe objects/);
+        // Pipes unwrap via their INPUT side, and promises via their inner type.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().pipe(z.transform((x: bigint) => Number(x))), 'input')).toThrow(
+            /must describe objects/
+        );
+        expect(() => standardSchemaToJsonSchema(z.promise(z.bigint()), 'input')).toThrow(/must describe objects/);
         // Wrapped OBJECT roots stay accepted.
         expect(standardSchemaToJsonSchema(z.object({ a: z.string() }).optional(), 'input').type).toBe('object');
+        expect(
+            standardSchemaToJsonSchema(
+                z.object({ a: z.string() }).transform(o => o),
+                'input'
+            ).type
+        ).toBe('object');
     });
 
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {
