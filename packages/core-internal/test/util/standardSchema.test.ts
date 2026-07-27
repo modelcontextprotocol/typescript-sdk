@@ -60,12 +60,56 @@ describe('zod conversion options (#2464)', () => {
         expect((result.properties as Record<string, unknown>).big).toEqual({});
     });
 
+    test('z.date() keeps user annotations alongside the rewritten wire shape', () => {
+        const result = standardSchemaToJsonSchema(z.object({ when: z.date().describe('event timestamp') }), 'input');
+
+        expect((result.properties as Record<string, unknown>).when).toEqual({
+            type: 'string',
+            format: 'date-time',
+            description: 'event timestamp'
+        });
+    });
+
+    test("unrepresentable: 'throw' restores zod's conversion error (elicitation contract)", () => {
+        expect(() => standardSchemaToJsonSchema(z.object({ when: z.date() }), 'input', { unrepresentable: 'throw' })).toThrow(
+            /Date cannot be represented/
+        );
+    });
+
     test('defaulted fields are not advertised as required in output schemas', () => {
         const schema = z.object({ counted: z.number().default(0), name: z.string() });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         // The server ships the tool's raw structuredContent without filling defaults,
         // so a payload omitting `counted` must satisfy the advertised schema.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a registered .default() (emitted as $ref) is still dropped from output required', () => {
+        const schema = z.object({ counted: z.number().default(0).meta({ id: 'StandardSchemaTestCounted' }), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The `default` keyword hides inside $defs behind a bare $ref; the filter must
+        // key on the zod shape, not the emitted JSON.
+        expect((result.properties as Record<string, Record<string, unknown>>).counted?.$ref).toBeDefined();
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a required field annotated with .meta({default}) stays required in output schemas', () => {
+        const schema = z.object({ label: z.string().meta({ default: 'n/a' }), other: z.number() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The annotation carries a `default` keyword, but validation still requires the
+        // field, so every shipped payload carries it.
+        expect(result.required).toEqual(['label', 'other']);
+    });
+
+    test('undefined-accepting fields are not advertised as required in output schemas', () => {
+        const schema = z.object({ a: z.any(), u: z.unknown(), v: z.undefined(), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A raw payload with an undefined-valued key passes validation, and
+        // JSON.stringify drops the key from the wire entirely.
         expect(result.required).toEqual(['name']);
     });
 

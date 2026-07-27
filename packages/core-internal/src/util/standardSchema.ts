@@ -194,7 +194,8 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
         override: ctx => {
             const def = ctx.zodSchema._zod.def;
             if (def.type === 'date') {
-                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
+                // Under `unrepresentable: 'any'` the node carries only user annotations
+                // (`.describe()` / `.meta()`) — keep them and stamp the wire shape beside them.
                 ctx.jsonSchema.type = 'string';
                 ctx.jsonSchema.format = 'date-time';
                 return;
@@ -204,13 +205,13 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
                 delete ctx.jsonSchema.additionalProperties;
             }
-            const properties = ctx.jsonSchema.properties;
             const required = ctx.jsonSchema.required;
-            if (properties && Array.isArray(required)) {
-                const filtered = required.filter(name => {
-                    const property = properties[name];
-                    return typeof property !== 'object' || property.default === undefined;
-                });
+            if (Array.isArray(required)) {
+                // Keyed on the zod shape, not the emitted JSON: a registered `.default()`
+                // hides its `default` keyword behind a `$ref`, and undefined-accepting
+                // fields (`z.any()`, `z.unknown()`, …) never emit one yet may be dropped
+                // from the wire payload by JSON.stringify.
+                const filtered = required.filter(name => !fieldAcceptsMissingKey(def.shape[name]));
                 if (filtered.length !== required.length) {
                     if (filtered.length === 0) delete ctx.jsonSchema.required;
                     else ctx.jsonSchema.required = filtered;
@@ -218,6 +219,19 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             }
         }
     };
+}
+
+/**
+ * Whether a raw payload that omits this field still passes validation (zod treats a
+ * missing key as `undefined` — true for `.default()`/`.prefault()`, `z.any()`,
+ * `z.unknown()`, `z.undefined()`, and unions with them), so the wire schema must not
+ * advertise the field as `required`. Async validation cannot be awaited here; such
+ * fields conservatively stay required.
+ */
+function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
+    if (field === undefined) return false;
+    const result = field['~standard'].validate(undefined);
+    return !(result instanceof Promise) && result.issues === undefined;
 }
 
 /**
@@ -231,14 +245,36 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
  * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
  * applied only when the root is provably object-shaped.
  */
-export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
+export interface StandardSchemaToJsonSchemaOptions {
+    /**
+     * How types JSON Schema cannot represent (`z.date()`, `z.bigint()`, …) are handled
+     * for zod schemas:
+     *
+     * - `'wire'` (default) — degrade gracefully: `z.date()` becomes
+     *   `{type: 'string', format: 'date-time'}` (the shape `JSON.stringify` puts on the
+     *   wire for a `Date`) and other unrepresentable types become an unconstrained
+     *   schema, so one field cannot fail an entire `tools/list` response (#2464).
+     * - `'throw'` — surface zod's conversion error. The elicitation path uses this: its
+     *   restricted form grammar must reject shapes it cannot round-trip, and a silently
+     *   rewritten `string`/`date-time` request would elicit a string that the original
+     *   `z.date()` schema can never re-validate on handler re-entry.
+     */
+    unrepresentable?: 'wire' | 'throw';
+}
+
+export function standardSchemaToJsonSchema(
+    schema: StandardJSONSchemaV1,
+    io: 'input' | 'output' = 'input',
+    options?: StandardSchemaToJsonSchemaOptions
+): Record<string, unknown> {
     const std = schema['~standard'];
+    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io);
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
         result = std.jsonSchema[io]({
             target: JSON_SCHEMA_CONVERSION_TARGET,
             // Non-zod vendors receive no libraryOptions, so their behavior is unchanged.
-            libraryOptions: std.vendor === 'zod' ? zodConversionOptions(io) : undefined
+            libraryOptions: std.vendor === 'zod' ? zodOptions : undefined
         });
     } else if (std.vendor === 'zod') {
         // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
@@ -261,7 +297,7 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         result = z.toJSONSchema(schema as unknown as z.ZodType, {
             target: JSON_SCHEMA_CONVERSION_TARGET,
             io,
-            ...zodConversionOptions(io)
+            ...zodOptions
         }) as Record<string, unknown>;
     } else {
         throw new Error(
