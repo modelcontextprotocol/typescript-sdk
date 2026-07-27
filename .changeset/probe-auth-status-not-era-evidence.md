@@ -17,7 +17,7 @@ keyed on that code cannot persist a verdict for an unauthorized exchange. A
 modern server to legacy — the legacy fallback now fires only on the 4xx
 shapes the spec licenses.
 
-With an `authProvider`, the transport's auth flow runs first and whatever
+With an `authProvider`, a `401` (and a `403` `insufficient_scope` challenge) runs the transport's auth flow first — a plain `403` rejects the same as without a provider — and whatever
 escapes it propagates unchanged, identity intact: the HTTP transports stamp
 errors at their auth seams (the `token()` read, `onUnauthorized` including
 custom callbacks, the 403 step-up flow, and their own auth-failure
