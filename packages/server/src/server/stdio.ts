@@ -116,6 +116,15 @@ export class StdioServerTransport implements Transport {
                 this._stdout.off('error', listener as (error: Error) => void);
             }
         }
+        // A stream that already ended or was destroyed before start() ran has
+        // emitted its one 'end'/'close' event; the listeners below would never
+        // fire. This can happen with a custom stream (e.g. a net.Socket the
+        // peer reset during async setup) — treat it as the client having hung
+        // up, deferred by a microtask so onclose isn't invoked before start()
+        // returns.
+        if (this._stdin.readableEnded || this._stdin.destroyed) {
+            queueMicrotask(this._onstdinclose);
+        }
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
         this._stdin.on('end', this._onstdinclose);

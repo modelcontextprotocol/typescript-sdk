@@ -70,6 +70,23 @@ process.on('SIGINT', () => {
 
 `close()` resolves once the instance the factory built and the underlying transport are both shut down.
 
+A signal handler is one path to teardown; the pipe itself is the other. When the client closes its end (stdin reaches end-of-file), the transport closes itself and the connection tears down automatically — no signal handler needed. A server that holds nothing else keeping the event loop alive then exits on its own. If yours does hold a keep-alive handle — a timer, a connection pool, a file watcher — release it when the connection closes so the process can exit:
+
+```ts source="../../examples/guides/serving/stdio.examples.ts#serveStdio_releaseKeepAlive"
+serveStdio(() => {
+    const server = new McpServer({ name: 'notes', version: '1.0.0' });
+
+    // A handle that keeps the event loop alive: a heartbeat timer, a
+    // connection pool, a file watcher, ...
+    const heartbeat = setInterval(() => console.error('notes server: still serving'), 60_000);
+
+    // Release it when the connection closes, so the process can exit.
+    server.server.onclose = () => clearInterval(heartbeat);
+
+    return server;
+});
+```
+
 ## Recap
 
 - `serveStdio(factory)` is the stdio entry point: it owns the transport and calls your factory to build the instance that serves the connection.
@@ -77,3 +94,4 @@ process.on('SIGINT', () => {
 - One `console.log` puts a line no JSON-RPC parser accepts into the stream the host parses.
 - `npx @modelcontextprotocol/inspector <command>` exercises a stdio server without configuring it in a host.
 - The returned `StdioServerHandle`'s `close()` tears down the pinned instance and the transport.
+- When the client closes the pipe (stdin EOF) the connection tears down by itself; release your own keep-alive handles on close so the process can exit.

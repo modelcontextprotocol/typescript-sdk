@@ -183,6 +183,67 @@ test('should close and fire onclose when stdin closes', async () => {
     expect(closeCount).toBe(1);
 });
 
+test('should fire onclose when stdin was already destroyed before start()', async () => {
+    // A custom stream (e.g. a net.Socket the peer reset during async setup) can
+    // be dead before start() runs: its one 'close' event already fired, so a
+    // listener registered in start() would never see it.
+    input.destroy();
+    await new Promise<void>(resolve => {
+        input.once('close', resolve);
+    });
+    expect(input.destroyed).toBe(true);
+
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await server.start();
+
+    await closed;
+    expect(closeCount).toBe(1);
+});
+
+test('should fire onclose when stdin had already ended before start()', async () => {
+    // `autoDestroy: false, emitClose: false` so consuming the stream to EOF
+    // leaves it ended but NOT destroyed — its one 'end' event fired before
+    // start(), so only the `readableEnded` check can catch this shape.
+    const endedInput = new Readable({ read: () => {}, autoDestroy: false, emitClose: false });
+    endedInput.push(null); // EOF
+    endedInput.resume(); // flow, so 'end' actually fires
+    await new Promise<void>(resolve => {
+        endedInput.once('end', resolve);
+    });
+    expect(endedInput.readableEnded).toBe(true);
+    expect(endedInput.destroyed).toBe(false);
+
+    const server = new StdioServerTransport(endedInput, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await server.start();
+
+    await closed;
+    expect(closeCount).toBe(1);
+});
+
 test('should not fire onclose twice when close() is called after stdin ends', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {
