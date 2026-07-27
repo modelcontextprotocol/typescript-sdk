@@ -25,11 +25,13 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
-    stampErrorBrands
+    stampErrorBrands,
+    unmergedFetch
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
 import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
+import { REDIRECT_STATUS_CODES } from './transportRedirect';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
 export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
@@ -53,7 +55,7 @@ export interface UnauthorizedContext {
     response: Response;
     /** The MCP server URL, for passing to {@linkcode auth} or discovery helpers. */
     serverUrl: URL;
-    /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
+    /** Fetch function configured with the transport's `oauthRequestInit`, for making auth requests. */
     fetchFn: FetchLike;
 }
 
@@ -1565,9 +1567,11 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
         }
         if (headers) {
             // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
-            // request: if that succeeds, we've sidestepped the preflight.
+            // request: if that succeeds, we've sidestepped the preflight. The retry bypasses any
+            // `createFetchWithInit` merging (`oauthRequestInit`) — a retry that re-acquires
+            // configured headers preflights identically and can never sidestep anything.
             try {
-                return await fetchFn(url, {});
+                return await unmergedFetch(fetchFn)(url, {});
             } catch (retryError) {
                 if (!(retryError instanceof TypeError)) {
                     throw retryError;
@@ -2047,6 +2051,20 @@ export function prepareAuthorizationCodeRequest(
 }
 
 /**
+ * Token and registration responses are terminal (RFC 6749 §5, RFC 7591 §3.2):
+ * a redirect — including one the runtime filters to `opaqueredirect` — is an error.
+ */
+export async function assertNotRedirected(response: Response, endpoint: 'Token' | 'Registration'): Promise<void> {
+    if (response.type === 'opaqueredirect' || REDIRECT_STATUS_CODES.has(response.status)) {
+        // Release the redirect response before erroring.
+        await response.text?.().catch(() => {});
+        throw new Error(
+            `${endpoint} endpoint responded with a redirect (HTTP ${response.status || 'filtered by the runtime'}); ${endpoint.toLowerCase()} responses are terminal`
+        );
+    }
+}
+
+/**
  * Internal helper to execute a token request with the given parameters.
  * Used by {@linkcode exchangeAuthorization}, {@linkcode refreshAuthorization}, and {@linkcode fetchToken}.
  */
@@ -2090,8 +2108,10 @@ export async function executeTokenRequest(
     const response = await (fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
-        body: tokenRequestParams
+        body: tokenRequestParams,
+        redirect: 'manual'
     });
+    await assertNotRedirected(response, 'Token');
 
     if (!response.ok) {
         throw await parseErrorResponse(response);
@@ -2365,8 +2385,10 @@ export async function registerClient(
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify(submittedMetadata)
+        body: JSON.stringify(submittedMetadata),
+        redirect: 'manual'
     });
+    await assertNotRedirected(response, 'Registration');
 
     if (!response.ok) {
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });

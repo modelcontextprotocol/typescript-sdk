@@ -34,7 +34,7 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
     }
 
     // Return a wrapped fetch that merges base RequestInit with call-specific init
-    return async (url: string | URL, init?: RequestInit): Promise<Response> => {
+    const wrapped = async (url: string | URL, init?: RequestInit): Promise<Response> => {
         const mergedInit: RequestInit = {
             ...baseInit,
             ...init,
@@ -43,6 +43,22 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
         };
         return baseFetch(url, mergedInit);
     };
+    unmergedFetches.set(wrapped, unmergedFetch(baseFetch));
+    return wrapped;
+}
+
+/** {@linkcode createFetchWithInit} wrappers → their fully unwrapped base fetch. */
+const unmergedFetches = new WeakMap<FetchLike, FetchLike>();
+
+/**
+ * The base fetch behind a {@linkcode createFetchWithInit} wrapper, without the
+ * wrapper's base `RequestInit` merging — for the rare request that must not
+ * carry the configured base options (e.g. the CORS preflight-sidestep retry,
+ * which only works as a headerless simple request). Returns the function
+ * unchanged when it is not such a wrapper.
+ */
+export function unmergedFetch(fetchFn: FetchLike): FetchLike {
+    return unmergedFetches.get(fetchFn) ?? fetchFn;
 }
 
 /**

@@ -14,6 +14,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     UnsupportedProtocolVersionError
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
@@ -1100,6 +1101,34 @@ describe('probe send-error classification', () => {
             (e: unknown) => e
         );
         expect(rejection).toBe(reason);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('a redirect-not-followed send failure surfaces the redirect error — never a legacy verdict', async () => {
+        // A 3xx answer to the probe POST is transport-level, not era evidence:
+        // the generic SdkHttpError → http-error row would read it as the
+        // conservative legacy fallback (auto) or a wrong "did not offer the
+        // pinned version" diagnosis (pin), hiding the remedy-naming message.
+        const reason = new SdkHttpError(
+            SdkErrorCode.ClientHttpRedirectNotFollowed,
+            'Server answered POST with a redirect (HTTP 307) to a different origin (https://example.com); ' +
+                "POST requests are not re-sent across origins — point the transport at the new endpoint or set redirectPolicy: 'follow'",
+            { status: 307, statusText: 'Temporary Redirect' }
+        );
+        const transport = new AuthGatedTransport(reason);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect((rejection as SdkError).message).toContain('redirect');
+        expect(((rejection as SdkError).data as { cause?: unknown }).cause).toBe(reason);
+        // No legacy initialize fallback ran against the redirecting front.
         expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 

@@ -78,7 +78,12 @@ export enum SdkErrorCode {
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
-    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
+    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION',
+    /**
+     * A redirect (3xx) the client transport does not follow; `status` carries
+     * the redirect status code, or `0` for a runtime-filtered opaque redirect.
+     */
+    ClientHttpRedirectNotFollowed = 'CLIENT_HTTP_REDIRECT_NOT_FOLLOWED'
 }
 
 /**
