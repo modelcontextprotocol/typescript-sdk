@@ -3,7 +3,8 @@
  *
  * Each `//#region` block is synced byte-for-byte into that page's `ts` fences by
  * `pnpm sync:snippets` (`pnpm sync:snippets --check` reports drift). The regions
- * are one linear stdio server program. The file runs in two modes:
+ * are one linear stdio server program, plus one typechecked-but-not-run variant
+ * (the keep-alive release pattern). The file runs in two modes:
  *
  *   - `node --import tsx stdio.examples.ts --serve` — be that stdio server, plus
  *     the one deliberate `console.log` the page's gotcha section describes, and
@@ -38,6 +39,26 @@ process.on('SIGINT', () => {
     void handle.close();
 });
 //#endregion serveStdio_shutdown
+
+// "Shut down cleanly" — the keep-alive release pattern: typechecked, not run
+// (running it here would start a second stdio transport on this process's
+// streams alongside the server above).
+export function notesServerWithKeepAlive() {
+    //#region serveStdio_releaseKeepAlive
+    serveStdio(() => {
+        const server = new McpServer({ name: 'notes', version: '1.0.0' });
+
+        // A handle that keeps the event loop alive: a heartbeat timer, a
+        // connection pool, a file watcher, ...
+        const heartbeat = setInterval(() => console.error('notes server: still serving'), 60_000);
+
+        // Release it when the connection closes, so the process can exit.
+        server.server.onclose = () => clearInterval(heartbeat);
+
+        return server;
+    });
+    //#endregion serveStdio_releaseKeepAlive
+}
 
 // ---------------------------------------------------------------------------
 // Harness (not shown on the page).
