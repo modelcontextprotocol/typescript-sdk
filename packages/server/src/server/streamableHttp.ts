@@ -480,8 +480,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
-            'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            'Cache-Control': 'no-cache, no-transform'
         };
 
         // After initialization, always include the session ID if we have one
@@ -536,8 +535,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                'Cache-Control': 'no-cache, no-transform'
             };
 
             if (this.sessionId !== undefined) {
@@ -837,8 +835,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                'Cache-Control': 'no-cache'
             };
 
             // After initialization, always include the session ID if we have one

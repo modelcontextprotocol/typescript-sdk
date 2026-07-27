@@ -166,6 +166,7 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(200);
                 expect(response.headers.get('content-type')).toBe('text/event-stream');
                 expect(response.headers.get('mcp-session-id')).toBeDefined();
+                expect(response.headers.get('connection'), 'connection policy belongs to the HTTP adapter').toBeNull();
             });
 
             it('should reject second initialization request', async () => {
@@ -358,6 +359,7 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(200);
                 expect(response.headers.get('content-type')).toBe('text/event-stream');
                 expect(response.headers.get('mcp-session-id')).toBe(sessionId);
+                expect(response.headers.get('connection'), 'connection policy belongs to the HTTP adapter').toBeNull();
             });
 
             it('should reject GET without Accept: text/event-stream', async () => {
@@ -857,6 +859,7 @@ describe('Zod v4', () => {
                 createRequest('GET', undefined, { sessionId, extraHeaders: { 'Last-Event-ID': primingId! } })
             );
             expect(reconnect.status).toBe(200);
+            expect(reconnect.headers.get('connection'), 'connection policy belongs to the HTTP adapter').toBeNull();
             release();
             const replayed = await readSSEEvent(reconnect);
             expect(replayed).toContain('notifications/progress');
