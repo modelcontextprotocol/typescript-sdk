@@ -16,6 +16,9 @@ and `additionalProperties: false` is dropped for plain `z.object()` (kept for
 `z.strictObject()`), so validating clients no longer reject legitimate tool results for
 these schema shapes. (Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still
 advertise the post-transform shape while the server ships the raw pre-transform value — a
-pre-existing gap this change does not address.) Elicitation is unaffected:
+pre-existing gap this change does not address. And on zod 4.0–4.2.x, `toJSONSchema` skips
+the sanitization hook on a schema reused both bare and via a `.describe()`/`.meta()` clone
+in the same conversion; full per-node sanitization requires zod >=4.3.0.) Elicitation is
+unaffected:
 `inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
 round-trip, including `z.date()`.

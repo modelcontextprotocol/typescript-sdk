@@ -191,12 +191,18 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   absent from the shipped payload (`.default()`, undefined-accepting types) from
  *   `required`: zod fills defaults during validation, but ships the raw object.
  *
- * Known residual gap: output schemas containing `.transform()`/`.pipe()`/`z.coerce`
- * still advertise the post-transform shape (`io: 'output'`) even though the server
- * validates and ships the raw pre-transform value — rewriting pipe nodes to their
- * input side per-node would break `$ref`s to registered schemas, and converting
- * output advertisements with input semantics wholesale is a design decision that
- * interacts with SEP-2106 non-object output roots (see #2464 discussion).
+ * Known residual gaps:
+ * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
+ *   post-transform shape (`io: 'output'`) even though the server validates and ships
+ *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
+ *   would break `$ref`s to registered schemas, and converting output advertisements
+ *   with input semantics wholesale is a design decision that interacts with SEP-2106
+ *   non-object output roots (see #2464 discussion).
+ * - On zod 4.0–4.2.x, `toJSONSchema` skips the `override` hook on any node whose
+ *   clone (`.describe()`/`.meta()`) appears in the same conversion (the
+ *   `if (!seen.isParent)` guard in `v4/core/to-json-schema.js`, removed in zod
+ *   4.3.0), so a schema reused both bare and via a clone leaves the bare node
+ *   unsanitized. Full per-node sanitization requires zod >=4.3.0.
  */
 function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
