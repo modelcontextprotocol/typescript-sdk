@@ -233,9 +233,9 @@ quote-anchored pattern misses silently — match either quote. The build layout 
 changed: v2 emits `.mjs`/`.cjs` siblings in a flat `dist/`, so v1's `/dist/cjs/` ↔
 `/dist/esm/` flavor-pair path swaps have no equivalent.
 
-#### Registry availability during the beta
+#### Registry availability
 
-All v2 packages are published on the public npm registry. Two notes for the beta
+All v2 packages are published on the public npm registry. Two notes
 window:
 
 - As of `2.0.0-beta.1` all v2 packages share one version number (earlier alphas
