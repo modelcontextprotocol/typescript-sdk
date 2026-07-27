@@ -113,6 +113,37 @@ describe('zod conversion options (#2464)', () => {
         expect(result.required).toEqual(['name']);
     });
 
+    test('enum-keyed records with a defaulted value drop the emitted required list (output)', () => {
+        const schema = z.object({ tallies: z.record(z.enum(['likes', 'shares']), z.number().default(0)), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // zod fills record defaults during validation, so `{}` is a legitimate raw value
+        // for the record node — but the record field itself stays required on the parent.
+        const tallies = (result.properties as Record<string, Record<string, unknown>>).tallies!;
+        expect(tallies.required).toBeUndefined();
+        expect(result.required).toEqual(['tallies', 'name']);
+    });
+
+    test('enum-keyed records with a strict value keep the emitted required list (output)', () => {
+        const schema = z.record(z.enum(['likes', 'shares']), z.number());
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Validation rejects a missing key here, so the required list is truthful.
+        expect(result.required).toEqual(['likes', 'shares']);
+    });
+
+    test('a required field whose transform throws on undefined stays required and does not crash', async () => {
+        const schema = z.object({ n: z.unknown().transform(v => (v as string).length), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The missing-key probe cannot demonstrate tolerance (the transform throws on
+        // undefined; depending on the zod version the probe throws synchronously or
+        // returns a rejecting Promise) — the field conservatively stays required, and
+        // no unhandled rejection may escape (vitest fails the run on one).
+        expect(result.required).toEqual(['n', 'name']);
+        await new Promise(resolve => setTimeout(resolve, 10));
+    });
+
     test('plain z.object() output schemas do not advertise additionalProperties:false', () => {
         const result = standardSchemaToJsonSchema(z.object({ name: z.string() }), 'output');
 

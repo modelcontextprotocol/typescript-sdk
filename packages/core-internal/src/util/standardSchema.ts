@@ -180,13 +180,16 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *
  * - `unrepresentable: 'any'`: a single unrepresentable type (e.g. `z.bigint()`) degrades
  *   to an unconstrained `{}` instead of throwing and failing the entire `tools/list`.
+ *   (BigInt *values* embedded as defaults or metadata — `.default(0n)`, `.meta({default: 1n})`
+ *   — still throw: zod JSON-round-trips them in its own processors, outside this hook's reach.)
  * - `z.date()` is rewritten to `{type: 'string', format: 'date-time'}` — the shape
  *   `JSON.stringify` actually produces for a `Date` (and what the zod 3 converter emitted).
  * - Output objects drop `additionalProperties: false` unless the object is strict:
  *   zod validation tolerates unknown keys on plain `z.object()`, and the raw payload
  *   ships them.
- * - Output objects drop `.default()`-carrying properties from `required`: zod fills
- *   defaults during validation, but the shipped payload may legitimately omit them.
+ * - Output objects and enum-keyed records drop properties that may be legitimately
+ *   absent from the shipped payload (`.default()`, undefined-accepting types) from
+ *   `required`: zod fills defaults during validation, but ships the raw object.
  */
 function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
@@ -200,7 +203,16 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 ctx.jsonSchema.format = 'date-time';
                 return;
             }
-            if (io !== 'output' || def.type !== 'object') return;
+            if (io !== 'output') return;
+            if (def.type === 'record') {
+                // Enum-keyed records emit a `required` list too. Every key shares the one
+                // value schema, so tolerance for missing keys is all-or-nothing.
+                if (Array.isArray(ctx.jsonSchema.required) && fieldAcceptsMissingKey(def.valueType)) {
+                    delete ctx.jsonSchema.required;
+                }
+                return;
+            }
+            if (def.type !== 'object') return;
             const isStrict = def.catchall?._zod.def.type === 'never';
             if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
                 delete ctx.jsonSchema.additionalProperties;
@@ -225,26 +237,26 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
  * Whether a raw payload that omits this field still passes validation (zod treats a
  * missing key as `undefined` — true for `.default()`/`.prefault()`, `z.any()`,
  * `z.unknown()`, `z.undefined()`, and unions with them), so the wire schema must not
- * advertise the field as `required`. Async validation cannot be awaited here; such
- * fields conservatively stay required.
+ * advertise the field as `required`. A probe that throws, rejects, or goes async (a
+ * `.transform()` choking on `undefined` does all three depending on the zod version)
+ * cannot demonstrate tolerance, so such fields conservatively stay required.
  */
 function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     if (field === undefined) return false;
-    const result = field['~standard'].validate(undefined);
-    return !(result instanceof Promise) && result.issues === undefined;
+    try {
+        const result = field['~standard'].validate(undefined);
+        if (result instanceof Promise) {
+            // Never leave a floating rejection: an unhandled one crashes the process.
+            result.catch(() => {});
+            return false;
+        }
+        return result.issues === undefined;
+    } catch {
+        return false;
+    }
 }
 
-/**
- * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
- *
- * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
- * argument schemas; `outputSchema` may have any JSON Schema root (SEP-2106).
- * Zod's discriminated unions emit `{oneOf: [...]}` without a top-level `type`,
- * so for `io: 'input'` this function defaults `type` to `"object"` when absent
- * and throws on an explicit non-object `type` (e.g. `z.string()`). For
- * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
- * applied only when the root is provably object-shaped.
- */
+/** Options for {@linkcode standardSchemaToJsonSchema}. */
 export interface StandardSchemaToJsonSchemaOptions {
     /**
      * How types JSON Schema cannot represent (`z.date()`, `z.bigint()`, …) are handled
@@ -262,6 +274,17 @@ export interface StandardSchemaToJsonSchemaOptions {
     unrepresentable?: 'wire' | 'throw';
 }
 
+/**
+ * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
+ *
+ * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
+ * argument schemas; `outputSchema` may have any JSON Schema root (SEP-2106).
+ * Zod's discriminated unions emit `{oneOf: [...]}` without a top-level `type`,
+ * so for `io: 'input'` this function defaults `type` to `"object"` when absent
+ * and throws on an explicit non-object `type` (e.g. `z.string()`). For
+ * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
+ * applied only when the root is provably object-shaped.
+ */
 export function standardSchemaToJsonSchema(
     schema: StandardJSONSchemaV1,
     io: 'input' | 'output' = 'input',
