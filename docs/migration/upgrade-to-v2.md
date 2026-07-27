@@ -19,7 +19,7 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    both `import` and `require('@modelcontextprotocol/…')` resolve natively.
 2. **Run the codemod.**
     ```bash
-    npx @modelcontextprotocol/codemod@beta v1-to-v2 .
+    npx @modelcontextprotocol/codemod@latest v1-to-v2 .
     ```
     Run it at the **package root** (`.`), not `./src` — it also rewrites `package.json`,
     and real projects import the SDK from `test/`, `scripts/`, and fixtures too.
