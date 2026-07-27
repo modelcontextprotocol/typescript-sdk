@@ -227,6 +227,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _hasHandledRequest: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
+    /**
+     * Request streams whose client holds a Last-Event-ID cursor (at least one
+     * id-bearing event was delivered on them), so a stored response can be
+     * replayed on resume.
+     */
+    private _resumableStreams: Set<string> = new Set();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
@@ -419,6 +425,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
         }
         controller.enqueue(encoder.encode(primingEvent));
+        this._resumableStreams.add(streamId);
     }
 
     /**
@@ -630,6 +637,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
+
+            // The resume itself proves the client holds a Last-Event-ID cursor
+            this._resumableStreams.add(replayedStreamId);
 
             keepAliveTimer = this.startKeepAlive(streamController!, encoder);
 
@@ -928,6 +938,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 // Failing before the Response is handed out means nothing can ever
                 // cancel this stream: release it and its request correlations here.
                 this._streamMapping.get(streamId)?.cleanup();
+                this._resumableStreams.delete(streamId);
                 for (const message of messages) {
                     if (isJSONRPCRequest(message)) {
                         this._requestToStreamMapping.delete(message.id);
@@ -1053,6 +1064,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         // Clear any pending responses
         this._requestResponseMap.clear();
+        this._resumableStreams.clear();
         this.onclose?.();
     }
 
@@ -1150,7 +1162,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // already delivered this event (the store made it visible before
             // this call resumed).
             if (stream?.controller && stream?.encoder && (eventId === undefined || !stream.replayedEventIds?.has(eventId))) {
-                this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+                const written = this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+                // The client now holds a Last-Event-ID cursor for this stream
+                if (written && eventId !== undefined) {
+                    this._resumableStreams.add(streamId);
+                }
             }
         }
 
@@ -1165,7 +1181,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
-                    if (!this._enableJsonResponse && this._eventStore) {
+                    // close() ran while the event store write above was awaiting:
+                    // every map was already swept, nothing remains to release or
+                    // report.
+                    if (this._closed) {
+                        return;
+                    }
+                    if (!this._enableJsonResponse && this._eventStore && this._resumableStreams.has(streamId)) {
                         // The stream went away (client disconnect, or
                         // closeSSEStream switched the client to polling), but the
                         // response was stored above and will be replayed on
@@ -1174,6 +1196,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                             this._requestResponseMap.delete(id);
                             this._requestToStreamMapping.delete(id);
                         }
+                        this._resumableStreams.delete(streamId);
                         return;
                     }
                     // Without resumability (or in JSON response mode, where the
@@ -1212,6 +1235,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     this._requestResponseMap.delete(id);
                     this._requestToStreamMapping.delete(id);
                 }
+                this._resumableStreams.delete(streamId);
             }
         }
     }

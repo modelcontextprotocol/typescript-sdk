@@ -4133,4 +4133,181 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
         const response = await transport.handleRequest(get(sessionId));
         expect(response.status).toBe(404);
     });
+
+    it('should surface an error when a response completes for a disconnected client that cannot resume', async () => {
+        // Pre-2025-11-25 clients never receive a priming event, so they cannot
+        // resume a request stream: a response completing after their disconnect
+        // is undeliverable and must surface, not be silently handed to replay.
+        const eventStore = createSimpleEventStore();
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        let resolveTool: (() => void) | undefined;
+        mcpServer.tool('slow', async () => {
+            await new Promise<void>(resolve => {
+                resolveTool = resolve;
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+        const initResponse = await transport.handleRequest(
+            req('POST', {
+                body: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'initialize',
+                    params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'legacy', version: '1.0' } }
+                }
+            })
+        );
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const errors: Error[] = [];
+        mcpServer.server.onerror = error => {
+            errors.push(error);
+        };
+
+        const response = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'legacy-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-03-26' }
+            })
+        );
+        expect(response.status).toBe(200);
+
+        // Client disconnects mid-call; no priming event was ever written, so
+        // no Last-Event-ID cursor exists for a resume.
+        await response.body!.getReader().cancel();
+        resolveTool?.();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(errors.map(e => e.message).join('\n')).toContain('No connection established for request ID');
+
+        await transport.close();
+    });
+
+    it('should hand off to replay for a legacy client that received an id-bearing notification', async () => {
+        // A pre-2025-11-25 client gets no priming event, but any stored
+        // notification delivered on the stream carries an id — that cursor is
+        // enough to resume, so the completed response must be released to
+        // replay, not surfaced as an error.
+        const eventStore = createSimpleEventStore();
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+        let resolveTool: (() => void) | undefined;
+        mcpServer.tool('notifying', async (extra): Promise<CallToolResult> => {
+            await extra.sendNotification({ method: 'notifications/message', params: { level: 'info', data: 'progress' } });
+            await new Promise<void>(resolve => {
+                resolveTool = resolve;
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+        const initResponse = await transport.handleRequest(
+            req('POST', {
+                body: {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'initialize',
+                    params: { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'legacy', version: '1.0' } }
+                }
+            })
+        );
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const errors: Error[] = [];
+        mcpServer.server.onerror = error => {
+            errors.push(error);
+        };
+
+        const response = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'notifying', arguments: {} }, id: 'legacy-2' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-03-26' }
+            })
+        );
+        const reader = response.body!.getReader();
+        await vi.advanceTimersByTimeAsync(0);
+        const { value } = await reader.read();
+        const cursor = /^id: (.+)$/m.exec(new TextDecoder().decode(value))?.[1];
+        expect(cursor).toBeDefined();
+
+        // Client disconnects holding the notification's event id, then the tool completes
+        await reader.cancel();
+        resolveTool?.();
+        await vi.advanceTimersByTimeAsync(0);
+
+        expect(errors).toHaveLength(0);
+
+        // The resume from that cursor must replay the response
+        const resumed = await transport.handleRequest(get(sessionId, cursor!));
+        const resumedReader = resumed.body!.getReader();
+        let resumedData = '';
+        for (let i = 0; i < 3 && !resumedData.includes('legacy-2'); i++) {
+            const { value: chunk, done } = await resumedReader.read();
+            if (done) {
+                break;
+            }
+            resumedData += new TextDecoder().decode(chunk);
+        }
+        expect(resumedData).toContain('"id":"legacy-2"');
+
+        await transport.close();
+    });
+
+    it('should not surface an error when the transport closes during the response store write', async () => {
+        let parkNext = false;
+        let releaseStore: (() => void) | undefined;
+        const inner = createSimpleEventStore();
+        const eventStore: EventStore = {
+            async storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId> {
+                if (parkNext) {
+                    parkNext = false;
+                    await new Promise<void>(resolve => {
+                        releaseStore = resolve;
+                    });
+                }
+                return inner.storeEvent(streamId, message);
+            },
+            replayEventsAfter: inner.replayEventsAfter.bind(inner)
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        let resolveTool: (() => void) | undefined;
+        mcpServer.tool('slow', async () => {
+            await new Promise<void>(resolve => {
+                resolveTool = resolve;
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const errors: Error[] = [];
+        mcpServer.server.onerror = error => {
+            errors.push(error);
+        };
+
+        void transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'race-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The response send parks inside storeEvent; close() sweeps everything
+        parkNext = true;
+        resolveTool?.();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(releaseStore).toBeDefined();
+        await transport.close();
+        releaseStore!();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // The transport is gone; the late completion must be a no-op, not a
+        // spurious 'No connection established' error.
+        expect(errors.filter(e => e.message.includes('No connection established'))).toHaveLength(0);
+        expect(vi.getTimerCount()).toBe(0);
+    });
 });
