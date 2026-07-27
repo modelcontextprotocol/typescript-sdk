@@ -235,8 +235,7 @@ changed: v2 emits `.mjs`/`.cjs` siblings in a flat `dist/`, so v1's `/dist/cjs/`
 
 #### Registry availability
 
-All v2 packages are published on the public npm registry. Two notes
-window:
+All v2 packages are published on the public npm registry. Two notes:
 
 - As of `2.0.0-beta.1` all v2 packages share one version number (earlier alphas
   did not). The codemod writes ranges that match what is published, so prefer its
