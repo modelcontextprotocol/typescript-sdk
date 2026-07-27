@@ -1150,11 +1150,11 @@ try {
 }
 ```
 
-One qualification: this direct `instanceof` check applies under the default `'legacy'`
-version negotiation. Under the probing modes (`versionNegotiation: { mode: 'auto' }`,
-with or without a pin) the connect-time 401 currently surfaces wrapped as
-`SdkError(SdkErrorCode.EraNegotiationFailed)` with the `UnauthorizedError` at
-`error.data.cause` — unwrap before the check, as shown in the
+This direct `instanceof` check works in every version-negotiation mode: under the
+probing modes (`versionNegotiation: { mode: 'auto' }`, with or without a pin) the
+connect-time `UnauthorizedError` also propagates unchanged from `connect()`. Older
+releases wrapped it as `SdkError(SdkErrorCode.EraNegotiationFailed)` with the error at
+`error.data.cause` — that unwrap is no longer needed. See the
 [client OAuth guide](../clients/oauth.md).
 
 #### `auth()` options are now `AuthOptions`
