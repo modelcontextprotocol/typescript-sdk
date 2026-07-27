@@ -13,6 +13,9 @@ Output schemas no longer advertise constraints the server doesn't enforce on the
 `structuredContent` it ships: fields that may be legitimately absent (`.default()`,
 undefined-accepting types) are dropped from `required` — on objects and enum-keyed records —
 and `additionalProperties: false` is dropped for plain `z.object()` (kept for
-`z.strictObject()`), so validating clients no longer reject legitimate tool results.
-Elicitation is unaffected: `inputRequired.elicit()` keeps throwing on schemas its restricted
-form grammar cannot round-trip, including `z.date()`.
+`z.strictObject()`), so validating clients no longer reject legitimate tool results for
+these schema shapes. (Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still
+advertise the post-transform shape while the server ships the raw pre-transform value — a
+pre-existing gap this change does not address.) Elicitation is unaffected:
+`inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
+round-trip, including `z.date()`.
