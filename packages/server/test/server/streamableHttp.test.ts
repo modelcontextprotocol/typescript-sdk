@@ -1407,3 +1407,143 @@ describe('Zod v4', () => {
         });
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
+    async function createTransport(options?: { keepAliveMs?: number }): Promise<{
+        transport: WebStandardStreamableHTTPServerTransport;
+        sessionId: string;
+    }> {
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), ...options });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+        expect(initResponse.status).toBe(200);
+        return { transport, sessionId: initResponse.headers.get('mcp-session-id') as string };
+    }
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('should write keep-alive comment frames to an idle standalone GET stream', async () => {
+        const { transport, sessionId } = await createTransport();
+
+        const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
+        expect(response.headers.get('x-accel-buffering')).toBe('no');
+
+        const reader = response.body!.getReader();
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value } = await reader.read();
+        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        await transport.close();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('should not write keep-alive frames when keepAliveMs is 0', async () => {
+        const { transport, sessionId } = await createTransport({ keepAliveMs: 0 });
+
+        const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+        const reader = response.body!.getReader();
+
+        await vi.advanceTimersByTimeAsync(60000);
+        const raced = await Promise.race([reader.read(), Promise.resolve('pending')]);
+        expect(raced).toBe('pending');
+
+        await transport.close();
+    });
+
+    it('should write keep-alive frames on a POST SSE stream while a request is pending', async () => {
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        let resolveTool: (() => void) | undefined;
+        mcpServer.registerTool('slow', { description: 'never resolves until released' }, async (): Promise<CallToolResult> => {
+            await new Promise<void>(resolve => {
+                resolveTool = resolve;
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const response = await transport.handleRequest(
+            createRequest(
+                'POST',
+                { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'call-1' } as JSONRPCMessage,
+                {
+                    sessionId
+                }
+            )
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
+        expect(response.headers.get('x-accel-buffering')).toBe('no');
+        const reader = response.body!.getReader();
+
+        await vi.advanceTimersByTimeAsync(15000);
+        const { value } = await reader.read();
+        expect(new TextDecoder().decode(value)).toBe(': keepalive\n\n');
+
+        resolveTool?.();
+        await transport.close();
+    });
+
+    it('should not initialize after close races request body parsing', async () => {
+        const onsessioninitialized = vi.fn();
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized
+        });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+
+        let releaseBody!: () => void;
+        const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+                releaseBody = () => {
+                    controller.enqueue(new TextEncoder().encode(JSON.stringify(TEST_MESSAGES.initialize)));
+                    controller.close();
+                };
+            }
+        });
+        const pending = transport.handleRequest(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' },
+                body,
+                duplex: 'half'
+            })
+        );
+
+        await transport.close();
+        releaseBody();
+        expect((await pending).status).toBe(404);
+        expect(onsessioninitialized).not.toHaveBeenCalled();
+    });
+
+    it('should not register a stream after close races session initialization', async () => {
+        let releaseInitialization!: () => void;
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: () =>
+                new Promise<void>(resolve => {
+                    releaseInitialization = resolve;
+                })
+        });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+
+        const pending = transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+        await vi.advanceTimersByTimeAsync(0);
+        await transport.close();
+        releaseInitialization();
+
+        expect((await pending).status).toBe(404);
+        expect(vi.getTimerCount()).toBe(0);
+    });
+});
