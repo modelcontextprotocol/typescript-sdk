@@ -147,12 +147,17 @@ export class McpServer {
                             description: tool.description,
                             inputSchema: (() => {
                                 const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
+                                if (!obj) return EMPTY_OBJECT_JSON_SCHEMA;
+                                const json = toJsonSchemaCompat(obj, {
+                                    strictUnions: true,
+                                    pipeStrategy: 'input'
+                                });
+                                // MCP requires `type: "object"` at the root of
+                                // tool inputSchema. Discriminated unions and
+                                // unions of objects produce `oneOf` / `anyOf`
+                                // without a top-level `type`; default it so the
+                                // emitted schema is spec compliant.
+                                return ensureObjectRoot(json) as Tool['inputSchema'];
                             })(),
                             annotations: tool.annotations,
                             execution: tool.execution,
@@ -162,10 +167,11 @@ export class McpServer {
                         if (tool.outputSchema) {
                             const obj = normalizeObjectSchema(tool.outputSchema);
                             if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                                const json = toJsonSchemaCompat(obj, {
                                     strictUnions: true,
                                     pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
+                                });
+                                toolDefinition.outputSchema = ensureObjectRoot(json) as Tool['outputSchema'];
                             }
                         }
 
@@ -1330,6 +1336,22 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/**
+ * Ensures a JSON Schema produced from a Zod schema has a top-level
+ * `type: "object"` per the MCP spec for tool input/output schemas.
+ *
+ * Plain `z.object(...)` already emits `type: "object"`, so this is a
+ * no-op for the common case. Discriminated unions and unions of objects
+ * emit `oneOf` / `anyOf` without a root `type`; we default it here so
+ * the wire payload is spec compliant. Schemas with an explicit non-object
+ * root `type` are left alone (they will fail downstream validation, which
+ * is the right signal for the user).
+ */
+function ensureObjectRoot(json: Record<string, unknown>): Record<string, unknown> {
+    if (json.type !== undefined) return json;
+    return { type: 'object', ...json };
+}
 
 /**
  * Checks if a value looks like a Zod schema by checking for parse/safeParse methods.
