@@ -177,6 +177,18 @@ describe('zod conversion options (#2464)', () => {
         expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
     });
 
+    test('a .catch() member of a root union keeps its emitted shape (root still proves object)', () => {
+        const schema = z.union([z.object({ a: z.string() }), z.object({ b: z.string() }).catch({ b: 'd' })]);
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Degrading the member would break `isProvablyObjectShapedRoot`'s every-member
+        // proof, leave the root typeless, and flip the 2025-era legacy wrap — a silent
+        // wire change for a previously-working registration.
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+        expect((result.anyOf as Array<Record<string, unknown>>)[1]?.type).toBe('object');
+    });
+
     test('unrepresentable non-object roots still throw on the input path', () => {
         // `unrepresentable: 'any'` degrades these roots to a typeless {}, which must not
         // be stamped `type: 'object'` — the tool would be advertised but never callable.
@@ -188,6 +200,21 @@ describe('zod conversion options (#2464)', () => {
         expect(() => standardSchemaToJsonSchema(z.undefined(), 'input')).toThrow(/must describe objects/);
         expect(() => standardSchemaToJsonSchema(z.nan(), 'input')).toThrow(/must describe objects/);
         expect(() => standardSchemaToJsonSchema(z.function(), 'input')).toThrow(/must describe objects/);
+        // Wrappers and lazies must not hide a non-object root from the guard.
+        expect(() => standardSchemaToJsonSchema(z.bigint().optional(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().nullable(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().readonly(), 'input')).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.lazy(() => z.bigint()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        // Typeless literal roots (unrepresentable or mixed-type values) are not objects.
+        expect(() => standardSchemaToJsonSchema(z.literal(undefined), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.literal(['a', 1]), 'input')).toThrow(/must describe objects/);
+        // Wrapped OBJECT roots stay accepted.
+        expect(standardSchemaToJsonSchema(z.object({ a: z.string() }).optional(), 'input').type).toBe('object');
     });
 
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {

@@ -201,6 +201,10 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   advertise `string`/`date-time`, but input validation still runs the raw zod
  *   schema, which rejects strings — such a tool is listed yet uncallable via JSON.
  *   Use `z.iso.date()`/`z.iso.datetime()` for date-valued inputs.
+ * - Dynamic catch values (`.catch(ctx => …)`) still throw inside zod's own
+ *   catchProcessor before this hook runs ("Dynamic catch values are not supported
+ *   in JSON Schema"), so one such tool still fails the entire `tools/list` — the
+ *   degrade below covers static `.catch(value)` only.
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
  *   post-transform shape (`io: 'output'`) even though the server validates and ships
  *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
@@ -233,11 +237,13 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             if (def.type === 'catch') {
                 // `.catch()` accepts any raw value — invalid input is replaced by the
                 // fallback only in the parsed result, which the server never ships — so
-                // no inner constraint is enforced on the wire. At the conversion ROOT,
-                // keep the node as emitted: deleting `type: 'object'` there would flip
-                // the 2025-era codec's legacy-wrap predicate (`isNonObjectJsonSchemaRoot`)
-                // and silently change the wire shape of root-level `.catch()` schemas.
-                if (ctx.path.length === 0) return;
+                // no inner constraint is enforced on the wire. At positions that feed
+                // the output epilogue's root object proof (the conversion ROOT and
+                // members of root-level compositions), keep the node as emitted:
+                // deleting `type: 'object'` there would flip the 2025-era codec's
+                // legacy-wrap predicate (`isNonObjectJsonSchemaRoot`) and silently
+                // change the wire shape of previously-working registrations.
+                if (feedsRootObjectProof(ctx.path)) return;
                 for (const key of Object.keys(ctx.jsonSchema)) {
                     // `x-*` vendor extensions are annotation-only (same convention as the
                     // elicitation walker) and carry no validation constraint.
@@ -272,6 +278,19 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             }
         }
     };
+}
+
+/**
+ * Whether a node's emitted `type` feeds the output epilogue's root object proof: the
+ * conversion root itself, or a member of root-level (possibly nested) compositions —
+ * `isProvablyObjectShapedRoot` recurses through `anyOf`/`oneOf`/`allOf` members.
+ */
+function feedsRootObjectProof(path: ReadonlyArray<string | number>): boolean {
+    for (let i = 0; i < path.length; i += 2) {
+        const key = path[i];
+        if ((key !== 'anyOf' && key !== 'oneOf' && key !== 'allOf') || typeof path[i + 1] !== 'number') return false;
+    }
+    return true;
 }
 
 /**
@@ -417,10 +436,10 @@ export function standardSchemaToJsonSchema(
     // so misregistered roots keep failing loudly instead of being advertised as
     // permanently-uncallable `{type: 'object'}` tools.
     if (result.type === undefined) {
-        const defType = (schema as { _zod?: { def?: { type?: string } } })._zod?.def?.type;
-        if (defType !== undefined && NON_OBJECT_UNREPRESENTABLE_ROOTS.has(defType)) {
+        const defType = unwrappedZodDefType(schema);
+        if (defType !== undefined && NON_OBJECT_TYPELESS_ROOTS.has(defType)) {
             throw new Error(
-                `MCP tool and prompt schemas must describe objects (got an unrepresentable ${defType} schema). ` +
+                `MCP tool and prompt schemas must describe objects (got a non-object ${defType} schema). ` +
                     `Wrap your schema in z.object({...}) or equivalent.`
             );
         }
@@ -429,10 +448,15 @@ export function standardSchemaToJsonSchema(
 }
 
 /**
- * Zod root types that `unrepresentable: 'any'` degrades to a typeless `{}` but which
+ * Zod root types that can emit a typeless `{}` under `unrepresentable: 'any'` but
  * provably do not describe objects — the input-root guard must keep rejecting them.
+ * `literal` reaches this branch only when typeless (an unrepresentable-value literal
+ * like `z.literal(undefined)`, or a mixed-type multi-value literal), neither of which
+ * describes an object; representable single-type literal roots emit an explicit
+ * `type` and are rejected by the earlier guard. `custom` is deliberately excluded —
+ * it can legitimately accept objects.
  */
-const NON_OBJECT_UNREPRESENTABLE_ROOTS: ReadonlySet<string> = new Set([
+const NON_OBJECT_TYPELESS_ROOTS: ReadonlySet<string> = new Set([
     'bigint',
     'symbol',
     'map',
@@ -440,8 +464,43 @@ const NON_OBJECT_UNREPRESENTABLE_ROOTS: ReadonlySet<string> = new Set([
     'void',
     'undefined',
     'nan',
-    'function'
+    'function',
+    'literal'
 ]);
+
+/** Transparent wrapper def types whose `innerType` carries the real root semantics. */
+const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set(['optional', 'nullable', 'readonly', 'default', 'prefault', 'catch']);
+
+/**
+ * The innermost def type of a zod schema, unwrapped through transparent wrappers
+ * (`optional`/`nullable`/`readonly`/`default`/`prefault`/`catch` via `innerType`,
+ * `lazy` via its getter) so `z.bigint().optional()` and `z.lazy(() => z.bigint())`
+ * report `'bigint'`. A seen-set bounds recursive lazies; non-zod schemas and
+ * throwing lazy getters yield `undefined`.
+ */
+function unwrappedZodDefType(schema: unknown): string | undefined {
+    const seen = new Set<unknown>();
+    let current = schema;
+    while (typeof current === 'object' && current !== null && !seen.has(current)) {
+        seen.add(current);
+        const def = (current as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown } } })._zod?.def;
+        if (def === undefined || typeof def.type !== 'string') return undefined;
+        if (def.type === 'lazy' && typeof def.getter === 'function') {
+            try {
+                current = (def.getter as () => unknown)();
+            } catch {
+                return undefined;
+            }
+            continue;
+        }
+        if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
+            current = def.innerType;
+            continue;
+        }
+        return def.type;
+    }
+    return undefined;
+}
 
 /**
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
