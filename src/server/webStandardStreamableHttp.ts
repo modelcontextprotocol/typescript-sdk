@@ -1182,9 +1182,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (allResponsesReady) {
                 if (!stream) {
                     // close() ran while the event store write above was awaiting:
-                    // every map was already swept, nothing remains to release or
-                    // report.
+                    // release the entries this call re-created after the sweep,
+                    // then treat the late completion as a no-op.
                     if (this._closed) {
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
                         return;
                     }
                     if (!this._enableJsonResponse && this._eventStore && this._resumableStreams.has(streamId)) {
