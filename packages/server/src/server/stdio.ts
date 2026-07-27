@@ -5,6 +5,15 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-interna
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
+ * Marks a stdout `'error'` listener that a closed transport left attached purely to
+ * swallow late write failures (see {@link StdioServerTransport.close}). A fresh
+ * transport taking over the same stream removes listeners carrying this tag in
+ * `start()`, so repeated create→close cycles on the process-global `process.stdout`
+ * don't accumulate listeners.
+ */
+const swallowsErrorsAfterClose = Symbol('swallowsErrorsAfterClose');
+
+/**
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
  *
  * This transport is only available in Node.js environments.
@@ -60,18 +69,20 @@ export class StdioServerTransport implements Transport {
         this.onerror?.(error);
     };
     _onstdouterror = (error: Error) => {
+        if (this._closed) {
+            // Swallow stdout errors that surface after close. A write accepted before
+            // close (`write()` returned true) can still fail asynchronously at the OS
+            // level — e.g. EPIPE when the client that hung up also stops reading our
+            // stdout. The transport is already closed, so there is nothing to do; but
+            // with no listener attached, that late 'error' event would crash the
+            // process with an uncaught exception — which is why close() leaves this
+            // listener attached.
+            return;
+        }
         this.onerror?.(error);
         this.close().catch(() => {
             // Ignore errors during close — we're already in an error path
         });
-    };
-    _onstdouterrorafterclose = () => {
-        // Swallow stdout errors that surface after close. A write accepted before
-        // close (`write()` returned true) can still fail asynchronously at the OS
-        // level — e.g. EPIPE when the client that hung up also stops reading our
-        // stdout. The transport is already closed, so there is nothing to do; but
-        // with no listener attached, that late 'error' event would crash the
-        // process with an uncaught exception.
     };
     _onstdinclose = () => {
         // stdin reaching EOF (or being destroyed) means the client has hung up and no
@@ -95,6 +106,16 @@ export class StdioServerTransport implements Transport {
         }
 
         this._started = true;
+        // Remove swallow-only 'error' listeners left behind by previously closed
+        // transports on this stream (see close()). Our own listener covers the
+        // stream from here on, so the stale ones are no longer needed — without
+        // this sweep, repeated create→close cycles on the process-global
+        // process.stdout would accumulate listeners.
+        for (const listener of this._stdout.listeners('error')) {
+            if ((listener as { [swallowsErrorsAfterClose]?: boolean })[swallowsErrorsAfterClose]) {
+                this._stdout.off('error', listener as (error: Error) => void);
+            }
+        }
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
         this._stdin.on('end', this._onstdinclose);
@@ -128,12 +149,13 @@ export class StdioServerTransport implements Transport {
         this._stdin.off('error', this._onerror);
         this._stdin.off('end', this._onstdinclose);
         this._stdin.off('close', this._onstdinclose);
-        this._stdout.off('error', this._onstdouterror);
-        // Keep a swallow-only 'error' listener on stdout: a write that was accepted
-        // before close may still be pending at the OS level and can fail after close
-        // (e.g. EPIPE when the client hangs up), and an 'error' event on a
-        // listener-less stream would crash the process.
-        this._stdout.on('error', this._onstdouterrorafterclose);
+        // Deliberately keep _onstdouterror attached (it is a no-op now that _closed
+        // is set): a write that was accepted before close may still be pending at
+        // the OS level and can fail after close (e.g. EPIPE when the client hangs
+        // up), and an 'error' event on a listener-less stream would crash the
+        // process. Tag it so the next transport to start on this stream can sweep
+        // it away instead of letting closed transports' listeners accumulate.
+        (this._onstdouterror as { [swallowsErrorsAfterClose]?: boolean })[swallowsErrorsAfterClose] = true;
 
         // Check if we were the only data listener
         const remainingDataListeners = this._stdin.listenerCount('data');

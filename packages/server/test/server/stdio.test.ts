@@ -250,8 +250,9 @@ test('should reject send() when stdout errors before drain', async () => {
 
     await expect(sendPromise).rejects.toThrow('write EPIPE');
     expect(slowOutput.listenerCount('drain')).toBe(0);
-    // send()'s per-send listeners are cleaned up; only the transport's post-close
-    // swallow-only 'error' listener remains (the stdout error triggered close()).
+    // send()'s per-send listeners are cleaned up; only the transport's own 'error'
+    // listener remains — the stdout error triggered close(), which keeps it
+    // attached (as a no-op) to swallow late write failures.
     expect(slowOutput.listenerCount('error')).toBe(1);
 });
 
@@ -279,6 +280,33 @@ test('should swallow stdout errors that surface after close (late EPIPE from a p
     // gone). If stdout had no 'error' listener left, this emit would throw
     // ERR_UNHANDLED_ERROR — in a real process, an uncaught exception and exit 1.
     expect(() => output.emit('error', new Error('write EPIPE'))).not.toThrow();
+});
+
+test('repeated create→close cycles on shared streams should not accumulate stdout listeners', async () => {
+    // _stdin/_stdout default to the process-global process.stdin/process.stdout, so
+    // any listener a closed transport leaves behind would pile up across transport
+    // lifecycles in one process (MaxListenersExceededWarning after 11 cycles). Use
+    // fake shared streams to model that without touching the real process streams.
+    const sharedInput = new Readable({ read: () => {} });
+    const sharedOutput = new Writable({
+        write(_chunk, _encoding, callback) {
+            callback();
+        }
+    });
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+        const server = new StdioServerTransport(sharedInput, sharedOutput);
+        await server.start();
+        await server.close();
+
+        // Exactly one 'error' listener stays behind after each cycle — the closed
+        // transport's swallow-only listener — and it is swept when the next
+        // transport starts, so the count never grows across cycles.
+        expect(sharedOutput.listenerCount('error')).toBe(1);
+    }
+
+    // The leftover listener still swallows late write failures from pending writes.
+    expect(() => sharedOutput.emit('error', new Error('write EPIPE'))).not.toThrow();
 });
 
 test('should reject send() after transport is closed', async () => {
