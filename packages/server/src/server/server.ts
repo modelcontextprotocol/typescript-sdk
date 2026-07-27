@@ -285,7 +285,6 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _receivedInitialize = false;
     private _cacheHints?: ServerOptions['cacheHints'];
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
@@ -475,14 +474,12 @@ export class Server extends Protocol<ServerContext> {
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
         const lifecycleHandler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> = async (request, ctx) => {
-            if (!ctx.http && ctx.sessionId === undefined && !this._receivedInitialize && method !== 'initialize' && method !== 'ping') {
+            // Initialization rides the negotiated revision: legacy instances
+            // get it in _oninitialize, modern-era instances at binding time.
+            if (!ctx.http && ctx.sessionId === undefined && this._negotiatedProtocolVersion === undefined && method !== 'initialize' && method !== 'ping') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Server not initialized');
             }
-            const result = await handler(request, ctx);
-            if (method === 'initialize') {
-                this._receivedInitialize = true;
-            }
-            return result;
+            return handler(request, ctx);
         };
 
         if (method !== 'tools/call') {
