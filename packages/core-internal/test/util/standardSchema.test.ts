@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
+import { isNonObjectJsonSchemaRoot } from '../../src/wire/rev2025-11-25/legacyWrap';
 
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {
@@ -151,6 +152,7 @@ describe('zod conversion options (#2464)', () => {
         const schema = z.object({
             inner: z.object({ n: z.string() }).catch({ n: 'd' }).describe('lenient'),
             scalar: z.number().catch(0),
+            annotated: z.number().catch(0).meta({ 'x-ui': 1, title: 't' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
@@ -160,8 +162,19 @@ describe('zod conversion options (#2464)', () => {
         const properties = result.properties as Record<string, Record<string, unknown>>;
         expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' } });
         expect(properties.scalar).toEqual({ default: 0 });
+        // `x-*` vendor extensions are annotation-only and must survive the degrade.
+        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1 });
         // A raw payload omitting the catch fields also validates, so they are not required.
         expect(result.required).toEqual(['name']);
+    });
+
+    test('a root-position .catch() output schema keeps its emitted object root', () => {
+        const result = standardSchemaToJsonSchema(z.object({ n: z.string() }).catch({ n: 'd' }), 'output');
+
+        // Degrading the ROOT would delete `type: 'object'` and flip the 2025-era
+        // codec's legacy-wrap predicate — a silent wire change for such tools.
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
     });
 
     test('unrepresentable non-object roots still throw on the input path', () => {
@@ -171,6 +184,10 @@ describe('zod conversion options (#2464)', () => {
         expect(() => standardSchemaToJsonSchema(z.map(z.string(), z.number()), 'input')).toThrow(/must describe objects/);
         expect(() => standardSchemaToJsonSchema(z.set(z.string()), 'input')).toThrow(/must describe objects/);
         expect(() => standardSchemaToJsonSchema(z.symbol(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.void(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.undefined(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.nan(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.function(), 'input')).toThrow(/must describe objects/);
     });
 
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {

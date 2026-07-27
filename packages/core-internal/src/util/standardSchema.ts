@@ -190,11 +190,17 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  * - Output objects and enum-keyed records drop properties that may be legitimately
  *   absent from the shipped payload (`.default()`, undefined-accepting types) from
  *   `required`: zod fills defaults during validation, but ships the raw object.
- * - Output `.catch()` nodes degrade to an unconstrained schema (annotations and the
- *   emitted `default` kept): catch-validation accepts any raw value — the fallback
- *   replaces it only in the parsed result, which the server never ships.
+ * - Output `.catch()` nodes (below the root) degrade to an unconstrained schema
+ *   (annotations and the emitted `default` kept): catch-validation accepts any raw
+ *   value — the fallback replaces it only in the parsed result, which the server
+ *   never ships. The conversion root keeps its emitted shape so the 2025-era
+ *   legacy-wrap decision is unchanged.
  *
  * Known residual gaps:
+ * - Input schemas (tool `inputSchema`, prompt `argsSchema`) containing `z.date()`
+ *   advertise `string`/`date-time`, but input validation still runs the raw zod
+ *   schema, which rejects strings — such a tool is listed yet uncallable via JSON.
+ *   Use `z.iso.date()`/`z.iso.datetime()` for date-valued inputs.
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
  *   post-transform shape (`io: 'output'`) even though the server validates and ships
  *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
@@ -227,9 +233,15 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
             if (def.type === 'catch') {
                 // `.catch()` accepts any raw value — invalid input is replaced by the
                 // fallback only in the parsed result, which the server never ships — so
-                // no inner constraint is enforced on the wire.
+                // no inner constraint is enforced on the wire. At the conversion ROOT,
+                // keep the node as emitted: deleting `type: 'object'` there would flip
+                // the 2025-era codec's legacy-wrap predicate (`isNonObjectJsonSchemaRoot`)
+                // and silently change the wire shape of root-level `.catch()` schemas.
+                if (ctx.path.length === 0) return;
                 for (const key of Object.keys(ctx.jsonSchema)) {
-                    if (!ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key)) delete ctx.jsonSchema[key];
+                    // `x-*` vendor extensions are annotation-only (same convention as the
+                    // elicitation walker) and carry no validation constraint.
+                    if (!ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) && !key.startsWith('x-')) delete ctx.jsonSchema[key];
                 }
                 return;
             }
@@ -420,7 +432,16 @@ export function standardSchemaToJsonSchema(
  * Zod root types that `unrepresentable: 'any'` degrades to a typeless `{}` but which
  * provably do not describe objects — the input-root guard must keep rejecting them.
  */
-const NON_OBJECT_UNREPRESENTABLE_ROOTS: ReadonlySet<string> = new Set(['bigint', 'symbol', 'map', 'set']);
+const NON_OBJECT_UNREPRESENTABLE_ROOTS: ReadonlySet<string> = new Set([
+    'bigint',
+    'symbol',
+    'map',
+    'set',
+    'void',
+    'undefined',
+    'nan',
+    'function'
+]);
 
 /**
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords

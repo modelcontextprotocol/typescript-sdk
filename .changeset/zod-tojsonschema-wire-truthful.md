@@ -20,7 +20,9 @@ pre-existing gap this change does not address. And on zod 4.0–4.2.x, `toJSONSc
 the sanitization hook on a schema reused both bare and via a `.describe()`/`.meta()` clone
 in the same conversion; full per-node sanitization requires zod >=4.3.0. And the
 `z.date()` advertisement assumes a serializing transport: `InMemoryTransport` passes the
-raw `Date` by reference, so a validating client rejects it over that testing transport.)
-Elicitation is unaffected:
+raw `Date` by reference, so a validating client rejects it over that testing transport.
+On the input side, a `z.date()` tool/prompt argument is advertised as `string`/`date-time`
+but input validation still runs the raw zod schema, which rejects strings — use
+`z.iso.date()`/`z.iso.datetime()` for date-valued inputs.) Elicitation is unaffected:
 `inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
 round-trip, including `z.date()`.
