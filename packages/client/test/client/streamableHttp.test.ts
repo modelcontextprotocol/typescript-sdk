@@ -387,7 +387,7 @@ describe('StreamableHTTPClientTransport', () => {
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve(responseMessage)
+            text: () => Promise.resolve(JSON.stringify(responseMessage))
         });
 
         const messageSpy = vi.fn();

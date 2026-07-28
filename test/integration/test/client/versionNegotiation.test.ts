@@ -228,6 +228,38 @@ describe('typed connect errors (Q12) over real sockets', () => {
         await new Promise<void>(resolve => hang.close(() => resolve()));
         await new Promise(resolve => setTimeout(resolve, 50));
     }, 15_000);
+
+    it('mid-body socket destroy after 2xx application/json headers: typed connect error, never a legacy verdict', async () => {
+        // The server answers the probe 200 + application/json, starts the
+        // body, then the connection dies before the body completes (undici
+        // rejects the body read with TypeError('terminated')). The exchange
+        // did NOT complete — a truncated body carries zero era evidence — so
+        // this must stay a typed network rejection, not an invalid-reply
+        // fallback to initialize.
+        const reset = createServer((req, res) => {
+            req.resume();
+            req.on('end', () => {
+                res.writeHead(200, { 'content-type': 'application/json', 'content-length': '512' });
+                res.write('{"jsonrpc":"2.0","id":"server-discover-', () => {
+                    setTimeout(() => res.socket?.destroy(), 10);
+                });
+            });
+        });
+        const url = await listenOnRandomPort(reset);
+
+        const { calls, fetchFn } = recordingFetch();
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        const transport = new StreamableHTTPClientTransport(url, { fetch: fetchFn });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+        );
+
+        // Probe traffic only — the truncated body never selected the legacy fallback.
+        expect(calls.some(c => (c.body ?? '').includes('"initialize"'))).toBe(false);
+
+        await new Promise<void>(resolve => reset.close(() => resolve()));
+    }, 15_000);
 });
 
 describe('auth-protected server (HTTP 401/403): typed auth failure, never a legacy verdict (#2561)', () => {

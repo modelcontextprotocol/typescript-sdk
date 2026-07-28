@@ -24,7 +24,9 @@ import { UnauthorizedError } from '../../src/client/auth';
 import { InsufficientScopeError } from '../../src/client/authErrors';
 import { markAuthSeamEscape } from '../../src/client/authSeam';
 import { Client } from '../../src/client/client';
+import { markInvalidReplyEscape } from '../../src/client/invalidReplySeam';
 import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 import type { StdioServerParameters } from '../../src/client/stdio';
 import { resolveVersionNegotiation } from '../../src/client/versionNegotiation';
 
@@ -1388,5 +1390,344 @@ describe('probe window preserves pre-set transport handlers', () => {
 
         expect(seenErrors).toContain(duringProbe);
         await client.close();
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Invalid probe replies (completed 2xx exchange, no valid JSON-RPC reply):
+ * stamped at the transport parse boundary, classified legacy — the probe
+ * falls back to initialize instead of failing connect().
+ * ------------------------------------------------------------------------- */
+
+/** The exact reply the anomalyco/opencode#39354 vendor server sends the probe (HTTP 200). */
+const OC39354_BODY = '{"error":{"code":-32700,"message":"Parse Error"},"id":null,"jsonrpc":"2.0"}';
+
+describe('probe invalid-reply classification (stamped escapes from the transport parse boundary)', () => {
+    /** Rejects the probe send with `probeError` (as the real transport does for an unparseable 2xx reply), then serves legacy initialize. */
+    class InvalidReplyTransport extends ScriptedTransport {
+        constructor(private readonly probeError: Error) {
+            super(legacyServerScript);
+        }
+
+        override async send(message: JSONRPCMessage): Promise<void> {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                throw this.probeError;
+            }
+            await super.send(message);
+        }
+    }
+
+    test('a stamped invalid-reply escape (oc#39354 body) falls back to initialize on the same transport', async () => {
+        const stamped = markInvalidReplyEscape(new Error('validation failed'), JSON.parse(OC39354_BODY));
+        const transport = new InvalidReplyTransport(stamped);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        await client.close();
+    });
+
+    test('a stamped bodiless escape (empty/unparseable JSON, 202 accepted-without-reply) falls back the same way', async () => {
+        const stamped = markInvalidReplyEscape(new Error('Unexpected end of JSON input'), undefined);
+        const transport = new InvalidReplyTransport(stamped);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        await client.close();
+    });
+
+    test('pin mode: an invalid reply still fails loudly — no fallback, the cause named and the evidence on data', async () => {
+        const stamped = markInvalidReplyEscape(new Error('validation failed'), JSON.parse(OC39354_BODY));
+        const transport = new InvalidReplyTransport(stamped);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+
+        const rejection: unknown = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+        // Diagnostic fidelity: the message names the broken reply — a server
+        // answering garbage must stay distinguishable from a server that
+        // genuinely lacks the pin — and data carries the stamped original
+        // error plus the offending body.
+        expect(error.message).toContain(`the server did not offer pinned protocol version ${MODERN}`);
+        expect(error.message).toContain('the probe reply was not a valid JSON-RPC message');
+        expect(error.data).toMatchObject({ body: JSON.parse(OC39354_BODY) });
+        expect((error.data as { cause?: unknown }).cause).toBe(stamped);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('modern-only client: typed error instead of a fallback the client cannot run, same cause fidelity', async () => {
+        const stamped = markInvalidReplyEscape(new Error('validation failed'), JSON.parse(OC39354_BODY));
+        const transport = new InvalidReplyTransport(stamped);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto' }, supportedProtocolVersions: [MODERN] }
+        );
+
+        const rejection: unknown = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(error.message).toContain('the server gave no modern evidence (the probe reply was not a valid JSON-RPC message)');
+        expect((error.data as { cause?: unknown }).cause).toBe(stamped);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('pin mode: a 5xx probe answer names the status and carries it on data — a transient 503 is not a missing pin', async () => {
+        const httpError = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: mid-deploy', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            text: '<html>mid-deploy</html>'
+        });
+        const transport = new InvalidReplyTransport(httpError);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+
+        const rejection: unknown = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(error.message).toContain('the server answered the probe with HTTP 503');
+        expect(error.message).toContain('no fallback in pin mode');
+        expect(error.data).toMatchObject({ status: 503, statusText: 'Service Unavailable', text: '<html>mid-deploy</html>' });
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('modern-only client: a 5xx probe answer names the status and carries it on data too', async () => {
+        const httpError = new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: mid-deploy', {
+            status: 503,
+            statusText: 'Service Unavailable',
+            text: '<html>mid-deploy</html>'
+        });
+        const transport = new InvalidReplyTransport(httpError);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto' }, supportedProtocolVersions: [MODERN] }
+        );
+
+        const rejection: unknown = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(error.message).toContain('the server gave no modern evidence (the server answered the probe with HTTP 503)');
+        expect(error.data).toMatchObject({ status: 503 });
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Wire-real regression (anomalyco/opencode#39354 and its cousins) through the
+ * REAL StreamableHTTPClientTransport with a scripted fetch: every completed
+ * non-auth HTTP exchange whose answer is not a valid modern reply — off-spec
+ * 2xx bodies, wrong content types, 202-without-reply, unrecognized 4xx, and
+ * any 5xx — falls back to initialize; auth statuses, network failures, and
+ * probe timeouts keep their typed errors.
+ * ------------------------------------------------------------------------- */
+
+describe('wire-real invalid probe replies over StreamableHTTPClientTransport (oc#39354)', () => {
+    /** A scripted 2025 HTTP server: `probeResponse` answers the probe POST; initialize succeeds; GET has no SSE stream. */
+    function scriptedLegacyFetch(probeResponse: () => Response): { fetch: typeof fetch; methods: string[] } {
+        const methods: string[] = [];
+        const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+            if ((init?.method ?? 'GET') !== 'POST') {
+                return new Response('Method Not Allowed', { status: 405 });
+            }
+            const parsed = JSON.parse(String(init?.body)) as {
+                id?: string | number;
+                method?: string;
+                params?: { protocolVersion?: string };
+            };
+            if (parsed.method !== undefined) methods.push(parsed.method);
+            if (parsed.method === 'server/discover') {
+                return probeResponse();
+            }
+            if (parsed.method === 'initialize') {
+                return Response.json({
+                    jsonrpc: '2.0',
+                    id: parsed.id,
+                    result: {
+                        protocolVersion: parsed.params?.protocolVersion ?? '2025-11-25',
+                        capabilities: {},
+                        serverInfo: { name: 'wire-real-legacy-server', version: '1.0.0' }
+                    }
+                });
+            }
+            return new Response(null, { status: 202 });
+        }) as typeof fetch;
+        return { fetch: fetchImpl, methods };
+    }
+
+    async function connectAuto(probeResponse: () => Response, probeTimeoutMs = 60_000) {
+        const scripted = scriptedLegacyFetch(probeResponse);
+        const transport = new StreamableHTTPClientTransport(new URL('https://rude.example.com/mcp'), { fetch: scripted.fetch });
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: probeTimeoutMs } } }
+        );
+        await client.connect(transport);
+        return { client, methods: scripted.methods };
+    }
+
+    test('the oc#39354 reply (200 + -32700 + id:null) falls back — connect resolves on the legacy era', async () => {
+        const { client, methods } = await connectAuto(
+            () => new Response(OC39354_BODY, { status: 200, headers: { 'content-type': 'application/json' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        await client.close();
+    });
+
+    test('200 + empty application/json body falls back', async () => {
+        const { client, methods } = await connectAuto(
+            () => new Response('', { status: 200, headers: { 'content-type': 'application/json' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('200 + invalid JSON falls back', async () => {
+        const { client, methods } = await connectAuto(
+            () => new Response('<not json', { status: 200, headers: { 'content-type': 'application/json' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('200 + HTML error page (text/html) falls back', async () => {
+        const { client, methods } = await connectAuto(
+            () => new Response('<html><body>Bad Gateway</body></html>', { status: 200, headers: { 'content-type': 'text/html' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('200 + wrong content type (text/plain carrying a valid -32601 body) falls back', async () => {
+        const body = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 'server-discover-probe-1',
+            error: { code: -32_601, message: 'Method not found' }
+        });
+        const { client, methods } = await connectAuto(() => new Response(body, { status: 200, headers: { 'content-type': 'text/plain' } }));
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('200 with NO content type falls back', async () => {
+        // A TypedArray body sets no default content-type header.
+        const { client, methods } = await connectAuto(() => new Response(new TextEncoder().encode('{}'), { status: 200 }));
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('202 accepted-without-reply is immediate legacy evidence — no probe-timeout wait', async () => {
+        const startedAt = Date.now();
+        // The 60s probe timeout would fail the suite if the 202 were treated as
+        // silence; the fallback must run immediately off the completed exchange.
+        const { client, methods } = await connectAuto(() => new Response(null, { status: 202 }), 60_000);
+        expect(Date.now() - startedAt).toBeLessThan(2_000);
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('a bare 500 (empty-ish body) on the probe falls back — a completed server-error exchange is era evidence', async () => {
+        const { client, methods } = await connectAuto(() => new Response('Internal Server Error', { status: 500 }));
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('a 500 carrying a well-formed JSON-RPC error body (framework mapping JSON-RPC errors to 500) falls back', async () => {
+        const body = JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32_601, message: 'Method not found' } });
+        const { client, methods } = await connectAuto(
+            () => new Response(body, { status: 500, headers: { 'content-type': 'application/json' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('a 502 HTML gateway error page on the probe falls back', async () => {
+        const { client, methods } = await connectAuto(
+            () => new Response('<html><body>Bad Gateway</body></html>', { status: 502, headers: { 'content-type': 'text/html' } })
+        );
+        expect(methods).toContain('initialize');
+        expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+
+    test('202 answering the post-connect discover() (numeric Protocol id) is never EraNegotiationFailed — the 202 row is probe-scoped', async () => {
+        // The probe is recognized by its reserved string id prefix; the public
+        // mid-session Client.discover() goes through Protocol.request with a
+        // numeric id, so a misbehaving server 202-ing it must keep the pre-fix
+        // pending-until-RequestTimeout behavior — never the probe's stamped
+        // EraNegotiationFailed on an established modern connection.
+        const fetchImpl = (async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+            if ((init?.method ?? 'GET') !== 'POST') {
+                return new Response('Method Not Allowed', { status: 405 });
+            }
+            const parsed = JSON.parse(String(init?.body)) as { id?: string | number; method?: string };
+            if (parsed.method === 'server/discover' && typeof parsed.id === 'string') {
+                // The connect-time probe: definitive modern evidence.
+                return Response.json({
+                    jsonrpc: '2.0',
+                    id: parsed.id,
+                    result: { supportedVersions: [MODERN], capabilities: {} }
+                });
+            }
+            // Everything else — including the mid-session discover() with its
+            // numeric id — is accepted without a reply.
+            return new Response(null, { status: 202 });
+        }) as typeof fetch;
+        const transport = new StreamableHTTPClientTransport(new URL('https://rude.example.com/mcp'), { fetch: fetchImpl });
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+        expect(client.getProtocolEra()).toBe('modern');
+
+        const rejection: unknown = await client.discover({ timeout: 50 }).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).not.toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(error.code).toBe(SdkErrorCode.RequestTimeout);
+        expect(error.message).not.toContain('accepted the server/discover probe');
+        await client.close();
+    });
+
+    test('control: a network failure on the probe still rejects typed — never a fallback', async () => {
+        const netError = new TypeError('fetch failed');
+        const fetchMock = (async (): Promise<Response> => {
+            throw netError;
+        }) as typeof fetch;
+        const transport = new StreamableHTTPClientTransport(new URL('https://rude.example.com/mcp'), { fetch: fetchMock });
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+        );
     });
 });
