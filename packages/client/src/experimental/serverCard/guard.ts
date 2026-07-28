@@ -13,6 +13,8 @@ import { ServerCardError } from './errors';
  * Honest limit: the URL guards are hostname-level string and address checks.
  * They cannot see where DNS actually resolves, so they do not defend against
  * DNS rebinding. For that depth, inject a DNS-pinning `fetch`.
+ *
+ * @experimental
  */
 export interface DiscoveryFetchOptions {
     /**

@@ -13,6 +13,8 @@ import * as z from 'zod/v4';
  *
  * `identifier`, `publisher`, and `trustManifest` are self-asserted by the
  * catalog publisher and unverified.
+ *
+ * @experimental
  */
 export const AICatalogEntrySchema = z
     .looseObject({
@@ -83,6 +85,8 @@ export const AICatalogEntrySchema = z
 
 /**
  * Information about the host publishing an AI Catalog.
+ *
+ * @experimental
  */
 export const AICatalogHostSchema = z.looseObject({
     /**
@@ -111,6 +115,8 @@ export const AICatalogHostSchema = z.looseObject({
  * An AI Catalog document, typically published at
  * `/.well-known/ai-catalog.json`, advertising AI artifacts including MCP
  * Server Cards.
+ *
+ * @experimental
  */
 export const AICatalogSchema = z.looseObject({
     /**
@@ -131,9 +137,21 @@ export const AICatalogSchema = z.looseObject({
     metadata: z.record(z.string(), z.unknown()).optional()
 });
 
-/** A validated AI Catalog document. */
+/**
+ * A validated AI Catalog document.
+ *
+ * @experimental
+ */
 export type AICatalog = z.infer<typeof AICatalogSchema>;
-/** One validated AI Catalog entry. Self-asserted, unverified data. */
+/**
+ * One validated AI Catalog entry. Self-asserted, unverified data.
+ *
+ * @experimental
+ */
 export type AICatalogEntry = z.infer<typeof AICatalogEntrySchema>;
-/** Validated host information from an AI Catalog. */
+/**
+ * Validated host information from an AI Catalog.
+ *
+ * @experimental
+ */
 export type AICatalogHost = z.infer<typeof AICatalogHostSchema>;

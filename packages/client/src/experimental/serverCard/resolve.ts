@@ -11,6 +11,8 @@ const TEMPLATE_VAR = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
  * One input a consent or configuration UI may prompt for, walked from a card
  * remote. Pure data: `isSecret`, `choices`, `default`, and `placeholder` are
  * surfaced on `input`; presentation is host policy.
+ *
+ * @experimental
  */
 export interface RemoteInputRequirement {
     /** The name to use as the key in {@link resolveRemote}'s `inputs` map. */
@@ -36,6 +38,8 @@ export interface RemoteInputRequirement {
  * Despite the name, the walk returns *every* promptable input, optional ones
  * included — check each requirement's `required` flag before treating it as
  * mandatory.
+ *
+ * @experimental
  */
 export function requiredRemoteInputs(remote: ServerCardRemote): RemoteInputRequirement[] {
     const requirements: RemoteInputRequirement[] = [];
@@ -67,6 +71,8 @@ export function requiredRemoteInputs(remote: ServerCardRemote): RemoteInputRequi
  * `new StreamableHTTPClientTransport(url, { requestInit: { headers } })` or
  * `SSEClientTransport`; pass a supported protocol version to the transport's
  * `protocolVersion` option if you negotiate one up front.
+ *
+ * @experimental
  */
 export interface ResolvedRemote {
     /** Transport type declared by the card. */
@@ -95,6 +101,8 @@ export interface ResolvedRemote {
  *
  * No transport is constructed: choosing a remote and supplying inputs is
  * host policy, and card data stays advisory.
+ *
+ * @experimental
  */
 export function resolveRemote(remote: ServerCardRemote, inputs: Record<string, string> = {}): ResolvedRemote {
     const missing = new Map<string, ServerCardInput>();

@@ -2,6 +2,8 @@ import type { ServerCardInput } from '@modelcontextprotocol/core/experimental/se
 
 /**
  * Error codes for the Server Card discovery helpers.
+ *
+ * @experimental
  */
 export type ServerCardErrorCode =
     /** A discovery URL string could not be parsed as a URL (`cause` is the TypeError). */
@@ -40,6 +42,8 @@ export type ServerCardErrorCode =
  * Error thrown by the Server Card discovery and resolution helpers. The
  * `code` identifies the failure class; `url`, `status`, `mediaType`, and
  * `missing` carry the structured detail relevant to that class.
+ *
+ * @experimental
  */
 export class ServerCardError extends Error {
     /** The failure class. */

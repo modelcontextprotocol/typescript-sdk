@@ -18,6 +18,8 @@ export const DEFAULT_MAX_CATALOG_ENTRIES = 100;
 
 /**
  * Options for {@link fetchServerCard}.
+ *
+ * @experimental
  */
 export interface FetchServerCardOptions extends DiscoveryFetchOptions {
     /**
@@ -32,6 +34,8 @@ export interface FetchServerCardOptions extends DiscoveryFetchOptions {
  * cache validators, or a `notModified` marker when the server answered 304.
  * The caller owns the cache; `etag` and `cacheControl` are returned verbatim
  * for it.
+ *
+ * @experimental
  */
 export type ServerCardFetchResult =
     | { notModified: false; card: ServerCard; url: string; etag?: string; cacheControl?: string }
@@ -53,6 +57,8 @@ export type ServerCardFetchResult =
  *
  * @throws ServerCardError on guard rejection, HTTP error, oversized body,
  * redirect overflow, unacceptable media type, or an invalid document.
+ *
+ * @experimental
  */
 export async function fetchServerCard(url: string | URL, options: FetchServerCardOptions = {}): Promise<ServerCardFetchResult> {
     const { response, url: finalUrl } = await guardedFetch(toUrl(url), SERVER_CARD_MEDIA_TYPE, options, options.etag);
@@ -71,6 +77,8 @@ export async function fetchServerCard(url: string | URL, options: FetchServerCar
 
 /**
  * Options for {@link fetchAICatalog}.
+ *
+ * @experimental
  */
 export interface FetchAICatalogOptions extends DiscoveryFetchOptions {
     /** A previously stored `ETag`, sent as `If-None-Match`. */
@@ -85,6 +93,8 @@ export interface FetchAICatalogOptions extends DiscoveryFetchOptions {
 /**
  * Result of {@link fetchAICatalog}. Same caller-owned cache contract as
  * {@link ServerCardFetchResult}.
+ *
+ * @experimental
  */
 export type AICatalogFetchResult =
     | { notModified: false; catalog: AICatalog; url: string; etag?: string; cacheControl?: string }
@@ -97,6 +107,8 @@ export type AICatalogFetchResult =
  *
  * @throws ServerCardError with code `'invalid-ai-catalog'` on an invalid
  * document, plus the same transport error codes as {@link fetchServerCard}.
+ *
+ * @experimental
  */
 export async function fetchAICatalog(url: string | URL, options: FetchAICatalogOptions = {}): Promise<AICatalogFetchResult> {
     const { response, url: finalUrl } = await guardedFetch(toUrl(url), AI_CATALOG_MEDIA_TYPE, options, options.etag);
@@ -123,6 +135,8 @@ export async function fetchAICatalog(url: string | URL, options: FetchAICatalogO
  * `'example.com'` and `'https://example.com/anything'` both become
  * `https://example.com/.well-known/ai-catalog.json`. Bare domains get
  * `https://`.
+ *
+ * @experimental
  */
 export function getAICatalogUrl(domainOrUrl: string | URL): URL {
     return new URL(AI_CATALOG_WELL_KNOWN_PATH, toUrl(domainOrUrl));

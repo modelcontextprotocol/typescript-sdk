@@ -25,6 +25,8 @@ function isVersionRange(version: string): boolean {
 /**
  * A user-supplied or pre-set input value, used for remote URL variables and
  * header values.
+ *
+ * @experimental
  */
 export const ServerCardInputSchema = z.looseObject({
     /**
@@ -73,6 +75,8 @@ export const ServerCardInputSchema = z.looseObject({
 /**
  * A named input — used for HTTP headers — whose `value` may reference
  * variables for substitution.
+ *
+ * @experimental
  */
 export const ServerCardKeyValueInputSchema = ServerCardInputSchema.extend({
     /**
@@ -89,6 +93,8 @@ export const ServerCardKeyValueInputSchema = ServerCardInputSchema.extend({
 
 /**
  * Metadata for connecting to a remote (HTTP-based) MCP server endpoint.
+ *
+ * @experimental
  */
 export const ServerCardRemoteSchema = z.looseObject({
     /**
@@ -126,6 +132,8 @@ export const ServerCardRemoteSchema = z.looseObject({
 /**
  * Repository metadata for the MCP server source code. Enables users and
  * security experts to inspect the code, improving transparency.
+ *
+ * @experimental
  */
 export const ServerCardRepositorySchema = z.looseObject({
     /**
@@ -166,6 +174,8 @@ export const ServerCardRepositorySchema = z.looseObject({
  * Validation is strict about the spec's constraints: a missing or wrong
  * `$schema` is rejected here. Lenient ingestion (defaulting a missing
  * `$schema`) lives in the client fetch helpers, not in this schema.
+ *
+ * @experimental
  */
 export const ServerCardSchema = z.looseObject({
     /**
@@ -230,13 +240,33 @@ export const ServerCardSchema = z.looseObject({
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
-/** A validated Server Card document. Advisory data; see `ServerCardSchema`. */
+/**
+ * A validated Server Card document. Advisory data; see `ServerCardSchema`.
+ *
+ * @experimental
+ */
 export type ServerCard = z.infer<typeof ServerCardSchema>;
-/** A user-supplied or pre-set input value declared by a card remote. */
+/**
+ * A user-supplied or pre-set input value declared by a card remote.
+ *
+ * @experimental
+ */
 export type ServerCardInput = z.infer<typeof ServerCardInputSchema>;
-/** A named header input declared by a card remote. */
+/**
+ * A named header input declared by a card remote.
+ *
+ * @experimental
+ */
 export type ServerCardKeyValueInput = z.infer<typeof ServerCardKeyValueInputSchema>;
-/** Connection metadata for one remote endpoint declared by a card. */
+/**
+ * Connection metadata for one remote endpoint declared by a card.
+ *
+ * @experimental
+ */
 export type ServerCardRemote = z.infer<typeof ServerCardRemoteSchema>;
-/** Source repository metadata declared by a card. */
+/**
+ * Source repository metadata declared by a card.
+ *
+ * @experimental
+ */
 export type ServerCardRepository = z.infer<typeof ServerCardRepositorySchema>;

@@ -8,6 +8,8 @@ import express from 'express';
  * `ServerCardResponseOptions` from
  * `@modelcontextprotocol/server/experimental/server-card`, plus an optional
  * `catalog` to also serve the AI Catalog from this app.
+ *
+ * @experimental
  */
 export interface McpServerCardRouterOptions extends ServerCardResponseOptions {
     /**
@@ -37,6 +39,8 @@ export interface McpServerCardRouterOptions extends ServerCardResponseOptions {
  *
  * Experimental: tracks the `experimental-ext-server-card` spec repository and
  * may change or be removed in any release.
+ *
+ * @experimental
  */
 export function mcpServerCardRouter(options: McpServerCardRouterOptions): Router {
     const { catalog, ...cardOptions } = options;

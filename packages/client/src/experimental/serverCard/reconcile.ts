@@ -4,6 +4,8 @@ import type { Implementation } from '@modelcontextprotocol/core-internal';
 /**
  * One disagreement between a Server Card claim and the live connection.
  * Runtime always wins; the card was advisory.
+ *
+ * @experimental
  */
 export interface ServerCardMismatch {
     /** The disagreeing field. */
@@ -34,6 +36,8 @@ export interface ServerCardMismatch {
  *
  * Deliberately not wired into `Client.connect`: cards must not gate
  * anything.
+ *
+ * @experimental
  */
 export function reconcileServerCard(
     card: ServerCard,

@@ -7,6 +7,8 @@ import type { DiscoveryFetchOptions } from './guard';
 
 /**
  * Options for {@link discoverServerCards}.
+ *
+ * @experimental
  */
 export interface DiscoverServerCardsOptions extends DiscoveryFetchOptions {
     /**
@@ -32,6 +34,8 @@ export interface DiscoverServerCardsOptions extends DiscoveryFetchOptions {
  * Cards are advisory. Never use them for security or access-control
  * decisions, never auto-connect, and de-duplicate on `card.remotes[].url`,
  * never on names or catalog identifiers (both spoofable).
+ *
+ * @experimental
  */
 export interface DiscoveredServerCard {
     /** The validated card. Advisory, unverified. */
@@ -73,6 +77,8 @@ export interface DiscoveredServerCard {
  * const inputs = await promptUser(requiredRemoteInputs(remote));
  * const { url, headers } = resolveRemote(remote, inputs);
  * ```
+ *
+ * @experimental
  */
 export async function discoverServerCards(
     domainOrUrl: string | URL,

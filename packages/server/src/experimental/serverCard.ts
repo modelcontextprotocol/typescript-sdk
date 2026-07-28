@@ -25,6 +25,8 @@ import type { Icon, Implementation } from '@modelcontextprotocol/core-internal';
 
 /**
  * Options for {@link buildServerCard}.
+ *
+ * @experimental
  */
 export interface BuildServerCardOptions {
     /**
@@ -85,6 +87,8 @@ export interface BuildServerCardOptions {
  *
  * Cards MUST NOT contain credentials, tokens, internal network topology, or
  * private endpoints. Everything in a card is public.
+ *
+ * @experimental
  */
 export function buildServerCard(options: BuildServerCardOptions): ServerCard {
     const card: Record<string, unknown> = {
@@ -113,6 +117,8 @@ export function buildServerCard(options: BuildServerCardOptions): ServerCard {
  * is appended to the MCP path, never to the origin. The location is derived
  * from the origin and path only: any query string or fragment on `mcpUrl` is
  * dropped.
+ *
+ * @experimental
  */
 export function getServerCardUrl(mcpUrl: URL | string): string {
     const url = new URL(mcpUrl);
@@ -125,6 +131,8 @@ export function getServerCardUrl(mcpUrl: URL | string): string {
 
 /**
  * Options for {@link serverCardResponse}.
+ *
+ * @experimental
  */
 export interface ServerCardResponseOptions {
     /**
@@ -174,6 +182,8 @@ export interface ServerCardResponseOptions {
  *     return await (serverCardResponse(request, { card, mcpUrl }) ?? aiCatalogResponse(request, { catalog }) ?? serveMcp(request));
  * }
  * ```
+ *
+ * @experimental
  */
 export function serverCardResponse(request: Request, options: ServerCardResponseOptions): Promise<Response> | undefined {
     const targetPath = stripTrailingSlash(new URL(getServerCardUrl(options.mcpUrl)).pathname);
@@ -186,6 +196,8 @@ export function serverCardResponse(request: Request, options: ServerCardResponse
 
 /**
  * Options for {@link aiCatalogResponse}.
+ *
+ * @experimental
  */
 export interface AICatalogResponseOptions {
     /**
@@ -220,6 +232,8 @@ export interface AICatalogResponseOptions {
  * `/.well-known/ai-catalog.json` (or `options.path`). Same matching,
  * CORS, caching, and ETag behavior as {@link serverCardResponse}, with the
  * `application/ai-catalog+json` media type.
+ *
+ * @experimental
  */
 export function aiCatalogResponse(request: Request, options: AICatalogResponseOptions): Promise<Response> | undefined {
     const targetPath = stripTrailingSlash(options.path ?? AI_CATALOG_WELL_KNOWN_PATH);
@@ -247,6 +261,8 @@ export function aiCatalogResponse(request: Request, options: AICatalogResponseOp
  * Throws `ZodError` when `card.name` is not the namespaced
  * `{namespace}/{server-name}` form — only reachable with a hand-cast card
  * that skipped {@link buildServerCard}.
+ *
+ * @experimental
  */
 export function serverCardCatalogEntry(card: ServerCard, location: { url: URL | string } | { inline: true }): AICatalogEntry {
     // A hand-cast card can bypass ServerCardSchema's name regex; re-validate
@@ -268,6 +284,8 @@ export function serverCardCatalogEntry(card: ServerCard, location: { url: URL | 
  * Builds and validates an AI Catalog document with `specVersion: '1.0'`.
  * Throws `ZodError` on an invalid entry (for example one carrying both `url`
  * and `data`). Call at startup, like {@link buildServerCard}.
+ *
+ * @experimental
  */
 export function buildAICatalog(init: { entries: AICatalogEntry[]; host?: AICatalogHost }): AICatalog {
     return AICatalogSchema.parse({
