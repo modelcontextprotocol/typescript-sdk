@@ -843,6 +843,8 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
     private _fetchFn: FetchLike;
     private _authorizationServerUrl?: string;
     private _resourceUrl?: string;
+    private _lastAssertion?: string;
+    private _lastAssertionConfirmed = true;
 
     constructor(options: WorkloadIdentityProviderOptions) {
         this._clientInfo = {
@@ -881,6 +883,7 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
     }
 
     saveTokens(tokens: StoredOAuthTokens): void {
+        this._lastAssertionConfirmed = true;
         this._tokens = tokens;
     }
 
@@ -948,6 +951,20 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
         } else {
             assertion = this._assertion;
         }
+
+        // saveTokens confirms the last handed-out assertion; re-presenting an unconfirmed
+        // one unchanged would replay a credential the authorization server already rejected.
+        if (!this._lastAssertionConfirmed && assertion === this._lastAssertion) {
+            throw new Error(
+                'Workload assertion was rejected by the authorization server and would be ' +
+                    're-sent unchanged. Refusing to retry with the same credential ' +
+                    '(SEP-1933 wif-no-retry). Provide a fresh assertion via a ' +
+                    'WorkloadAssertionCallback or fix the assertion (issuer trust, audience, ' +
+                    'expiry) before retrying.'
+            );
+        }
+        this._lastAssertion = assertion;
+        this._lastAssertionConfirmed = false;
 
         // Return params for JWT bearer grant per RFC 7523; auth() sets the RFC 8707
         // resource parameter after the provider returns.

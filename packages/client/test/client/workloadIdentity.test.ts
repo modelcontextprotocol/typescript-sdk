@@ -220,6 +220,47 @@ describe('WorkloadIdentityProvider client information and state', () => {
     });
 });
 
+describe('WorkloadIdentityProvider rejection memory', () => {
+    it('refuses to re-present the same assertion after an unconfirmed attempt', async () => {
+        const provider = makeProvider();
+
+        await provider.prepareTokenRequest();
+
+        await expect(provider.prepareTokenRequest()).rejects.toThrow(/rejected|same credential|wif-no-retry/i);
+    });
+
+    it('allows a new request after saveTokens confirmed the previous one', async () => {
+        const provider = makeProvider();
+
+        await provider.prepareTokenRequest();
+        provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
+
+        await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
+    });
+
+    it('allows a retry when the callback supplies a fresh assertion', async () => {
+        let counter = 0;
+        const provider = makeProvider({ assertion: () => `jwt.${counter++}` });
+
+        await provider.prepareTokenRequest();
+
+        const params = await provider.prepareTokenRequest();
+        expect(params.get('assertion')).toBe('jwt.1');
+    });
+
+    it('reuses a static assertion across separately confirmed auth cycles', async () => {
+        const provider = makeProvider();
+
+        for (let cycle = 0; cycle < 2; cycle++) {
+            const params = await provider.prepareTokenRequest();
+            expect(params.get('assertion')).toBe(STATIC_ASSERTION);
+            provider.saveTokens({ access_token: `token-${cycle}`, token_type: 'Bearer' });
+        }
+
+        await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
+    });
+});
+
 describe('WorkloadIdentityProvider (end-to-end with auth())', () => {
     it('successfully authenticates using the jwt-bearer flow', async () => {
         let assertionCallbackInvoked = false;
