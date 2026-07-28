@@ -1295,6 +1295,54 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
         });
 
+        test('should validate structuredContent against wrapped and union outputSchema values', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const outputSchemas = {
+                optional: z.object({ data: z.string() }).optional(),
+                nullable: z.object({ data: z.string() }).nullable(),
+                nullish: z.object({ data: z.string() }).nullish(),
+                union: z.union([z.object({ data: z.string() }), z.object({ value: z.string() })])
+            };
+
+            for (const [name, outputSchema] of Object.entries(outputSchemas)) {
+                mcpServer.registerTool(
+                    name,
+                    {
+                        outputSchema
+                    },
+                    async () => ({
+                        content: [],
+                        structuredContent: {
+                            data: name
+                        }
+                    })
+                );
+            }
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            for (const name of Object.keys(outputSchemas)) {
+                const result = await client.callTool({
+                    name,
+                    arguments: {}
+                });
+
+                expect(result.isError).not.toBe(true);
+                expect(result.structuredContent).toEqual({ data: name });
+            }
+        });
+
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
          */
