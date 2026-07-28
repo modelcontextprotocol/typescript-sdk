@@ -77,10 +77,17 @@ const workloadJwt = await new jose.SignJWT({})
 // Both halves derive the same path from the MCP port, so the client needs no
 // out-of-band handshake. In a pod this path is the projected-volume mount point
 // (`/var/run/secrets/tokens/...`); `WIF_WORKLOAD_TOKEN_PATH` overrides it.
-const tokenPath = process.env.WIF_WORKLOAD_TOKEN_PATH ?? path.join(tmpdir(), `mcp-wif-workload-token-${port}.jwt`);
-// `wx` (O_CREAT | O_EXCL) refuses to follow a pre-planted symlink at this
+const envTokenPath = process.env.WIF_WORKLOAD_TOKEN_PATH;
+const tokenPath = envTokenPath ?? path.join(tmpdir(), `mcp-wif-workload-token-${port}.jwt`);
+// Only the derived temp path is this process's to manage: remove a leftover from
+// a previous run and delete it again on exit. An env-supplied path is the user's;
+// never delete it, and `wx` below refuses to replace an existing file there.
+if (!envTokenPath) {
+    rmSync(tokenPath, { force: true });
+    process.on('exit', () => rmSync(tokenPath, { force: true }));
+}
+// `wx` (O_CREAT | O_EXCL) refuses to follow a pre-planted symlink at the
 // well-known path and fails closed if anything reappears between rm and open.
-rmSync(tokenPath, { force: true });
 writeFileSync(tokenPath, workloadJwt, { mode: 0o600, flag: 'wx' });
 
 // ---- Authorization Server (jwt-bearer only) ----

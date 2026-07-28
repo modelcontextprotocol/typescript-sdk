@@ -789,7 +789,10 @@ export interface WorkloadIdentityProviderOptions {
     assertion: string | WorkloadAssertionCallback;
 
     /**
-     * The `client_id` registered with the MCP server's authorization server.
+     * The `client_id` sent as public-client identification with the token request.
+     * Required by this SDK's auth flow, which operates on stored client information;
+     * RFC 7523 and SEP-1933 allow assertion-only requests without one, so choose a
+     * value the authorization server expects or ignores.
      */
     clientId: string;
 
@@ -899,8 +902,10 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
      * Records the authorization server's verdict on the last assertion this provider
      * handed out. `auth()` calls this only from its OAuth error paths, so a
      * `'tokens'` invalidation means the authorization server rejected an exchange
-     * that presented an assertion, and that assertion must not be presented again
-     * unchanged (SEP-1933 `wif-no-retry`). With overlapping flows on one provider
+     * that presented an assertion, and this provider then refuses to re-present that
+     * assertion unchanged. That refusal is a best-effort guard matching the
+     * conformance suite's `wif-no-retry` warning; neither RFC 7523 nor SEP-1933
+     * mandates it. With overlapping flows on one provider
      * the verdict may name the most recently handed-out assertion rather than the
      * exact one the failing flow sent; that is conservative and fails closed.
      * `'all'` is a host-driven reset rather than a rejection, so it clears the
@@ -999,8 +1004,8 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
         if (assertion === this._rejectedAssertion) {
             throw new Error(
                 'The authorization server rejected the token exchange that presented this workload ' +
-                    'assertion, so the provider refuses to present it again unchanged (SEP-1933 ' +
-                    'wif-no-retry). Supply a fresh assertion from a WorkloadAssertionCallback, and ' +
+                    'assertion, so the provider refuses to present it again unchanged (the conformance ' +
+                    'wif-no-retry check). Supply a fresh assertion from a WorkloadAssertionCallback, and ' +
                     'check that the authorization server trusts the assertion issuer, that the ' +
                     'audience and expiry are correct, and that the client_id is registered with ' +
                     'the authorization server.'
