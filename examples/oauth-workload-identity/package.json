@@ -1,0 +1,32 @@
+{
+    "name": "@mcp-examples/oauth-workload-identity",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
+        "jose": "catalog:runtimeClientOnly",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@types/cors": "catalog:devTools",
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "dual",
+        "path": "/mcp",
+        "//": "Workload Identity Federation is HTTP-layer and era-agnostic; the client honours --legacy via parseExampleArgs().era. The server writes the demo workload JWT to a port-derived path under os.tmpdir() that the client re-reads."
+    }
+}
