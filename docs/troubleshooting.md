@@ -115,6 +115,38 @@ legacy
 
 Keep `{ pin }` where a legacy connection is unacceptable and a hard failure is the behavior you want. [Protocol versions](./protocol-versions.md) defines the eras and what each negotiation mode offers.
 
+## `SdkHttpError: Error POSTing to endpoint: ...`
+
+`connect()` POSTed the legacy `initialize` handshake (the default when `versionNegotiation` is absent or `mode: 'legacy'`) and the HTTP response was a non-2xx status. The transport surfaces that as `SdkHttpError` with the response body in the message and in `error.data.text`.
+
+This is expected when:
+
+- The URL is not an MCP server (or does not implement the MCP lifecycle at all). The default client always starts with `initialize`; endpoints that only accept ad-hoc `tools/call` JSON-RPC will reject it.
+- A real MCP server rejected `initialize` with an HTTP error (auth misconfiguration, bad path, gateway error).
+
+```ts
+import { Client, StreamableHTTPClientTransport, SdkHttpError } from '@modelcontextprotocol/client';
+
+const client = new Client({ name: 'app', version: '1.0.0' });
+try {
+    await client.connect(new StreamableHTTPClientTransport(new URL('https://example.com/not-mcp')));
+} catch (error) {
+    if (error instanceof SdkHttpError) {
+        console.log(error.status, error.message);
+        // JSON-RPC error bodies on 4xx/5xx arrive as text on the HTTP error;
+        // a 200 JSON-RPC error body surfaces as ProtocolError instead.
+    }
+}
+```
+
+What to do next:
+
+1. Confirm the URL is a real MCP Streamable HTTP endpoint (not a proprietary JSON-RPC path).
+2. If the server speaks the 2026-07-28 era and you need the modern probe, opt in with `versionNegotiation: { mode: 'auto' }` — see [Protocol versions](./protocol-versions.md).
+3. For a well-formed JSON-RPC error returned on HTTP 200, catch `ProtocolError` and read `error.code` / `error.data`. On non-2xx, parse `error.data.text` if you need the JSON-RPC fields from an `SdkHttpError`.
+
+This path does **not** retry a failed `initialize` POST three times; if you see multiple attempts, an outer application retry loop is the usual cause.
+
 ## `Version negotiation failed: the server requires authorization (HTTP 401)`
 
 `SdkHttpError` with code `CLIENT_HTTP_AUTHENTICATION` (`error.status === 401`): the negotiation probe hit an auth wall and no `authProvider` is configured. Auth status is never protocol-era evidence, so `connect()` fails typed instead of guessing an era. Pass an `authProvider` — `{ token: async () => myApiKey }` for bearer tokens, or an `OAuthClientProvider` for OAuth flows (the connect-time `UnauthorizedError` → `finishAuth()` → reconnect cycle then works in every negotiation mode).
@@ -173,6 +205,7 @@ HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so cli
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
+- Non-2xx `initialize` responses surface as `SdkHttpError: Error POSTing to endpoint: ...` (legacy default); non-MCP endpoints will not connect.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
 <!-- maintainers: an entry on this page lives only as long as the surface that

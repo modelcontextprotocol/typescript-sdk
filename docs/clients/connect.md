@@ -19,7 +19,7 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 await client.connect(transport);
 ```
 
-`connect()` runs the `initialize` handshake and resolves once it completes. The client now holds the negotiated protocol version, the server's capabilities, and its instructions.
+`connect()` runs the `initialize` handshake by default (legacy era) and resolves once it completes. The client now holds the negotiated protocol version, the server's capabilities, and its instructions. To probe for a 2026-07-28 server first, pass `versionNegotiation: { mode: 'auto' }` — see [Protocol versions](../protocol-versions.md).
 
 ::: info Coming from v1?
 `Client` and the transport classes keep their names — only the import paths moved, to `@modelcontextprotocol/client` and its `/stdio` subpath. Run the codemod, then see the [upgrade guide](../migration/upgrade-to-v2.md).
