@@ -890,18 +890,22 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
         this._tokens = tokens;
         // A granted token settles the credential state: whatever was presented worked,
         // and any earlier rejection no longer describes this provider's situation.
-        this._lastAssertion = undefined;
+        // _lastAssertion stays recorded so a rejection verdict arriving after this
+        // success (from a concurrent flow) can still name the assertion it refuses.
         this._rejectedAssertion = undefined;
     }
 
     /**
      * Records the authorization server's verdict on the last assertion this provider
      * handed out. `auth()` calls this only from its OAuth error paths, so a
-     * `'tokens'` invalidation means the authorization server rejected the flow that
-     * presented that assertion, and it must not be presented again unchanged
-     * (SEP-1933 `wif-no-retry`). `'all'` is a host-driven reset rather than a
-     * rejection, so it clears the memory instead of recording one. The remaining
-     * scopes name state this provider does not keep.
+     * `'tokens'` invalidation means the authorization server rejected an exchange
+     * that presented an assertion, and that assertion must not be presented again
+     * unchanged (SEP-1933 `wif-no-retry`). With overlapping flows on one provider
+     * the verdict may name the most recently handed-out assertion rather than the
+     * exact one the failing flow sent; that is conservative and fails closed.
+     * `'all'` is a host-driven reset rather than a rejection, so it clears the
+     * memory instead of recording one. The remaining scopes name state this
+     * provider does not keep.
      */
     invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
         if (scope === 'tokens') {
@@ -976,10 +980,12 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
 
         if (assertion === this._rejectedAssertion) {
             throw new Error(
-                'The authorization server rejected this workload assertion, so the provider ' +
-                    'refuses to present it again unchanged (SEP-1933 wif-no-retry). Supply a fresh ' +
-                    'assertion from a WorkloadAssertionCallback, and check that the authorization ' +
-                    'server trusts the assertion issuer and that the audience and expiry are correct.'
+                'The authorization server rejected the token exchange that presented this workload ' +
+                    'assertion, so the provider refuses to present it again unchanged (SEP-1933 ' +
+                    'wif-no-retry). Supply a fresh assertion from a WorkloadAssertionCallback, and ' +
+                    'check that the authorization server trusts the assertion issuer, that the ' +
+                    'audience and expiry are correct, and that the client_id is registered with ' +
+                    'the authorization server.'
             );
         }
         this._lastAssertion = assertion;

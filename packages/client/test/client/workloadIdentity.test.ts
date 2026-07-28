@@ -249,6 +249,19 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
     });
 
+    it('records a rejection that arrives after a concurrent flow already succeeded', async () => {
+        const provider = makeProvider();
+
+        // Flow A presents the assertion and wins; flow B loses the race and its
+        // rejection verdict lands after A's saveTokens. The guard must still know
+        // which assertion the verdict refers to.
+        await provider.prepareTokenRequest();
+        provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
+        provider.invalidateCredentials('tokens');
+
+        await expect(provider.prepareTokenRequest()).rejects.toThrow(/wif-no-retry/);
+    });
+
     it('forgets a rejection once a later flow is confirmed by saveTokens', async () => {
         let assertion = 'jwt.rejected';
         const provider = makeProvider({ assertion: () => assertion });
