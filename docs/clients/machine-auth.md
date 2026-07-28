@@ -88,6 +88,35 @@ const transport = new StreamableHTTPClientTransport(new URL('https://api.example
 
 The SDK discovers the MCP server's authorization server and resource URL (RFC 9728) before it calls `assertion`, then hands them in on `ctx` together with the negotiated `scope` and the transport's `fetchFn`. Pass them through so the IdP issues a grant bound to the right audience and resource.
 
+## Authenticate with a workload identity
+
+**Workload Identity Federation** (WIF, SEP-1933, extension id `io.modelcontextprotocol/auth/wif`) lets a workload that already holds a platform-issued JWT exchange that JWT directly for an MCP access token: a Kubernetes projected service account token, a SPIFFE JWT-SVID, a cloud identity token. No client secret is provisioned anywhere and no dynamic client registration happens; the workload's existing platform identity is the credential.
+
+`WorkloadIdentityProvider` runs the RFC 7523 `jwt-bearer` grant (`urn:ietf:params:oauth:grant-type:jwt-bearer`) with the workload JWT as the `assertion`, the same grant `CrossAppAccessProvider` uses, but presenting the workload's own JWT instead of a JWT Authorization Grant exchanged from an IdP.
+
+```ts source="../../examples/guides/clients/machine-auth.examples.ts#workloadIdentity_provider"
+function fileAssertionSource(tokenPath: string): WorkloadAssertionCallback {
+    return async () => (await readWorkloadToken(tokenPath)).trim();
+}
+
+const authProvider = new WorkloadIdentityProvider({
+    clientId: 'reporting-job',
+    assertion: fileAssertionSource('/var/run/secrets/workload/token')
+});
+
+const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
+```
+
+`clientId` is required; the authorization server still needs one to look up even though there is no secret to check against it. `assertion` is either a static JWT string or a `WorkloadAssertionCallback` that returns one per token request, given `{ authorizationServerUrl, resourceUrl, scope, fetchFn }` for the MCP server the SDK just discovered. `scope` sets the requested scope, `expectedIssuer` pins the credential the same way it does for `ClientCredentialsProvider`, `clientName` sets the client metadata's display name, and `fetchFn` overrides the fetch implementation handed to the callback.
+
+::: tip
+The workload JWT's `aud` must name the authorization server's issuer identifier, not the MCP server's resource URL (draft-ietf-oauth-rfc7523bis). When minting a JWT inside the callback, mint it against `authorizationServerUrl`, not `resourceUrl`.
+:::
+
+`WorkloadIdentityProvider` is non-interactive: it has no `redirectUrl` and never falls back to an authorization-code grant. A rejected assertion is never re-sent unchanged; refusing that replay is what conformance calls `wif-no-retry`, so reach for a callback instead of a static string whenever the underlying token can expire or be revoked, and the callback should mint a fresh assertion on every call. There is no refresh token in this flow: a workload holding an expired or rejected JWT re-asserts by fetching a new platform-issued token, it does not refresh the MCP access token.
+
+See [`examples/oauth-workload-identity`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/oauth-workload-identity) for a runnable, self-verifying end-to-end example.
+
 ## Drop to the token-exchange utilities
 
 Both exchanges behind `CrossAppAccessProvider` are exported as standalone functions for flows the provider does not cover — caching grants across transports, a non-standard IdP step, your own token store.
@@ -104,4 +133,5 @@ All three live in [`client/crossAppAccess`](../api/@modelcontextprotocol/client/
 - `ClientCredentialsProvider` runs the `client_credentials` grant with a shared secret; `PrivateKeyJwtProvider` runs the same grant with a signed JWT assertion in its place.
 - An `AuthProvider` with only `token()` is enough when something outside the SDK owns the token; without `onUnauthorized`, a 401 throws `UnauthorizedError`.
 - `CrossAppAccessProvider` chains an enterprise IdP token through a JWT Authorization Grant to an MCP access token (SEP-990), and both exchanges are exported standalone.
+- `WorkloadIdentityProvider` presents a platform-issued workload JWT (Kubernetes, SPIFFE, cloud identity tokens) directly as an RFC 7523 `jwt-bearer` assertion (SEP-1933); it never retries a rejected assertion unchanged and never falls back to an interactive grant.
 - Authenticating an end user belongs on [OAuth](./oauth.md).

@@ -12,8 +12,13 @@
  * @module
  */
 /* eslint-disable @typescript-eslint/no-unused-vars */
-import type { AuthProvider } from '@modelcontextprotocol/client';
-import { CrossAppAccessProvider, discoverAndRequestJwtAuthGrant, PrivateKeyJwtProvider } from '@modelcontextprotocol/client';
+import type { AuthProvider, WorkloadAssertionCallback } from '@modelcontextprotocol/client';
+import {
+    CrossAppAccessProvider,
+    discoverAndRequestJwtAuthGrant,
+    PrivateKeyJwtProvider,
+    WorkloadIdentityProvider
+} from '@modelcontextprotocol/client';
 
 // "Authenticate with client credentials" — the page's lead block. The import line
 // is part of the region so the first fence on the page names where the providers
@@ -84,6 +89,27 @@ function crossAppAccess_provider(getIdToken: () => Promise<string>) {
     return transport;
 }
 
+// "Authenticate with a workload identity" - SEP-1933 Workload Identity
+// Federation. The assertion is a platform-issued workload JWT (a Kubernetes
+// projected service account token, a SPIFFE JWT-SVID, a cloud identity
+// token) presented directly as the RFC 7523 jwt-bearer grant's assertion.
+function workloadIdentity_provider(readWorkloadToken: (path: string) => Promise<string>) {
+    //#region workloadIdentity_provider
+    function fileAssertionSource(tokenPath: string): WorkloadAssertionCallback {
+        return async () => (await readWorkloadToken(tokenPath)).trim();
+    }
+
+    const authProvider = new WorkloadIdentityProvider({
+        clientId: 'reporting-job',
+        assertion: fileAssertionSource('/var/run/secrets/workload/token')
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
+    //#endregion workloadIdentity_provider
+    return transport;
+}
+
 void bearerToken_provider;
 void privateKeyJwt_provider;
 void crossAppAccess_provider;
+void workloadIdentity_provider;
