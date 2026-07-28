@@ -724,11 +724,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        // RequestId 0 is legal JSON-RPC (and is the first id Protocol assigns).
+        // Use an explicit absence check — truthiness would drop id 0 (#2283).
+        const requestId = notification.params.requestId;
+        if (requestId === undefined || requestId === null) {
             return;
         }
         // Handle request cancellation
-        const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
+        const controller = this._requestHandlerAbortControllers.get(requestId);
         controller?.abort(notification.params.reason);
     }
 
@@ -1611,7 +1614,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        // relatedRequestId 0 is a valid id — check === undefined, not truthiness (#2117).
+        const canDebounce =
+            debouncedMethods.includes(notification.method) && !notification.params && options?.relatedRequestId === undefined;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
