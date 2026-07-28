@@ -739,8 +739,12 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
  */
 export interface WorkloadAssertionContext {
     /**
-     * The authorization server URL of the target MCP server.
-     * Discovered via RFC 9728 protected resource metadata.
+     * The authorization server's `issuer` identifier: `metadata.issuer` when the
+     * authorization server publishes RFC 8414 metadata, otherwise the authorization
+     * server URL discovered via RFC 9728 protected resource metadata.
+     *
+     * This is the value the workload JWT's `aud` should be minted against
+     * (draft-ietf-oauth-rfc7523bis), not {@linkcode WorkloadAssertionContext.resourceUrl}.
      */
     authorizationServerUrl: string;
 
@@ -844,7 +848,7 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
     private _authorizationServerUrl?: string;
     private _resourceUrl?: string;
     private _lastAssertion?: string;
-    private _lastAssertionConfirmed = true;
+    private _rejectedAssertion?: string;
 
     constructor(options: WorkloadIdentityProviderOptions) {
         this._clientInfo = {
@@ -883,21 +887,39 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
     }
 
     saveTokens(tokens: StoredOAuthTokens): void {
-        this._lastAssertionConfirmed = true;
         this._tokens = tokens;
+        // A granted token settles the credential state: whatever was presented worked,
+        // and any earlier rejection no longer describes this provider's situation.
+        this._lastAssertion = undefined;
+        this._rejectedAssertion = undefined;
+    }
+
+    /**
+     * Records the authorization server's verdict on the last assertion this provider
+     * handed out. `auth()` calls this only from its OAuth error paths, so a
+     * `'tokens'` invalidation means the authorization server rejected the flow that
+     * presented that assertion, and it must not be presented again unchanged
+     * (SEP-1933 `wif-no-retry`). `'all'` is a host-driven reset rather than a
+     * rejection, so it clears the memory instead of recording one. The remaining
+     * scopes name state this provider does not keep.
+     */
+    invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+        if (scope === 'tokens') {
+            this._tokens = undefined;
+            this._rejectedAssertion = this._lastAssertion;
+        } else if (scope === 'all') {
+            this._tokens = undefined;
+            this._lastAssertion = undefined;
+            this._rejectedAssertion = undefined;
+        }
     }
 
     redirectToAuthorization(): void {
-        throw new Error(
-            'WorkloadIdentityProvider is non-interactive: the authorization server rejected the ' +
-                'jwt-bearer flow and the client attempted an authorization redirect. Check that the ' +
-                'authorization server supports urn:ietf:params:oauth:grant-type:jwt-bearer and ' +
-                'trusts the workload issuer.'
-        );
+        throw new Error('WorkloadIdentityProvider is non-interactive and does not support authorization redirects');
     }
 
     saveCodeVerifier(): void {
-        throw new Error('saveCodeVerifier is not used for jwt-bearer flow');
+        // Not used for jwt-bearer
     }
 
     codeVerifier(): string {
@@ -952,19 +974,15 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
             assertion = this._assertion;
         }
 
-        // saveTokens confirms the last handed-out assertion; re-presenting an unconfirmed
-        // one unchanged would replay a credential the authorization server already rejected.
-        if (!this._lastAssertionConfirmed && assertion === this._lastAssertion) {
+        if (assertion === this._rejectedAssertion) {
             throw new Error(
-                'Workload assertion was rejected by the authorization server and would be ' +
-                    're-sent unchanged. Refusing to retry with the same credential ' +
-                    '(SEP-1933 wif-no-retry). Provide a fresh assertion via a ' +
-                    'WorkloadAssertionCallback or fix the assertion (issuer trust, audience, ' +
-                    'expiry) before retrying.'
+                'The authorization server rejected this workload assertion, so the provider ' +
+                    'refuses to present it again unchanged (SEP-1933 wif-no-retry). Supply a fresh ' +
+                    'assertion from a WorkloadAssertionCallback, and check that the authorization ' +
+                    'server trusts the assertion issuer and that the audience and expiry are correct.'
             );
         }
         this._lastAssertion = assertion;
-        this._lastAssertionConfirmed = false;
 
         // Return params for JWT bearer grant per RFC 7523; auth() sets the RFC 8707
         // resource parameter after the provider returns.

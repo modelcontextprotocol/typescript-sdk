@@ -77,9 +77,13 @@ check.equal(seen.clientId, 'demo-workload', 'ctx.authInfo.clientId round-trips')
 check.equal(seen.workloadSubject, 'spiffe://demo.example/mcp-workload', 'the assertion subject reached the resource server');
 check.ok(seen.scopes.includes('mcp:tools'), 'ctx.authInfo.scopes carries the granted scope');
 
-// Rejected assertions are not retried: the provider refuses to re-present an
-// assertion the AS already turned down (SEP-1933 `wif-no-retry`), so a bad
-// audience or an expired file surfaces as one loud error instead of a retry
-// loop or a silent fall back to an interactive grant.
+// Rejected assertions are not retried (SEP-1933 `wif-no-retry`): a bad audience or
+// an expired file surfaces as one loud error, not a retry loop or a silent fall
+// back to an interactive grant. A second provider carrying a bogus assertion proves it.
+const rejectedProvider = new WorkloadIdentityProvider({ clientId: 'demo-workload', assertion: 'not.a.jwt' });
+const rejectedClient = new Client({ name: 'workload-identity-client', version: '1.0.0' });
+const rejectedConnect = rejectedClient.connect(new StreamableHTTPClientTransport(new URL(url), { authProvider: rejectedProvider }));
+await check.rejects(rejectedConnect, /wif-no-retry/);
+console.log('rejected assertion: connect failed loudly, no retry and no interactive fallback');
 
 await client.close();

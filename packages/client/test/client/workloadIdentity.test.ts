@@ -31,11 +31,7 @@ describe('WorkloadIdentityProvider token request', () => {
         expect(params.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
         expect(params.get('scope')).toBeNull();
-    });
-
-    it('does not set the resource parameter (auth() sets it after the provider returns)', async () => {
-        const params = await makeProvider().prepareTokenRequest();
-
+        // auth() sets the RFC 8707 resource parameter after the provider returns
         expect(params.get('resource')).toBeNull();
     });
 
@@ -146,18 +142,18 @@ describe('WorkloadIdentityProvider non-interactive contract', () => {
         expect(makeProvider().redirectUrl).toBeUndefined();
     });
 
-    it('throws a descriptive error from redirectToAuthorization', () => {
-        expect(() => makeProvider().redirectToAuthorization()).toThrow(/non-interactive/);
-        expect(() => makeProvider().redirectToAuthorization()).toThrow(/jwt-bearer/);
-        expect(() => makeProvider().redirectToAuthorization()).toThrow(/workload issuer/);
+    it('throws from redirectToAuthorization', () => {
+        expect(() => makeProvider().redirectToAuthorization()).toThrow(
+            'WorkloadIdentityProvider is non-interactive and does not support authorization redirects'
+        );
     });
 
     it('throws from codeVerifier (PKCE is not used)', () => {
         expect(() => makeProvider().codeVerifier()).toThrow('codeVerifier is not used for jwt-bearer flow');
     });
 
-    it('throws from saveCodeVerifier (PKCE is not used)', () => {
-        expect(() => makeProvider().saveCodeVerifier()).toThrow('saveCodeVerifier is not used for jwt-bearer flow');
+    it('accepts saveCodeVerifier as a no-op (PKCE is not used)', () => {
+        expect(() => makeProvider().saveCodeVerifier()).not.toThrow();
     });
 });
 
@@ -223,15 +219,28 @@ describe('WorkloadIdentityProvider client information and state', () => {
 });
 
 describe('WorkloadIdentityProvider rejection memory', () => {
-    it('refuses to re-present the same assertion after an unconfirmed attempt', async () => {
+    it('refuses to re-present an assertion the authorization server rejected', async () => {
+        const provider = makeProvider();
+
+        await provider.prepareTokenRequest();
+        // auth() invalidates tokens when the token endpoint rejects the grant
+        provider.invalidateCredentials('tokens');
+
+        await expect(provider.prepareTokenRequest()).rejects.toThrow(/wif-no-retry/);
+    });
+
+    it('hands out the same assertion again while nothing has been rejected', async () => {
         const provider = makeProvider();
 
         await provider.prepareTokenRequest();
 
-        await expect(provider.prepareTokenRequest()).rejects.toThrow(/rejected|same credential|wif-no-retry/i);
+        // An unconfirmed attempt is not a rejected one: concurrent flows and transient
+        // transport failures both leave the assertion perfectly presentable.
+        const params = await provider.prepareTokenRequest();
+        expect(params.get('assertion')).toBe(STATIC_ASSERTION);
     });
 
-    it('allows a new request after saveTokens confirmed the previous one', async () => {
+    it('allows a new request after saveTokens', async () => {
         const provider = makeProvider();
 
         await provider.prepareTokenRequest();
@@ -240,11 +249,27 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
     });
 
+    it('forgets a rejection once a later flow is confirmed by saveTokens', async () => {
+        let assertion = 'jwt.rejected';
+        const provider = makeProvider({ assertion: () => assertion });
+
+        await provider.prepareTokenRequest();
+        provider.invalidateCredentials('tokens');
+
+        assertion = 'jwt.fresh';
+        await provider.prepareTokenRequest();
+        provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
+
+        assertion = 'jwt.rejected';
+        await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
+    });
+
     it('allows a retry when the callback supplies a fresh assertion', async () => {
         let counter = 0;
         const provider = makeProvider({ assertion: () => `jwt.${counter++}` });
 
         await provider.prepareTokenRequest();
+        provider.invalidateCredentials('tokens');
 
         const params = await provider.prepareTokenRequest();
         expect(params.get('assertion')).toBe('jwt.1');
@@ -260,6 +285,38 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         }
 
         await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
+    });
+
+    it("clears the rejection on invalidateCredentials('all')", async () => {
+        const provider = makeProvider();
+
+        await provider.prepareTokenRequest();
+        provider.invalidateCredentials('tokens');
+        // A host-driven reset is not a verdict on the assertion
+        provider.invalidateCredentials('all');
+
+        const params = await provider.prepareTokenRequest();
+        expect(params.get('assertion')).toBe(STATIC_ASSERTION);
+    });
+
+    it("drops the stored access token on invalidateCredentials('tokens')", () => {
+        const provider = makeProvider();
+        provider.saveTokens({ access_token: 'stored-token', token_type: 'Bearer' });
+
+        provider.invalidateCredentials('tokens');
+
+        expect(provider.tokens()).toBeUndefined();
+    });
+
+    it('keeps stored tokens for scopes that name state it does not hold', () => {
+        const provider = makeProvider();
+        provider.saveTokens({ access_token: 'stored-token', token_type: 'Bearer' });
+
+        provider.invalidateCredentials('client');
+        provider.invalidateCredentials('verifier');
+        provider.invalidateCredentials('discovery');
+
+        expect(provider.tokens()?.access_token).toBe('stored-token');
     });
 });
 
@@ -318,10 +375,13 @@ describe('WorkloadIdentityProvider (end-to-end with auth())', () => {
 
 /**
  * Hand-rolled fetch mock in the auth.test.ts style: createMockOAuthFetch cannot
- * serve error responses or count calls, so the failure-path tests script the
- * token endpoint themselves and log every token request body.
+ * serve error responses or count calls, so these tests script the token endpoint
+ * themselves and log every token request body.
  */
-function createFailingOAuthFetch(tokenErrorCode: string): { fetchMock: FetchLike; tokenRequestBodies: URLSearchParams[] } {
+function createScriptedOAuthFetch(respondToTokenRequest: (body: URLSearchParams) => Response): {
+    fetchMock: FetchLike;
+    tokenRequestBodies: URLSearchParams[];
+} {
     const tokenRequestBodies: URLSearchParams[] = [];
 
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
@@ -346,14 +406,23 @@ function createFailingOAuthFetch(tokenErrorCode: string): { fetchMock: FetchLike
         }
 
         if (url.origin === AUTH_SERVER_URL && url.pathname === '/token') {
-            tokenRequestBodies.push(new URLSearchParams(init?.body as URLSearchParams));
-            return Response.json({ error: tokenErrorCode }, { status: 400 });
+            const body = new URLSearchParams(init?.body as URLSearchParams);
+            tokenRequestBodies.push(body);
+            return respondToTokenRequest(body);
         }
 
         throw new Error(`Unexpected URL in scripted OAuth fetch: ${url.toString()}`);
     });
 
     return { fetchMock, tokenRequestBodies };
+}
+
+function createFailingOAuthFetch(tokenErrorCode: string): { fetchMock: FetchLike; tokenRequestBodies: URLSearchParams[] } {
+    return createScriptedOAuthFetch(() => Response.json({ error: tokenErrorCode }, { status: 400 }));
+}
+
+function grantedTokenResponse(): Response {
+    return Response.json({ access_token: 'test-access-token', token_type: 'Bearer' });
 }
 
 describe('WorkloadIdentityProvider failure paths through auth()', () => {
@@ -419,5 +488,49 @@ describe('WorkloadIdentityProvider failure paths through auth()', () => {
         expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
         expect(tokenRequestBodies.filter(body => body.get('grant_type') === 'authorization_code')).toHaveLength(0);
         expect(redirectSpy).not.toHaveBeenCalled();
+    });
+
+    it('authorizes two overlapping auth() flows on one provider', async () => {
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: STATIC_ASSERTION
+        });
+        const { fetchMock, tokenRequestBodies } = createScriptedOAuthFetch(grantedTokenResponse);
+
+        // The second flow reaches prepareTokenRequest before the first one has saved its
+        // tokens, so an unconfirmed assertion must not read as a rejected one.
+        const results = await Promise.all([
+            auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock }),
+            auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })
+        ]);
+
+        expect(results).toEqual(['AUTHORIZED', 'AUTHORIZED']);
+        expect(tokenRequestBodies).toHaveLength(2);
+        expect(tokenRequestBodies.map(body => body.get('assertion'))).toEqual([STATIC_ASSERTION, STATIC_ASSERTION]);
+    });
+
+    it('re-presents a static assertion after a transient token-endpoint failure', async () => {
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: STATIC_ASSERTION
+        });
+        let failNextTokenRequest = true;
+        const { fetchMock, tokenRequestBodies } = createScriptedOAuthFetch(() => {
+            if (failNextTokenRequest) {
+                failNextTokenRequest = false;
+                // A network-level failure, not an OAuth verdict on the assertion
+                throw new TypeError('fetch failed');
+            }
+            return grantedTokenResponse();
+        });
+
+        await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toThrow(TypeError);
+
+        const result = await auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock });
+
+        expect(result).toBe('AUTHORIZED');
+        expect(provider.tokens()?.access_token).toBe('test-access-token');
+        expect(tokenRequestBodies).toHaveLength(2);
+        expect(tokenRequestBodies[1]!.get('assertion')).toBe(STATIC_ASSERTION);
     });
 });

@@ -121,6 +121,8 @@ asApp.post('/token', async (req, res) => {
         // Accept the issuer identifier with or without its trailing slash so a
         // workload that appended one still federates.
         await jose.jwtVerify(body.assertion, publicKey, {
+            // Pin the algorithm so a caller cannot pick the verification algorithm for us.
+            algorithms: ['ES256'],
             issuer: WORKLOAD_ISSUER,
             subject: WORKLOAD_SUBJECT,
             audience: [issuer, `${issuer}/`],
@@ -145,7 +147,7 @@ asApp.post('/token', async (req, res) => {
     res.json({ access_token: accessToken, token_type: 'Bearer', expires_in: expiresIn, scope: scopes.join(' ') });
 });
 
-asApp.listen(AUTH_PORT, () => console.error(`[auth-server] jwt-bearer AS on ${authServerUrl.href}`));
+asApp.listen(AUTH_PORT, '127.0.0.1', () => console.error(`[auth-server] jwt-bearer AS on ${authServerUrl.href}`));
 
 // ---- Resource Server (MCP) ----
 const verifier: OAuthTokenVerifier = {
@@ -201,7 +203,7 @@ const auth = requireBearerAuth({
 const node = toNodeHandler(handler);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
-app.listen(port, () => {
+app.listen(port, '127.0.0.1', () => {
     console.error(`[resource-server] MCP on ${mcpServerUrl.href}`);
     console.error(`[workload-issuer] projected token at ${tokenPath}`);
 });

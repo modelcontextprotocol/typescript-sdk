@@ -88,6 +88,16 @@ const transport = new StreamableHTTPClientTransport(new URL('https://api.example
 
 The SDK discovers the MCP server's authorization server and resource URL (RFC 9728) before it calls `assertion`, then hands them in on `ctx` together with the negotiated `scope` and the transport's `fetchFn`. Pass them through so the IdP issues a grant bound to the right audience and resource.
 
+## Drop to the token-exchange utilities
+
+Both exchanges behind `CrossAppAccessProvider` are exported as standalone functions for flows the provider does not cover — caching grants across transports, a non-standard IdP step, your own token store.
+
+- `requestJwtAuthorizationGrant` exchanges an ID Token for a JWT Authorization Grant at a known IdP token endpoint (RFC 8693).
+- `discoverAndRequestJwtAuthGrant` performs the same exchange, discovering the IdP's token endpoint from `idpUrl` first.
+- `exchangeJwtAuthGrant` exchanges a JWT Authorization Grant for an access token at the MCP server's authorization server (RFC 7523).
+
+All three live in [`client/crossAppAccess`](../api/@modelcontextprotocol/client/client/crossAppAccess.md) in the API reference.
+
 ## Authenticate with a workload identity
 
 **Workload Identity Federation** (WIF, SEP-1933, extension id `io.modelcontextprotocol/auth/wif`) lets a workload that already holds a platform-issued JWT exchange that JWT directly for an MCP access token: a Kubernetes projected service account token, a SPIFFE JWT-SVID, a cloud identity token. No client secret is provisioned anywhere and no dynamic client registration happens; the workload's existing platform identity is the credential.
@@ -113,19 +123,9 @@ const transport = new StreamableHTTPClientTransport(new URL('https://api.example
 The workload JWT's `aud` must name the authorization server's issuer identifier, not the MCP server's resource URL (draft-ietf-oauth-rfc7523bis). When minting a JWT inside the callback, mint it against `authorizationServerUrl`, not `resourceUrl`.
 :::
 
-`WorkloadIdentityProvider` is non-interactive: it has no `redirectUrl` and never falls back to an authorization-code grant. A rejected assertion is never re-sent unchanged; refusing that replay is what conformance calls `wif-no-retry`, so reach for a callback instead of a static string whenever the underlying token can expire or be revoked, and the callback should mint a fresh assertion on every call. There is no refresh token in this flow: a workload holding an expired or rejected JWT re-asserts by fetching a new platform-issued token, it does not refresh the MCP access token.
+`WorkloadIdentityProvider` is non-interactive: it has no `redirectUrl` and never falls back to an authorization-code grant. Once the authorization server rejects an assertion, the provider refuses to present that same assertion again; refusing that replay is what conformance calls `wif-no-retry`, so reach for a callback instead of a static string whenever the underlying token can expire or be revoked, and the callback should mint a fresh assertion on every call. There is no refresh token in this flow: a workload holding an expired or rejected JWT re-asserts by fetching a new platform-issued token, it does not refresh the MCP access token.
 
 See [`examples/oauth-workload-identity`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/oauth-workload-identity) for a runnable, self-verifying end-to-end example.
-
-## Drop to the token-exchange utilities
-
-Both exchanges behind `CrossAppAccessProvider` are exported as standalone functions for flows the provider does not cover — caching grants across transports, a non-standard IdP step, your own token store.
-
-- `requestJwtAuthorizationGrant` exchanges an ID Token for a JWT Authorization Grant at a known IdP token endpoint (RFC 8693).
-- `discoverAndRequestJwtAuthGrant` performs the same exchange, discovering the IdP's token endpoint from `idpUrl` first.
-- `exchangeJwtAuthGrant` exchanges a JWT Authorization Grant for an access token at the MCP server's authorization server (RFC 7523).
-
-All three live in [`client/crossAppAccess`](../api/@modelcontextprotocol/client/client/crossAppAccess.md) in the API reference.
 
 ## Recap
 

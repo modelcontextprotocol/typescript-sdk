@@ -582,45 +582,6 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
 
 registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
 
-// ============================================================================
-// Workload Identity Federation scenario (SEP-1933)
-// ============================================================================
-
-/**
- * Workload Identity Federation (SEP-1933) using the jwt-bearer grant with a
- * workload-issued assertion. The client only ever presents `valid_jwt`; the
- * wrong-audience and expired assertions carried in the context are for the
- * referee to observe independently, not for this handler to send.
- */
-async function runWifJwtBearer(serverUrl: string): Promise<void> {
-    const ctx = parseContext();
-    if (ctx.name !== 'auth/wif-jwt-bearer') {
-        throw new Error(`Expected auth/wif-jwt-bearer context, got ${ctx.name}`);
-    }
-
-    const provider = new WorkloadIdentityProvider({
-        clientId: ctx.client_id,
-        assertion: ctx.valid_jwt
-    });
-
-    const client = new Client({ name: 'conformance-wif-jwt-bearer', version: '1.0.0' }, { capabilities: {} });
-
-    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
-        authProvider: provider
-    });
-
-    await client.connect(transport);
-    logger.debug('Successfully connected with workload identity (jwt-bearer) auth');
-
-    await client.listTools();
-    logger.debug('Successfully listed tools');
-
-    await transport.close();
-    logger.debug('Connection closed successfully');
-}
-
-registerScenario('auth/wif-jwt-bearer', runWifJwtBearer);
-
 /**
  * Cross-App Access (SEP-990 Enterprise Managed Authorization).
  *
@@ -675,6 +636,45 @@ async function runCrossAppAccessCompleteFlow(serverUrl: string): Promise<void> {
 
 registerScenario('auth/cross-app-access-complete-flow', runCrossAppAccessCompleteFlow);
 registerScenario('auth/enterprise-managed-authorization', runCrossAppAccessCompleteFlow);
+
+// ============================================================================
+// Workload Identity Federation scenario (SEP-1933)
+// ============================================================================
+
+/**
+ * Workload Identity Federation (SEP-1933) using the jwt-bearer grant with a
+ * workload-issued assertion. The client only ever presents `valid_jwt`; the
+ * wrong-audience and expired assertions carried in the context are for the
+ * referee to observe independently, not for this handler to send.
+ */
+async function runWifJwtBearer(serverUrl: string): Promise<void> {
+    const ctx = parseContext();
+    if (ctx.name !== 'auth/wif-jwt-bearer') {
+        throw new Error(`Expected auth/wif-jwt-bearer context, got ${ctx.name}`);
+    }
+
+    const provider = new WorkloadIdentityProvider({
+        clientId: ctx.client_id,
+        assertion: ctx.valid_jwt
+    });
+
+    const client = new Client({ name: 'conformance-wif-jwt-bearer', version: '1.0.0' }, { capabilities: {} });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        authProvider: provider
+    });
+
+    await client.connect(transport);
+    logger.debug('Successfully connected with workload identity (jwt-bearer) auth');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('auth/wif-jwt-bearer', runWifJwtBearer);
 
 // ============================================================================
 // Pre-registration scenario (no dynamic client registration)
