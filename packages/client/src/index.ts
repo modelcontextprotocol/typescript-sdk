@@ -58,14 +58,18 @@ export type {
     CrossAppAccessContext,
     CrossAppAccessProviderOptions,
     PrivateKeyJwtProviderOptions,
-    StaticPrivateKeyJwtProviderOptions
+    StaticPrivateKeyJwtProviderOptions,
+    WorkloadAssertionCallback,
+    WorkloadAssertionContext,
+    WorkloadIdentityProviderOptions
 } from './client/authExtensions';
 export {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
     CrossAppAccessProvider,
     PrivateKeyJwtProvider,
-    StaticPrivateKeyJwtProvider
+    StaticPrivateKeyJwtProvider,
+    WorkloadIdentityProvider
 } from './client/authExtensions';
 export type { CacheableRequestOptions, CallToolRequestOptions, ClientOptions, ConnectOptions, McpSubscription } from './client/client';
 export { Client } from './client/client';
