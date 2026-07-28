@@ -50,9 +50,13 @@ legacy
 
 `mode` takes three values; the first is the default.
 
-- Absent, or `mode: 'legacy'` — the 2025 `initialize` handshake, byte for byte. No probe.
+- Absent, or `mode: 'legacy'` — the 2025 `initialize` handshake, byte for byte. No probe. This is intentional v2 default so existing 2025 clients stay byte-compatible; it is not a dual-era probe.
 - `mode: 'auto'` — probe with `server/discover`; fall back to `initialize` against a 2025-only server.
 - `mode: { pin: '2026-07-28' }` — that revision or nothing. A pin never falls back.
+
+::: tip Non-MCP JSON-RPC endpoints
+An endpoint that only accepts bare `tools/call` POSTs and never implements `initialize` or `server/discover` is not an MCP server. The default legacy client will fail on `connect()` with an HTTP/`SdkHttpError` (see [Troubleshooting](./troubleshooting.md#sdkhttperror-error-posting-to-endpoint-)). `mode: 'auto'` does not make such endpoints work either — both eras still require an MCP lifecycle. Fix the server or talk to it outside this SDK.
+:::
 
 Pin against the same 2025-only server and `connect()` rejects instead of falling back.
 
