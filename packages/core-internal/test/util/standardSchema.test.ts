@@ -410,6 +410,41 @@ describe('zod conversion options (#2464)', () => {
         expect(nestedValidate({ res: { t: 'a', x: 'hello' }, name: 'n' }).valid).toBe(true);
     });
 
+    test('a discriminated union with catch-wrapped discriminators loosens its oneOf to anyOf', () => {
+        // The catch degrade strips each discriminator's type/const and the
+        // required-filter drops 't', so the members become mutually satisfiable —
+        // the untouched parent's `oneOf` would then reject EVERY payload ("must
+        // match exactly one schema in oneOf").
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+            z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+        ]);
+
+        const root = standardSchemaToJsonSchema(du, 'output');
+        expect(root.oneOf).toBeUndefined();
+        expect(Array.isArray(root.anyOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(root)({ t: 'a', x: 'v' }).valid).toBe(true);
+
+        const nested = standardSchemaToJsonSchema(z.object({ res: du, name: z.string() }), 'output');
+        const res = (nested.properties as Record<string, Record<string, unknown>>).res!;
+        expect(res.oneOf).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(nested)({ res: { t: 'a', x: 'v' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a discriminated union without degraded nodes keeps its oneOf', () => {
+        // Untouched schemas must not be loosened: exactly-one semantics stay
+        // truthful while the members keep their discriminating constraints.
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a'), x: z.string() }),
+            z.object({ t: z.literal('b'), y: z.string() })
+        ]);
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(Array.isArray(result.oneOf)).toBe(true);
+        expect(result.anyOf).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
+    });
+
     test('.catch() and union-nested defaults with async stages are dropped from output required', () => {
         const schema = z.object({
             c: z

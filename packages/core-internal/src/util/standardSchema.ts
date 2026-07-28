@@ -228,7 +228,10 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   round-trip, so the raw `Date` the server must ship reaches a validating client
  *   as a `Date` instance and fails the advertised schema there.
  */
-function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
+function zodConversionOptions(
+    io: 'input' | 'output',
+    loosened: { value: boolean }
+): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
         unrepresentable: 'any',
         override: ctx => {
@@ -257,6 +260,7 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 // object-type signal at the latter would flip the legacy-wrap
                 // predicate (`isNonObjectJsonSchemaRoot`) and silently change the
                 // wire shape.
+                loosened.value = true;
                 for (const key of Object.keys(ctx.jsonSchema)) {
                     // `x-*` vendor extensions are annotation-only (same convention as the
                     // elicitation walker) and carry no validation constraint.
@@ -281,6 +285,7 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 // Enum-keyed records emit a `required` list too. Every key shares the one
                 // value schema, so tolerance for missing keys is all-or-nothing.
                 if (Array.isArray(ctx.jsonSchema.required) && fieldAcceptsMissingKey(def.valueType)) {
+                    loosened.value = true;
                     delete ctx.jsonSchema.required;
                 }
                 return;
@@ -298,12 +303,35 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                 // from the wire payload by JSON.stringify.
                 const filtered = required.filter(name => !fieldAcceptsMissingKey(def.shape[name]));
                 if (filtered.length !== required.length) {
+                    loosened.value = true;
                     if (filtered.length === 0) delete ctx.jsonSchema.required;
                     else ctx.jsonSchema.required = filtered;
                 }
             }
         }
     };
+}
+
+/**
+ * Recursively moves every `oneOf` in an emitted (already-loosened) JSON Schema tree
+ * to `anyOf`. Used when a conversion's catch degrade or required-filter fired: the
+ * loosened members of an untouched parent `oneOf` (e.g. a discriminated union whose
+ * catch-wrapped discriminators were degraded) may have become mutually satisfiable,
+ * inverting exactly-one semantics into reject-everything.
+ */
+function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): void {
+    if (typeof node !== 'object' || node === null || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+        for (const item of node) rewriteOneOfToAnyOf(item, seen);
+        return;
+    }
+    const record = node as Record<string, unknown>;
+    if (Array.isArray(record.oneOf) && record.anyOf === undefined) {
+        record.anyOf = record.oneOf;
+        delete record.oneOf;
+    }
+    for (const value of Object.values(record)) rewriteOneOfToAnyOf(value, seen);
 }
 
 /**
@@ -488,7 +516,8 @@ export function standardSchemaToJsonSchema(
     options?: StandardSchemaToJsonSchemaOptions
 ): Record<string, unknown> {
     const std = schema['~standard'];
-    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io);
+    const loosened = { value: false };
+    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io, loosened);
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
         result = std.jsonSchema[io]({
@@ -524,6 +553,16 @@ export function standardSchemaToJsonSchema(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
                 `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
         );
+    }
+    if (io === 'output' && loosened.value) {
+        // Exactly-one semantics cannot survive member loosening: once the catch
+        // degrade or the required-filter fired anywhere in this conversion, `oneOf`
+        // members (zod's discriminated-union emission) may have become mutually
+        // satisfiable — e.g. catch-wrapped discriminators — and Ajv would reject
+        // every payload with "must match exactly one schema in oneOf". Rewrite to
+        // the honest `anyOf` (loosen-only and wrap-neutral:
+        // `isProvablyObjectShapedRoot` treats the composition keywords identically).
+        rewriteOneOfToAnyOf(result);
     }
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
@@ -691,7 +730,7 @@ function nonObjectLiteralLoudness(values: unknown): 'loud' | 'quiet' | undefined
  * a JSON object either, so date composition MEMBERS classify as non-object here.
  * `custom` and bare `transform` are deliberately excluded (they can legitimately
  * accept objects), and typeless literals are classified separately by value in
- * {@linkcode isNonObjectTypelessLiteral}.
+ * {@linkcode nonObjectLiteralLoudness}.
  */
 const NON_OBJECT_UNREPRESENTABLE_TYPES: ReadonlySet<string> = new Set([
     'bigint',
