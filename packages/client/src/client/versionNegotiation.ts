@@ -27,6 +27,7 @@ import {
 
 import { UnauthorizedError } from './auth';
 import { isAuthSeamEscape } from './authSeam';
+import { readInvalidReplyEscape } from './invalidReplySeam';
 import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier';
 import { classifyProbeOutcome } from './probeClassifier';
 
@@ -408,6 +409,21 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                     body: typeof text === 'string' ? text : undefined,
                     statusText: error.data.statusText
                 };
+            }
+            const invalidReply = readInvalidReplyEscape(error);
+            if (invalidReply !== undefined) {
+                // The server COMPLETED the probe exchange (2xx) without a valid
+                // JSON-RPC reply — provenance stamped at the transport's parse
+                // boundary (an off-spec error body, empty/unparseable JSON, or a
+                // 202 accepted-without-reply). Not a network condition: the
+                // classifier owns the verdict.
+                return { kind: 'invalid-reply', body: invalidReply.body };
+            }
+            if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpUnexpectedContent) {
+                // A 2xx answer in a non-MCP content type (a proxy's HTML error
+                // page, text/plain, a missing content-type): the same completed-
+                // exchange evidence, with no JSON-RPC body to read.
+                return { kind: 'invalid-reply' };
             }
             return { kind: 'network-error', error };
         }

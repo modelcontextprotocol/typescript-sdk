@@ -48,6 +48,15 @@ export type ProbeOutcome =
     | { kind: 'result'; result: unknown }
     /** Answered with a JSON-RPC error (any HTTP status, including 200-bodied errors and stdio in-band errors). */
     | { kind: 'rpc-error'; code: number; message: string; data?: unknown }
+    /**
+     * The HTTP layer COMPLETED the probe exchange (2xx) without producing a
+     * valid JSON-RPC reply: a JSON body failing strict message validation
+     * (`body` carries the offending parsed value — e.g. an error reply with
+     * `id: null` or unknown members), or a bodiless failure (`body` absent) —
+     * an empty/unparseable body, a non-MCP content type such as an HTML error
+     * page, or a 202 accepted-without-reply.
+     */
+    | { kind: 'invalid-reply'; body?: unknown }
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text and `statusText` the HTTP reason phrase, when available. */
     | { kind: 'http-error'; status: number; body?: string; statusText?: string }
     | { kind: 'network-error'; error: unknown }
@@ -132,6 +141,9 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
         }
         case 'rpc-error': {
             return classifyRpcError(outcome, context);
+        }
+        case 'invalid-reply': {
+            return classifyInvalidReply(outcome, context);
         }
         case 'http-error': {
             return classifyHttpError(outcome, context);
@@ -243,6 +255,25 @@ function classifyRpcError(outcome: { code: number; message: string; data?: unkno
     return { kind: 'legacy' };
 }
 
+function classifyInvalidReply(outcome: { body?: unknown }, context: ProbeClassifierContext): ProbeVerdict {
+    // The server COMPLETED the probe exchange (2xx at the HTTP layer), but
+    // what came back is not a valid modern reply: a JSON body the strict
+    // message schema rejects (the JSON-RPC 2.0 parse-error reply a deployed
+    // 2025 server sends for the unknown probe — `-32700` with `id: null` —
+    // extra members, missing fields), an empty or unparseable body, a non-MCP
+    // content type (a proxy's HTML error page), or a 202 accepted-without-
+    // reply. A completed non-auth exchange is era evidence, and a non-modern
+    // answer is a legacy signal — the same conservative rule as the
+    // unparseable-4xx row; auth statuses, network failures, and true silence
+    // keep their typed errors. A leniently readable JSON-RPC `error` member
+    // classifies like an in-band error first, keeping the -32022 rows.
+    const rpcError = parseJsonRpcErrorMember(outcome.body);
+    if (rpcError !== undefined) {
+        return classifyRpcError(rpcError, context);
+    }
+    return { kind: 'legacy' };
+}
+
 function classifyHttpError(outcome: { status: number; body?: string; statusText?: string }, context: ProbeClassifierContext): ProbeVerdict {
     // Auth statuses are never era evidence, and a 401/403 body is the auth
     // layer's, not the server/discover handler's — this row ranks above the
@@ -268,35 +299,21 @@ function classifyHttpError(outcome: { status: number; body?: string; statusText?
             )
         };
     }
-    if (outcome.status >= 500) {
-        // A server failure is not era evidence, whatever the body says — this
-        // row too ranks above the JSON-RPC body parse (a 5xx body is the
-        // infrastructure's: a mid-deploy gateway's JSON error page, a crashed
-        // handler's -32603, neither a server/discover verdict). The spec keys
-        // the HTTP legacy signal to client-error rejections (a 2025 server
-        // answers the unknown probe 4xx), never to 5xx.
-        return {
-            kind: 'error',
-            error: new SdkHttpError(
-                SdkErrorCode.EraNegotiationFailed,
-                `Version negotiation failed: the server answered the probe with HTTP ${outcome.status}`,
-                {
-                    status: outcome.status,
-                    statusText: outcome.statusText,
-                    text: outcome.body
-                }
-            )
-        };
-    }
-    // HTTP-rejected probes carry their JSON-RPC error in the response body — classify it like an in-band error.
+    // Every other completed HTTP rejection — the remaining 4xx AND the 5xx
+    // range — is era evidence: a deployed 2025 server answers the unknown
+    // probe with a client error, and poorly behaved deployments answer it
+    // with a server error (frameworks that map JSON-RPC errors to 500,
+    // gateways that 502 unknown routes). Neither is a modern server/discover
+    // answer. A JSON-RPC error body classifies like an in-band error (keeping
+    // the -32022 rows); anything else is the conservative legacy fallback.
+    // Note for hosts that cache era verdicts (the gateway guide's
+    // `connect({ prior })` flow): a 5xx can also be a modern server having a
+    // transient failure, so date cached legacy verdicts and let them expire —
+    // the SDK itself never persists a verdict.
     const rpcError = parseJsonRpcErrorBody(outcome.body);
     if (rpcError !== undefined) {
         return classifyRpcError(rpcError, context);
     }
-    // Unparseable or unrecognized 4xx rejection: conservative legacy fallback.
-    // With the auth and 5xx rows above, this row's legacy set now equals the
-    // spec-licensed set exactly — the 4xx a deployed 2025 server answers a
-    // request it does not recognize.
     return { kind: 'legacy' };
 }
 
@@ -349,6 +366,11 @@ function parseJsonRpcErrorBody(body: string | undefined): { code: number; messag
     } catch {
         return undefined;
     }
+    return parseJsonRpcErrorMember(parsed);
+}
+
+/** Leniently read a JSON-RPC `error` member (numeric `code` required) off an already-parsed JSON value. */
+function parseJsonRpcErrorMember(parsed: unknown): { code: number; message: string; data?: unknown } | undefined {
     if (typeof parsed !== 'object' || parsed === null) return undefined;
     const error = (parsed as { error?: unknown }).error;
     if (typeof error !== 'object' || error === null) return undefined;
