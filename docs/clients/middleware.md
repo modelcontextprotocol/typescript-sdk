@@ -26,7 +26,7 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 Every request this transport sends now carries the header — including the requests the SDK sends that you never wrote, like `initialize`.
 
 ::: info Not the framework middleware packages
-This page is about client request middleware: functions that wrap the `fetch` inside `@modelcontextprotocol/client`. The `@modelcontextprotocol/express`, `@modelcontextprotocol/hono`, and `@modelcontextprotocol/node` packages also carry the word "middleware" — those are server-side framework adapters for mounting a handler. See [Express](../serving/express.md) and [Hono](../serving/hono.md).
+This page is about client request middleware: functions that wrap the `fetch` inside `@modelcontextprotocol/client`. The `@modelcontextprotocol/express`, `@modelcontextprotocol/fastify`, `@modelcontextprotocol/hono`, and `@modelcontextprotocol/node` packages also carry the word "middleware" — those are server-side framework adapters for mounting a handler. See [Express](../serving/express.md), [Fastify](../serving/fastify.md), and [Hono](../serving/hono.md).
 :::
 
 ## Compose several middlewares
