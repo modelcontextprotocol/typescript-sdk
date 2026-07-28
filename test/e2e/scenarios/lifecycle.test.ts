@@ -32,9 +32,9 @@ import {
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { tapWire, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 function olderSupportedVersion(): string {
     const older = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION);

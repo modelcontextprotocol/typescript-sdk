@@ -19,10 +19,10 @@ import express from 'express';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { startExpressMinimal } from '../helpers/express.js';
-import { hostPerSession, hostStateless, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { startExpressMinimal } from '../helpers/express';
+import { hostPerSession, hostStateless, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 

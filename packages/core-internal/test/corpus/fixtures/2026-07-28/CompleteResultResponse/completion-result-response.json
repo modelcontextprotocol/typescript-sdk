@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "2.0",
+  "id": "completion-example",
+  "result": {
+    "resultType": "complete",
+    "completion": {
+      "values": ["flask"],
+      "total": 1,
+      "hasMore": false
+    }
+  }
+}

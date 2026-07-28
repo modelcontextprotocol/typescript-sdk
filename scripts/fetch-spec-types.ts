@@ -12,7 +12,7 @@ const PROJECT_ROOT = join(__dirname, '..');
  * - `2025-11-25`: the frozen, released schema.
  * - `2026-07-28`: the upcoming protocol revision.
  *
- * Each is written to `packages/core/src/types/spec.types.<version>.ts`.
+ * Each is written to `packages/core-internal/src/types/spec.types.<version>.ts`.
  */
 const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
@@ -25,6 +25,23 @@ type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
 const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
     '2025-11-25': '2025-11-25',
     '2026-07-28': 'draft'
+};
+
+/**
+ * Generation pin per released revision. Released revisions are frozen: without
+ * an explicit SHA argument, their types are regenerated from the pinned spec
+ * commit below — never from the latest upstream commit — so a released anchor
+ * can only change through a deliberate, reviewed repin. Moving a pin (or
+ * freezing a newly released revision) must land in the same commit that
+ * retargets `.github/workflows/update-spec-types.yml`.
+ *
+ * Draft-tracking revisions have no entry and float to the latest upstream
+ * commit via the nightly workflow's refresh PRs.
+ *
+ * See `packages/core-internal/src/types/README.md` for the full lifecycle policy.
+ */
+const RELEASED_REVISION_PINS: Partial<Record<SpecVersion, string>> = {
+    '2025-11-25': '0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65'
 };
 
 interface GitHubCommit {
@@ -59,10 +76,14 @@ async function fetchSpecTypes(version: SpecVersion, sha: string): Promise<string
 }
 
 async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Promise<void> {
+    const pinnedSHA = RELEASED_REVISION_PINS[version];
     let sha: string;
     if (providedSHA) {
         console.log(`[${version}] Using provided SHA: ${providedSHA}`);
         sha = providedSHA;
+    } else if (pinnedSHA) {
+        console.log(`[${version}] Using pinned SHA for released revision: ${pinnedSHA}`);
+        sha = pinnedSHA;
     } else {
         console.log(`[${version}] Fetching latest commit SHA...`);
         sha = await fetchLatestSHA(version);
@@ -90,13 +111,13 @@ async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Prom
     const fullContent = header + specContent;
 
     // Format with prettier using the project's config so the output passes lint
-    const outputPath = join(PROJECT_ROOT, 'packages', 'core', 'src', 'types', `spec.types.${version}.ts`);
+    const outputPath = join(PROJECT_ROOT, 'packages', 'core-internal', 'src', 'types', `spec.types.${version}.ts`);
     const prettierConfig = await prettier.resolveConfig(outputPath);
     const formatted = await prettier.format(fullContent, { ...prettierConfig, filepath: outputPath });
 
     writeFileSync(outputPath, formatted, 'utf-8');
 
-    console.log(`[${version}] Successfully updated packages/core/src/types/spec.types.${version}.ts`);
+    console.log(`[${version}] Successfully updated packages/core-internal/src/types/spec.types.${version}.ts`);
 }
 
 function isSupportedVersion(value: string): value is SpecVersion {

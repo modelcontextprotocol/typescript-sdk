@@ -1,0 +1,12 @@
+{
+  "resultType": "complete",
+  "contents": [
+    {
+      "uri": "file:///project/src/main.rs",
+      "mimeType": "text/x-rust",
+      "text": "fn main() {\n    println!(\"Hello world!\");\n}"
+    }
+  ],
+  "ttlMs": 60000,
+  "cacheScope": "private"
+}

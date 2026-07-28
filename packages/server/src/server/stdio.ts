@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**

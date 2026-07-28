@@ -3,7 +3,7 @@
  *
  * This file is selected via package.json export conditions when running in Node.js.
  */
-export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
+export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
 
 /**
  * Whether `fetch()` may throw `TypeError` due to CORS. CORS is a browser-only concept —

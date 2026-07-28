@@ -10,9 +10,9 @@ import { isJSONRPCRequest, McpServer, ProtocolError, ProtocolErrorCode, Resource
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { tapWire, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -95,19 +95,20 @@ verifies('pagination:client:cursor-handling', async ({ transport }: TestArgs) =>
     await using _ = await wire(transport, makeServer, client);
     const tap = tapWire(client);
 
-    const collectedPages: string[][] = [];
-    let result = await client.listTools();
-    collectedPages.push(result.tools.map(t => t.name));
-    while (result.nextCursor !== undefined) {
-        // A run-away loop means the test fixture, not the SDK, is broken — fail fast instead of hitting the suite timeout.
-        if (collectedPages.length >= pages.size) throw new Error('nextCursor still present after the last page');
-        result = await client.listTools({ cursor: result.nextCursor });
-        collectedPages.push(result.tools.map(t => t.name));
-    }
+    // No-arg listTools() auto-aggregates; the client walks the cursor chain on the wire.
+    const result = await client.listTools();
+    expect(result.nextCursor).toBeUndefined();
+    expect(result.tools.map(t => t.name)).toEqual([
+        'get_weather',
+        'get_forecast',
+        'get_alerts',
+        'convert_units',
+        'list_stations',
+        'get_station'
+    ]);
 
-    // The handler got back exactly the cursors it issued, and every page arrived once, in order.
+    // The handler got back exactly the cursors it issued, once each, in order.
     expect(receivedCursors).toEqual([undefined, cursorToPage2, cursorToPage3]);
-    expect(collectedPages).toEqual([['get_weather', 'get_forecast', 'get_alerts'], ['convert_units'], ['list_stations', 'get_station']]);
 
     // The wire requests carried the server-issued strings byte-for-byte — opaque, unparsed, unmodified.
     const wireListRequests = tap.sent.filter(m => isJSONRPCRequest(m)).filter(m => m.method === 'tools/list');

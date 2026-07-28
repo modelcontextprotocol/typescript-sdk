@@ -1,7 +1,7 @@
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
 
-import { assertWireMessage } from './wire-sniffer.js';
+import { assertWireMessage } from './wire-sniffer';
 
 const req = (method: string, params?: unknown, id = 1) => ({
     jsonrpc: '2.0' as const,
@@ -59,6 +59,19 @@ describe('assertWireMessage', () => {
 
     it('accepts that same request when the server sends it', () => {
         expect(() => assertWireMessage(req('sampling/createMessage', { messages: [], maxTokens: 1 }), 'server')).not.toThrow();
+    });
+
+    it('rejects an input_required server result unless the cell opted in (modern-era arms only)', () => {
+        const inputRequired = resp({
+            resultType: 'input_required',
+            inputRequests: { ask: { method: 'elicitation/create', params: { mode: 'form', message: 'Name?' } } }
+        });
+        // Default (legacy-era cells): input_required is not legal wire vocabulary.
+        expect(() => assertWireMessage(inputRequired, 'server')).toThrow(/invalid message/);
+        // Modern-era arms opt in explicitly.
+        expect(() => assertWireMessage(inputRequired, 'server', { allowInputRequiredResults: true })).not.toThrow();
+        // The opt-in never applies to client-sent results.
+        expect(() => assertWireMessage(inputRequired, 'client', { allowInputRequiredResults: true })).toThrow(/invalid message/);
     });
 
     it('accepts a JSON-RPC error response for either party', () => {

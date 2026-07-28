@@ -18,7 +18,8 @@ import type {
     Progress,
     RequestId,
     Result,
-    Transport
+    Transport,
+    TransportSendOptions
 } from '@modelcontextprotocol/server';
 import {
     InMemoryTransport,
@@ -34,9 +35,9 @@ import {
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { modernEnvelopeMeta, tapWire, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -125,6 +126,62 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
     if (!cancelled || !('params' in cancelled)) throw new Error('notifications/cancelled message has no params');
     expect(cancelled.params?.requestId).toBe(callMsg.id);
     expect(cancelled.params?.reason).toContain('user requested cancellation');
+});
+
+verifies('protocol:cancel:http-stream-close', async ({ transport }: TestArgs) => {
+    // 2026-07-28 Streamable HTTP: closing the per-request SSE stream IS the
+    // cancel signal — no notifications/cancelled is sent on the wire. The body
+    // proves both the caller-signal and timeout paths route to stream-close.
+    const client = newClient();
+    await using _ = await wire(transport, neverRespondingServer, client);
+
+    // Tap send to record outbound messages AND the per-request requestSignal
+    // the protocol layer hands the transport.
+    const sent: Array<{ m: JSONRPCMessage; opts: TransportSendOptions | undefined }> = [];
+    const tx = client.transport;
+    if (!tx) throw new Error('client not connected');
+    expect(tx.hasPerRequestStream).toBe(true);
+    const orig = tx.send.bind(tx);
+    tx.send = async (m, opts) => {
+        sent.push({ m, opts });
+        return orig(m, opts);
+    };
+
+    // Caller-signal abort.
+    const ac = new AbortController();
+    const call = client.listTools(undefined, { signal: ac.signal });
+    await vi.waitFor(() => expect(sent.some(s => isRequest(s.m) && s.m.method === 'tools/list')).toBe(true));
+    const listSend = sent.find(s => isRequest(s.m) && s.m.method === 'tools/list');
+    if (!listSend) throw new Error('tools/list send not captured');
+    expect(listSend.opts?.requestSignal, 'protocol layer must thread a per-request requestSignal on a 2026 HTTP connection').toBeInstanceOf(
+        AbortSignal
+    );
+    expect(listSend.opts?.requestSignal?.aborted).toBe(false);
+
+    ac.abort('user requested cancellation');
+    await expect(call).rejects.toThrow(/user requested cancellation/);
+
+    expect(listSend.opts?.requestSignal?.aborted, 'stream-close IS the cancel signal: requestSignal must be aborted').toBe(true);
+    expect(
+        sent.filter(s => isNotification(s.m) && s.m.method === 'notifications/cancelled'),
+        'no notifications/cancelled on the wire — "not required or expected" per spec'
+    ).toHaveLength(0);
+
+    // Timeout path.
+    sent.length = 0;
+    vi.useFakeTimers();
+    try {
+        const pending = client.listTools(undefined, { timeout: 100 });
+        pending.catch(() => {});
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.RequestTimeout });
+    } finally {
+        vi.useRealTimers();
+    }
+    const timedOutSend = sent.find(s => isRequest(s.m) && s.m.method === 'tools/list');
+    if (!timedOutSend) throw new Error('timeout-path tools/list send not captured');
+    expect(timedOutSend.opts?.requestSignal?.aborted).toBe(true);
+    expect(sent.filter(s => isNotification(s.m) && s.m.method === 'notifications/cancelled')).toHaveLength(0);
 });
 
 verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestArgs) => {
@@ -365,8 +422,11 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toBeInstanceOf(ProtocolError);
 
     // The malformed request did reach the wire (failure is server-side, not client-side validation).
+    // toMatchObject: on a 2026-07-28 connection the client auto-attaches the per-request `_meta`
+    // envelope, which is additive and not part of the assertion's intent.
     const sent = outbound.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
-    expect(sent?.params).toEqual({ arguments: {} });
+    expect(sent?.params).toMatchObject({ arguments: {} });
+    expect((sent?.params as { name?: unknown }).name).toBeUndefined();
 
     expect(ProtocolErrorCode.InvalidParams).toBe(-32_602);
     await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
@@ -1068,8 +1128,71 @@ verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
     const result = await client.callTool({ name: 'metered_call', arguments: {} });
 
     expect(result.content).toEqual([{ type: 'text', text: 'metered' }]);
-    // The _meta the handler attached to its result reaches the requesting client unchanged.
-    expect(result._meta).toEqual(resultMeta);
+    // The _meta the handler attached to its result reaches the requesting
+    // client unchanged. On a 2026-era connection (the entryModern arm) the
+    // encode seam additionally stamps the server's identity (spec PR #3002:
+    // `_meta` serverInfo SHOULD on every response); on 2025-era connections
+    // nothing is ever added (never-stamp).
+    const expectedMeta =
+        client.getNegotiatedProtocolVersion() === '2026-07-28'
+            ? { ...resultMeta, 'io.modelcontextprotocol/serverInfo': { name: 's', version: '0' } }
+            : resultMeta;
+    expect(result._meta).toEqual(expectedMeta);
+});
+
+verifies('protocol:meta:server-identity', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new Server({ name: 'identity-server', version: '4.2.0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        return s;
+    };
+    const client = newClient();
+    await using wired = await wire(transport, makeServer, client);
+
+    // Client-side resolution: getServerVersion() reads the discover _meta.
+    expect(client.getServerVersion()).toEqual({ name: 'identity-server', version: '4.2.0' });
+
+    // Wire-side: a raw discover response carries the _meta stamp.
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'server/discover'
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: modernEnvelopeMeta() } })
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result: { _meta?: Record<string, unknown> } };
+    expect(body.result._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'identity-server', version: '4.2.0' });
+});
+
+verifies('protocol:envelope:client-info-optional', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        return s;
+    };
+    const client = newClient();
+    await using wired = await wire(transport, makeServer, client);
+
+    const meta = modernEnvelopeMeta();
+    delete meta['io.modelcontextprotocol/clientInfo'];
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'tools/list'
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: meta } })
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result?: { tools?: unknown[] }; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(body.result?.tools).toEqual([]);
 });
 
 verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
@@ -1535,16 +1658,40 @@ class LoopbackTransport implements Transport {
         this.events.push('method' in message ? `send:${message.method}` : 'send:response');
         if (!isRequest(message)) return;
         this.clientRequests.push(message);
-        if (message.method === 'initialize') {
-            this.respond(message.id, {
-                protocolVersion: this.serverProtocolVersion,
-                capabilities: { tools: {} },
-                serverInfo: { name: 'loopback-server', version: '3.1.4' }
-            });
-        } else if (message.method === 'tools/list') {
-            this.respond(message.id, {
-                tools: [{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]
-            });
+        const modern = this.serverProtocolVersion >= '2026-07-28';
+        switch (message.method) {
+            case 'initialize': {
+                this.respond(message.id, {
+                    protocolVersion: this.serverProtocolVersion,
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 'loopback-server', version: '3.1.4' }
+                });
+                break;
+            }
+            case 'server/discover': {
+                // The 2026-era handshake: advertise the canned identity instead of
+                // answering an initialize exchange.
+                this.respond(message.id, {
+                    supportedVersions: [this.serverProtocolVersion],
+                    capabilities: { tools: {} },
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'loopback-server', version: '3.1.4' } }
+                });
+                break;
+            }
+            case 'tools/list': {
+                const tools = [{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }];
+                this.respond(
+                    message.id,
+                    modern
+                        ? // The 2026 wire shape carries the result discriminator and the cacheable-result fields.
+                          ({ resultType: 'complete', ttlMs: 0, cacheScope: 'public', tools } as unknown as Result)
+                        : { tools }
+                );
+                break;
+            }
+            default: {
+                break;
+            }
         }
     }
 
@@ -1560,29 +1707,38 @@ class LoopbackTransport implements Transport {
 
 verifies('transport:custom:client-connect', async ({ protocolVersion }: TestArgs) => {
     // The body supplies its own consumer-implemented Transport, so the matrix transport arg is unused by design.
+    // On 2025-era cells the handshake is the plain initialize exchange; on 2026-era cells it is the
+    // server/discover negotiation (a 2026 revision is never negotiated via initialize), which the client opts
+    // into by pinning the cell's revision.
+    const modern = protocolVersion >= '2026-07-28';
     const customTransport = new LoopbackTransport(protocolVersion);
-    const client = newClient();
+    const client = modern
+        ? new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: protocolVersion } } })
+        : newClient();
     const clientOnclose = vi.fn();
     client.onclose = clientOnclose;
+    const handshake = modern ? ['send:server/discover'] : ['send:initialize', 'send:notifications/initialized'];
+    const handshakeRequests = modern ? ['server/discover'] : ['initialize'];
     try {
         await client.connect(customTransport);
 
-        // Protocol installed its callbacks on the consumer object before invoking start().
+        // Connect installed callbacks on the consumer object before invoking start().
         expect(customTransport.callbacksPresentAtStart).toEqual({ onmessage: true, onclose: true, onerror: true });
         // The full handshake ran over the consumer transport, and its canned identity is what the client now reports.
-        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized']);
+        expect(customTransport.events).toEqual(['start', ...handshake]);
         expect(client.getServerCapabilities()).toEqual({ tools: {} });
         expect(client.getServerVersion()).toEqual({ name: 'loopback-server', version: '3.1.4' });
+        expect(client.getNegotiatedProtocolVersion()).toBe(protocolVersion);
 
         // A post-handshake request round-trips through the consumer transport's send().
         const listed = await client.listTools();
         expect(listed.tools).toEqual([{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]);
-        expect(customTransport.clientRequests.map(m => m.method)).toEqual(['initialize', 'tools/list']);
+        expect(customTransport.clientRequests.map(m => m.method)).toEqual([...handshakeRequests, 'tools/list']);
 
         await client.close();
 
         // close() reached the consumer transport, and its onclose callback fed back into the client's close handling.
-        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized', 'send:tools/list', 'close']);
+        expect(customTransport.events).toEqual(['start', ...handshake, 'send:tools/list', 'close']);
         expect(clientOnclose).toHaveBeenCalledTimes(1);
         expect(client.transport).toBeUndefined();
     } finally {

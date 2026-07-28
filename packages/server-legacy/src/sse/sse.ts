@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { TLSSocket } from 'node:tls';
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, Transport, TransportSendOptions } from '@modelcontextprotocol/core';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, Transport, TransportSendOptions } from '@modelcontextprotocol/core-internal';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core-internal';
 import contentType from 'content-type';
 import getRawBody from 'raw-body';
 

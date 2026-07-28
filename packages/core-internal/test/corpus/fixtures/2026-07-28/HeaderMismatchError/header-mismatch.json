@@ -1,0 +1,8 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "error": {
+    "code": -32020,
+    "message": "Header mismatch: Mcp-Name header value 'foo' does not match body value 'bar'"
+  }
+}

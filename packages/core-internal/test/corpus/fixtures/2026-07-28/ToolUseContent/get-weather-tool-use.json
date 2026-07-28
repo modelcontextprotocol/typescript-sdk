@@ -1,0 +1,8 @@
+{
+  "type": "tool_use",
+  "id": "call_abc123",
+  "name": "get_weather",
+  "input": {
+    "city": "Paris"
+  }
+}

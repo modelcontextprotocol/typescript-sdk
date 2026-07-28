@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
+import { JSONRPCRequestSchema } from '@modelcontextprotocol/core-internal';
 import {
     LATEST_PROTOCOL_VERSION,
     McpServer,
@@ -29,10 +29,10 @@ import {
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import type { HttpHandler } from '../helpers/index.js';
-import { hostPerSession, hostStateless } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import type { HttpHandler } from '../helpers/index';
+import { defined, hostPerSession, hostStateless } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -72,12 +72,6 @@ function recordingFetch(
         records.push({ method: req.method, url: u, headers: headersToRecord(req.headers), body });
         return baseHandler(req);
     };
-}
-
-/** Narrows away `undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
-function defined<T>(value: T | undefined, label: string): T {
-    if (value === undefined) throw new Error(`expected ${label} to be defined`);
-    return value;
 }
 
 verifies('client-transport:http:session-stored', async (_args: TestArgs) => {

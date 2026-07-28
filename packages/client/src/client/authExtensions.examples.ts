@@ -7,8 +7,8 @@
  * @module
  */
 
-import { ClientCredentialsProvider, createPrivateKeyJwtAuth, PrivateKeyJwtProvider } from './authExtensions.js';
-import { StreamableHTTPClientTransport } from './streamableHttp.js';
+import { ClientCredentialsProvider, createPrivateKeyJwtAuth, PrivateKeyJwtProvider } from './authExtensions';
+import { StreamableHTTPClientTransport } from './streamableHttp';
 
 /**
  * Example: Creating a private key JWT authentication function.

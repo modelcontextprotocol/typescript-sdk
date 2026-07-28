@@ -1,17 +1,27 @@
 {
     "$schema": "https://unpkg.com/@changesets/config@3.1.2/schema.json",
-    "changelog": ["@changesets/changelog-github", { "repo": "modelcontextprotocol/typescript-sdk" }],
+    "changelog": [
+        "@changesets/changelog-github",
+        {
+            "repo": "modelcontextprotocol/typescript-sdk"
+        }
+    ],
     "commit": false,
-    "fixed": [],
+    "fixed": [
+        [
+            "@modelcontextprotocol/core",
+            "@modelcontextprotocol/client",
+            "@modelcontextprotocol/server",
+            "@modelcontextprotocol/server-legacy",
+            "@modelcontextprotocol/codemod"
+        ]
+    ],
     "linked": [],
     "access": "public",
     "baseBranch": "main",
     "updateInternalDependencies": "patch",
     "ignore": [
-        "@modelcontextprotocol/examples-client",
-        "@modelcontextprotocol/examples-client-quickstart",
-        "@modelcontextprotocol/examples-server",
-        "@modelcontextprotocol/examples-server-quickstart",
-        "@modelcontextprotocol/examples-shared"
+        "@modelcontextprotocol/examples",
+        "@mcp-examples/*"
     ]
 }

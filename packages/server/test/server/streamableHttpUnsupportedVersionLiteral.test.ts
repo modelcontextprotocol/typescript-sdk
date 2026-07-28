@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 
-import { McpServer } from '../../src/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { McpServer } from '../../src/server/mcp';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 /**
  * Wire-level continuity tests for the "Unsupported protocol version" rejection.

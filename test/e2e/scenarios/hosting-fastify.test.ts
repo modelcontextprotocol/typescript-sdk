@@ -19,8 +19,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 function forecastServer(): McpServer {
     const s = new McpServer({ name: 'forecast-server', version: '0.3.0' });

@@ -3,15 +3,20 @@ import type {
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthClientProvider,
+    OAuthDiscoveryState,
     OAuthTokens
 } from '@modelcontextprotocol/client';
 
 export class ConformanceOAuthProvider implements OAuthClientProvider {
+    // Single-slot blob storage. The SDK stamps `issuer` onto saved values; round-tripping
+    // them unchanged means a credential issued by AS-A reads back as undefined at AS-B
+    // (SEP-2352) and the flow re-registers.
     private _clientInformation?: OAuthClientInformationFull;
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
     private _authCode?: string;
-    private _authCodePromise?: Promise<string>;
+    private _iss?: string;
+    private _discoveryState?: OAuthDiscoveryState;
 
     constructor(
         private readonly _redirectUrl: string | URL,
@@ -47,6 +52,21 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
         this._tokens = tokens;
     }
 
+    saveDiscoveryState(state: OAuthDiscoveryState): void {
+        this._discoveryState = state;
+    }
+
+    discoveryState(): OAuthDiscoveryState | undefined {
+        return this._discoveryState;
+    }
+
+    invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+        if (scope === 'all' || scope === 'client') this._clientInformation = undefined;
+        if (scope === 'all' || scope === 'tokens') this._tokens = undefined;
+        if (scope === 'all' || scope === 'verifier') this._codeVerifier = undefined;
+        if (scope === 'all' || scope === 'discovery') this._discoveryState = undefined;
+    }
+
     async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
         try {
             const response = await fetch(authorizationUrl.toString(), {
@@ -58,6 +78,8 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
             if (location) {
                 const redirectUrl = new URL(location);
                 const code = redirectUrl.searchParams.get('code');
+                // RFC 9207: capture `iss` alongside `code` for validation before token exchange.
+                this._iss = redirectUrl.searchParams.get('iss') ?? undefined;
                 if (code) {
                     this._authCode = code;
                     return;
@@ -78,6 +100,11 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
             return this._authCode;
         }
         throw new Error('No authorization code');
+    }
+
+    /** The `iss` parameter captured from the authorization callback (RFC 9207), or `undefined` if absent. */
+    getIss(): string | undefined {
+        return this._iss;
     }
 
     saveCodeVerifier(codeVerifier: string): void {

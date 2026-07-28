@@ -1,14 +1,14 @@
 import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it, vi } from 'vitest';
 
-import { auth } from '../../src/client/auth.js';
+import { auth } from '../../src/client/auth';
 import {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
     CrossAppAccessProvider,
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
-} from '../../src/client/authExtensions.js';
+} from '../../src/client/authExtensions';
 
 const RESOURCE_SERVER_URL = 'https://resource.example.com/';
 const AUTH_SERVER_URL = 'https://auth.example.com';

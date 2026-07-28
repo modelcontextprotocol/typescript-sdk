@@ -10,15 +10,15 @@
 
 import type { ClientCapabilities } from '@modelcontextprotocol/client';
 import { Client } from '@modelcontextprotocol/client';
-import { CreateMessageRequestParamsSchema } from '@modelcontextprotocol/core';
+import { CreateMessageRequestParamsSchema } from '@modelcontextprotocol/core-internal';
 import type { CreateMessageRequest, CreateMessageResultWithTools, ServerOptions } from '@modelcontextprotocol/server';
 import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { tapWire, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const newClient = (capabilities?: ClientCapabilities) =>
     new Client({ name: 'c', version: '0' }, { capabilities: capabilities ?? { sampling: {} } });
@@ -202,7 +202,7 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
     const r = await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
 
     expect(r.structuredContent).toMatchObject({ ok: false, code: -1 });
-    expect(r.structuredContent?.message).toMatch(/User rejected sampling request/);
+    expect((r.structuredContent as { message?: unknown }).message).toMatch(/User rejected sampling request/);
 });
 
 verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
@@ -340,7 +340,7 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
     });
 
     expect(r.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
-    expect(r.structuredContent?.message).toMatch(/tool.?result/i);
+    expect((r.structuredContent as { message?: unknown }).message).toMatch(/tool.?result/i);
 });
 
 verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
@@ -425,7 +425,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(withTools.structuredContent).toMatchObject({ ok: false });
-    expect(withTools.structuredContent?.message).toMatch(/sampling.*tools/i);
+    expect((withTools.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const withChoice = await client.callTool({
@@ -434,7 +434,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(withChoice.structuredContent).toMatchObject({ ok: false });
-    expect(withChoice.structuredContent?.message).toMatch(/sampling.*tools/i);
+    expect((withChoice.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const empty = await client.callTool({
@@ -443,7 +443,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(empty.structuredContent).toMatchObject({ ok: false });
-    expect(empty.structuredContent?.message).toMatch(/sampling.*tools/i);
+    expect((empty.structuredContent as { message?: unknown }).message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 });
 

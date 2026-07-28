@@ -1,11 +1,11 @@
-import type { FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthClientInformationFullSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthClientInformationFullSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 import type { Response } from 'express';
 
-import type { OAuthRegisteredClientsStore } from '../clients.js';
-import { ServerError } from '../errors.js';
-import type { AuthorizationParams, OAuthServerProvider } from '../provider.js';
-import type { AuthInfo } from '../types.js';
+import type { OAuthRegisteredClientsStore } from '../clients';
+import { ServerError } from '../errors';
+import type { AuthorizationParams, OAuthServerProvider } from '../provider';
+import type { AuthInfo } from '../types';
 
 export type ProxyEndpoints = {
     authorizationUrl: string;
@@ -46,6 +46,17 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     protected readonly _fetch?: FetchLike;
 
     skipLocalPkceValidation = true;
+
+    /**
+     * The proxy redirects the browser to the upstream AS's authorize endpoint with
+     * `redirect_uri = params.redirectUri`, so the upstream — not this proxy — issues the
+     * callback. The proxy cannot append its own `iss`, and any `iss` the upstream emits is the
+     * upstream's issuer, not `issuerUrl`. Advertise `false` so the metadata does not over-claim —
+     * a callback *without* `iss` then passes validation. Note: an upstream that *does* emit its
+     * own `iss` will still mismatch this proxy's issuer and be rejected by RFC 9207 clients
+     * regardless of this flag.
+     */
+    authorizationResponseIssParameterSupported = false;
 
     revokeToken?: (client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest) => Promise<void>;
 

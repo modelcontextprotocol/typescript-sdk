@@ -1,1 +1,1 @@
-export { SSEServerTransport, type SSEServerTransportOptions } from './sse.js';
+export { SSEServerTransport, type SSEServerTransportOptions } from './sse';

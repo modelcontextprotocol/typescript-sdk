@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 
-import type { CreateDemoAuthOptions } from '../src/auth.js';
-import { createDemoAuth } from '../src/auth.js';
+import type { CreateDemoAuthOptions } from '../src/auth';
+import { createDemoAuth } from '../src/auth';
 
 describe('createDemoAuth', () => {
     const validOptions: CreateDemoAuthOptions = {

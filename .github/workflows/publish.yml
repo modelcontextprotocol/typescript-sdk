@@ -16,7 +16,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -39,5 +39,5 @@ jobs:
 
             - name: Publish preview packages
               run:
-                  pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/server' './packages/server-legacy' './packages/client'
+                  pnpm dlx pkg-pr-new publish --packageManager=npm --pnpm './packages/core' './packages/server' './packages/server-legacy' './packages/client'
                   './packages/codemod' './packages/middleware/express' './packages/middleware/fastify' './packages/middleware/hono' './packages/middleware/node'

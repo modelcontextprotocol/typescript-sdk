@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 
-import { MethodNotAllowedError } from '../errors.js';
+import { MethodNotAllowedError } from '../errors';
 
 /**
  * Middleware to handle unsupported HTTP methods with a 405 Method Not Allowed response.

@@ -1,0 +1,16 @@
+{
+  "jsonrpc": "2.0",
+  "id": "read-resource-example",
+  "method": "resources/read",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "ExampleClient",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    },
+    "uri": "file:///project/src/main.rs"
+  }
+}

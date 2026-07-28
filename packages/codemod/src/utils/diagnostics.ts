@@ -1,7 +1,7 @@
 import type { Node } from 'ts-morph';
 
-import type { Diagnostic } from '../types.js';
-import { DiagnosticLevel } from '../types.js';
+import type { Diagnostic } from '../types';
+import { DiagnosticLevel } from '../types';
 
 export const CODEMOD_ERROR_PREFIX = '@mcp-codemod-error';
 

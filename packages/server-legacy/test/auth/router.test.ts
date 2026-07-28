@@ -1,11 +1,11 @@
-import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../src/auth/router.js';
-import { OAuthServerProvider, AuthorizationParams } from '../../src/auth/provider.js';
-import { OAuthRegisteredClientsStore } from '../../src/auth/clients.js';
-import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../src/auth/router';
+import { OAuthServerProvider, AuthorizationParams } from '../../src/auth/provider';
+import { OAuthRegisteredClientsStore } from '../../src/auth/clients';
+import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import express, { Response } from 'express';
 import supertest from 'supertest';
-import { AuthInfo } from '../../src/auth/types.js';
-import { InvalidTokenError } from '../../src/auth/errors.js';
+import { AuthInfo } from '../../src/auth/types';
+import { InvalidTokenError } from '../../src/auth/errors';
 
 describe('MCP Auth Router', () => {
     // Setup mock provider with full capabilities
@@ -218,6 +218,22 @@ describe('MCP Auth Router', () => {
 
             // Verify optional fields
             expect(response.body.service_documentation).toBe('https://docs.example.com/');
+
+            // RFC 9207: the bundled authorize handler emits `iss`, so the metadata advertises it.
+            expect(response.body.authorization_response_iss_parameter_supported).toBe(true);
+        });
+
+        it('derives authorization_response_iss_parameter_supported from the provider', async () => {
+            const optOutApp = express();
+            optOutApp.use(
+                mcpAuthRouter({
+                    provider: { ...mockProvider, authorizationResponseIssParameterSupported: false },
+                    issuerUrl: new URL('https://auth.example.com')
+                })
+            );
+            const response = await supertest(optOutApp).get('/.well-known/oauth-authorization-server');
+            expect(response.status).toBe(200);
+            expect(response.body.authorization_response_iss_parameter_supported).toBe(false);
         });
 
         it('returns minimal metadata for minimal router', async () => {

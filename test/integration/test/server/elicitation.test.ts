@@ -8,10 +8,10 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/cfWorker';
 import { Server } from '@modelcontextprotocol/server';
 
 const ajvProvider = new AjvJsonSchemaValidator();
@@ -986,3 +986,32 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         ).rejects.toThrow(/^Elicitation response content does not match requested schema/);
     });
 }
+
+describe('declared-dialect requestedSchema (default validator)', () => {
+    test('draft-07-stamped requestedSchema validates accepted content with a real engine', async () => {
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+        const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        const requestedSchema = {
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'object',
+            properties: { name: { type: 'string', minLength: 1 } },
+            required: ['name']
+        } as const;
+
+        let content: Record<string, unknown> = { name: 'John' };
+        client.setRequestHandler('elicitation/create', () => ({ action: 'accept', content }));
+
+        await expect(server.elicitInput({ mode: 'form', message: 'name?', requestedSchema })).resolves.toMatchObject({
+            action: 'accept',
+            content: { name: 'John' }
+        });
+
+        content = { name: '' }; // violates minLength — the draft-07 engine actually runs
+        await expect(server.elicitInput({ mode: 'form', message: 'name?', requestedSchema })).rejects.toThrow(
+            /does not match requested schema/
+        );
+    });
+});

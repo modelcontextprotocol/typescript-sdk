@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getMigration } from '../src/migrations/index.js';
-import { run } from '../src/runner.js';
-import { CODEMOD_ERROR_PREFIX } from '../src/utils/diagnostics.js';
+import { getMigration } from '../src/migrations/index';
+import { run } from '../src/runner';
+import { CODEMOD_ERROR_PREFIX } from '../src/utils/diagnostics';
 
 const migration = getMigration('v1-to-v2')!;
 
@@ -87,11 +87,12 @@ describe('comment insertion', () => {
 
     it('inserts multiple comments in one file in correct positions', () => {
         const dir = createTempDir();
-        // Two .parse() calls on different schemas trigger two actionRequired diagnostics
+        // Two custom-schema handler registrations on different lines trigger two actionRequired diagnostics
         const input = [
-            `import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = CallToolRequestSchema.parse(data1);`,
-            `const b = ListToolsRequestSchema.parse(data2);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
+            `server.setRequestHandler(BarSchema, async () => ({}));`,
             ``
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -107,9 +108,9 @@ describe('comment insertion', () => {
     it('preserves indentation of the target line', () => {
         const dir = createTempDir();
         const input = [
-            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `function validate() {`,
-            `    const a = CallToolRequestSchema.parse(data);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `function register(server: McpServer) {`,
+            `    server.setRequestHandler(FooSchema, async () => ({}));`,
             `}`,
             ``
         ].join('\n');
@@ -125,8 +126,9 @@ describe('comment insertion', () => {
     it('does not duplicate comments on re-run (idempotency)', () => {
         const dir = createTempDir();
         const input = [
-            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = CallToolRequestSchema.parse(data);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
             ``
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -146,10 +148,11 @@ describe('comment insertion', () => {
 
     it('sanitizes */ in diagnostic messages', () => {
         const dir = createTempDir();
-        // The .parse() diagnostic message doesn't contain */, but we verify the comment is well-formed
+        // The handler diagnostic message doesn't contain */, but we verify the comment is well-formed
         const input = [
-            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = CallToolRequestSchema.parse(data);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
             ``
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -167,10 +170,10 @@ describe('comment insertion', () => {
         // Import rewrite adds new import lines (splitting into multiple packages),
         // then handler transform emits actionRequired. The comment must land at the correct post-shift line.
         const input = [
-            `import { McpServer, CallToolRequestSchema } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import { McpServer, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/server/mcp.js';`,
             ``,
             `const server = new McpServer({ name: 'test', version: '1.0' });`,
-            `const a = CallToolRequestSchema.parse(data);`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
             ``
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -181,16 +184,48 @@ describe('comment insertion', () => {
         const lines = output.split('\n');
         const commentIdx = lines.findIndex(l => l.includes(CODEMOD_ERROR_PREFIX));
         expect(commentIdx).toBeGreaterThan(-1);
-        // The comment should be directly above the parse() line (which may have moved)
+        // The comment should be directly above the handler line (which may have moved)
         const nextLine = lines[commentIdx + 1]!;
-        expect(nextLine).toContain('.parse(data)');
+        expect(nextLine).toContain('setRequestHandler');
+    });
+
+    it('reports a diagnostic line matching the saved file when a dropped shebang is restored', () => {
+        const dir = createTempDir();
+        // The imports transform drops the leading `#!` shebang (it is leading trivia of the first
+        // import); the runner restores it before saving. The reported diagnostic line must account for
+        // the restored shebang, i.e. point at the line it actually occupies in the saved file — not the
+        // shebang-stripped text it was resolved against.
+        const input = [
+            `#!/usr/bin/env node`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
+            ``
+        ].join('\n');
+        writeFileSync(path.join(dir, 'cli.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'cli.ts'), 'utf8');
+        // Shebang survived the migration...
+        expect(output.startsWith('#!/usr/bin/env node\n')).toBe(true);
+        // ...and the comment-bearing diagnostic's reported line points exactly at its inserted
+        // @mcp-codemod-error comment in the saved file (regression guard: without the shebang
+        // adjustment the line is N=2 too high and lands on unrelated code).
+        const diag = result.diagnostics.find(d => d.insertComment)!;
+        expect(diag).toBeDefined();
+        const outputLines = output.split('\n');
+        expect(outputLines[diag.line - 1]).toContain(CODEMOD_ERROR_PREFIX);
     });
 
     it('merges same-line diagnostics into a single comment', () => {
         const dir = createTempDir();
+        // Two custom-schema handler registrations on the SAME physical line -> two same-line diagnostics
         const input = [
-            `import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = CallToolRequestSchema.parse(data1); const b = ListToolsRequestSchema.parse(data2);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({})); server.setRequestHandler(BarSchema, async () => ({}));`,
             ``
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -207,9 +242,10 @@ describe('comment insertion', () => {
     it('skips comment insertion when target line is inside a template literal', () => {
         const dir = createTempDir();
         const input = [
-            "import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
+            "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';",
+            "const server = new McpServer({ name: 'test', version: '1.0' });",
             'const msg = `',
-            '  Result: ${CallToolRequestSchema.parse(data).method}',
+            '  Result: ${server.setRequestHandler(FooSchema, async () => ({}))}',
             '`;',
             ''
         ].join('\n');
@@ -230,10 +266,11 @@ describe('comment insertion', () => {
         const dir = createTempDir();
         // TemplateMiddle: text between two ${} spans
         const input = [
-            "import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
+            "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';",
+            "const server = new McpServer({ name: 'test', version: '1.0' });",
             'const msg = `${somePrefix}',
-            '  A: ${CallToolRequestSchema.parse(d1)}',
-            '  B: ${ListToolsRequestSchema.parse(d2)}',
+            '  A: ${server.setRequestHandler(FooSchema, async () => ({}))}',
+            '  B: ${server.setRequestHandler(BarSchema, async () => ({}))}',
             '`;',
             ''
         ].join('\n');
@@ -249,11 +286,12 @@ describe('comment insertion', () => {
 
     it('still inserts comment when diagnostic line merely contains a template literal', () => {
         const dir = createTempDir();
-        // The .parse() and template are on the same line, but lineStart is at "const",
+        // The handler call and template are on the same line, but lineStart is at "server",
         // which is outside the template literal.
         const input = [
-            "import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
-            'const a = CallToolRequestSchema.parse(`template ${data}`);',
+            "import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';",
+            "const server = new McpServer({ name: 'test', version: '1.0' });",
+            'server.setRequestHandler(FooSchema, async () => ({ msg: `template ${data}` }));',
             ''
         ].join('\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -272,8 +310,9 @@ describe('comment insertion', () => {
     it('handles CRLF line endings without corrupting the file', () => {
         const dir = createTempDir();
         const input = [
-            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `const a = CallToolRequestSchema.parse(data);`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            `server.setRequestHandler(FooSchema, async () => ({}));`,
             ``
         ].join('\r\n');
         writeFileSync(path.join(dir, 'server.ts'), input);
@@ -286,6 +325,35 @@ describe('comment insertion', () => {
         const commentIdx = lines.findIndex(l => l.includes(CODEMOD_ERROR_PREFIX));
         expect(commentIdx).toBeGreaterThan(-1);
         expect(lines[commentIdx]!.trim()).toMatch(/^\/\*.*\*\/$/);
-        expect(lines[commentIdx + 1]).toContain('.parse(data)');
+        expect(lines[commentIdx + 1]).toContain('setRequestHandler');
+    });
+});
+
+describe('markers whose import-declaration anchor is removed by the same pass', () => {
+    it('inserts the resource-server auth helper marker at the usage site', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } })
+        );
+        const file = path.join(dir, 'auth.ts');
+        writeFileSync(
+            file,
+            [
+                `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';`,
+                ``,
+                `export const guard = requireBearerAuth({ verifier });`,
+                ''
+            ].join('\n')
+        );
+
+        run(migration, { targetDir: dir, dryRun: false });
+
+        const output = readFileSync(file, 'utf8');
+        expect(output).toContain('@mcp-codemod-error');
+        expect(output).toContain('frozen');
+        const lines = output.split('\n');
+        const markerIndex = lines.findIndex(line => line.includes('@mcp-codemod-error'));
+        expect(lines[markerIndex + 1]).toContain('requireBearerAuth({ verifier })');
     });
 });

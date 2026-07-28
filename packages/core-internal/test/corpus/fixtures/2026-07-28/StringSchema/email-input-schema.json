@@ -1,0 +1,9 @@
+{
+  "type": "string",
+  "title": "Display Name",
+  "description": "Description text",
+  "minLength": 3,
+  "maxLength": 50,
+  "format": "email",
+  "default": "user@example.com"
+}

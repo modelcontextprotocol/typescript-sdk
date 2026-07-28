@@ -1,3 +1,14 @@
+# Nightly refresh of the draft-tracking spec anchor (2026-07-28).
+#
+# Anchor lifecycle (see packages/core-internal/src/types/README.md for the full policy):
+# - Draft anchors float: this job regenerates the draft-tracking anchor from the
+#   latest upstream draft schema and, on drift, opens a refresh PR for review.
+#   It only ever proposes — it never merges.
+# - Released anchors are frozen: generation for released revisions is pinned in
+#   scripts/fetch-spec-types.ts (RELEASED_REVISION_PINS) and is not refreshed by
+#   this job. Repinning a released revision — including the freeze of a newly
+#   published revision, when its schema moves out of schema/draft/ — must land
+#   in the same commit that retargets this workflow.
 name: Update Spec Types
 
 on:
@@ -15,7 +26,7 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - name: Checkout repository
-              uses: actions/checkout@v6
+              uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -39,11 +50,11 @@ jobs:
             - name: Check for changes
               id: check_changes
               run: |
-                  if git diff --quiet packages/core/src/types/spec.types.2026-07-28.ts; then
+                  if git diff --quiet packages/core-internal/src/types/spec.types.2026-07-28.ts; then
                     echo "has_changes=false" >> $GITHUB_OUTPUT
                   else
                     echo "has_changes=true" >> $GITHUB_OUTPUT
-                    LATEST_SHA=$(grep "Last updated from commit:" packages/core/src/types/spec.types.2026-07-28.ts | cut -d: -f2 | tr -d ' ')
+                    LATEST_SHA=$(grep "Last updated from commit:" packages/core-internal/src/types/spec.types.2026-07-28.ts | cut -d: -f2 | tr -d ' ')
                     echo "sha=$LATEST_SHA" >> $GITHUB_OUTPUT
                   fi
 
@@ -59,12 +70,12 @@ jobs:
                   git config user.email "github-actions[bot]@users.noreply.github.com"
 
                   git checkout -B update-spec-types
-                  git add packages/core/src/types/spec.types.2026-07-28.ts
+                  git add packages/core-internal/src/types/spec.types.2026-07-28.ts
                   git commit -m "chore: update spec.types.2026-07-28.ts from upstream"
                   git push -f --no-verify origin update-spec-types
 
                   # Create PR if it doesn't exist, or update if it does
-                  PR_BODY="This PR updates \`packages/core/src/types/spec.types.2026-07-28.ts\` from the Model Context Protocol specification.
+                  PR_BODY="This PR updates \`packages/core-internal/src/types/spec.types.2026-07-28.ts\` from the Model Context Protocol specification.
 
                   Source file: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/${{ steps.check_changes.outputs.sha }}/schema/draft/schema.ts
 
