@@ -34,9 +34,7 @@ import { codecForVersion, MODERN_WIRE_REVISION, SERVER_INFO_META_KEY, SUBSCRIPTI
 
 import type { ServerEventBus } from './serverEventBus';
 import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
-
-/** Default SSE comment-frame keepalive interval for listen streams. */
-export const DEFAULT_LISTEN_KEEPALIVE_MS = 15_000;
+import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 /** Default capacity guard: refuse a new subscription when this many are already open. */
 export const DEFAULT_MAX_SUBSCRIPTIONS = 1024;
@@ -124,7 +122,7 @@ export interface ListenRouter {
 export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     const { bus, onerror } = options;
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
-    const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
+    const keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
 
     const open = new Set<(graceful: boolean) => void>();
 
@@ -188,7 +186,11 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 );
             }
             closed = true;
-            unsubscribe?.();
+            try {
+                unsubscribe?.();
+            } catch (error) {
+                onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
             if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
             abortCleanup?.();
             open.delete(teardown);
@@ -218,14 +220,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                     writeNotification(note.method, note.params);
                 });
 
-                if (keepAliveMs > 0) {
-                    keepAliveTimer = setInterval(() => writeFrame(': keepalive\n\n'), keepAliveMs);
-                    // Do not hold the event loop open on idle subscriptions. Node's
-                    // setInterval returns a Timeout with .unref(); browsers/Workers
-                    // return a number — the cast is an environment shim, not a
-                    // workaround for SDK typing.
-                    (keepAliveTimer as { unref?: () => void }).unref?.();
-                }
+                keepAliveTimer = armSseKeepAlive(keepAliveMs, () => writeFrame(': keepalive\n\n'));
 
                 open.add(teardown);
             },
@@ -251,7 +246,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             status: 200,
             headers: {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
+                'Cache-Control': 'no-cache, no-transform',
                 Connection: 'keep-alive',
                 'X-Accel-Buffering': 'no'
             }

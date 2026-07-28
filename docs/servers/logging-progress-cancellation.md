@@ -74,7 +74,7 @@ Only the result comes back:
 ## Log to the client
 
 ::: warning Deprecated — SEP-2577
-Log to `stderr` (stdio servers) or use OpenTelemetry instead. **MCP logging** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional through the deprecation window (at least twelve months) — see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated).
+Log to `stderr` (stdio servers) or use OpenTelemetry instead. **MCP logging** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional through the deprecation window (at least twelve months) — see the [deprecated features registry](https://modelcontextprotocol.io/specification/2026-07-28/deprecated).
 :::
 
 Declare the `logging` capability when you construct the server.
