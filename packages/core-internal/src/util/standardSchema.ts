@@ -263,7 +263,14 @@ function zodConversionOptions(io: 'input' | 'output'): Pick<z.core.ToJSONSchemaP
                     if (ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-')) continue;
                     if (key === 'type' && ctx.jsonSchema.type === 'object') continue;
                     if ((key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(ctx.jsonSchema[key])) {
-                        ctx.jsonSchema[key] = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+                        const skeletons = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+                        // `oneOf` means EXACTLY one: with member constraints stripped, the
+                        // skeletons are indistinguishable and every payload would match all
+                        // of them — advertise the honest loosening `anyOf` instead
+                        // (wrap-neutral: `isProvablyObjectShapedRoot` treats the
+                        // composition keywords identically).
+                        if (key === 'oneOf') delete ctx.jsonSchema[key];
+                        ctx.jsonSchema[key === 'oneOf' ? 'anyOf' : key] = skeletons;
                         continue;
                     }
                     delete ctx.jsonSchema[key];
@@ -313,7 +320,9 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
     if (source.type === 'object') skeleton.type = 'object';
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
         if (Array.isArray(source[key])) {
-            skeleton[key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+            // Skeletonized `oneOf` members are indistinguishable, so exactly-one
+            // semantics would reject every payload — emit `anyOf` instead.
+            skeleton[key === 'oneOf' ? 'anyOf' : key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
         }
     }
     return skeleton;
@@ -350,7 +359,7 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     // stage (`.refine(async ...)`, `.transform(async ...)`) would push the probe
     // below to a Promise and wrongly keep the field required. The default may hide
     // inside a pipe's input side (`.default(7).transform(...)` is outer-`'pipe'`).
-    if (hasStructuralDefault(field)) return true;
+    if (hasStructuralMissingKeyTolerance(field)) return true;
     // JSON.stringify drops Symbol- and function-valued keys from the serialized
     // payload entirely (the same mechanism that drops undefined-valued keys), so
     // such fields can never appear on the wire.
@@ -370,32 +379,41 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
 }
 
 /**
- * Whether the field's def chain carries a `default`/`prefault` node, unwinding pipe
- * INPUT sides, lazies, and transparent wrappers — so
- * `z.number().default(7).transform(async v => v)` (outer def `'pipe'`, the ZodDefault
- * at `def.in`) is recognized structurally. A missing key resolves against the pipe's
- * input side first, where the default fills before any later stage runs. `ancestors`
- * tracks the current traversal path so recursive lazies stay bounded.
+ * Whether the field's def chain carries a node that tolerates a missing key by
+ * construction — `default`/`prefault` (the default fills) or a static `catch` (any
+ * input, including `undefined`, is replaced by the fallback) — unwinding pipe INPUT
+ * sides, lazies, transparent wrappers, and union members (ANY tolerant member
+ * suffices: zod tries members and the tolerant one succeeds; intersections must NOT
+ * get this treatment, since `undefined` would have to satisfy both sides). This
+ * recognizes `z.number().default(7).transform(async v => v)` (outer def `'pipe'`,
+ * the ZodDefault at `def.in`) structurally, since an async stage pushes the
+ * validate-probe to a Promise. `ancestors` tracks the current traversal path so
+ * recursive lazies stay bounded.
  */
-function hasStructuralDefault(field: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
+function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
     if (typeof field !== 'object' || field === null || ancestors.has(field)) return false;
-    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown } } })._zod?.def;
+    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown; options?: unknown } } })
+        ._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
-    if (def.type === 'default' || def.type === 'prefault') return true;
+    // `catch` must be recognized BEFORE the wrapper unwind below would step past it.
+    if (def.type === 'default' || def.type === 'prefault' || def.type === 'catch') return true;
     const path = new Set(ancestors);
     path.add(field);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
         try {
-            return hasStructuralDefault((def.getter as () => unknown)(), path);
+            return hasStructuralMissingKeyTolerance((def.getter as () => unknown)(), path);
         } catch {
             return false;
         }
     }
     if (def.type === 'pipe' && def.in !== undefined) {
-        return hasStructuralDefault(def.in, path);
+        return hasStructuralMissingKeyTolerance(def.in, path);
+    }
+    if (def.type === 'union' && Array.isArray(def.options)) {
+        return def.options.some(option => hasStructuralMissingKeyTolerance(option, path));
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-        return hasStructuralDefault(def.innerType, path);
+        return hasStructuralMissingKeyTolerance(def.innerType, path);
     }
     return false;
 }
@@ -571,20 +589,17 @@ function nonObjectTypelessRootType(schema: unknown, ancestors: ReadonlySet<unkno
 }
 
 /**
- * Whether a literal's values make its node both typeless and non-object: any
- * unrepresentable value (`undefined`, bigint, symbol) or a mixed-JSON-type value list.
- * Single-type representable literals emit an explicit `type` and may legitimately ride
- * compositions (`z.union([z.literal('admin'), z.literal('member')])`, zod's idiomatic
- * enum spelling, must keep listing exactly as it did pre-#2464).
+ * Whether a literal carries a genuinely unrepresentable value (`undefined`, bigint,
+ * symbol, or a non-finite number) — only those made pre-#2464 conversion fail loudly,
+ * so only those may reject here. Representable literals — including single-type ones
+ * (`z.union([z.literal('admin'), z.literal('member')])`, zod's idiomatic enum
+ * spelling) and mixed-type value lists (`z.literal(['a', 1])` emits a valid
+ * `{enum: ['a', 1]}`) — keep converting and listing exactly as they did pre-#2464.
  */
 function isNonObjectTypelessLiteral(values: unknown): boolean {
     if (!Array.isArray(values) || values.length === 0) return true;
-    const jsonTypes = new Set<string>();
     for (const value of values) {
-        if (value === null) {
-            jsonTypes.add('null');
-            continue;
-        }
+        if (value === null) continue;
         const valueType = typeof value;
         if (valueType !== 'string' && valueType !== 'number' && valueType !== 'boolean') {
             return true; // undefined / bigint / symbol values are unrepresentable
@@ -592,9 +607,8 @@ function isNonObjectTypelessLiteral(values: unknown): boolean {
         if (valueType === 'number' && !Number.isFinite(value as number)) {
             return true; // Infinity / -Infinity / NaN cannot ride JSON either
         }
-        jsonTypes.add(valueType);
     }
-    return jsonTypes.size > 1;
+    return false;
 }
 
 /**

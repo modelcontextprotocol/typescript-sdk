@@ -1,6 +1,7 @@
 import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
+import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
 import { isNonObjectJsonSchemaRoot } from '../../src/wire/rev2025-11-25/legacyWrap';
 
 describe('standardSchemaToJsonSchema', () => {
@@ -257,9 +258,12 @@ describe('zod conversion options (#2464)', () => {
                 'input'
             )
         ).toThrow(/must describe objects/);
-        // Typeless literal roots (unrepresentable or mixed-type values) are not objects.
+        // Literals with genuinely unrepresentable values are not objects.
         expect(() => standardSchemaToJsonSchema(z.literal(undefined), 'input')).toThrow(/must describe objects/);
-        expect(() => standardSchemaToJsonSchema(z.literal(['a', 1]), 'input')).toThrow(/must describe objects/);
+        // Mixed-but-REPRESENTABLE literals emit a valid {enum: [...]}: they listed
+        // silently pre-#2464 (an uncallable phantom, but harmless to other tools)
+        // and must keep doing so — throwing here would fail the whole tools/list.
+        expect(standardSchemaToJsonSchema(z.literal(['a', 1]), 'input').type).toBe('object');
         // Pipes unwrap via their INPUT side, and promises via their inner type.
         expect(() =>
             standardSchemaToJsonSchema(
@@ -342,6 +346,53 @@ describe('zod conversion options (#2464)', () => {
         expect(result.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
         expect(result.type).toBe('object');
         expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('a .catch() wrapping a discriminated union skeletonizes oneOf as anyOf', () => {
+        const du = z
+            .discriminatedUnion('t', [z.object({ t: z.literal('a'), x: z.string() }), z.object({ t: z.literal('b'), y: z.string() })])
+            .catch({ t: 'a', x: 'd' });
+
+        // With member constraints stripped, `oneOf` skeletons are indistinguishable —
+        // every payload would match BOTH members and Ajv rejects "must match exactly
+        // one schema in oneOf". The honest loosening is `anyOf` (wrap-neutral).
+        const root = standardSchemaToJsonSchema(du, 'output');
+        expect(root.oneOf).toBeUndefined();
+        expect(root.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        expect(root.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(root)).toBe(false);
+        const rootValidate = new AjvJsonSchemaValidator().getValidator(root);
+        expect(rootValidate({ t: 'a', x: 'hello' }).valid).toBe(true);
+
+        const nested = standardSchemaToJsonSchema(z.object({ res: du, name: z.string() }), 'output');
+        const res = (nested.properties as Record<string, Record<string, unknown>>).res!;
+        expect(res.oneOf).toBeUndefined();
+        expect(res.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        const nestedValidate = new AjvJsonSchemaValidator().getValidator(nested);
+        expect(nestedValidate({ res: { t: 'a', x: 'hello' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('.catch() and union-nested defaults with async stages are dropped from output required', () => {
+        const schema = z.object({
+            c: z
+                .number()
+                .catch(0)
+                .refine(async () => true),
+            u: z.union([
+                z
+                    .number()
+                    .default(7)
+                    .transform(async v => v),
+                z.string()
+            ]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A static .catch() tolerates a missing key by construction (like a default),
+        // and a union accepts one whenever ANY member does — both must be recognized
+        // structurally, since the async stages push the validate probe to a Promise.
+        expect(result.required).toEqual(['name']);
     });
 
     test('a required field whose transform throws on undefined stays required and does not crash', async () => {
