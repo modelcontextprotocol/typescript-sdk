@@ -328,6 +328,16 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
     });
 
+    test('compositions built solely of non-finite literals keep listing (quiet verdicts)', () => {
+        // These converted silently pre-#2464 (zod emits {type: 'number', const: null}
+        // without throwing) — throwing here would fail the whole tools/list. The
+        // guard throws only when the composition also carries a LOUD member (one
+        // that made pre-#2464 conversion throw, e.g. a bigint).
+        expect(standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.literal(-Infinity)]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.literal(Number.NaN)]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal(Infinity)), 'input').type).toBe('object');
+    });
+
     test('symbol- and function-valued output fields are not advertised as required', () => {
         const schema = z.object({ s: z.symbol(), f: z.function(), name: z.string() });
         const result = standardSchemaToJsonSchema(schema, 'output');
@@ -395,15 +405,41 @@ describe('zod conversion options (#2464)', () => {
         expect(result.required).toEqual(['name']);
     });
 
-    test('a required field whose transform throws on undefined stays required and does not crash', async () => {
-        const schema = z.object({ n: z.unknown().transform(v => (v as string).length), name: z.string() });
+    test('union-wrapped symbols, async any/unknown, and preprocess defaults are dropped from output required', () => {
+        const schema = z.object({
+            s: z.union([z.symbol(), z.string()]),
+            a: z.any().refine(async () => true),
+            u: z.unknown().transform(async v => v),
+            p: z.preprocess(v => v, z.number().default(7)).refine(async () => true),
+            name: z.string()
+        });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
-        // The missing-key probe cannot demonstrate tolerance (the transform throws on
-        // undefined; depending on the zod version the probe throws synchronously or
+        // JSON.stringify drops Symbol-valued keys whichever union member matched;
+        // any/unknown accept undefined outright; and z.preprocess builds the
+        // opposite pipe (transform at def.in, the default at def.out).
+        expect(result.required).toEqual(['name']);
+
+        // Same predicate at the record call site.
+        const record = standardSchemaToJsonSchema(z.record(z.enum(['a', 'b']), z.union([z.symbol(), z.string()])), 'output');
+        expect(record.required).toBeUndefined();
+    });
+
+    test('a required field whose transform throws on undefined stays required and does not crash', async () => {
+        const schema = z.object({
+            n: z.unknown().transform(v => (v as string).length),
+            c: z.custom<string>(() => true).transform(v => (v as string).length),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `n` unwinds to the undefined-accepting `z.unknown()` leaf, so it counts as
+        // missing-key tolerant structurally (loosen-only). `c` unwinds to `custom`
+        // (no structural verdict), so the probe runs: the transform throws on
+        // undefined (depending on the zod version the probe throws synchronously or
         // returns a rejecting Promise) — the field conservatively stays required, and
         // no unhandled rejection may escape (vitest fails the run on one).
-        expect(result.required).toEqual(['n', 'name']);
+        expect(result.required).toEqual(['c', 'name']);
         await new Promise(resolve => setTimeout(resolve, 10));
     });
 

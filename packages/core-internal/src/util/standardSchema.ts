@@ -357,14 +357,12 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     // Defaulted fields accept a missing key by construction (zod fills the default
     // before any refinement or transform runs) — decide structurally, since an async
     // stage (`.refine(async ...)`, `.transform(async ...)`) would push the probe
-    // below to a Promise and wrongly keep the field required. The default may hide
-    // inside a pipe's input side (`.default(7).transform(...)` is outer-`'pipe'`).
+    // below to a Promise and wrongly keep the field required. The walk also covers
+    // static `.catch()`, undefined-accepting leaves (`z.any()`/`z.unknown()`),
+    // Symbol-/function-typed fields (JSON.stringify drops such keys entirely), union
+    // members, and defaults hidden inside a pipe (`.default(7).transform(...)`,
+    // `z.preprocess(fn, z.number().default(7))`).
     if (hasStructuralMissingKeyTolerance(field)) return true;
-    // JSON.stringify drops Symbol- and function-valued keys from the serialized
-    // payload entirely (the same mechanism that drops undefined-valued keys), so
-    // such fields can never appear on the wire.
-    const unwrapped = unwrappedZodDefType(field);
-    if (unwrapped === 'symbol' || unwrapped === 'function') return true;
     try {
         const result = field['~standard'].validate(undefined);
         if (result instanceof Promise) {
@@ -379,24 +377,31 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
 }
 
 /**
- * Whether the field's def chain carries a node that tolerates a missing key by
- * construction — `default`/`prefault` (the default fills) or a static `catch` (any
- * input, including `undefined`, is replaced by the fallback) — unwinding pipe INPUT
- * sides, lazies, transparent wrappers, and union members (ANY tolerant member
- * suffices: zod tries members and the tolerant one succeeds; intersections must NOT
- * get this treatment, since `undefined` would have to satisfy both sides). This
- * recognizes `z.number().default(7).transform(async v => v)` (outer def `'pipe'`,
- * the ZodDefault at `def.in`) structurally, since an async stage pushes the
- * validate-probe to a Promise. `ancestors` tracks the current traversal path so
+ * Whether the field's def chain carries a node that makes a missing key tolerable by
+ * construction — `default`/`prefault` (the default fills), a static `catch` (any
+ * input, including `undefined`, is replaced by the fallback), an undefined-accepting
+ * leaf (`z.any()`/`z.unknown()`), or a Symbol-/function-typed leaf (JSON.stringify
+ * drops such keys from the payload entirely) — unwinding pipe sides, lazies,
+ * transparent wrappers, and union members (ANY tolerant member suffices: zod tries
+ * members and the tolerant one succeeds; intersections must NOT get this treatment,
+ * since `undefined` would have to satisfy both sides). Deciding structurally matters
+ * because an async stage (`.refine(async ...)`, `.transform(async ...)`) pushes the
+ * validate-probe to a Promise. All checks err loosen-only: a false positive merely
+ * drops a field from the advertised `required`, which can never make a validating
+ * client reject a shipped payload. `ancestors` tracks the current traversal path so
  * recursive lazies stay bounded.
  */
 function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
     if (typeof field !== 'object' || field === null || ancestors.has(field)) return false;
-    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown; options?: unknown } } })
-        ._zod?.def;
+    const def = (
+        field as {
+            _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown; out?: unknown; options?: unknown } };
+        }
+    )._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
     // `catch` must be recognized BEFORE the wrapper unwind below would step past it.
     if (def.type === 'default' || def.type === 'prefault' || def.type === 'catch') return true;
+    if (def.type === 'any' || def.type === 'unknown' || def.type === 'symbol' || def.type === 'function') return true;
     const path = new Set(ancestors);
     path.add(field);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
@@ -407,7 +412,14 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
         }
     }
     if (def.type === 'pipe' && def.in !== undefined) {
-        return hasStructuralMissingKeyTolerance(def.in, path);
+        if (hasStructuralMissingKeyTolerance(def.in, path)) return true;
+        // `z.preprocess(fn, inner)` builds the opposite pipe — the transform sits at
+        // `def.in` and the tolerant node (e.g. a default) at `def.out`.
+        const inDef = (def.in as { _zod?: { def?: { type?: string } } })._zod?.def;
+        if (inDef?.type === 'transform' && def.out !== undefined) {
+            return hasStructuralMissingKeyTolerance(def.out, path);
+        }
+        return false;
     }
     if (def.type === 'union' && Array.isArray(def.options)) {
         return def.options.some(option => hasStructuralMissingKeyTolerance(option, path));
@@ -516,10 +528,12 @@ export function standardSchemaToJsonSchema(
     // so misregistered roots keep failing loudly instead of being advertised as
     // permanently-uncallable `{type: 'object'}` tools.
     if (result.type === undefined) {
-        const nonObjectType = nonObjectTypelessRootType(schema);
-        if (nonObjectType !== undefined) {
+        const verdict = nonObjectTypelessRootVerdict(schema);
+        // Quiet verdicts (compositions of only non-finite number literals) listed
+        // silently pre-#2464 and keep the unconditional stamp below.
+        if (verdict !== undefined && verdict.loud) {
             throw new Error(
-                `MCP tool and prompt schemas must describe objects (got a non-object ${nonObjectType} schema). ` +
+                `MCP tool and prompt schemas must describe objects (got a non-object ${verdict.type} schema). ` +
                     `Wrap your schema in z.object({...}) or equivalent.`
             );
         }
@@ -528,19 +542,28 @@ export function standardSchemaToJsonSchema(
 }
 
 /**
- * The def type of a zod root that emits a typeless node yet provably cannot describe
+ * The verdict for a zod root that emits a typeless node yet provably cannot describe
  * an object, or `undefined` when the root may. Unwraps transparent wrappers, lazies,
  * and pipe input sides, then recurses into compositions: a union is non-object when
  * EVERY member is, an intersection when ANY side is (the value must satisfy both). A
  * member counts as non-object ONLY when it unwinds to a genuinely unrepresentable
- * type, or to a literal whose values are unrepresentable or mixed-type — representable
- * members (including single-type literals, zod's idiomatic enum spelling, and
- * representable non-object types like `z.string()`) keep the composition accepted,
- * exactly as such roots converted before #2464. `ancestors` tracks only the current
- * traversal path, so a shared instance gets a real verdict at every occurrence while
- * recursive lazies stay bounded.
+ * type, or to a literal carrying unrepresentable values — representable members
+ * (including single-type literals, zod's idiomatic enum spelling, and representable
+ * non-object types like `z.string()`) keep the composition accepted, exactly as such
+ * roots converted before #2464.
+ *
+ * The verdict carries loudness for the loudness-parity contract: `loud` shapes made
+ * pre-#2464 conversion throw (bigint/symbol/date/…, literals with undefined/bigint/
+ * symbol values) and must keep throwing; `quiet` shapes (non-finite number literals,
+ * which zod silently emits as `{type: 'number', const: null}`) listed silently
+ * pre-#2464 and must keep listing — the guard throws only for a loud-containing
+ * verdict. `ancestors` tracks only the current traversal path, so a shared instance
+ * gets a real verdict at every occurrence while recursive lazies stay bounded.
  */
-function nonObjectTypelessRootType(schema: unknown, ancestors: ReadonlySet<unknown> = new Set()): string | undefined {
+function nonObjectTypelessRootVerdict(
+    schema: unknown,
+    ancestors: ReadonlySet<unknown> = new Set()
+): { type: string; loud: boolean } | undefined {
     if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return undefined;
     const def = (
         schema as {
@@ -563,52 +586,68 @@ function nonObjectTypelessRootType(schema: unknown, ancestors: ReadonlySet<unkno
     path.add(schema);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
         try {
-            return nonObjectTypelessRootType((def.getter as () => unknown)(), path);
+            return nonObjectTypelessRootVerdict((def.getter as () => unknown)(), path);
         } catch {
             return undefined;
         }
     }
     if (def.type === 'pipe' && def.in !== undefined) {
-        return nonObjectTypelessRootType(def.in, path);
+        return nonObjectTypelessRootVerdict(def.in, path);
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-        return nonObjectTypelessRootType(def.innerType, path);
+        return nonObjectTypelessRootVerdict(def.innerType, path);
     }
     if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
-        return def.options.every(option => nonObjectTypelessRootType(option, path) !== undefined) ? 'union' : undefined;
+        const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, path));
+        if (verdicts.includes(undefined)) return undefined;
+        return { type: 'union', loud: verdicts.some(verdict => verdict?.loud === true) };
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
-        return nonObjectTypelessRootType(def.left, path) !== undefined || nonObjectTypelessRootType(def.right, path) !== undefined
-            ? 'intersection'
-            : undefined;
+        const left = nonObjectTypelessRootVerdict(def.left, path);
+        const right = nonObjectTypelessRootVerdict(def.right, path);
+        if (left === undefined && right === undefined) return undefined;
+        return { type: 'intersection', loud: left?.loud === true || right?.loud === true };
     }
     if (def.type === 'literal') {
-        return isNonObjectTypelessLiteral(def.values) ? 'literal' : undefined;
+        const loudness = nonObjectLiteralLoudness(def.values);
+        return loudness === undefined ? undefined : { type: 'literal', loud: loudness === 'loud' };
     }
-    return NON_OBJECT_UNREPRESENTABLE_TYPES.has(def.type) ? def.type : undefined;
+    return NON_OBJECT_UNREPRESENTABLE_TYPES.has(def.type) ? { type: def.type, loud: true } : undefined;
 }
 
 /**
- * Whether a literal carries a genuinely unrepresentable value (`undefined`, bigint,
- * symbol, or a non-finite number) — only those made pre-#2464 conversion fail loudly,
- * so only those may reject here. Representable literals — including single-type ones
+ * The non-object loudness of a literal's values, or `undefined` when the literal may
+ * be JSON-satisfiable. `'loud'`: a value zod's own converter threw on pre-#2464
+ * (`undefined`, bigint, symbol) — such roots must keep failing loudly. `'quiet'`:
+ * only non-finite numbers (`Infinity`/`-Infinity`/`NaN`), which zod silently emits
+ * as `{type: 'number', const: null}` — non-object, but such roots listed silently
+ * pre-#2464 and must keep listing. Any representable value (string, finite number,
+ * boolean, null) makes the literal satisfiable via JSON: `undefined`
  * (`z.union([z.literal('admin'), z.literal('member')])`, zod's idiomatic enum
- * spelling) and mixed-type value lists (`z.literal(['a', 1])` emits a valid
- * `{enum: ['a', 1]}`) — keep converting and listing exactly as they did pre-#2464.
+ * spelling, and mixed-type lists like `z.literal(['a', 1])` all keep converting
+ * exactly as they did pre-#2464).
  */
-function isNonObjectTypelessLiteral(values: unknown): boolean {
-    if (!Array.isArray(values) || values.length === 0) return true;
+function nonObjectLiteralLoudness(values: unknown): 'loud' | 'quiet' | undefined {
+    if (!Array.isArray(values) || values.length === 0) return 'loud';
+    let representable = false;
+    let nonFinite = false;
     for (const value of values) {
-        if (value === null) continue;
+        if (value === null) {
+            representable = true;
+            continue;
+        }
         const valueType = typeof value;
         if (valueType !== 'string' && valueType !== 'number' && valueType !== 'boolean') {
-            return true; // undefined / bigint / symbol values are unrepresentable
+            return 'loud'; // undefined / bigint / symbol values threw pre-#2464
         }
         if (valueType === 'number' && !Number.isFinite(value as number)) {
-            return true; // Infinity / -Infinity / NaN cannot ride JSON either
+            nonFinite = true;
+        } else {
+            representable = true;
         }
     }
-    return false;
+    if (representable) return undefined;
+    return nonFinite ? 'quiet' : undefined;
 }
 
 /**
@@ -645,43 +684,6 @@ const WRAPPER_ZOD_DEF_TYPES: ReadonlySet<string> = new Set([
     'catch',
     'promise'
 ]);
-
-/**
- * The innermost def type of a zod schema, unwrapped through transparent wrappers
- * (`optional`/`nullable`/`readonly`/`default`/`prefault`/`catch`/`promise` via
- * `innerType`, `lazy` via its getter, and `pipe` via its INPUT side `def.in` — the
- * side `io: 'input'` conversion and input validation both consume) so
- * `z.bigint().optional()`, `z.lazy(() => z.bigint())`, and
- * `z.bigint().transform(...)` all report `'bigint'`. A seen-set bounds recursive
- * lazies; non-zod schemas and throwing lazy getters yield `undefined`.
- */
-function unwrappedZodDefType(schema: unknown): string | undefined {
-    const seen = new Set<unknown>();
-    let current = schema;
-    while (typeof current === 'object' && current !== null && !seen.has(current)) {
-        seen.add(current);
-        const def = (current as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown } } })._zod?.def;
-        if (def === undefined || typeof def.type !== 'string') return undefined;
-        if (def.type === 'lazy' && typeof def.getter === 'function') {
-            try {
-                current = (def.getter as () => unknown)();
-            } catch {
-                return undefined;
-            }
-            continue;
-        }
-        if (def.type === 'pipe' && def.in !== undefined) {
-            current = def.in;
-            continue;
-        }
-        if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-            current = def.innerType;
-            continue;
-        }
-        return def.type;
-    }
-    return undefined;
-}
 
 /**
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
