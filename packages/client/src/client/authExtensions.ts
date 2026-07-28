@@ -904,17 +904,35 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
      * the verdict may name the most recently handed-out assertion rather than the
      * exact one the failing flow sent; that is conservative and fails closed.
      * `'all'` is a host-driven reset rather than a rejection, so it clears the
-     * memory instead of recording one. The remaining scopes name state this
-     * provider does not keep.
+     * memory instead of recording one. `'discovery'` drops the cached
+     * authorization server and resource URLs so a later flow cannot mint an
+     * assertion against a stale issuer; `auth()` repopulates them on its next
+     * discovery pass. `'client'` and `'verifier'` name state this provider does
+     * not keep.
      */
     invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
-        if (scope === 'tokens') {
-            this._tokens = undefined;
-            this._rejectedAssertion = this._lastAssertion;
-        } else if (scope === 'all') {
-            this._tokens = undefined;
-            this._lastAssertion = undefined;
-            this._rejectedAssertion = undefined;
+        switch (scope) {
+            case 'tokens': {
+                this._tokens = undefined;
+                this._rejectedAssertion = this._lastAssertion;
+                break;
+            }
+            case 'discovery': {
+                this._authorizationServerUrl = undefined;
+                this._resourceUrl = undefined;
+                break;
+            }
+            case 'all': {
+                this._tokens = undefined;
+                this._lastAssertion = undefined;
+                this._rejectedAssertion = undefined;
+                this._authorizationServerUrl = undefined;
+                this._resourceUrl = undefined;
+                break;
+            }
+            default: {
+                break;
+            }
         }
     }
 

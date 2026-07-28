@@ -25,7 +25,7 @@
  * API socket instead of a temp file this process wrote.
  */
 import { randomUUID } from 'node:crypto';
-import { writeFileSync } from 'node:fs';
+import { rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -78,7 +78,10 @@ const workloadJwt = await new jose.SignJWT({})
 // out-of-band handshake. In a pod this path is the projected-volume mount point
 // (`/var/run/secrets/tokens/...`); `WIF_WORKLOAD_TOKEN_PATH` overrides it.
 const tokenPath = process.env.WIF_WORKLOAD_TOKEN_PATH ?? path.join(tmpdir(), `mcp-wif-workload-token-${port}.jwt`);
-writeFileSync(tokenPath, workloadJwt, { mode: 0o600 });
+// `wx` (O_CREAT | O_EXCL) refuses to follow a pre-planted symlink at this
+// well-known path and fails closed if anything reappears between rm and open.
+rmSync(tokenPath, { force: true });
+writeFileSync(tokenPath, workloadJwt, { mode: 0o600, flag: 'wx' });
 
 // ---- Authorization Server (jwt-bearer only) ----
 const metadata: OAuthMetadata = {
@@ -133,12 +136,25 @@ asApp.post('/token', async (req, res) => {
         res.status(400).json({ error: 'invalid_grant' });
         return;
     }
+    // Bind the issued identity to the verified workload, not to request
+    // parameters: federation policy decides what this subject may act as. A
+    // request may omit client_id entirely (the assertion is the credential),
+    // but it must not claim a different one.
+    if (body.client_id !== undefined && body.client_id !== DEMO_CLIENT_ID) {
+        console.error(`[auth-server] client_id ${body.client_id} is not federated to ${WORKLOAD_SUBJECT}`);
+        res.status(400).json({ error: 'invalid_grant' });
+        return;
+    }
     const scopes = (body.scope ?? '').split(' ').filter(Boolean);
+    if (!scopes.every(scope => metadata.scopes_supported!.includes(scope))) {
+        res.status(400).json({ error: 'invalid_scope' });
+        return;
+    }
     const accessToken = randomUUID();
     const expiresIn = 300;
     issuedTokens.set(accessToken, {
         token: accessToken,
-        clientId: body.client_id ?? DEMO_CLIENT_ID,
+        clientId: DEMO_CLIENT_ID,
         scopes,
         expiresAt: Math.floor(Date.now() / 1000) + expiresIn,
         extra: { workloadSubject: WORKLOAD_SUBJECT }

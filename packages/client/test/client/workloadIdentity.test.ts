@@ -331,6 +331,26 @@ describe('WorkloadIdentityProvider rejection memory', () => {
 
         expect(provider.tokens()?.access_token).toBe('stored-token');
     });
+
+    it("drops cached discovery URLs on invalidateCredentials('discovery') but keeps tokens", () => {
+        const provider = makeProvider();
+        provider.saveTokens({ access_token: 'stored-token', token_type: 'Bearer' });
+
+        provider.invalidateCredentials('discovery');
+
+        expect(provider.authorizationServerUrl()).toBeUndefined();
+        expect(provider.resourceUrl?.()).toBeUndefined();
+        expect(provider.tokens()?.access_token).toBe('stored-token');
+    });
+
+    it("drops cached discovery URLs on invalidateCredentials('all')", () => {
+        const provider = makeProvider();
+
+        provider.invalidateCredentials('all');
+
+        expect(provider.authorizationServerUrl()).toBeUndefined();
+        expect(provider.resourceUrl?.()).toBeUndefined();
+    });
 });
 
 describe('WorkloadIdentityProvider (end-to-end with auth())', () => {
