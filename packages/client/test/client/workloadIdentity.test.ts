@@ -1,3 +1,5 @@
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -311,5 +313,111 @@ describe('WorkloadIdentityProvider (end-to-end with auth())', () => {
         const tokens = provider.tokens();
         expect(tokens).toBeTruthy();
         expect(tokens?.access_token).toBe('test-access-token');
+    });
+});
+
+/**
+ * Hand-rolled fetch mock in the auth.test.ts style: createMockOAuthFetch cannot
+ * serve error responses or count calls, so the failure-path tests script the
+ * token endpoint themselves and log every token request body.
+ */
+function createFailingOAuthFetch(tokenErrorCode: string): { fetchMock: FetchLike; tokenRequestBodies: URLSearchParams[] } {
+    const tokenRequestBodies: URLSearchParams[] = [];
+
+    const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
+        const url = input instanceof URL ? input : new URL(input);
+
+        if (url.origin === RESOURCE_SERVER_URL.slice(0, -1) && url.pathname === '/.well-known/oauth-protected-resource') {
+            return Response.json({
+                resource: RESOURCE_SERVER_URL,
+                authorization_servers: [AUTH_SERVER_URL]
+            });
+        }
+
+        if (url.origin === AUTH_SERVER_URL && url.pathname === '/.well-known/oauth-authorization-server') {
+            return Response.json({
+                issuer: AUTH_SERVER_URL,
+                authorization_endpoint: `${AUTH_SERVER_URL}/authorize`,
+                token_endpoint: `${AUTH_SERVER_URL}/token`,
+                response_types_supported: ['code'],
+                grant_types_supported: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
+                token_endpoint_auth_methods_supported: ['none']
+            });
+        }
+
+        if (url.origin === AUTH_SERVER_URL && url.pathname === '/token') {
+            tokenRequestBodies.push(new URLSearchParams(init?.body as URLSearchParams));
+            return Response.json({ error: tokenErrorCode }, { status: 400 });
+        }
+
+        throw new Error(`Unexpected URL in scripted OAuth fetch: ${url.toString()}`);
+    });
+
+    return { fetchMock, tokenRequestBodies };
+}
+
+describe('WorkloadIdentityProvider failure paths through auth()', () => {
+    it('invalid_grant with a static assertion: replay refusal surfaces, exactly one token request', async () => {
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: STATIC_ASSERTION
+        });
+        const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_grant');
+
+        // auth() invalidates tokens on invalid_grant and re-runs authInternal once;
+        // the provider refuses to replay the identical rejected assertion on that
+        // re-run, so the rejection carries the wif-no-retry refusal.
+        await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toThrow(/wif-no-retry/);
+
+        expect(tokenRequestBodies).toHaveLength(1);
+        expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+        expect(tokenRequestBodies[0]!.get('assertion')).toBe(STATIC_ASSERTION);
+    });
+
+    it('invalid_grant with a fresh-assertion callback: re-run allowed, error still surfaces after exactly two jwt-bearer requests', async () => {
+        let counter = 0;
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: () => `workload.jwt.${counter++}`
+        });
+        const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_grant');
+
+        const rejection = await auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock }).then(
+            () => undefined,
+            error => error
+        );
+
+        expect(rejection).toBeInstanceOf(OAuthError);
+        expect((rejection as OAuthError).code).toBe(OAuthErrorCode.InvalidGrant);
+
+        expect(tokenRequestBodies).toHaveLength(2);
+        expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+        expect(tokenRequestBodies[1]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+        expect(tokenRequestBodies[0]!.get('assertion')).toBe('workload.jwt.0');
+        expect(tokenRequestBodies[1]!.get('assertion')).toBe('workload.jwt.1');
+        expect(tokenRequestBodies.filter(body => body.get('grant_type') === 'authorization_code')).toHaveLength(0);
+    });
+
+    it('invalid_scope surfaces without retry, grant fallback, or redirect', async () => {
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: STATIC_ASSERTION
+        });
+        const redirectSpy = vi.spyOn(provider, 'redirectToAuthorization');
+        const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_scope');
+
+        const rejection = await auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock }).then(
+            () => undefined,
+            error => error
+        );
+
+        expect(rejection).toBeInstanceOf(OAuthError);
+        expect((rejection as OAuthError).code).toBe(OAuthErrorCode.InvalidScope);
+
+        // invalid_scope is outside auth()'s recoverable set, so authInternal runs once
+        expect(tokenRequestBodies).toHaveLength(1);
+        expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+        expect(tokenRequestBodies.filter(body => body.get('grant_type') === 'authorization_code')).toHaveLength(0);
+        expect(redirectSpy).not.toHaveBeenCalled();
     });
 });
