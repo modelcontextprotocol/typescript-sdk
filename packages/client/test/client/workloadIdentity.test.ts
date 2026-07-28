@@ -45,12 +45,6 @@ describe('WorkloadIdentityProvider token request', () => {
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
     });
 
-    it('uses the framework-supplied scope argument', async () => {
-        const params = await makeProvider().prepareTokenRequest('challenge.scope');
-
-        expect(params.get('scope')).toBe('challenge.scope');
-    });
-
     it('prefers the framework-supplied scope over the configured scope', async () => {
         const params = await makeProvider({ scope: 'configured' }).prepareTokenRequest('challenge.scope');
 
@@ -70,12 +64,14 @@ describe('WorkloadIdentityProvider token request', () => {
 
     it('invokes the assertion callback with the discovered context', async () => {
         let seenContext: WorkloadAssertionContext | undefined;
+        const customFetch = vi.fn(fetch);
 
         const provider = makeProvider({
             assertion: async context => {
                 seenContext = context;
                 return 'callback.jwt.value';
-            }
+            },
+            fetchFn: customFetch
         });
 
         const params = await provider.prepareTokenRequest('requested.scope');
@@ -86,24 +82,7 @@ describe('WorkloadIdentityProvider token request', () => {
             resourceUrl: RESOURCE_SERVER_URL,
             scope: 'requested.scope'
         });
-        expect(seenContext?.fetchFn).toBeDefined();
-    });
-
-    it('passes a custom fetchFn to the assertion callback', async () => {
-        const customFetch = vi.fn(fetch);
-        let capturedFetchFn: unknown;
-
-        const provider = makeProvider({
-            assertion: async context => {
-                capturedFetchFn = context.fetchFn;
-                return 'callback.jwt.value';
-            },
-            fetchFn: customFetch
-        });
-
-        await provider.prepareTokenRequest();
-
-        expect(capturedFetchFn).toBe(customFetch);
+        expect(seenContext?.fetchFn).toBe(customFetch);
     });
 
     it('passes undefined resourceUrl to the callback when none was discovered', async () => {
@@ -177,9 +156,7 @@ describe('WorkloadIdentityProvider client information and state', () => {
         expect(metadata.redirect_uris).toEqual([]);
         expect(metadata.grant_types).toEqual(['urn:ietf:params:oauth:grant-type:jwt-bearer']);
         expect(metadata.token_endpoint_auth_method).toBe('none');
-    });
 
-    it('uses a custom client name when provided', () => {
         expect(makeProvider({ clientName: 'custom-wif-client' }).clientMetadata.client_name).toBe('custom-wif-client');
     });
 
@@ -190,30 +167,6 @@ describe('WorkloadIdentityProvider client information and state', () => {
 
         provider.saveTokens({ access_token: 'stored-token', token_type: 'Bearer' });
         expect(provider.tokens()?.access_token).toBe('stored-token');
-    });
-
-    it('stores and retrieves authorization server URL', () => {
-        const provider = new WorkloadIdentityProvider({
-            clientId: 'wif-client',
-            assertion: STATIC_ASSERTION
-        });
-
-        expect(provider.authorizationServerUrl?.()).toBeUndefined();
-
-        provider.saveAuthorizationServerUrl(AUTH_SERVER_URL);
-        expect(provider.authorizationServerUrl?.()).toBe(AUTH_SERVER_URL);
-    });
-
-    it('stores and retrieves resource URL', () => {
-        const provider = new WorkloadIdentityProvider({
-            clientId: 'wif-client',
-            assertion: STATIC_ASSERTION
-        });
-
-        expect(provider.resourceUrl?.()).toBeUndefined();
-
-        provider.saveResourceUrl?.(RESOURCE_SERVER_URL);
-        expect(provider.resourceUrl?.()).toBe(RESOURCE_SERVER_URL);
     });
 });
 
@@ -234,15 +187,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
 
         const params = await provider.prepareTokenRequest();
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
-    });
-
-    it('allows a new request after saveTokens', async () => {
-        const provider = makeProvider();
-
-        await provider.prepareTokenRequest();
-        provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
-
-        await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
     });
 
     it('records a rejection that arrives after a concurrent flow already succeeded', async () => {
@@ -293,12 +237,15 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         await expect(provider.prepareTokenRequest()).resolves.toBeDefined();
     });
 
-    it("clears the rejection on invalidateCredentials('all')", async () => {
+    it("clears the rejection and cached discovery URLs on invalidateCredentials('all')", async () => {
         const provider = makeProvider();
 
         await provider.prepareTokenRequest();
         provider.invalidateCredentials('tokens');
         provider.invalidateCredentials('all');
+
+        expect(provider.authorizationServerUrl()).toBeUndefined();
+        expect(provider.resourceUrl?.()).toBeUndefined();
 
         const params = await provider.prepareTokenRequest();
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
@@ -333,15 +280,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         expect(provider.authorizationServerUrl()).toBeUndefined();
         expect(provider.resourceUrl?.()).toBeUndefined();
         expect(provider.tokens()?.access_token).toBe('stored-token');
-    });
-
-    it("drops cached discovery URLs on invalidateCredentials('all')", () => {
-        const provider = makeProvider();
-
-        provider.invalidateCredentials('all');
-
-        expect(provider.authorizationServerUrl()).toBeUndefined();
-        expect(provider.resourceUrl?.()).toBeUndefined();
     });
 });
 
