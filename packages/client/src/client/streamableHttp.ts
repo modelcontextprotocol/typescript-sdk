@@ -1174,14 +1174,23 @@ export class StreamableHTTPClientTransport implements Transport {
                         false
                     );
                 } else if (responseMediaType === 'application/json') {
-                    // For non-streaming servers, we might get direct JSON responses
+                    // For non-streaming servers, we might get direct JSON responses.
+                    //
+                    // Read the body as text first: a `text()` rejection is a
+                    // network failure mid-body-read (undici rejects with
+                    // `TypeError('terminated')` when the connection resets
+                    // after the 2xx headers arrived) — the exchange did NOT
+                    // complete, so it propagates unstamped and stays a typed
+                    // network error. Only the fully received text proves a
+                    // completed exchange; a body that then fails `JSON.parse`
+                    // (empty, or not JSON at all) is a completed exchange with
+                    // no reply in it — that failure alone is stamped
+                    // (bodiless) for the probe's classifier.
+                    const bodyText = await response.text();
                     let data: unknown;
                     try {
-                        data = await response.json();
+                        data = JSON.parse(bodyText);
                     } catch (error) {
-                        // A 2xx `application/json` answer whose body is empty or
-                        // not JSON at all: a completed exchange with no reply in
-                        // it — stamped (bodiless) for the probe's classifier.
                         throw markInvalidReplyEscape(error, undefined);
                     }
                     const responseMessages = Array.isArray(data)
