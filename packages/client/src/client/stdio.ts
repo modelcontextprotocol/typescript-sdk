@@ -313,16 +313,18 @@ export class StdioClientTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             if (!this._process?.stdin) {
                 throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
             }
 
             const json = serializeMessage(message);
-            if (this._process.stdin.write(json)) {
+            // The write callback runs once the chunk is flushed or the write fails,
+            // so a backpressured send still settles when the server exits and
+            // destroys the pipe. Waiting on 'drain' alone parks forever there,
+            // because a destroyed stream never drains.
+            if (this._process.stdin.write(json, error => (error ? reject(error) : resolve()))) {
                 resolve();
-            } else {
-                this._process.stdin.once('drain', resolve);
             }
         });
     }
