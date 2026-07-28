@@ -379,12 +379,13 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
 /**
  * Whether the field's def chain carries a node that makes a missing key tolerable by
  * construction — `default`/`prefault` (the default fills), a static `catch` (any
- * input, including `undefined`, is replaced by the fallback), an undefined-accepting
- * leaf (`z.any()`/`z.unknown()`), or a Symbol-/function-typed leaf (JSON.stringify
- * drops such keys from the payload entirely) — unwinding pipe sides, lazies,
- * transparent wrappers, and union members (ANY tolerant member suffices: zod tries
- * members and the tolerant one succeeds; intersections must NOT get this treatment,
- * since `undefined` would have to satisfy both sides). Deciding structurally matters
+ * input, including `undefined`, is replaced by the fallback), `optional`, an
+ * undefined-accepting leaf (`z.any()`/`z.unknown()`/`z.undefined()`/`z.void()`, or a
+ * literal whose values include `undefined`), or a Symbol-/function-typed leaf
+ * (JSON.stringify drops such keys from the payload entirely) — unwinding pipe sides,
+ * lazies, transparent wrappers, union members (ANY tolerant member suffices: zod
+ * tries members and the tolerant one succeeds), and intersections with EVERY-side
+ * semantics (`undefined` must parse through both sides). Deciding structurally matters
  * because an async stage (`.refine(async ...)`, `.transform(async ...)`) pushes the
  * validate-probe to a Promise. All checks err loosen-only: a false positive merely
  * drops a field from the advertised `required`, which can never make a validating
@@ -395,13 +396,30 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
     if (typeof field !== 'object' || field === null || ancestors.has(field)) return false;
     const def = (
         field as {
-            _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown; out?: unknown; options?: unknown } };
+            _zod?: {
+                def?: {
+                    type?: string;
+                    innerType?: unknown;
+                    getter?: unknown;
+                    in?: unknown;
+                    out?: unknown;
+                    options?: unknown;
+                    left?: unknown;
+                    right?: unknown;
+                    values?: unknown;
+                };
+            };
         }
     )._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
-    // `catch` must be recognized BEFORE the wrapper unwind below would step past it.
-    if (def.type === 'default' || def.type === 'prefault' || def.type === 'catch') return true;
-    if (def.type === 'any' || def.type === 'unknown' || def.type === 'symbol' || def.type === 'function') return true;
+    // `catch` and `optional` must be recognized BEFORE the wrapper unwind below
+    // would step past the very node granting tolerance (bare `.optional()` fields
+    // are already excluded from `required` by zod's emitter, but one inside a pipe
+    // — `z.string().optional().transform(async ...)` — is not).
+    if (def.type === 'default' || def.type === 'prefault' || def.type === 'catch' || def.type === 'optional') return true;
+    if (def.type === 'any' || def.type === 'unknown' || def.type === 'undefined' || def.type === 'void') return true;
+    if (def.type === 'symbol' || def.type === 'function') return true;
+    if (def.type === 'literal' && Array.isArray(def.values) && def.values.includes(undefined)) return true;
     const path = new Set(ancestors);
     path.add(field);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
@@ -423,6 +441,11 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
     }
     if (def.type === 'union' && Array.isArray(def.options)) {
         return def.options.some(option => hasStructuralMissingKeyTolerance(option, path));
+    }
+    if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
+        // EVERY-side semantics: `undefined` must parse through BOTH sides (each
+        // filling its default) for zod to merge the results.
+        return hasStructuralMissingKeyTolerance(def.left, path) && hasStructuralMissingKeyTolerance(def.right, path);
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
         return hasStructuralMissingKeyTolerance(def.innerType, path);
@@ -573,6 +596,7 @@ function nonObjectTypelessRootVerdict(
                     innerType?: unknown;
                     getter?: unknown;
                     in?: unknown;
+                    out?: unknown;
                     options?: unknown;
                     left?: unknown;
                     right?: unknown;
@@ -592,7 +616,15 @@ function nonObjectTypelessRootVerdict(
         }
     }
     if (def.type === 'pipe' && def.in !== undefined) {
-        return nonObjectTypelessRootVerdict(def.in, path);
+        const inVerdict = nonObjectTypelessRootVerdict(def.in, path);
+        if (inVerdict !== undefined) return inVerdict;
+        // `z.preprocess(fn, inner)` builds the opposite pipe — the transform sits at
+        // `def.in` (verdict undefined by design) and the real schema at `def.out`.
+        const inDef = (def.in as { _zod?: { def?: { type?: string } } })._zod?.def;
+        if (inDef?.type === 'transform' && def.out !== undefined) {
+            return nonObjectTypelessRootVerdict(def.out, path);
+        }
+        return undefined;
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
         return nonObjectTypelessRootVerdict(def.innerType, path);

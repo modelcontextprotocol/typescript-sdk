@@ -328,6 +328,34 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
     });
 
+    test('preprocess-wrapped unrepresentable roots throw (transform at def.in, schema at def.out)', () => {
+        // z.preprocess builds the opposite pipe; the guard must look past the
+        // transform at def.in to the real schema at def.out.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.bigint()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.preprocess(v => v, z.bigint()), z.symbol()]), 'input')).toThrow(
+            /must describe objects/
+        );
+        // Object-rooted preprocess stays accepted; date still throws via the
+        // explicit-type guard after the rewrite.
+        expect(
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.object({ a: z.string() })),
+                'input'
+            ).type
+        ).toBe('object');
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.date()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+    });
+
     test('compositions built solely of non-finite literals keep listing (quiet verdicts)', () => {
         // These converted silently pre-#2464 (zod emits {type: 'number', const: null}
         // without throwing) — throwing here would fail the whole tools/list. The
@@ -422,6 +450,42 @@ describe('zod conversion options (#2464)', () => {
 
         // Same predicate at the record call site.
         const record = standardSchemaToJsonSchema(z.record(z.enum(['a', 'b']), z.union([z.symbol(), z.string()])), 'output');
+        expect(record.required).toBeUndefined();
+    });
+
+    test('optional-in-pipe, void, undefined-literals, and both-tolerant intersections drop from output required', () => {
+        const schema = z.object({
+            opt: z
+                .string()
+                .optional()
+                .transform(async v => v ?? 'x'),
+            w: z.void().refine(async () => true),
+            l: z.literal(undefined).refine(async () => true),
+            m: z
+                .intersection(z.object({ a: z.string() }).default({ a: 'x' }), z.object({ b: z.string() }).default({ b: 'y' }))
+                .refine(async () => true),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `optional` grants tolerance itself and must be recognized before the
+        // wrapper unwind steps past it; void/undefined-literals accept a missing key
+        // outright; an intersection tolerates one when BOTH sides do (each default
+        // fills and zod merges the results). Async stages defeat the probe, so all
+        // must be decided structurally.
+        expect(result.required).toEqual(['name']);
+
+        // Same predicate at the record call site.
+        const record = standardSchemaToJsonSchema(
+            z.record(
+                z.enum(['a', 'b']),
+                z
+                    .string()
+                    .optional()
+                    .transform(async v => v ?? 'x')
+            ),
+            'output'
+        );
         expect(record.required).toBeUndefined();
     });
 
