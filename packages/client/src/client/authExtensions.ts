@@ -732,3 +732,234 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
         return params;
     }
 }
+
+/**
+ * Context provided to the assertion callback in {@linkcode WorkloadIdentityProvider}.
+ * Contains discovered information needed to mint or select a workload assertion.
+ */
+export interface WorkloadAssertionContext {
+    /**
+     * The authorization server URL of the target MCP server.
+     * Discovered via RFC 9728 protected resource metadata.
+     */
+    authorizationServerUrl: string;
+
+    /**
+     * The resource URL of the target MCP server, when discovered
+     * via RFC 9728 protected resource metadata.
+     */
+    resourceUrl?: string;
+
+    /**
+     * Optional scope being requested for the MCP server.
+     */
+    scope?: string;
+
+    /**
+     * Fetch function to use for HTTP requests (e.g., to reach a local token issuer).
+     */
+    fetchFn: FetchLike;
+}
+
+/**
+ * Callback function type that provides a workload JWT assertion.
+ *
+ * The callback receives context about the target MCP server (authorization server URL,
+ * resource URL, scope) and should return a workload JWT (for example a Kubernetes
+ * projected service account token or a SPIFFE JWT-SVID) minted for that authorization
+ * server's audience.
+ */
+export type WorkloadAssertionCallback = (context: WorkloadAssertionContext) => string | Promise<string>;
+
+/**
+ * Options for creating a {@linkcode WorkloadIdentityProvider}.
+ */
+export interface WorkloadIdentityProviderOptions {
+    /**
+     * The workload JWT assertion presented to the authorization server, either as a
+     * static string or as a callback that returns a fresh assertion per token request.
+     *
+     * The callback receives the discovered authorization server URL, resource URL,
+     * and requested scope, and owns the audience decision for the assertion it returns.
+     */
+    assertion: string | WorkloadAssertionCallback;
+
+    /**
+     * The `client_id` registered with the MCP server's authorization server.
+     */
+    clientId: string;
+
+    /**
+     * Optional client name for metadata.
+     */
+    clientName?: string;
+
+    /**
+     * Space-separated scopes values requested by the client.
+     */
+    scope?: string;
+
+    /**
+     * Custom fetch implementation. Defaults to global fetch.
+     */
+    fetchFn?: FetchLike;
+
+    /**
+     * The authorization server's `issuer` identifier this workload identity was registered with.
+     * Seeds the SEP-2352 issuer stamp; see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
+     */
+    expectedIssuer?: string;
+}
+
+/**
+ * OAuth provider for Workload Identity Federation (SEP-1933) using the JWT bearer grant.
+ *
+ * This provider is designed for non-interactive workloads that already hold a
+ * platform-issued JWT (for example a Kubernetes projected service account token or a
+ * SPIFFE JWT-SVID) and exchange it directly for an access token via the
+ * `urn:ietf:params:oauth:grant-type:jwt-bearer` grant
+ * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.1 | RFC 7523 Section 2.1}).
+ *
+ * @example
+ * ```ts
+ * const provider = new WorkloadIdentityProvider({
+ *     assertion: async ctx => {
+ *         // Return a workload JWT minted for the authorization server's audience
+ *         return await mintWorkloadJwt({ audience: ctx.authorizationServerUrl });
+ *     },
+ *     clientId: 'my-workload-client'
+ * });
+ *
+ * const transport = new StreamableHTTPClientTransport(serverUrl, {
+ *     authProvider: provider
+ * });
+ * ```
+ */
+export class WorkloadIdentityProvider implements OAuthClientProvider {
+    private _tokens?: StoredOAuthTokens;
+    private _clientInfo: StoredOAuthClientInformation;
+    private _clientMetadata: OAuthClientMetadata;
+    private _assertion: string | WorkloadAssertionCallback;
+    private _fetchFn: FetchLike;
+    private _authorizationServerUrl?: string;
+    private _resourceUrl?: string;
+
+    constructor(options: WorkloadIdentityProviderOptions) {
+        this._clientInfo = {
+            client_id: options.clientId,
+            issuer: options.expectedIssuer
+        };
+        this._clientMetadata = {
+            client_name: options.clientName ?? 'workload-identity-client',
+            redirect_uris: [],
+            grant_types: ['urn:ietf:params:oauth:grant-type:jwt-bearer'],
+            token_endpoint_auth_method: 'none',
+            scope: options.scope
+        };
+        this._assertion = options.assertion;
+        this._fetchFn = options.fetchFn ?? fetch;
+    }
+
+    get redirectUrl(): undefined {
+        return undefined;
+    }
+
+    get clientMetadata(): OAuthClientMetadata {
+        return this._clientMetadata;
+    }
+
+    clientInformation(): StoredOAuthClientInformation {
+        return this._clientInfo;
+    }
+
+    // No saveClientInformation: the client identity is constructor-supplied; the SEP-2352 stamp
+    // check enforces `expectedIssuer` and auth() throws
+    // AuthorizationServerMismatchError(expectedIssuer, resolved) on mismatch.
+
+    tokens(): StoredOAuthTokens | undefined {
+        return this._tokens;
+    }
+
+    saveTokens(tokens: StoredOAuthTokens): void {
+        this._tokens = tokens;
+    }
+
+    redirectToAuthorization(): void {
+        throw new Error(
+            'WorkloadIdentityProvider is non-interactive: the authorization server rejected the ' +
+                'jwt-bearer flow and the client attempted an authorization redirect. Check that the ' +
+                'authorization server supports urn:ietf:params:oauth:grant-type:jwt-bearer and ' +
+                'trusts the workload issuer.'
+        );
+    }
+
+    saveCodeVerifier(): void {
+        throw new Error('saveCodeVerifier is not used for jwt-bearer flow');
+    }
+
+    codeVerifier(): string {
+        throw new Error('codeVerifier is not used for jwt-bearer flow');
+    }
+
+    /**
+     * Saves the authorization server URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveAuthorizationServerUrl(authorizationServerUrl: string): void {
+        this._authorizationServerUrl = authorizationServerUrl;
+    }
+
+    /**
+     * Returns the cached authorization server URL if available.
+     */
+    authorizationServerUrl(): string | undefined {
+        return this._authorizationServerUrl;
+    }
+
+    /**
+     * Saves the resource URL discovered during OAuth flow.
+     * This is called by the auth() function after RFC 9728 discovery.
+     */
+    saveResourceUrl?(resourceUrl: string): void {
+        this._resourceUrl = resourceUrl;
+    }
+
+    /**
+     * Returns the cached resource URL if available.
+     */
+    resourceUrl?(): string | undefined {
+        return this._resourceUrl;
+    }
+
+    async prepareTokenRequest(scope?: string): Promise<URLSearchParams> {
+        let assertion: string;
+        if (typeof this._assertion === 'function') {
+            const authServerUrl = this._authorizationServerUrl;
+            if (!authServerUrl) {
+                throw new Error('Authorization server URL not available. Ensure auth() has been called first.');
+            }
+
+            assertion = await this._assertion({
+                authorizationServerUrl: authServerUrl,
+                resourceUrl: this._resourceUrl,
+                scope,
+                fetchFn: this._fetchFn
+            });
+        } else {
+            assertion = this._assertion;
+        }
+
+        // Return params for JWT bearer grant per RFC 7523; auth() sets the RFC 8707
+        // resource parameter after the provider returns.
+        const params = new URLSearchParams({
+            grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+            assertion
+        });
+
+        if (scope) {
+            params.set('scope', scope);
+        }
+
+        return params;
+    }
+}
