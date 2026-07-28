@@ -31,7 +31,6 @@ describe('WorkloadIdentityProvider token request', () => {
         expect(params.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
         expect(params.get('scope')).toBeNull();
-        // auth() sets the RFC 8707 resource parameter after the provider returns
         expect(params.get('resource')).toBeNull();
     });
 
@@ -223,7 +222,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         const provider = makeProvider();
 
         await provider.prepareTokenRequest();
-        // auth() invalidates tokens when the token endpoint rejects the grant
         provider.invalidateCredentials('tokens');
 
         await expect(provider.prepareTokenRequest()).rejects.toThrow(/wif-no-retry/);
@@ -234,8 +232,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
 
         await provider.prepareTokenRequest();
 
-        // An unconfirmed attempt is not a rejected one: concurrent flows and transient
-        // transport failures both leave the assertion perfectly presentable.
         const params = await provider.prepareTokenRequest();
         expect(params.get('assertion')).toBe(STATIC_ASSERTION);
     });
@@ -252,9 +248,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
     it('records a rejection that arrives after a concurrent flow already succeeded', async () => {
         const provider = makeProvider();
 
-        // Flow A presents the assertion and wins; flow B loses the race and its
-        // rejection verdict lands after A's saveTokens. The guard must still know
-        // which assertion the verdict refers to.
         await provider.prepareTokenRequest();
         provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
         provider.invalidateCredentials('tokens');
@@ -305,7 +298,6 @@ describe('WorkloadIdentityProvider rejection memory', () => {
 
         await provider.prepareTokenRequest();
         provider.invalidateCredentials('tokens');
-        // A host-driven reset is not a verdict on the assertion
         provider.invalidateCredentials('all');
 
         const params = await provider.prepareTokenRequest();
@@ -384,7 +376,6 @@ describe('WorkloadIdentityProvider (end-to-end with auth())', () => {
 
                 expect(params.get('resource')).toBe(RESOURCE_SERVER_URL);
 
-                // Public client: client_id travels in the body, no Authorization header
                 expect(params.get('client_id')).toBe('wif-client');
                 const headers = new Headers(init?.headers);
                 expect(headers.get('Authorization')).toBeNull();
@@ -466,9 +457,7 @@ describe('WorkloadIdentityProvider failure paths through auth()', () => {
         });
         const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_grant');
 
-        // auth() invalidates tokens on invalid_grant and re-runs authInternal once;
-        // the provider refuses to replay the identical rejected assertion on that
-        // re-run, so the rejection carries the wif-no-retry refusal.
+        // auth() retries once on invalid_grant, but the provider's replay refusal fires before a second token request is sent.
         await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toThrow(/wif-no-retry/);
 
         expect(tokenRequestBodies).toHaveLength(1);
@@ -530,8 +519,6 @@ describe('WorkloadIdentityProvider failure paths through auth()', () => {
         });
         const { fetchMock, tokenRequestBodies } = createScriptedOAuthFetch(grantedTokenResponse);
 
-        // The second flow reaches prepareTokenRequest before the first one has saved its
-        // tokens, so an unconfirmed assertion must not read as a rejected one.
         const results = await Promise.all([
             auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock }),
             auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })

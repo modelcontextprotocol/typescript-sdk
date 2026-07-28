@@ -831,7 +831,6 @@ export interface WorkloadIdentityProviderOptions {
  * ```ts
  * const provider = new WorkloadIdentityProvider({
  *     assertion: async ctx => {
- *         // Return a workload JWT minted for the authorization server's audience
  *         return await mintWorkloadJwt({ audience: ctx.authorizationServerUrl });
  *     },
  *     clientId: 'my-workload-client'
@@ -891,29 +890,24 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
 
     saveTokens(tokens: StoredOAuthTokens): void {
         this._tokens = tokens;
-        // A granted token settles the credential state: whatever was presented worked,
-        // and any earlier rejection no longer describes this provider's situation.
-        // _lastAssertion stays recorded so a rejection verdict arriving after this
-        // success (from a concurrent flow) can still name the assertion it refuses.
+        // Clears only the rejection, not `_lastAssertion`, so a rejection verdict arriving after this success (e.g. from a concurrent flow) can still name the assertion it refuses.
         this._rejectedAssertion = undefined;
     }
 
     /**
-     * Records the authorization server's verdict on the last assertion this provider
-     * handed out. `auth()` calls this only from its OAuth error paths, so a
-     * `'tokens'` invalidation means the authorization server rejected an exchange
-     * that presented an assertion, and this provider then refuses to re-present that
-     * assertion unchanged. That refusal is a best-effort guard matching the
-     * conformance suite's `wif-no-retry` warning; neither RFC 7523 nor SEP-1933
-     * mandates it. With overlapping flows on one provider
-     * the verdict may name the most recently handed-out assertion rather than the
-     * exact one the failing flow sent; that is conservative and fails closed.
-     * `'all'` is a host-driven reset rather than a rejection, so it clears the
-     * memory instead of recording one. `'discovery'` drops the cached
-     * authorization server and resource URLs so a later flow cannot mint an
-     * assertion against a stale issuer; `auth()` repopulates them on its next
-     * discovery pass. `'client'` and `'verifier'` name state this provider does
-     * not keep.
+     * Records the authorization server's verdict on the last assertion handed out.
+     * `'tokens'`: `auth()` calls this only after the authorization server rejects an
+     * exchange that presented an assertion; the provider then refuses to re-present
+     * that exact assertion, a best-effort guard for the conformance suite's
+     * `wif-no-retry` check (not mandated by RFC 7523 or SEP-1933). Under overlapping
+     * flows the recorded assertion may not be the exact one that failed; that is
+     * conservative and fails closed.
+     * `'discovery'`: clears the cached authorization server and resource URLs so a
+     * later flow cannot mint against a stale issuer; `auth()` repopulates them on
+     * its next discovery pass.
+     * `'all'`: a host-driven reset (not a rejection verdict) that clears all cached
+     * state. `'client'` and `'verifier'` are no-ops; this provider keeps no such
+     * state.
      */
     invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
         switch (scope) {

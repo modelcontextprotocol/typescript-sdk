@@ -104,7 +104,6 @@ const metadata: OAuthMetadata = {
     scopes_supported: ['mcp:tools']
 };
 
-/** Access tokens this AS has issued, keyed by token value. */
 const issuedTokens = new Map<string, AuthInfo>();
 
 const asApp = express();
