@@ -656,6 +656,21 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification that has relatedRequestId 0', async () => {
+            // ARRANGE
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT
+            const firstNotification = protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            const secondNotification = protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await Promise.all([firstNotification, secondNotification]);
+
+            // ASSERT
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
