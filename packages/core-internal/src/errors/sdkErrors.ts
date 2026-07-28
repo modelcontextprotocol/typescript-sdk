@@ -69,7 +69,11 @@ export enum SdkErrorCode {
      * a network failure (a typed connect error, never an era verdict).
      *
      * Negotiation-phase only: this code is never used once an era is
-     * established. Auth walls never carry it: a 401/403 rejecting the probe
+     * established — even transport rows that raise it are keyed to the
+     * probe's reserved `server-discover-probe-` string request-id prefix
+     * (e.g. the Streamable HTTP 202-accepted row), so the public post-connect
+     * `Client.discover()` request can never surface it.
+     * Auth walls never carry it: a 401/403 rejecting the probe
      * uses {@linkcode ClientHttpAuthentication} / {@linkcode ClientHttpForbidden}
      * instead, so era-recovery flows keyed on this code (e.g. cached-verdict
      * gateways) can never persist a verdict for an unauthorized exchange.

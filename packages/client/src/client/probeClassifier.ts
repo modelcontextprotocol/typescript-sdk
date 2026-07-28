@@ -54,9 +54,11 @@ export type ProbeOutcome =
      * (`body` carries the offending parsed value — e.g. an error reply with
      * `id: null` or unknown members), or a bodiless failure (`body` absent) —
      * an empty/unparseable body, a non-MCP content type such as an HTML error
-     * page, or a 202 accepted-without-reply.
+     * page, or a 202 accepted-without-reply. `cause` carries the original
+     * error the transport stamped at its parse boundary, so the modes that
+     * cannot fall back (pin, modern-only) can surface it as diagnostics.
      */
-    | { kind: 'invalid-reply'; body?: unknown }
+    | { kind: 'invalid-reply'; body?: unknown; cause?: unknown }
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text and `statusText` the HTTP reason phrase, when available. */
     | { kind: 'http-error'; status: number; body?: string; statusText?: string }
     | { kind: 'network-error'; error: unknown }

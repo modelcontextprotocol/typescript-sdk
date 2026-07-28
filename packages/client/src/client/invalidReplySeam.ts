@@ -20,6 +20,16 @@
 const INVALID_REPLY = Symbol.for('mcp.invalidReplyBody');
 
 /**
+ * Reserved prefix of the connect-time `server/discover` probe's string request
+ * ids (minted by the negotiation engine's ProbeWindow — the probe uses string
+ * ids and never consumes Protocol's numeric ids). Transport behavior scoped to
+ * the probe exchange — the Streamable HTTP 202-accepted stamp site — keys on
+ * this prefix, so the public post-connect `Client.discover()` request (a
+ * Protocol request with a numeric id) can never match it.
+ */
+export const SERVER_DISCOVER_PROBE_ID_PREFIX = 'server-discover-probe-';
+
+/**
  * Stamp `error` as an invalid-reply escape (with the reply body that failed
  * validation, when one was parsed) and return it — identity-preserving (the
  * same object flows on, `instanceof` and `.cause` chains intact). A

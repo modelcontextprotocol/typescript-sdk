@@ -35,7 +35,7 @@ import {
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
-import { markInvalidReplyEscape } from './invalidReplySeam';
+import { markInvalidReplyEscape, SERVER_DISCOVER_PROBE_ID_PREFIX } from './invalidReplySeam';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -1130,9 +1130,19 @@ export class StreamableHTTPClientTransport implements Transport {
                 // exchange that will never produce a reply (the spec reserves
                 // 202 for notifications and responses): surface it immediately,
                 // stamped for the probe's classifier, instead of letting the
-                // probe wait out its full timeout. Scoped to the probe request
-                // — every other flow through this branch is unchanged.
-                if (!Array.isArray(message) && isJSONRPCRequest(message) && message.method === 'server/discover') {
+                // probe wait out its full timeout. Scoped to the connect-time
+                // probe by its reserved string id prefix (the probe never uses
+                // Protocol's numeric ids), so the public post-connect
+                // `Client.discover()` request can never match — a 202 answering
+                // it stays pending until the ordinary request timeout, and
+                // every other flow through this branch is unchanged.
+                if (
+                    !Array.isArray(message) &&
+                    isJSONRPCRequest(message) &&
+                    message.method === 'server/discover' &&
+                    typeof message.id === 'string' &&
+                    message.id.startsWith(SERVER_DISCOVER_PROBE_ID_PREFIX)
+                ) {
                     throw markInvalidReplyEscape(
                         new SdkError(
                             SdkErrorCode.EraNegotiationFailed,

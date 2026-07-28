@@ -27,7 +27,7 @@ import {
 
 import { UnauthorizedError } from './auth';
 import { isAuthSeamEscape } from './authSeam';
-import { readInvalidReplyEscape } from './invalidReplySeam';
+import { readInvalidReplyEscape, SERVER_DISCOVER_PROBE_ID_PREFIX } from './invalidReplySeam';
 import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier';
 import { classifyProbeOutcome } from './probeClassifier';
 
@@ -255,10 +255,11 @@ class ProbeWindow {
 
     /**
      * Send one probe request and await its reply. Probe ids are strings, so they
-     * never collide with Protocol's numeric ids (e.g. on a shared stdio pipe).
+     * never collide with Protocol's numeric ids (e.g. on a shared stdio pipe) —
+     * and the reserved prefix is what transport rows scoped to the probe key on.
      */
     async exchange(buildRequest: (id: string) => JSONRPCRequest, timeoutMs: number): Promise<RawProbeReply> {
-        const id = `server-discover-probe-${++this._probeCounter}`;
+        const id = `${SERVER_DISCOVER_PROBE_ID_PREFIX}${++this._probeCounter}`;
         return new Promise<RawProbeReply>(resolve => {
             let settled = false;
             const settle = (reply: RawProbeReply) => {
@@ -416,14 +417,16 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                 // JSON-RPC reply — provenance stamped at the transport's parse
                 // boundary (an off-spec error body, empty/unparseable JSON, or a
                 // 202 accepted-without-reply). Not a network condition: the
-                // classifier owns the verdict.
-                return { kind: 'invalid-reply', body: invalidReply.body };
+                // classifier owns the verdict. The stamped original error rides
+                // along as the outcome's cause for the modes that cannot fall
+                // back and must diagnose the broken reply.
+                return { kind: 'invalid-reply', body: invalidReply.body, cause: error };
             }
             if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpUnexpectedContent) {
                 // A 2xx answer in a non-MCP content type (a proxy's HTML error
                 // page, text/plain, a missing content-type): the same completed-
                 // exchange evidence, with no JSON-RPC body to read.
-                return { kind: 'invalid-reply' };
+                return { kind: 'invalid-reply', cause: error };
             }
             return { kind: 'network-error', error };
         }
@@ -520,18 +523,37 @@ export async function negotiateEra(
                     continue;
                 }
                 case 'legacy': {
-                    // A closed outcome carries its own cause — diagnostics must
-                    // name the close instead of implying a server/discover
-                    // verdict that never happened.
+                    // Outcomes that reached the legacy verdict without the
+                    // server answering `server/discover` carry their own cause:
+                    // diagnostics on the modes that cannot fall back must name
+                    // the close, the HTTP failure, or the broken reply instead
+                    // of implying a discover verdict that never happened — a
+                    // transient 503 mid-deploy is not "the server lacks the
+                    // pin" — and carry the outcome's evidence (HTTP status and
+                    // body, the stamped original error) on the typed error's
+                    // `data`.
                     const closedCause = outcome.kind === 'closed' ? 'the connection closed during the server/discover probe' : undefined;
+                    const answerCause =
+                        outcome.kind === 'http-error'
+                            ? `the server answered the probe with HTTP ${outcome.status}`
+                            : outcome.kind === 'invalid-reply'
+                              ? 'the probe reply was not a valid JSON-RPC message'
+                              : undefined;
+                    const causeData =
+                        outcome.kind === 'http-error'
+                            ? { status: outcome.status, statusText: outcome.statusText, text: outcome.body }
+                            : outcome.kind === 'invalid-reply'
+                              ? { cause: outcome.cause, body: outcome.body }
+                              : undefined;
                     if (negotiation.kind === 'pin') {
                         throw new SdkError(
                             SdkErrorCode.EraNegotiationFailed,
                             closedCause === undefined
                                 ? `Version negotiation failed: the server did not offer pinned protocol version ${negotiation.version} ` +
-                                  `via server/discover (no fallback in pin mode)`
+                                  `via server/discover (${answerCause === undefined ? '' : `${answerCause}; `}no fallback in pin mode)`
                                 : `Version negotiation failed: ${closedCause} before the server offered ` +
-                                  `pinned protocol version ${negotiation.version} (no fallback in pin mode)`
+                                  `pinned protocol version ${negotiation.version} (no fallback in pin mode)`,
+                            causeData
                         );
                     }
                     if (!negotiation.fallbackAvailable) {
@@ -540,10 +562,12 @@ export async function negotiateEra(
                         throw new SdkError(
                             SdkErrorCode.EraNegotiationFailed,
                             closedCause === undefined
-                                ? 'Version negotiation failed: the server gave no modern evidence and this client supports no ' +
+                                ? 'Version negotiation failed: the server gave no modern evidence' +
+                                  `${answerCause === undefined ? '' : ` (${answerCause})`} and this client supports no ` +
                                   'pre-2026-07-28 protocol version to fall back to'
                                 : `Version negotiation failed: ${closedCause} and this client supports no ` +
-                                  'pre-2026-07-28 protocol version to fall back to'
+                                  'pre-2026-07-28 protocol version to fall back to',
+                            causeData
                         );
                     }
                     if (closedCause !== undefined && deps.disposableProbe !== true) {
