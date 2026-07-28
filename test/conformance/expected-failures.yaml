@@ -22,15 +22,13 @@ client:
     # (none: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
     # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
     #
-    # --- SEP-1932 (DPoP) / SEP-1933 (WIF) — extension-tagged auth scenarios, new in the alpha.10 referee ---
-    # The OAuth client implements neither DPoP proofs (RFC 9449) nor the
-    # urn:ietf:params:oauth:grant-type:jwt-bearer grant, so every check in
-    # these scenarios fails. Client-side extension scenarios are selected only
-    # by `--suite all`; the 2026 leg cannot flag them stale (extension
-    # scenarios never match a --spec-version filter).
+    # --- SEP-1932 (DPoP) - extension-tagged auth scenarios, new in the alpha.10 referee ---
+    # The OAuth client does not implement DPoP proofs (RFC 9449), so every
+    # check in these scenarios fails. Client-side extension scenarios are
+    # selected only by `--suite all`; the 2026 leg cannot flag them stale
+    # (extension scenarios never match a --spec-version filter).
     - auth/dpop
     - auth/dpop-nonce
-    - auth/wif-jwt-bearer
 
 server:
     # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
