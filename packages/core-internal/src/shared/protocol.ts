@@ -682,7 +682,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * The request id `_runHandlerInContext` is currently running a handler
      * for, or `undefined` outside of any such context. Consulted by
-     * {@linkcode _notificationViaCodec} to default `relatedRequestId` when the
+     * `_notificationViaCodec` to default `relatedRequestId` when the
      * caller didn't supply one. The base implementation always returns
      * `undefined`, matching the pass-through default of
      * {@linkcode _runHandlerInContext}.
