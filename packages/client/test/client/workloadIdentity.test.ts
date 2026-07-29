@@ -406,6 +406,21 @@ describe('WorkloadIdentityProvider failure paths through auth()', () => {
         expect(tokenRequestBodies[0]!.get('assertion')).toBe(STATIC_ASSERTION);
     });
 
+    it('invalid_client with a static assertion: replay refusal surfaces as the typed error, exactly one token request', async () => {
+        const provider = new WorkloadIdentityProvider({
+            clientId: 'wif-client',
+            assertion: STATIC_ASSERTION
+        });
+        const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_client');
+
+        await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toBeInstanceOf(
+            WorkloadAssertionRejectedError
+        );
+
+        expect(tokenRequestBodies).toHaveLength(1);
+        expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
+    });
+
     it('invalid_grant with a fresh-assertion callback: re-run allowed, error still surfaces after exactly two jwt-bearer requests', async () => {
         let counter = 0;
         const provider = new WorkloadIdentityProvider({

@@ -14,7 +14,7 @@ The point is that no long-lived secret is provisioned anywhere. `client_credenti
     - the MCP **resource server** on `--port` - `createMcpHandler` behind `requireBearerAuth` from `@modelcontextprotocol/express`, advertising the AS via `mcpAuthMetadataRouter` (RFC 9728 + RFC 8414).
 - `client.ts` first asserts a bare request is `401` with a `WWW-Authenticate` challenge, then connects with a `WorkloadIdentityProvider` whose `assertion` is a `fileAssertionSource(path)` callback. The SDK auth driver discovers the AS from the challenge, posts the `jwt-bearer` grant to `/token`, attaches the returned Bearer token, and the `whoami` tool's `ctx.authInfo` carries the federated workload subject and granted `scopes` end to end.
 
-Both halves derive the token file path from the MCP port (`os.tmpdir()/mcp-wif-workload-token-<port>.jwt`), so no handshake is needed between the two processes. Set `WIF_WORKLOAD_TOKEN_PATH` on both to point at a different location; the server writes it fresh and will not replace a file that already exists there.
+Both halves derive the token file path from the MCP port (`os.tmpdir()/mcp-wif-workload-token-<port>.jwt`), so no handshake is needed between the two processes. Set `WIF_WORKLOAD_TOKEN_PATH` on both to point at a different location; the server writes it fresh and fails at startup rather than overwriting a file that already exists there.
 
 ## Run it
 

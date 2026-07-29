@@ -225,9 +225,11 @@ export class InsufficientScopeError extends OAuthClientFlowError {
 
 /**
  * Thrown by {@linkcode index.WorkloadIdentityProvider.prepareTokenRequest | WorkloadIdentityProvider.prepareTokenRequest}
- * when the assertion source hands back the exact assertion the authorization
- * server already rejected in a prior token exchange (recorded via
- * {@linkcode index.WorkloadIdentityProvider.invalidateCredentials | invalidateCredentials('tokens')}).
+ * when the assertion source hands back the exact assertion whose credentials were
+ * invalidated after a prior token exchange (recorded via
+ * {@linkcode index.WorkloadIdentityProvider.invalidateCredentials | invalidateCredentials('tokens')},
+ * which `auth()` calls when the authorization server rejects the exchange and
+ * hosts may call directly).
  * The provider refuses to replay it unchanged - a best-effort guard for the
  * conformance suite's `wif-no-retry` check (not mandated by RFC 7523 or
  * SEP-1933) - so callers must supply a fresh assertion from a
@@ -246,10 +248,10 @@ export class WorkloadAssertionRejectedError extends OAuthClientFlowError {
     constructor() {
         super(
             'The authorization server rejected the token exchange that presented this workload ' +
-                'assertion; refusing to present the same assertion again. Supply a fresh assertion ' +
-                'from a WorkloadAssertionCallback, and check that the authorization server trusts the ' +
-                'assertion issuer, that the audience and expiry are correct, and that the client_id is ' +
-                'registered.'
+                'assertion (or the host invalidated the credential); refusing to present the same ' +
+                'assertion again. Supply a fresh assertion from a WorkloadAssertionCallback, and ' +
+                'check that the authorization server trusts the assertion issuer, that the audience ' +
+                'and expiry are correct, and that the client_id is registered.'
         );
     }
 }

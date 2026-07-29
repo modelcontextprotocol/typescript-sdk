@@ -30,6 +30,8 @@ const { url, era } = parseExampleArgs();
 // Same derivation as `server.ts`: the projected token sits at a port-derived
 // path so neither half needs an out-of-band handshake.
 const tokenPath = process.env.WIF_WORKLOAD_TOKEN_PATH ?? path.join(tmpdir(), `mcp-wif-workload-token-${new URL(url).port}.jwt`);
+// The AS this workload's token was minted for (server.ts runs it on port + 1).
+const expectedIssuer = `http://127.0.0.1:${Number(new URL(url).port) + 1}`;
 
 /**
  * Reads the workload JWT from disk on every token request. Kubernetes rewrites a
@@ -53,10 +55,14 @@ check.equal(unauth.status, 401, 'bare request must be 401');
 check.match(unauth.headers.get('www-authenticate') ?? '', /Bearer/);
 check.match(unauth.headers.get('www-authenticate') ?? '', /oauth-protected-resource/);
 
-// Authenticated by exchanging the workload JWT for an access token.
+// Authenticated by exchanging the workload JWT for an access token. The file's
+// audience is fixed, so pin the issuer: if a compromised resource server pointed
+// discovery at a different AS, the SDK throws AuthorizationServerMismatchError
+// instead of posting the real-audience assertion there.
 const provider = new WorkloadIdentityProvider({
     clientId: 'demo-workload',
-    assertion: fileAssertionSource(tokenPath)
+    assertion: fileAssertionSource(tokenPath),
+    expectedIssuer
 });
 const client = new Client(
     { name: 'workload-identity-client', version: '1.0.0' },
