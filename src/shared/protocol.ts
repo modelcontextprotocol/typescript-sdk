@@ -29,6 +29,7 @@ import {
     RELATED_TASK_META_KEY,
     RequestId,
     Result,
+    ResultInputTypeMap,
     ServerCapabilities,
     RequestMeta,
     MessageExtraInfo,
@@ -301,6 +302,38 @@ export type RequestHandlerExtra<SendRequestT extends Request, SendNotificationT 
     closeStandaloneSSEStream?: () => void;
 };
 
+type StrictRequestHandlerResultMap = Pick<
+    ResultInputTypeMap,
+    | 'ping'
+    | 'initialize'
+    | 'completion/complete'
+    | 'logging/setLevel'
+    | 'sampling/createMessage'
+    | 'prompts/get'
+    | 'prompts/list'
+    | 'resources/list'
+    | 'resources/templates/list'
+    | 'resources/read'
+    | 'resources/subscribe'
+    | 'resources/unsubscribe'
+    | 'tools/call'
+    | 'tools/list'
+    | 'elicitation/create'
+    | 'roots/list'
+    | 'tasks/get'
+    | 'tasks/list'
+    | 'tasks/cancel'
+>;
+
+export type RequestHandlerResult<T extends AnyObjectSchema, Fallback extends Result> =
+    SchemaOutput<T> extends {
+        method: infer M;
+    }
+        ? M extends keyof StrictRequestHandlerResultMap
+            ? StrictRequestHandlerResultMap[M]
+            : Fallback
+        : Fallback;
+
 /**
  * Information about a request's timeout state
  */
@@ -390,10 +423,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
                 // Per spec: tasks/get responses SHALL NOT include related-task metadata
                 // as the taskId parameter is the source of truth
-                // @ts-expect-error SendResultT cannot contain GetTaskResult, but we include it in our derived types everywhere else
                 return {
                     ...task
-                } as SendResultT;
+                };
             });
 
             this.setRequestHandler(GetTaskPayloadRequestSchema, async (request, extra) => {
@@ -486,12 +518,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             this.setRequestHandler(ListTasksRequestSchema, async (request, extra) => {
                 try {
                     const { tasks, nextCursor } = await this._taskStore!.listTasks(request.params?.cursor, extra.sessionId);
-                    // @ts-expect-error SendResultT cannot contain ListTasksResult, but we include it in our derived types everywhere else
                     return {
                         tasks,
                         nextCursor,
                         _meta: {}
-                    } as SendResultT;
+                    };
                 } catch (error) {
                     throw new McpError(
                         ErrorCode.InvalidParams,
@@ -532,7 +563,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     return {
                         _meta: {},
                         ...cancelledTask
-                    } as unknown as SendResultT;
+                    };
                 } catch (error) {
                     // Re-throw McpError as-is
                     if (error instanceof McpError) {
@@ -1420,14 +1451,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         handler: (
             request: SchemaOutput<T>,
             extra: RequestHandlerExtra<SendRequestT, SendNotificationT>
-        ) => SendResultT | Promise<SendResultT>
+        ) => RequestHandlerResult<T, SendResultT> | Promise<RequestHandlerResult<T, SendResultT>>
     ): void {
         const method = getMethodLiteral(requestSchema);
         this.assertRequestHandlerCapability(method);
 
         this._requestHandlers.set(method, (request, extra) => {
             const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
-            return Promise.resolve(handler(parsed, extra));
+            return Promise.resolve(handler(parsed, extra)) as Promise<SendResultT>;
         });
     }
 
