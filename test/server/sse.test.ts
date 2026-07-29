@@ -442,6 +442,39 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 await transport.close();
                 expect(transport.onclose).toHaveBeenCalled();
             });
+
+            it('should only call onclose once when close ends the SSE response', async () => {
+                const onclose = vi.fn();
+                const server = createServer(async (_req, res) => {
+                    const transport = new SSEServerTransport('/messages', res);
+                    transport.onclose = onclose;
+
+                    await transport.start();
+                    await transport.close();
+                });
+
+                const baseUrl = await listenOnRandomPort(server);
+
+                try {
+                    await new Promise<void>((resolve, reject) => {
+                        const req = http.request(baseUrl, { headers: { Accept: 'text/event-stream' } }, response => {
+                            response.resume();
+                            response.on('end', resolve);
+                            response.on('error', reject);
+                        });
+
+                        req.on('error', reject);
+                        req.end();
+                    });
+
+                    await new Promise(resolve => setTimeout(resolve, 50));
+                    expect(onclose).toHaveBeenCalledTimes(1);
+                } finally {
+                    await new Promise<void>((resolve, reject) => {
+                        server.close(error => (error ? reject(error) : resolve()));
+                    });
+                }
+            });
         });
 
         describe('send method', () => {
