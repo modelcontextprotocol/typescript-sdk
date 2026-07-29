@@ -231,18 +231,10 @@ export function buildServer(reqCtx: McpRequestContext): McpServer {
         }
     );
 
-    // Per-resource subscriptions: 2025-era clients call resources/subscribe (tracked here so
-    // updates only go to subscribers); 2026-07-28 clients use a subscriptions/listen filter and
-    // the serving entry routes the same notification onto it.
-    const subscribedUris = new Set<string>();
-    server.server.setRequestHandler('resources/subscribe', request => {
-        subscribedUris.add(request.params.uri);
-        return {};
-    });
-    server.server.setRequestHandler('resources/unsubscribe', request => {
-        subscribedUris.delete(request.params.uri);
-        return {};
-    });
+    // Per-resource subscriptions: the declared `resources.subscribe` capability makes the SDK
+    // track 2025-era resources/subscribe calls in `server.resourceSubscriptions` (so updates only
+    // go to subscribers); 2026-07-28 clients use a subscriptions/listen filter and the serving
+    // entry routes the same notification onto it.
 
     /** Tell connected clients the board changed: the resource list, and the board resource for watchers. */
     const announceBoardChange = async (): Promise<void> => {
@@ -251,10 +243,10 @@ export function buildServer(reqCtx: McpRequestContext): McpServer {
             // Per-request HTTP serving: cross-request delivery goes through the entry's notifier.
             publishBoardChanged?.();
             publishBoardUpdated('todos://board');
-        } else if (reqCtx.era === 'modern' || subscribedUris.has('todos://board')) {
+        } else if (reqCtx.era === 'modern' || server.resourceSubscriptions.has('todos://board')) {
             // stdio: the serving entry routes this onto open listen subscriptions (2026-07-28);
             // on 2025-era connections it goes out unsolicited, so only send it to subscribers.
-            await server.server.sendResourceUpdated({ uri: 'todos://board' }).catch(() => {});
+            await server.sendResourceUpdated({ uri: 'todos://board' }).catch(() => {});
         }
     };
 

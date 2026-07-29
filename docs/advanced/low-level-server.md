@@ -121,7 +121,7 @@ Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md
 
 ## Reach the low level from `McpServer`
 
-Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, never per program. Declare the extra capability in the constructor, keep `registerTool` for the tools, and hand-register the one method `McpServer` has no API for.
+Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, never per program. Declare the extra capability in the constructor, keep `registerTool` for the tools, and hand-register the method you want to answer yourself.
 
 ```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_escapeHatch"
 const mcp = new McpServer({ name: 'catalog', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
@@ -143,6 +143,10 @@ mcp.server.setRequestHandler('resources/subscribe', async request => {
 ```
 
 `registerTool` still answers `tools/list` and `tools/call`; `resources/subscribe` reaches the handler you wrote. On the 2026-07-28 revision resource subscriptions arrive on a `subscriptions/listen` stream the serving entries answer for you — see [Protocol versions](../protocol-versions.md).
+
+::: info
+Per-resource subscriptions specifically no longer need this escape hatch: declaring `resources: { subscribe: true }` alone makes the SDK install both subscription verbs at connect time and own the subscribed-URI set, and `trackResourceSubscriptions()` adds veto hooks — see [Resources](../servers/resources.md#serve-per-resource-subscriptions). Hand-registered handlers like the one above still win: the automatic install skips when either verb already has a handler. The mechanics shown here stay the same for any method you take over.
+:::
 
 ## Decide which layer to build on
 
