@@ -1370,6 +1370,7 @@ describe('OAuth Authorization', () => {
             const result = await discoverOAuthServerInfo('https://resource.example.com');
 
             expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.authorizationServerSource).toBe('protected-resource-metadata');
             expect(result.resourceMetadata).toEqual(validResourceMetadata);
             expect(result.authorizationServerMetadata).toEqual(validAuthMetadata);
         });
@@ -1404,6 +1405,7 @@ describe('OAuth Authorization', () => {
 
             // Should fall back to server URL origin
             expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.authorizationServerSource).toBe('legacy-fallback');
             expect(result.resourceMetadata).toBeUndefined();
             expect(result.authorizationServerMetadata).toBeDefined();
         });
@@ -5053,5 +5055,1272 @@ describe('OAuth Authorization', () => {
             const ok = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's', expectedIssuer: AS_ONE });
             expect(await auth(ok, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
         });
+    });
+});
+
+describe('SEP-2352: authorization server binding', () => {
+    const oldAuthServerUrl = 'https://old-auth.example.com';
+
+    const newResourceMetadata = {
+        resource: 'https://resource.example.com',
+        authorization_servers: ['https://new-auth.example.com']
+    };
+
+    const newAuthMetadata = {
+        issuer: 'https://new-auth.example.com',
+        authorization_endpoint: 'https://new-auth.example.com/authorize',
+        token_endpoint: 'https://new-auth.example.com/token',
+        registration_endpoint: 'https://new-auth.example.com/register',
+        response_types_supported: ['code'],
+        code_challenge_methods_supported: ['S256']
+    };
+
+    const sameResourceMetadata = {
+        resource: 'https://resource.example.com',
+        authorization_servers: [oldAuthServerUrl]
+    };
+
+    const sameAuthMetadata = {
+        issuer: oldAuthServerUrl,
+        authorization_endpoint: `${oldAuthServerUrl}/authorize`,
+        token_endpoint: `${oldAuthServerUrl}/token`,
+        registration_endpoint: `${oldAuthServerUrl}/register`,
+        response_types_supported: ['code'],
+        code_challenge_methods_supported: ['S256']
+    };
+
+    /**
+     * Creates a provider that previously completed an OAuth flow against
+     * `oldAuthServerUrl` (recorded via `authorizationServerUrl()`), holds stored
+     * client credentials, and honors `invalidateCredentials` by dropping them.
+     */
+    function createBoundProvider(initialClientInformation: { client_id: string; client_secret?: string }): {
+        provider: OAuthClientProvider;
+        invalidateCredentials: Mock;
+        saveClientInformation: Mock;
+        saveTokens: Mock;
+        redirectToAuthorization: Mock;
+    } {
+        let clientInformation: { client_id: string; client_secret?: string } | undefined = initialClientInformation;
+
+        const invalidateCredentials = vi.fn(async (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+            if (scope === 'all' || scope === 'client') {
+                clientInformation = undefined;
+            }
+        });
+        const saveClientInformation = vi.fn(async (info: { client_id: string; client_secret?: string }) => {
+            clientInformation = info;
+        });
+        const saveTokens = vi.fn();
+        const redirectToAuthorization = vi.fn();
+
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens,
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        return { provider, invalidateCredentials, saveClientInformation, saveTokens, redirectToAuthorization };
+    }
+
+    function mockDiscoveryAndRegistration(options: {
+        resourceMetadata: { resource: string; authorization_servers: string[] };
+        authMetadata: { issuer: string; client_id_metadata_document_supported?: boolean };
+        registeredClient?: { client_id: string; client_secret?: string };
+        tokens?: OAuthTokens;
+    }): void {
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => options.resourceMetadata
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => options.authMetadata
+                });
+            }
+
+            if (urlString.includes('/register') && init?.method === 'POST') {
+                if (!options.registeredClient) {
+                    return Promise.reject(new Error(`Unexpected registration request: ${urlString}`));
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 201,
+                    json: async () => ({
+                        ...JSON.parse(init.body as string),
+                        ...options.registeredClient
+                    })
+                });
+            }
+
+            if (urlString.includes('/token') && init?.method === 'POST') {
+                if (!options.tokens) {
+                    return Promise.reject(new Error(`Unexpected token request: ${urlString}`));
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => options.tokens
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+    }
+
+    beforeEach(() => {
+        mockFetch.mockReset();
+        vi.clearAllMocks();
+    });
+
+    it('invalidates client credentials and tokens, then re-registers, when the authorization server changes', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+
+        // Stale credentials bound to the old authorization server are invalidated
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+
+        // The client re-registers with the new authorization server
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(1);
+        expect(registrationCalls[0]![0].toString()).toBe('https://new-auth.example.com/register');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        // The authorization redirect uses the newly registered client, not the stale one
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('invalidates issuer-keyed stale client credentials when the authorization server changes', async () => {
+        const clientsByIssuer = new Map<string, StoredOAuthClientInformation>([
+            [oldAuthServerUrl, { client_id: 'old-client-id', client_secret: 'old-client-secret', issuer: oldAuthServerUrl }]
+        ]);
+        const clientInformation = vi.fn(async (ctx?: OAuthClientInformationContext) =>
+            ctx === undefined ? undefined : clientsByIssuer.get(ctx.issuer)
+        );
+        const invalidateCredentials = vi.fn(async (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+            if (scope === 'all' || scope === 'client') {
+                clientsByIssuer.delete(oldAuthServerUrl);
+            }
+        });
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation, ctx?: OAuthClientInformationContext) => {
+            if (ctx) clientsByIssuer.set(ctx.issuer, info);
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation,
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(clientInformation).toHaveBeenCalledWith(expect.objectContaining({ issuer: oldAuthServerUrl }));
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('treats unstamped legacy credentials as stale after an AS migration without an invalidation hook', async () => {
+        let clientInformation: { client_id: string; client_secret?: string; issuer?: string } | undefined = {
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        };
+        let tokens: StoredOAuthTokens | undefined = {
+            access_token: 'old-access-token',
+            refresh_token: 'old-refresh-token',
+            token_type: 'Bearer'
+        };
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const saveTokens = vi.fn(async (nextTokens: StoredOAuthTokens) => {
+            tokens = nextTokens;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn(async () => tokens),
+            saveTokens,
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl)
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'refreshed-token', token_type: 'Bearer' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(1);
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(0);
+        expect(saveTokens).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('keeps the re-registered client while exchanging the authorization code after an AS migration', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, saveTokens, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        const redirectResult = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(redirectResult).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        invalidateCredentials.mockClear();
+        mockFetch.mockClear();
+
+        const exchangeResult = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code'
+        });
+
+        expect(exchangeResult).toBe('AUTHORIZED');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        expect(redirectToAuthorization).toHaveBeenCalledTimes(1);
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(tokenCalls[0]![0].toString()).toBe('https://new-auth.example.com/token');
+    });
+
+    it('keeps an issuer-stripped re-registered client while exchanging the authorization code after an AS migration', async () => {
+        let clientInformation: { client_id: string; client_secret?: string } | undefined = {
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        };
+        const invalidateCredentials = vi.fn(async (scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') => {
+            if (scope === 'all' || scope === 'client') {
+                clientInformation = undefined;
+            }
+        });
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = { client_id: info.client_id, client_secret: info.client_secret };
+        });
+        const saveTokens = vi.fn();
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens,
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        const redirectResult = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(redirectResult).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        invalidateCredentials.mockClear();
+        saveClientInformation.mockClear();
+        mockFetch.mockClear();
+
+        const exchangeResult = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code'
+        });
+
+        expect(exchangeResult).toBe('AUTHORIZED');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+        expect(redirectToAuthorization).toHaveBeenCalledTimes(1);
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(tokenCalls[0]![0].toString()).toBe('https://new-auth.example.com/token');
+    });
+
+    it('preserves and restamps URL-based client IDs after an AS migration', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        let clientInformation: StoredOAuthClientInformation | undefined = {
+            client_id: clientMetadataUrl,
+            issuer: oldAuthServerUrl
+        };
+        const invalidateCredentials = vi.fn();
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            { client_id: clientMetadataUrl, issuer: 'https://new-auth.example.com' },
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe(clientMetadataUrl);
+    });
+
+    it('falls back to DCR for URL-based client IDs when the new AS does not advertise CIMD support', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        let clientInformation: StoredOAuthClientInformation | undefined = {
+            client_id: clientMetadataUrl,
+            issuer: oldAuthServerUrl
+        };
+        const invalidateCredentials = vi.fn();
+        const saveClientInformation = vi.fn(async (info: StoredOAuthClientInformation) => {
+            clientInformation = info;
+        });
+        const redirectToAuthorization = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => clientInformation),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization,
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-dcr-client-id', client_secret: 'new-dcr-client-secret' }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-dcr-client-id', issuer: 'https://new-auth.example.com' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(1);
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-dcr-client-id');
+    });
+
+    it('does not restamp URL-based client IDs on an authorization-code exchange after AS mismatch', async () => {
+        const clientMetadataUrl = 'https://client.example.com/metadata.json';
+        const saveClientInformation = vi.fn();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost:3000/callback';
+            },
+            get clientMetadata() {
+                return {
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    client_name: 'Test Client'
+                };
+            },
+            clientInformation: vi.fn(async () => ({
+                client_id: clientMetadataUrl,
+                issuer: oldAuthServerUrl
+            })),
+            saveClientInformation,
+            tokens: vi.fn().mockResolvedValue(undefined),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
+            authorizationServerUrl: vi.fn().mockResolvedValue(oldAuthServerUrl),
+            invalidateCredentials: vi.fn()
+        };
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        await expect(
+            auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'returned-code'
+            })
+        ).rejects.toThrow('Existing OAuth client information is required when exchanging an authorization code');
+
+        expect(saveClientInformation).not.toHaveBeenCalled();
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(0);
+    });
+
+    it('refreshes cached discovery from an explicit resource metadata challenge before comparing authorization servers', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+
+        const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+        expect(prmCalls).toHaveLength(1);
+        expect(prmCalls[0]![0].toString()).toBe(resourceMetadataUrl.toString());
+
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: 'https://new-auth.example.com',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: newResourceMetadata,
+                authorizationServerMetadata: newAuthMetadata
+            })
+        );
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('uses cached discovery on authorization-code exchange even when the original PRM URL is present', async () => {
+        const { provider, saveTokens } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadataUrl: resourceMetadataUrl.toString(),
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.reject(new TypeError('network temporarily unavailable'));
+            }
+
+            if (urlString === `${oldAuthServerUrl}/token` && init?.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ access_token: 'new-access-token', token_type: 'Bearer' })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('AUTHORIZED');
+        const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString() === resourceMetadataUrl.toString());
+        expect(prmCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(saveTokens).toHaveBeenCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', issuer: oldAuthServerUrl },
+            expect.objectContaining({ issuer: oldAuthServerUrl })
+        );
+    });
+
+    it('uses cached discovery when a caller carries a prior PRM URL without requesting refresh', async () => {
+        const { provider, saveTokens } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadataUrl: resourceMetadataUrl.toString(),
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+        provider.tokens = vi.fn().mockResolvedValue({
+            access_token: 'current-access-token',
+            refresh_token: 'refresh-token',
+            token_type: 'Bearer',
+            issuer: oldAuthServerUrl
+        });
+
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.reject(new TypeError('network temporarily unavailable'));
+            }
+
+            if (urlString === `${oldAuthServerUrl}/token` && init?.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ access_token: 'new-access-token', token_type: 'Bearer' })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl,
+            refreshCachedDiscovery: false
+        });
+
+        expect(result).toBe('AUTHORIZED');
+        const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString() === resourceMetadataUrl.toString());
+        expect(prmCalls).toHaveLength(0);
+        expect(saveTokens).toHaveBeenLastCalledWith(
+            { access_token: 'new-access-token', token_type: 'Bearer', refresh_token: 'refresh-token', issuer: oldAuthServerUrl },
+            expect.objectContaining({ issuer: oldAuthServerUrl })
+        );
+    });
+
+    it('invalidates when challenged PRM names a new authorization server without AS metadata', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => newResourceMetadata
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            if (urlString === 'https://new-auth.example.com/register' && init?.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 201,
+                    json: async () => ({
+                        ...JSON.parse(init.body as string),
+                        client_id: 'new-client-id',
+                        client_secret: 'new-client-secret'
+                    })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: 'https://new-auth.example.com',
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: newResourceMetadata,
+                authorizationServerMetadata: undefined
+            })
+        );
+        expect(saveClientInformation).toHaveBeenCalledWith(
+            expect.objectContaining({ client_id: 'new-client-id' }),
+            expect.objectContaining({ issuer: 'https://new-auth.example.com' })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('does not invalidate credentials when challenged PRM discovery transiently falls back', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('keeps cached AS metadata when challenged PRM confirms the same AS but AS metadata discovery fails', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+        const cachedAuthMetadata = {
+            ...sameAuthMetadata,
+            authorization_endpoint: `${oldAuthServerUrl}/oauth2/v1/authorize`,
+            token_endpoint: `${oldAuthServerUrl}/oauth2/v1/token`
+        };
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: cachedAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameResourceMetadata
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 502,
+                    statusText: 'Bad Gateway',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: sameResourceMetadata,
+                authorizationServerMetadata: cachedAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.toString()).toContain(`${oldAuthServerUrl}/oauth2/v1/authorize`);
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('preserves fresh PRM resource metadata when AS selection falls back to the saved server', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const freshResourceMetadata = {
+            resource: 'https://resource.example.com',
+            scopes_supported: ['read:data']
+        };
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => freshResourceMetadata
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameAuthMetadata
+                });
+            }
+
+            if (urlString.startsWith('https://resource.example.com/.well-known/')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'https://resource.example.com',
+                        authorization_endpoint: 'https://resource.example.com/authorize',
+                        token_endpoint: 'https://resource.example.com/token',
+                        response_types_supported: ['code']
+                    })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com', resourceMetadataUrl });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: freshResourceMetadata,
+                authorizationServerMetadata: sameAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+        expect(redirectUrl.searchParams.get('resource')).toBe('https://resource.example.com/');
+        expect(redirectUrl.searchParams.get('scope')).toBe('read:data');
+    });
+
+    it('enriches cached AS metadata when challenged PRM discovery falls back to a URL-only cache', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameAuthMetadata
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: sameResourceMetadata,
+                authorizationServerMetadata: sameAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('keeps a saved AS URL when PRM discovery falls back without cached discovery state', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const saveAuthorizationServerUrl = vi.fn();
+        provider.saveAuthorizationServerUrl = saveAuthorizationServerUrl;
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameAuthMetadata
+                });
+            }
+
+            if (urlString.startsWith('https://resource.example.com/.well-known/')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'https://resource.example.com',
+                        authorization_endpoint: 'https://resource.example.com/authorize',
+                        token_endpoint: 'https://resource.example.com/token',
+                        response_types_supported: ['code']
+                    })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(saveAuthorizationServerUrl).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('does not invalidate cached URL-only discovery state when restored AS issuer differs textually', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const cachedAuthorizationServerUrl = 'https://auth.example.com/tenant1/';
+        const cachedAuthMetadata = {
+            issuer: 'https://auth.example.com/tenant1',
+            authorization_endpoint: 'https://auth.example.com/tenant1/authorize',
+            token_endpoint: 'https://auth.example.com/tenant1/token',
+            registration_endpoint: 'https://auth.example.com/tenant1/register',
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+
+        provider.authorizationServerUrl = vi.fn().mockResolvedValue(cachedAuthorizationServerUrl);
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: cachedAuthorizationServerUrl,
+            resourceMetadata: sameResourceMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString.startsWith('https://auth.example.com/.well-known/')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => cachedAuthMetadata
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: cachedAuthorizationServerUrl,
+                resourceMetadata: sameResourceMetadata,
+                authorizationServerMetadata: cachedAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.toString()).toContain('https://auth.example.com/tenant1/authorize');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('does not invalidate credentials when path-bearing authorization server identities only differ by a trailing slash', async () => {
+        const tenantAuthServerUrl = 'https://auth.example.com/tenant1';
+        const tenantAuthMetadata = {
+            issuer: tenantAuthServerUrl,
+            authorization_endpoint: `${tenantAuthServerUrl}/authorize`,
+            token_endpoint: `${tenantAuthServerUrl}/token`,
+            registration_endpoint: `${tenantAuthServerUrl}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'tenant-client-id',
+            client_secret: 'tenant-client-secret'
+        });
+
+        provider.authorizationServerUrl = vi.fn().mockResolvedValue(`${tenantAuthServerUrl}/`);
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: {
+                resource: 'https://resource.example.com',
+                authorization_servers: [tenantAuthServerUrl]
+            },
+            authMetadata: tenantAuthMetadata
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.toString()).toContain(`${tenantAuthServerUrl}/authorize`);
+        expect(redirectUrl.searchParams.get('client_id')).toBe('tenant-client-id');
+    });
+
+    it('does not invalidate credentials when the authorization server is unchanged', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: sameResourceMetadata,
+            authMetadata: sameAuthMetadata
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+
+        // No re-registration; the existing client credentials are reused
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('invalidates tokens but does not re-register CIMD (HTTPS URL) client IDs when the authorization server changes', async () => {
+        const cimdClientId = 'https://client.example.com/oauth/client-metadata.json';
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: cimdClientId
+        });
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: { ...newAuthMetadata, client_id_metadata_document_supported: true }
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+
+        // CIMD client IDs are portable across authorization servers, but tokens are still AS-bound.
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+
+        // No re-registration; the portable client ID is reused with the new server
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe(cimdClientId);
     });
 });
