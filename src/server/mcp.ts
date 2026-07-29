@@ -1017,8 +1017,16 @@ export class McpServer {
                 // We have a params schema as the first arg
                 inputSchema = rest.shift() as ZodRawShapeCompat;
 
-                // Check if the next arg is potentially annotations
-                if (rest.length > 1 && typeof rest[0] === 'object' && rest[0] !== null && !isZodRawShapeCompat(rest[0])) {
+                // Check if the next arg is potentially annotations.
+                // We already consumed the inputSchema above, so an empty object {} in this
+                // position is annotations, not a schema — even though isZodRawShapeCompat({})
+                // returns true to support the no-arg-tool case in the schema position.
+                if (
+                    rest.length > 1 &&
+                    typeof rest[0] === 'object' &&
+                    rest[0] !== null &&
+                    (Object.keys(rest[0] as object).length === 0 || !isZodRawShapeCompat(rest[0]))
+                ) {
                     // Case: tool(name, paramsSchema, annotations, cb)
                     // Or: tool(name, description, paramsSchema, annotations, cb)
                     annotations = rest.shift() as ToolAnnotations;
