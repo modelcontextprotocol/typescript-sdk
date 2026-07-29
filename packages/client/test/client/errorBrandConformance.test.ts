@@ -82,7 +82,8 @@ describe('error brand conformance (client export surface)', () => {
             OAuthClientFlowError: 'mcp.OAuthClientFlowError',
             RegistrationRejectedError: 'mcp.RegistrationRejectedError',
             SseError: 'mcp.SseError',
-            UnauthorizedError: 'mcp.UnauthorizedError'
+            UnauthorizedError: 'mcp.UnauthorizedError',
+            WorkloadAssertionRejectedError: 'mcp.WorkloadAssertionRejectedError'
         });
     });
 
