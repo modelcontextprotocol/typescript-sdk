@@ -96,8 +96,8 @@ catalogs:
       version: 6.2.2
   runtimeServerOnly:
     '@hono/node-server':
-      specifier: ^1.19.9
-      version: 1.19.11
+      specifier: ^1.19.9 || ^2.0.5
+      version: 2.0.11
     cors:
       specifier: ^2.8.5
       version: 2.8.6
@@ -306,7 +306,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:^
         version: link:shared
@@ -429,7 +429,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -501,7 +501,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -526,7 +526,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -548,7 +548,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -595,7 +595,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -639,7 +639,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -664,7 +664,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -723,7 +723,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -807,7 +807,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -832,7 +832,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -891,7 +891,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -913,7 +913,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -938,7 +938,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1145,7 +1145,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1170,7 +1170,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1195,7 +1195,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1220,7 +1220,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1245,7 +1245,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1267,7 +1267,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@mcp-examples/shared':
         specifier: workspace:*
         version: link:../shared
@@ -1725,7 +1725,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       hono:
         specifier: catalog:runtimeServerOnly
         version: 4.12.9
@@ -1986,7 +1986,7 @@ importers:
     devDependencies:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
-        version: 1.19.11(hono@4.12.9)
+        version: 2.0.11(hono@4.12.9)
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
@@ -3019,6 +3019,12 @@ packages:
   '@hono/node-server@1.19.11':
     resolution: {integrity: sha512-dr8/3zEaB+p0D2n/IUrlPF1HZm586qgJNXK1a9fhg/PzdtkK7Ksd5l312tJX2yBuALqDYBlG20QEbayqPyxn+g==}
     engines: {node: '>=18.14.1'}
+    peerDependencies:
+      hono: ^4
+
+  '@hono/node-server@2.0.11':
+    resolution: {integrity: sha512-bjD221KPLoJTWUwso1J6fGKiTXEUFedG/s0visavY4zakFPkeGURMRNly+FhBHs7T8Dz4qHaZIMX9ZoJHSJtKA==}
+    engines: {node: '>=20'}
     peerDependencies:
       hono: ^4
 
@@ -7693,6 +7699,10 @@ snapshots:
       - utf-8-validate
 
   '@hono/node-server@1.19.11(hono@4.12.9)':
+    dependencies:
+      hono: 4.12.9
+
+  '@hono/node-server@2.0.11(hono@4.12.9)':
     dependencies:
       hono: 4.12.9
 
