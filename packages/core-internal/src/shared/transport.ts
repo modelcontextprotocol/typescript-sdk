@@ -3,6 +3,20 @@ import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
+ * A minimal undici `Dispatcher` shape that the SDK forwards to undici-aware
+ * fetch implementations (Node.js built-in fetch, workerd, etc.). The full
+ * `Dispatcher` type lives in the `undici` package; we only type the field we
+ * touch so we don't have to make `undici` a hard dependency of the SDK.
+ *
+ * Consumers provide an `undici.Agent` (e.g. `new Agent({ allowH2: false })`)
+ * and the SDK passes it through as `RequestInit.dispatcher` to the underlying
+ * fetch. Browsers and runtimes that don't understand `dispatcher` ignore it.
+ */
+export type DispatcherLike = {
+    dispatch: (origin: unknown, opts: unknown) => unknown;
+};
+
+/**
  * Normalizes `HeadersInit` to a plain `Record<string, string>` for manipulation.
  * Handles `Headers` objects, arrays of tuples, and plain objects.
  */
@@ -26,10 +40,14 @@ export function normalizeHeaders(headers: RequestInit['headers'] | undefined): R
  *
  * @param baseFetch - The base fetch function to wrap (defaults to global `fetch`)
  * @param baseInit - The base `RequestInit` to merge with each request
+ * @param dispatcher - Optional undici dispatcher to attach to every request
+ *   via `RequestInit.dispatcher`. Use this to opt out of HTTP/2 (e.g. with
+ *   `new Agent({ allowH2: false })`) on Node ≥ 22 where the default
+ *   fetch's HTTP/2 SSE stream buffering is broken.
  * @returns A wrapped fetch function that merges base options with call-specific options
  */
-export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: RequestInit): FetchLike {
-    if (!baseInit) {
+export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: RequestInit, dispatcher?: DispatcherLike): FetchLike {
+    if (!baseInit && !dispatcher) {
         return baseFetch;
     }
 
@@ -39,8 +57,14 @@ export function createFetchWithInit(baseFetch: FetchLike = fetch, baseInit?: Req
             ...baseInit,
             ...init,
             // Headers need special handling - merge instead of replace
-            headers: init?.headers ? { ...normalizeHeaders(baseInit.headers), ...normalizeHeaders(init.headers) } : baseInit.headers
+            headers: init?.headers ? { ...normalizeHeaders(baseInit?.headers), ...normalizeHeaders(init.headers) } : baseInit?.headers
         };
+        // Cast kept narrow: undici-aware fetches accept `dispatcher` on RequestInit.
+        // Non-undici fetches ignore the field. The undici types are heavier than
+        // we want to require here, so we patch in at the use site.
+        if (dispatcher) {
+            (mergedInit as { dispatcher?: DispatcherLike }).dispatcher = dispatcher;
+        }
         return baseFetch(url, mergedInit);
     };
 }

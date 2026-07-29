@@ -40,6 +40,16 @@
                 "default": "./dist/stdio.cjs"
             }
         },
+        "./node": {
+            "import": {
+                "types": "./dist/node.d.mts",
+                "default": "./dist/node.mjs"
+            },
+            "require": {
+                "types": "./dist/node.d.cts",
+                "default": "./dist/node.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -142,26 +152,35 @@
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
+        "@cfworker/json-schema": "catalog:runtimeShared",
+        "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core-internal": "workspace:^",
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "ajv": "catalog:runtimeShared",
-        "ajv-formats": "catalog:runtimeShared",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
-        "@eslint/js": "catalog:devTools",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
+        "tsdown": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools",
-        "tsdown": "catalog:devTools"
+        "undici": "^8.8.0",
+        "vitest": "catalog:devTools"
+    },
+    "peerDependencies": {
+        "undici": "^7.0.0"
+    },
+    "peerDependenciesMeta": {
+        "undici": {
+            "optional": true
+        }
     }
 }
