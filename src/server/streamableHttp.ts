@@ -66,6 +66,7 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ * - Each transport instance handles one request; create a fresh transport for each request
  */
 export class StreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
