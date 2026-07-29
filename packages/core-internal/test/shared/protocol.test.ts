@@ -656,6 +656,24 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification with relatedRequestId 0 (falsy but valid)', async () => {
+            // ARRANGE
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT
+            // relatedRequestId: 0 is a valid, real request id (ids start at 0) — it
+            // must not be treated the same as "no relatedRequestId" just because
+            // 0 is falsy in JS.
+            await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+
+            // ASSERT
+            // Both sends must go out immediately/individually, never coalesced.
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
@@ -817,6 +835,47 @@ describe('protocol tests', () => {
             await new Promise(resolve => setTimeout(resolve, 150));
 
             // Verify the request was aborted
+            expect(wasAborted).toBe(true);
+        });
+
+        test('should abort request handler when notifications/cancelled is received for requestId 0', async () => {
+            await protocol.connect(transport);
+
+            // Request id 0 is the first id ever issued (_requestMessageId starts
+            // at 0) — a falsy-but-valid id that must not be silently dropped by
+            // the cancellation handler.
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            const requestId = 0;
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    method: 'ping',
+                    params: {}
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: requestId,
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+
             expect(wasAborted).toBe(true);
         });
     });

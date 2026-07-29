@@ -724,7 +724,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        if (notification.params.requestId === undefined || notification.params.requestId === null) {
             return;
         }
         // Handle request cancellation
@@ -1611,7 +1611,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        const canDebounce =
+            debouncedMethods.includes(notification.method) && !notification.params && options?.relatedRequestId === undefined;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
