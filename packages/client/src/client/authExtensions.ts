@@ -9,6 +9,7 @@ import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation, Stor
 import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth';
+import { WorkloadAssertionRejectedError } from './authErrors';
 
 /**
  * Helper to produce a `private_key_jwt` client authentication function.
@@ -828,7 +829,7 @@ export interface WorkloadIdentityProviderOptions {
  * ({@link https://datatracker.ietf.org/doc/html/rfc7523#section-2.1 | RFC 7523 Section 2.1}).
  *
  * @example
- * ```ts
+ * ```ts source="./authExtensions.examples.ts#WorkloadIdentityProvider_basicUsage"
  * const provider = new WorkloadIdentityProvider({
  *     assertion: async ctx => {
  *         return await mintWorkloadJwt({ audience: ctx.authorizationServerUrl });
@@ -996,14 +997,7 @@ export class WorkloadIdentityProvider implements OAuthClientProvider {
         }
 
         if (assertion === this._rejectedAssertion) {
-            throw new Error(
-                'The authorization server rejected the token exchange that presented this workload ' +
-                    'assertion, so the provider refuses to present it again unchanged (the conformance ' +
-                    'wif-no-retry check). Supply a fresh assertion from a WorkloadAssertionCallback, and ' +
-                    'check that the authorization server trusts the assertion issuer, that the ' +
-                    'audience and expiry are correct, and that the client_id is registered with ' +
-                    'the authorization server.'
-            );
+            throw new WorkloadAssertionRejectedError();
         }
         this._lastAssertion = assertion;
 

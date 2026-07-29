@@ -50,7 +50,8 @@ export {
     InsufficientScopeError,
     IssuerMismatchError,
     OAuthClientFlowError,
-    RegistrationRejectedError
+    RegistrationRejectedError,
+    WorkloadAssertionRejectedError
 } from './client/authErrors';
 export type {
     AssertionCallback,

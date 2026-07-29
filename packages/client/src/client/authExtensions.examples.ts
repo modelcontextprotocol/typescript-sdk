@@ -7,7 +7,7 @@
  * @module
  */
 
-import { ClientCredentialsProvider, createPrivateKeyJwtAuth, PrivateKeyJwtProvider } from './authExtensions';
+import { ClientCredentialsProvider, createPrivateKeyJwtAuth, PrivateKeyJwtProvider, WorkloadIdentityProvider } from './authExtensions';
 import { StreamableHTTPClientTransport } from './streamableHttp';
 
 /**
@@ -58,5 +58,24 @@ function PrivateKeyJwtProvider_basicUsage(pemEncodedPrivateKey: string, serverUr
         authProvider: provider
     });
     //#endregion PrivateKeyJwtProvider_basicUsage
+    return transport;
+}
+
+/**
+ * Example: Using WorkloadIdentityProvider for Workload Identity Federation (SEP-1933).
+ */
+function WorkloadIdentityProvider_basicUsage(serverUrl: URL, mintWorkloadJwt: (options: { audience: string }) => Promise<string>) {
+    //#region WorkloadIdentityProvider_basicUsage
+    const provider = new WorkloadIdentityProvider({
+        assertion: async ctx => {
+            return await mintWorkloadJwt({ audience: ctx.authorizationServerUrl });
+        },
+        clientId: 'my-workload-client'
+    });
+
+    const transport = new StreamableHTTPClientTransport(serverUrl, {
+        authProvider: provider
+    });
+    //#endregion WorkloadIdentityProvider_basicUsage
     return transport;
 }

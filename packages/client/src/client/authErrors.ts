@@ -222,3 +222,34 @@ export class InsufficientScopeError extends OAuthClientFlowError {
         this.errorDescription = init.errorDescription;
     }
 }
+
+/**
+ * Thrown by {@linkcode index.WorkloadIdentityProvider.prepareTokenRequest | WorkloadIdentityProvider.prepareTokenRequest}
+ * when the assertion source hands back the exact assertion the authorization
+ * server already rejected in a prior token exchange (recorded via
+ * {@linkcode index.WorkloadIdentityProvider.invalidateCredentials | invalidateCredentials('tokens')}).
+ * The provider refuses to replay it unchanged - a best-effort guard for the
+ * conformance suite's `wif-no-retry` check (not mandated by RFC 7523 or
+ * SEP-1933) - so callers must supply a fresh assertion from a
+ * {@linkcode index.WorkloadAssertionCallback | WorkloadAssertionCallback} before retrying.
+ *
+ * Intentionally does **not** extend `OAuthError`: the rejection is detected
+ * locally by the provider from its own replay memory, not parsed from an
+ * authorization-server error response, so there is nothing here for `auth()`'s
+ * `OAuthError` retry path to act on.
+ */
+export class WorkloadAssertionRejectedError extends OAuthClientFlowError {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.WorkloadAssertionRejectedError' });
+    }
+
+    constructor() {
+        super(
+            'The authorization server rejected the token exchange that presented this workload ' +
+                'assertion; refusing to present the same assertion again. Supply a fresh assertion ' +
+                'from a WorkloadAssertionCallback, and check that the authorization server trusts the ' +
+                'assertion issuer, that the audience and expiry are correct, and that the client_id is ' +
+                'registered.'
+        );
+    }
+}

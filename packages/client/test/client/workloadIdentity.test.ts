@@ -4,6 +4,7 @@ import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it, vi } from 'vitest';
 
 import { auth } from '../../src/client/auth';
+import { WorkloadAssertionRejectedError } from '../../src/client/authErrors';
 import type { WorkloadAssertionContext, WorkloadIdentityProviderOptions } from '../../src/client/authExtensions';
 import { WorkloadIdentityProvider } from '../../src/client/authExtensions';
 
@@ -177,7 +178,7 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         await provider.prepareTokenRequest();
         provider.invalidateCredentials('tokens');
 
-        await expect(provider.prepareTokenRequest()).rejects.toThrow(/wif-no-retry/);
+        await expect(provider.prepareTokenRequest()).rejects.toBeInstanceOf(WorkloadAssertionRejectedError);
     });
 
     it('hands out the same assertion again while nothing has been rejected', async () => {
@@ -196,7 +197,7 @@ describe('WorkloadIdentityProvider rejection memory', () => {
         provider.saveTokens({ access_token: 'granted-token', token_type: 'Bearer' });
         provider.invalidateCredentials('tokens');
 
-        await expect(provider.prepareTokenRequest()).rejects.toThrow(/wif-no-retry/);
+        await expect(provider.prepareTokenRequest()).rejects.toBeInstanceOf(WorkloadAssertionRejectedError);
     });
 
     it('forgets a rejection once a later flow is confirmed by saveTokens', async () => {
@@ -396,7 +397,9 @@ describe('WorkloadIdentityProvider failure paths through auth()', () => {
         const { fetchMock, tokenRequestBodies } = createFailingOAuthFetch('invalid_grant');
 
         // auth() retries once on invalid_grant, but the provider's replay refusal fires before a second token request is sent.
-        await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toThrow(/wif-no-retry/);
+        await expect(auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn: fetchMock })).rejects.toBeInstanceOf(
+            WorkloadAssertionRejectedError
+        );
 
         expect(tokenRequestBodies).toHaveLength(1);
         expect(tokenRequestBodies[0]!.get('grant_type')).toBe('urn:ietf:params:oauth:grant-type:jwt-bearer');
