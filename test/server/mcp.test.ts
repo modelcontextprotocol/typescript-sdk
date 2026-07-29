@@ -252,6 +252,209 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(capabilities?.extensions).toBeDefined();
             expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
         });
+
+        test('should expose current server capabilities via the underlying server', () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { tools: { listChanged: false } } }
+            );
+
+            expect(mcpServer.server.getCapabilities()).toEqual({
+                tools: { listChanged: false }
+            });
+        });
+
+        /***
+         * Test: listChanged capability should default to true when not specified
+         */
+        test('should default tools.listChanged to true when not explicitly set', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(true);
+        });
+
+        /***
+         * Test: listChanged capability should respect explicit false setting
+         */
+        test('should respect tools.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: resources.listChanged should respect explicit false setting
+         */
+        test('should respect resources.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { resources: { listChanged: false } } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerResource('test-resource', 'test://resource', {}, async () => ({
+                contents: [{ uri: 'test://resource', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.resources?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: prompts.listChanged should respect explicit false setting
+         */
+        test('should respect prompts.listChanged: false when explicitly set', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt('test-prompt', {}, async () => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.prompts?.listChanged).toBe(false);
+        });
+
+        /***
+         * Test: explicit false should suppress tool list changed notifications
+         */
+        test('should not send tools list changed notifications when tools.listChanged is false', async () => {
+            const notifications: Notification[] = [];
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerTool('test-2', {}, async () => ({
+                content: [{ type: 'text', text: 'Test 2' }]
+            }));
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(notifications.filter(notification => notification.method === 'notifications/tools/list_changed')).toHaveLength(0);
+        });
+
+        /***
+         * Test: explicit false should suppress resource list changed notifications
+         */
+        test('should not send resources list changed notifications when resources.listChanged is false', async () => {
+            const notifications: Notification[] = [];
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { resources: { listChanged: false } } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            mcpServer.registerResource('test-resource', 'test://resource', {}, async () => ({
+                contents: [{ uri: 'test://resource', text: 'Test' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerResource('test-resource-2', 'test://resource-2', {}, async () => ({
+                contents: [{ uri: 'test://resource-2', text: 'Test 2' }]
+            }));
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(notifications.filter(notification => notification.method === 'notifications/resources/list_changed')).toHaveLength(0);
+        });
+
+        /***
+         * Test: explicit false should suppress prompt list changed notifications
+         */
+        test('should not send prompts list changed notifications when prompts.listChanged is false', async () => {
+            const notifications: Notification[] = [];
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            client.fallbackNotificationHandler = async notification => {
+                notifications.push(notification);
+            };
+
+            mcpServer.registerPrompt('test-prompt', {}, async () => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerPrompt('test-prompt-2', {}, async () => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: 'Test 2' } }]
+            }));
+
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            expect(notifications.filter(notification => notification.method === 'notifications/prompts/list_changed')).toHaveLength(0);
+        });
     });
 
     describe('ResourceTemplate', () => {
