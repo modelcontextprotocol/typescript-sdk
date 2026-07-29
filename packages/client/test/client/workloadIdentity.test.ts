@@ -350,7 +350,7 @@ function createScriptedOAuthFetch(respondToTokenRequest: (body: URLSearchParams)
     const fetchMock = vi.fn(async (input: string | URL, init?: RequestInit): Promise<Response> => {
         const url = input instanceof URL ? input : new URL(input);
 
-        if (url.origin === RESOURCE_SERVER_URL.slice(0, -1) && url.pathname === '/.well-known/oauth-protected-resource') {
+        if (url.origin === new URL(RESOURCE_SERVER_URL).origin && url.pathname === '/.well-known/oauth-protected-resource') {
             return Response.json({
                 resource: RESOURCE_SERVER_URL,
                 authorization_servers: [AUTH_SERVER_URL]
