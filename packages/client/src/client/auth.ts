@@ -903,6 +903,48 @@ export function resolveClientMetadata(provider: Pick<OAuthClientProvider, 'clien
     };
 }
 
+/** Magic bytes identifying a gzip stream (RFC 1952 §2.3.1). */
+const GZIP_MAGIC_BYTES = [0x1f, 0x8b] as const;
+
+function isGzipBytes(bytes: Uint8Array): boolean {
+    return bytes.length >= 2 && bytes[0] === GZIP_MAGIC_BYTES[0] && bytes[1] === GZIP_MAGIC_BYTES[1];
+}
+
+async function gunzip(bytes: Uint8Array): Promise<Uint8Array> {
+    const decompressed = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    return new Uint8Array(await new Response(decompressed).arrayBuffer());
+}
+
+/**
+ * Reads a response body as decoded text, transparently gunzipping compressed bodies.
+ *
+ * Fetch implementations only auto-decompress when the response carries a usable
+ * `Content-Encoding` header. Some proxies strip that header while leaving the body
+ * compressed, and custom {@linkcode FetchLike} implementations may surface raw
+ * compressed bytes; both crash naive `response.json()` calls. Falls back to
+ * `response.text()` for minimal Response-like objects that lack `arrayBuffer`.
+ */
+async function readResponseText(response: Response): Promise<string> {
+    if (typeof response.arrayBuffer !== 'function') {
+        return response.text();
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    return new TextDecoder().decode(isGzipBytes(bytes) ? await gunzip(bytes) : bytes);
+}
+
+/**
+ * Reads a response body as parsed JSON via {@linkcode readResponseText}. Falls back to
+ * `response.json()` for minimal Response-like objects that lack `arrayBuffer`.
+ */
+async function readResponseJson(response: Response): Promise<unknown> {
+    if (typeof response.arrayBuffer !== 'function') {
+        return response.json();
+    }
+
+    return JSON.parse(await readResponseText(response)) as unknown;
+}
+
 /**
  * Parses an OAuth error response from a string or Response object.
  *
@@ -916,7 +958,7 @@ export function resolveClientMetadata(provider: Pick<OAuthClientProvider, 'clien
  */
 export async function parseErrorResponse(input: Response | string): Promise<OAuthError> {
     const statusCode = input instanceof Response ? input.status : undefined;
-    const body = input instanceof Response ? await input.text() : input;
+    const body = input instanceof Response ? await readResponseText(input) : input;
 
     try {
         const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
@@ -2097,7 +2139,7 @@ export async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    const json: unknown = await response.json();
+    const json: unknown = await readResponseJson(response);
 
     try {
         return OAuthTokensSchema.parse(json);
