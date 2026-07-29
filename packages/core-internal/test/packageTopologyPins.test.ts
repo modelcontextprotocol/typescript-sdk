@@ -37,7 +37,7 @@ function readManifest(relativeDir: string): PackageManifest {
 const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?: Record<string, string> }> = {
     client: {
         name: '@modelcontextprotocol/client',
-        exportKeys: ['.', './stdio', './validators/ajv', './validators/cf-worker', './_shims']
+        exportKeys: ['.', './stdio', './node', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',

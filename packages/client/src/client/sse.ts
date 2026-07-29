@@ -1,4 +1,4 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import type { DispatcherLike, FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     brandedHasInstance,
     createFetchWithInit,
@@ -111,6 +111,20 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * Optional undici dispatcher attached to every request via
+     * `RequestInit.dispatcher`. Use this to opt out of HTTP/2 for SSE
+     * traffic on Node ≥ 22 (e.g. `new Agent({ allowH2: false })`) to
+     * work around the Node 26.4 HTTP/2 SSE buffering regression. Ignored
+     * on runtimes that don't understand `dispatcher` (browser, workerd).
+     *
+     * The SDK does not enable this by default — opting in is the user's
+     * call. Use `createDefaultNodeDispatcher()` from
+     * `@modelcontextprotocol/client/node` for the standard HTTP/1.1-only
+     * dispatcher.
+     */
+    nodeDispatcher?: DispatcherLike;
 };
 
 /**
@@ -154,7 +168,7 @@ export class SSEClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
-        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit, opts?.nodeDispatcher);
     }
 
     private _last401Response?: Response;

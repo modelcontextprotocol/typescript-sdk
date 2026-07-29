@@ -1,6 +1,6 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import type { DispatcherLike, FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     encodeMcpParamValue,
@@ -190,6 +190,15 @@ export type StreamableHTTPClientTransportOptions = {
     fetch?: FetchLike;
 
     /**
+     * Optional undici dispatcher attached to every request via
+     * `RequestInit.dispatcher`. Use this to opt out of HTTP/2 for SSE
+     * traffic on Node >= 22 (e.g. `new Agent({ allowH2: false })`) to
+     * work around the Node 26.4 HTTP/2 SSE buffering regression. Ignored
+     * on runtimes that don't understand `dispatcher` (browser, workerd).
+     */
+    nodeDispatcher?: DispatcherLike;
+
+    /**
      * Options to configure the reconnection behavior.
      */
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -355,7 +364,7 @@ export class StreamableHTTPClientTransport implements Transport {
             this._authProvider = opts?.authProvider;
         }
         this._fetch = opts?.fetch;
-        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit, opts?.nodeDispatcher);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
