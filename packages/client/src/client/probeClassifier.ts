@@ -7,8 +7,9 @@
  * sibling), or a typed connect error.
  *
  * The classifier is deliberately conservative: anything it does not positively
- * recognize as modern resolves to the legacy fallback, and a network outage is a
- * typed connect error, never an era verdict. The verdicts apply to the
+ * recognize as modern resolves to the legacy fallback, and a network outage or
+ * an auth-status rejection (HTTP 401/403) is a typed connect error, never an
+ * era verdict. The verdicts apply to the
  * negotiation phase only — an established modern connection is never silently
  * demoted to `initialize` by a later failure.
  */
@@ -19,6 +20,7 @@ import {
     modernProtocolVersions,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     UnsupportedProtocolVersionError
 } from '@modelcontextprotocol/core-internal';
 
@@ -46,10 +48,10 @@ export type ProbeOutcome =
     | { kind: 'result'; result: unknown }
     /** Answered with a JSON-RPC error (any HTTP status, including 200-bodied errors and stdio in-band errors). */
     | { kind: 'rpc-error'; code: number; message: string; data?: unknown }
-    /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text, when available. */
-    | { kind: 'http-error'; status: number; body?: string }
+    /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text and `statusText` the HTTP reason phrase, when available. */
+    | { kind: 'http-error'; status: number; body?: string; statusText?: string }
     | { kind: 'network-error'; error: unknown }
-    /** The transport's auth flow challenged during the probe send (`UnauthorizedError`). */
+    /** The transport's auth flow challenged or failed during the probe send — an error stamped at a transport auth seam, or an `UnauthorizedError` (the foreign-transport contract). `error` propagates unchanged. */
     | { kind: 'auth-required'; error: Error }
     /** The transport reported close while the probe awaited its reply. */
     | { kind: 'closed' }
@@ -241,21 +243,70 @@ function classifyRpcError(outcome: { code: number; message: string; data?: unkno
     return { kind: 'legacy' };
 }
 
-function classifyHttpError(outcome: { status: number; body?: string }, context: ProbeClassifierContext): ProbeVerdict {
+function classifyHttpError(outcome: { status: number; body?: string; statusText?: string }, context: ProbeClassifierContext): ProbeVerdict {
+    // Auth statuses are never era evidence, and a 401/403 body is the auth
+    // layer's, not the server/discover handler's — this row ranks above the
+    // JSON-RPC body parse. Parallel to the auth-required row: a typed failure
+    // naming the status (response text on `data.text`), never a legacy
+    // fallback. The codes are the auth ones, NOT EraNegotiationFailed: hosts
+    // key era-recovery recipes (e.g. the gateway guide's cached-verdict flow)
+    // on EraNegotiationFailed, and an auth wall must never enter era recovery
+    // — persisting a legacy verdict for it would recreate the silent-legacy
+    // bug at the fleet level.
+    if (outcome.status === 401 || outcome.status === 403) {
+        const isDenial = outcome.status === 403;
+        return {
+            kind: 'error',
+            error: new SdkHttpError(
+                isDenial ? SdkErrorCode.ClientHttpForbidden : SdkErrorCode.ClientHttpAuthentication,
+                `Version negotiation failed: ${isDenial ? 'the server denied access (HTTP 403)' : 'the server requires authorization (HTTP 401)'}`,
+                {
+                    status: outcome.status,
+                    statusText: outcome.statusText,
+                    text: outcome.body
+                }
+            )
+        };
+    }
+    if (outcome.status >= 500) {
+        // A server failure is not era evidence, whatever the body says — this
+        // row too ranks above the JSON-RPC body parse (a 5xx body is the
+        // infrastructure's: a mid-deploy gateway's JSON error page, a crashed
+        // handler's -32603, neither a server/discover verdict). The spec keys
+        // the HTTP legacy signal to client-error rejections (a 2025 server
+        // answers the unknown probe 4xx), never to 5xx.
+        return {
+            kind: 'error',
+            error: new SdkHttpError(
+                SdkErrorCode.EraNegotiationFailed,
+                `Version negotiation failed: the server answered the probe with HTTP ${outcome.status}`,
+                {
+                    status: outcome.status,
+                    statusText: outcome.statusText,
+                    text: outcome.body
+                }
+            )
+        };
+    }
     // HTTP-rejected probes carry their JSON-RPC error in the response body — classify it like an in-band error.
     const rpcError = parseJsonRpcErrorBody(outcome.body);
     if (rpcError !== undefined) {
         return classifyRpcError(rpcError, context);
     }
-    // Unparseable or unrecognized HTTP rejection: conservative legacy fallback.
+    // Unparseable or unrecognized 4xx rejection: conservative legacy fallback.
+    // With the auth and 5xx rows above, this row's legacy set now equals the
+    // spec-licensed set exactly — the 4xx a deployed 2025 server answers a
+    // request it does not recognize.
     return { kind: 'legacy' };
 }
 
 function classifyNetworkError(error: unknown, context: ProbeClassifierContext): ProbeVerdict {
     if (context.environment === 'browser' && isOpaqueFetchTypeError(error)) {
-        // A browser CORS-preflight rejection against a deployed 2025 server is an
-        // opaque TypeError; the legacy fallback carries no custom headers (no
-        // preflight), so it can proceed where the probe could not.
+        // A browser CORS-preflight rejection against a deployed 2025 server is
+        // an opaque TypeError. The legacy fallback also preflights (its JSON
+        // Content-Type is non-simple), but carries only the pre-2026 headers a
+        // deployed server's CORS allowlist already covers — so it can proceed
+        // where the probe's 2026 headers could not.
         return { kind: 'legacy' };
     }
     return {

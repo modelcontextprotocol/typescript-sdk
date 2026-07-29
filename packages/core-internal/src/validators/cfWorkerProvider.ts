@@ -10,6 +10,7 @@
 
 import { Validator } from '@cfworker/json-schema';
 
+import { declaredDialect } from './dialects';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
@@ -18,21 +19,21 @@ import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSche
 export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
 /**
- * Canonical 2020-12 `$schema` URIs (http + https variants, trailing-`#` stripped). When a schema
- * declares anything else and no `{draft}` is forced, the provider throws a plain `Error`.
- */
-const DRAFT_2020_12_URIS: ReadonlySet<string> = new Set([
-    'https://json-schema.org/draft/2020-12/schema',
-    'http://json-schema.org/draft/2020-12/schema'
-]);
-
-/**
  * `@cfworker/json-schema`-backed JSON Schema validator. See
  * `@modelcontextprotocol/{client,server}/validators/cf-worker` for the customisation entry point.
  *
- * Default validates as **JSON Schema 2020-12** (SEP-1613). Schemas declaring a different
- * `$schema` are rejected with a plain `Error`. Passing an explicit `draft` to the constructor
+ * Default dispatches on the schema's declared dialect: no `$schema` or 2020-12 → `'2020-12'`
+ * (SEP-1613); 2019-09 → `'2019-09'`; draft-07 or draft-06 → `'7'`. Schemas declaring any other `$schema` are rejected
+ * with a plain `Error`. Passing an explicit `draft` to the constructor
  * overrides this — that draft is used for every schema regardless of `$schema`.
+ *
+ * Known draft-07 engine gap: `@cfworker/json-schema` does not treat draft-07 `dependencies` as
+ * a name→subschema map during `$ref` collection, so a dependency entry whose KEY collides with
+ * a JSON Schema keyword (`type`, `default`, `format`, `required`, `pattern`, …) and whose
+ * subschema contains a `$ref` throws `Unresolved $ref` at validation time when the dependency
+ * triggers — data-dependently, not at compile. The Node (classic Ajv) engine handles the same
+ * schema correctly. Callers that hit this receive the SDK's typed validation error (the throw
+ * is captured by the validation paths), and the deviation is pinned by a recorded-contract test.
  *
  * @example Use with default configuration (2020-12, shortcircuit on)
  * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_default"
@@ -58,12 +59,22 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * @param options - Configuration options
      * @param options.shortcircuit - If `true`, stop validation after first error (default: `true`)
      * @param options.draft - JSON Schema draft version to force for every schema. When set, the
-     * `$schema` check is skipped. When omitted, the provider validates as 2020-12 and rejects
-     * schemas declaring a different `$schema`.
+     * `$schema` dispatch is skipped. When omitted, the provider dispatches on each schema's
+     * declared `$schema` (2020-12, 2019-09, draft-07, draft-06; absent means 2020-12) and rejects others.
      */
     constructor(options?: { shortcircuit?: boolean; draft?: CfWorkerSchemaDraft }) {
         this.shortcircuit = options?.shortcircuit ?? true;
         this.draft = options?.draft;
+    }
+
+    /**
+     * Pick the engine draft for a schema's declared dialect (a caller-forced `{draft}` bypasses
+     * this — do not second-guess by `$schema`). No `$schema` or 2020-12 → `'2020-12'`; 2019-09 →
+     * `'2019-09'`; draft-07 or draft-06 → `'7'`; anything else → `Error`.
+     */
+    private _draftFor(schema: JsonSchemaType): CfWorkerSchemaDraft {
+        const dialect = declaredDialect(schema, 'pass an explicit { draft } to CfWorkerJsonSchemaValidator to validate other dialects.');
+        return dialect === 'draft-7' ? '7' : dialect;
     }
 
     /**
@@ -75,22 +86,7 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * @returns A validator function that validates input data
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-        // Caller forced a draft — use it for everything; do not second-guess by `$schema`.
-        if (
-            this.draft === undefined &&
-            '$schema' in schema &&
-            typeof schema.$schema === 'string' &&
-            !DRAFT_2020_12_URIS.has(schema.$schema.replace(/#$/, ''))
-        ) {
-            const declared = schema.$schema.slice(0, 200);
-            throw new Error(
-                `JSON Schema declares an unsupported dialect ("$schema": "${declared}"). ` +
-                    `The default validator supports JSON Schema 2020-12 only; pass an explicit ` +
-                    `{ draft } to CfWorkerJsonSchemaValidator to validate other dialects.`
-            );
-        }
-
-        const draft = this.draft ?? '2020-12';
+        const draft = this.draft ?? this._draftFor(schema);
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
         const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
 

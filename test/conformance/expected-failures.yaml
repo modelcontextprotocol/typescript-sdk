@@ -2,7 +2,7 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.9). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.10). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
 #
@@ -17,25 +17,24 @@
 # corresponding scenarios start passing and MUST be removed from this list (the
 # runner fails on stale entries), so the baseline burns down per milestone.
 
-client: []
+client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # (empty: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
+    # (none: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
     # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
+    #
+    # --- SEP-1932 (DPoP) / SEP-1933 (WIF) — extension-tagged auth scenarios, new in the alpha.10 referee ---
+    # The OAuth client implements neither DPoP proofs (RFC 9449) nor the
+    # urn:ietf:params:oauth:grant-type:jwt-bearer grant, so every check in
+    # these scenarios fails. Client-side extension scenarios are selected only
+    # by `--suite all`; the 2026 leg cannot flag them stale (extension
+    # scenarios never match a --spec-version filter).
+    - auth/dpop
+    - auth/dpop-nonce
+    - auth/wif-jwt-bearer
 
 server:
-    # --- spec PR #3002 — referee pinned at alpha.9 asserts the OLD shape ---
-    # The alpha.9 `server-stateless` scenario still enforces the pre-#3002
-    # spec: clientInfo required in the envelope, serverInfo a DiscoverResult
-    # body field. This SDK follows the final revision (clientInfo optional;
-    # identity in the result _meta), so exactly three checks fail:
-    #   - sep-2575-request-meta-invalid-missing-client-info
-    #   - sep-2575-http-server-meta-invalid-400 (the missing-client-info iteration)
-    #   - sep-2575-server-implements-discover (requires body serverInfo)
-    # Remove this entry when the pin bumps to a conformance release that
-    # incorporates #3002 (alpha.10+).
-    - server-stateless
     # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
-    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.9 referee
+    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.10 referee
     # has no server-side `--suite extensions`). The active/draft/2026 legs never select
     # them, so they cannot flag these entries as stale. `tasks-status-notifications` is
     # intentionally absent: the referee SKIPs it unconditionally (harness rewrite pending
