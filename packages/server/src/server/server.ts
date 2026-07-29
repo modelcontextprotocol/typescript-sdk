@@ -1238,7 +1238,7 @@ export class Server extends Protocol<ServerContext> {
      * notification for the specified elicitation ID.
      *
      * The notification (and the `elicitationId` it references) exists only on protocol revision
-     * 2025-11-25 — the 2026-07-28 draft removed both. On a connection negotiated at 2026-07-28 the
+     * 2025-11-25 — the 2026-07-28 revision removed both. On a connection negotiated at 2026-07-28 the
      * returned callback rejects with a typed local error before anything reaches the transport
      * (the method is not part of that revision's wire registry).
      *
