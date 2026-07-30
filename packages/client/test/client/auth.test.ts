@@ -1496,7 +1496,8 @@ describe('OAuth Authorization', () => {
 
         it('calls saveDiscoveryState after discovery when provider implements it', async () => {
             const saveDiscoveryState = vi.fn();
-            const provider = createMockProvider({ saveDiscoveryState });
+            const saveResourceUrl = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState, saveResourceUrl });
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -1529,6 +1530,9 @@ describe('OAuth Authorization', () => {
                     authorizationServerMetadata: validAuthMetadata
                 })
             );
+            expect(saveResourceUrl).toHaveBeenCalledWith('https://resource.example.com');
+            const authorizationUrl = vi.mocked(provider.redirectToAuthorization).mock.calls[0]![0];
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://resource.example.com');
         });
 
         it('restores full discovery state from cache including resource metadata', async () => {
@@ -1580,7 +1584,7 @@ describe('OAuth Authorization', () => {
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -1785,6 +1789,16 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(codeVerifier).toBe('test_verifier');
+        });
+
+        it('preserves a string resource indicator without URL normalization', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                resource: 'https://api.example.com'
+            });
+
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com');
         });
 
         it('includes scope parameter when provided', async () => {
