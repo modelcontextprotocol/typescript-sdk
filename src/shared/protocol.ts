@@ -862,8 +862,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const handler = this._progressHandlers.get(messageId);
         if (!handler) {
-            // A response can be dispatched before progress notifications that were already
-            // in transit. Drop progress for a recently completed request, while preserving
+            // A request can finish before progress notifications that were already in transit
+            // are dispatched. Drop progress for a recently finished request, while preserving
             // the error for tokens that were never registered.
             if (this._recentlyCompletedProgressTokens.has(messageId)) {
                 return;
@@ -881,7 +881,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             } catch (error) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._cleanupProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
@@ -889,6 +889,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         handler(params);
+    }
+
+    private _cleanupProgressHandler(progressToken: number): void {
+        if (this._progressHandlers.delete(progressToken)) {
+            this._rememberCompletedProgressToken(progressToken);
+        }
     }
 
     private _rememberCompletedProgressToken(progressToken: number): void {
@@ -941,9 +947,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         if (!isTaskResponse) {
-            if (this._progressHandlers.delete(messageId)) {
-                this._rememberCompletedProgressToken(messageId);
-            }
+            this._cleanupProgressHandler(messageId);
         }
 
         if (isJSONRPCResultResponse(response)) {
@@ -1186,7 +1190,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             const cancel = (reason: unknown) => {
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._cleanupProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
 
                 this._transport
@@ -1499,7 +1503,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _cleanupTaskProgressHandler(taskId: string): void {
         const progressToken = this._taskProgressTokens.get(taskId);
         if (progressToken !== undefined) {
-            this._progressHandlers.delete(progressToken);
+            this._cleanupProgressHandler(progressToken);
             this._taskProgressTokens.delete(taskId);
         }
     }

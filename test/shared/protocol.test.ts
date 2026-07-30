@@ -14,7 +14,7 @@ import {
     type Notification,
     type Result
 } from '../../src/types.js';
-import { Protocol, mergeCapabilities, type ProgressCallback } from '../../src/shared/protocol.js';
+import { Protocol, mergeCapabilities, type ProgressCallback, type RequestOptions } from '../../src/shared/protocol.js';
 import { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from '../../src/experimental/tasks/interfaces.js';
 import { MockInstance, vi } from 'vitest';
@@ -356,8 +356,8 @@ describe('protocol tests', () => {
             result: z.string()
         });
 
-        const startProgressRequest = (onprogress: ProgressCallback = vi.fn()) => {
-            const requestPromise = protocol.request({ method: 'example', params: {} }, resultSchema, { onprogress });
+        const startProgressRequest = (onprogress: ProgressCallback = vi.fn(), options: Omit<RequestOptions, 'onprogress'> = {}) => {
+            const requestPromise = protocol.request({ method: 'example', params: {} }, resultSchema, { ...options, onprogress });
             const sentRequest = sendSpy.mock.calls.at(-1)![0] as {
                 id: number;
                 params: { _meta: { progressToken: number } };
@@ -419,6 +419,42 @@ describe('protocol tests', () => {
 
             expect(onProgressMock).not.toHaveBeenCalled();
             expect(onErrorMock).not.toHaveBeenCalled();
+        });
+
+        test('should ignore progress received after caller abort', async () => {
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            await protocol.connect(transport);
+
+            const abortController = new AbortController();
+            const { requestPromise, sentRequest } = startProgressRequest(vi.fn(), { signal: abortController.signal });
+            const requestRejection = requestPromise.catch(() => undefined);
+
+            abortController.abort(new Error('caller aborted'));
+            await requestRejection;
+            await sendProgress(sentRequest.params._meta.progressToken, 50);
+
+            expect(onErrorMock).not.toHaveBeenCalled();
+        });
+
+        test('should ignore progress received after request timeout', async () => {
+            vi.useFakeTimers();
+            try {
+                const onErrorMock = vi.fn();
+                protocol.onerror = onErrorMock;
+                await protocol.connect(transport);
+
+                const { requestPromise, sentRequest } = startProgressRequest(vi.fn(), { timeout: 10 });
+                const requestRejection = requestPromise.catch(() => undefined);
+
+                await vi.advanceTimersByTimeAsync(20);
+                await requestRejection;
+                await sendProgress(sentRequest.params._meta.progressToken, 50);
+
+                expect(onErrorMock).not.toHaveBeenCalled();
+            } finally {
+                vi.useRealTimers();
+            }
         });
 
         test('should report progress for a token that was never registered', async () => {
@@ -554,6 +590,8 @@ describe('protocol tests', () => {
                 result: z.string()
             });
             const onProgressMock = vi.fn();
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
             const requestPromise = protocol.request(request, mockSchema, {
                 timeout: 1000,
                 maxTotalTimeout: 150,
@@ -593,6 +631,22 @@ describe('protocol tests', () => {
             }
             await expect(requestPromise).rejects.toThrow('Maximum total timeout exceeded');
             expect(onProgressMock).toHaveBeenCalledTimes(1);
+
+            // A progress notification already in flight after maxTotalTimeout cleanup
+            // should be ignored rather than reported as an unknown token.
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 100,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+            expect(onErrorMock).not.toHaveBeenCalled();
         });
 
         test('should timeout if no progress received within timeout period', async () => {
@@ -2585,6 +2639,8 @@ describe('Progress notification support for tasks', () => {
 
         const transport = new MockTransport();
         const sendSpy = vi.spyOn(transport, 'send');
+        const onErrorMock = vi.fn();
+        protocol.onerror = onErrorMock;
         await protocol.connect(transport);
 
         // Set up a request handler that will complete the task
@@ -2706,6 +2762,7 @@ describe('Progress notification support for tasks', () => {
 
         // Progress callback should NOT be invoked after task completion
         expect(progressCallback).not.toHaveBeenCalled();
+        expect(onErrorMock).not.toHaveBeenCalled();
     });
 
     it('should stop progress notifications when task reaches terminal status (failed)', async () => {
