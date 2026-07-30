@@ -4,7 +4,8 @@
  *
  * Evaluated by the HTTP entry on a modern-classified request immediately
  * after `classifyInboundRequest` returns a modern route: rejects `400` /
- * `-32020` (`HeaderMismatch`) when the required `Mcp-Method` header is
+ * `-32020` (`HeaderMismatch`) when the required `MCP-Protocol-Version` header
+ * is absent, when the required `Mcp-Method` header is
  * absent, when the required `Mcp-Name` header is absent on a `tools/call` /
  * `prompts/get` / `resources/read` request, when the `Mcp-Name` header
  * carries an invalid Base64 sentinel, and when its (decoded) value disagrees
@@ -59,6 +60,49 @@ function expectRejection(result: InboundLadderRejection | undefined, cell: strin
     expect(result?.code).toBe(-32_020);
     expect(result?.settled).toBe(true);
 }
+
+describe('SEP-2243 standard-header validation (MCP-Protocol-Version presence)', () => {
+    test('a modern request without an MCP-Protocol-Version header is rejected (version-header-missing)', () => {
+        const { request, route } = modernPost('tools/list', {}, { mcpMethod: 'tools/list' });
+        delete request.protocolVersionHeader;
+        const result = validateStandardRequestHeaders(request, route);
+        expectRejection(result, 'version-header-missing');
+        expect(result?.message).toContain('MCP-Protocol-Version header is absent');
+    });
+
+    test('the version presence rung outranks the Mcp-Method presence rung', () => {
+        const { request, route } = modernPost('tools/list', {});
+        delete request.protocolVersionHeader;
+        expectRejection(validateStandardRequestHeaders(request, route), 'version-header-missing');
+    });
+
+    test('a present and matching MCP-Protocol-Version header passes', () => {
+        const { request, route } = modernPost('tools/list', {}, { mcpMethod: 'tools/list' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+    });
+
+    test('the header/body version mismatch cell stays inside classifyInboundRequest', () => {
+        const outcome = classifyInboundRequest({
+            httpMethod: 'POST',
+            protocolVersionHeader: '2026-11-25',
+            mcpMethodHeader: 'tools/list',
+            body: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: ENVELOPE } }
+        });
+        expect(outcome.kind).toBe('reject');
+        expect((outcome as InboundLadderRejection).cell).toBe('header-body-version-mismatch');
+        expect((outcome as InboundLadderRejection).code).toBe(-32_020);
+    });
+
+    test('a notification without the version header is still never enforced', () => {
+        const route: InboundModernRoute = {
+            kind: 'modern',
+            messageKind: 'notification',
+            message: { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1 } },
+            classification: { era: 'modern', revision: MODERN }
+        };
+        expect(validateStandardRequestHeaders({ httpMethod: 'POST' }, route)).toBeUndefined();
+    });
+});
 
 describe('SEP-2243 standard-header validation (Mcp-Method presence)', () => {
     test('a modern request without an Mcp-Method header is rejected (method-header-missing)', () => {

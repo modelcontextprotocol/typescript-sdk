@@ -661,10 +661,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
         }
 
-        // SEP-2243 standard-header presence and `Mcp-Name` cross-check
+        // SEP-2243 standard-header presence (`MCP-Protocol-Version`,
+        // `Mcp-Method`) and `Mcp-Name` cross-check
         // (`standard-header-validation` rung; the `MCP-Protocol-Version` and
         // `Mcp-Method` *mismatch* cells are already answered inside
-        // `classifyInboundRequest` on the edge `era-classification` rung).
+        // `classifyInboundRequest` on the edge `era-classification` rung,
+        // which only cross-checks a protocol-version header that is present).
         // Evaluated after the supported-revision
         // gate so an envelope naming a revision this endpoint does not serve
         // is still answered with `-32022` (the supported list is the more
@@ -675,6 +677,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         const stdHeaderRejection = validateStandardRequestHeaders(
             {
                 httpMethod: request.method,
+                protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
                 mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
                 mcpNameHeader: request.headers.get('mcp-name') ?? undefined
             },

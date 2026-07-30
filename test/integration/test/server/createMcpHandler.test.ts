@@ -173,6 +173,7 @@ describe('createMcpHandler over HTTP — subscriptions/listen honored filter', (
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json, text/event-stream',
+                'mcp-protocol-version': '2026-07-28',
                 'mcp-method': 'subscriptions/listen'
             },
             body: JSON.stringify({

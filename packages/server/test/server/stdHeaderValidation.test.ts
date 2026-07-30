@@ -4,7 +4,8 @@
  *
  * The presence and `Mcp-Name` cross-check half of the standard-header rung,
  * evaluated by the entry on a modern-classified request immediately after the
- * body-primary classifier returns a modern route. A missing `Mcp-Method`
+ * body-primary classifier returns a modern route. A missing
+ * `MCP-Protocol-Version` header, a missing `Mcp-Method`
  * header, a missing `Mcp-Name` header on a `tools/call` / `prompts/get` /
  * `resources/read` request, an `Mcp-Name` value disagreeing with
  * `params.name` / `params.uri`, and an invalid `Mcp-Name` Base64 sentinel are
@@ -72,6 +73,31 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         expect(response.status).toBe(200);
         const body = (await response.json()) as { result: { content: Array<{ text: string }> } };
         expect(body.result.content[0]?.text).toBe('hi');
+    });
+
+    it('a missing MCP-Protocol-Version header is rejected 400/-32020', async () => {
+        // https://github.com/modelcontextprotocol/typescript-sdk/issues/2589 —
+        // the modern envelope in the body must not stand in for the header the
+        // 2026-07-28 Streamable HTTP spec requires on every POST.
+        const handler = createMcpHandler(makeFactory());
+        const request = modernRequest('server/discover', {}, { 'mcp-method': 'server/discover' });
+        request.headers.delete('mcp-protocol-version');
+        const error = await expectHeaderMismatch(await handler.fetch(request));
+        expect(error.message).toContain('MCP-Protocol-Version header is absent');
+    });
+
+    it('a present and matching MCP-Protocol-Version header still dispatches', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(modernRequest('tools/list', {}, { 'mcp-method': 'tools/list' }));
+        expect(response.status).toBe(200);
+    });
+
+    it('a mismatched MCP-Protocol-Version header is still rejected 400/-32020', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const error = await expectHeaderMismatch(
+            await handler.fetch(modernRequest('tools/list', {}, { 'mcp-method': 'tools/list', 'mcp-protocol-version': '2026-11-25' }))
+        );
+        expect(error.message).toContain('MCP-Protocol-Version header names 2026-11-25');
     });
 
     it('a missing Mcp-Method header is rejected 400/-32020', async () => {
@@ -165,5 +191,15 @@ describe('SEP-2243 standard-header validation is era-gated', () => {
         );
         // The default 'stateless' legacy posture answers initialize.
         expect(response.status).toBe(200);
+    });
+
+    it('a body-less GET is still method-routed to legacy serving, never header-validated', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(
+            new Request('http://localhost/mcp', { method: 'GET', headers: { Accept: 'text/event-stream' } })
+        );
+        // Whatever the legacy posture answers, it is never the modern
+        // standard-header rejection.
+        expect(response.status).not.toBe(400);
     });
 });

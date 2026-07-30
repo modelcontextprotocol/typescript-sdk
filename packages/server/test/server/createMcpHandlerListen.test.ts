@@ -31,6 +31,7 @@ function listenRequest(id: string | number, filter: Record<string, unknown>): Re
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
             'mcp-method': 'subscriptions/listen'
         },
         body: JSON.stringify({
@@ -212,6 +213,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': '2026-07-28',
                     'mcp-method': 'subscriptions/listen'
                 },
                 body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: { _meta: ENVELOPE } })
