@@ -1262,6 +1262,7 @@ export interface ResourceListChangedNotification extends JSONRPCNotification {
  * @category `subscriptions/listen`
  */
 export interface SubscriptionFilter {
+    [key: string]: unknown;
     /**
      * If true, receive {@link ToolListChangedNotification | notifications/tools/list_changed}.
      */

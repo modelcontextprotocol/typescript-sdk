@@ -1,4 +1,4 @@
-import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
+import type { JSONObject, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
 
 /**
  * A change event a server publishes for delivery on open `subscriptions/listen`
@@ -8,6 +8,7 @@ import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotoc
  * - `prompts_list_changed` → `notifications/prompts/list_changed`
  * - `resources_list_changed` → `notifications/resources/list_changed`
  * - `resource_updated` → `notifications/resources/updated` (carries the URI)
+ * - `extension` → an extension notification (carries its method and params)
  *
  * The bus carries the EVENT, not the wire shape — the entry's listen router
  * owns subscription-id stamping and per-stream filtering.
@@ -16,7 +17,8 @@ export type ServerEvent =
     | { kind: 'tools_list_changed' }
     | { kind: 'prompts_list_changed' }
     | { kind: 'resources_list_changed' }
-    | { kind: 'resource_updated'; uri: string };
+    | { kind: 'resource_updated'; uri: string }
+    | { kind: 'extension'; filterKey: string; method: string; params: JSONObject };
 
 /**
  * The server-side change-event seam for `subscriptions/listen`.
@@ -100,6 +102,8 @@ export interface ServerNotifier {
     promptsChanged(): void;
     /** Publish `notifications/resources/list_changed` to every open subscription that opted in. */
     resourcesChanged(): void;
+    /** Publish an extension notification to every open subscription that opted in to `filterKey`. */
+    extension(filterKey: string, method: string, params: JSONObject): void;
     /** Publish `notifications/resources/updated` for `uri` to every open subscription that opted in to that URI. */
     resourceUpdated(uri: string): void;
 }
@@ -110,6 +114,7 @@ export function createServerNotifier(bus: ServerEventBus): ServerNotifier {
         toolsChanged: () => bus.publish({ kind: 'tools_list_changed' }),
         promptsChanged: () => bus.publish({ kind: 'prompts_list_changed' }),
         resourcesChanged: () => bus.publish({ kind: 'resources_list_changed' }),
+        extension: (filterKey: string, method: string, params: JSONObject) => bus.publish({ kind: 'extension', filterKey, method, params }),
         resourceUpdated: (uri: string) => bus.publish({ kind: 'resource_updated', uri })
     };
 }
@@ -137,6 +142,9 @@ export function listenFilterAccepts(filter: SubscriptionFilter, event: ServerEve
         }
         case 'resource_updated': {
             return filter.resourceSubscriptions !== undefined && filter.resourceSubscriptions.includes(event.uri);
+        }
+        case 'extension': {
+            return filter[event.filterKey] === true;
         }
     }
 }
@@ -172,11 +180,14 @@ export function honoredSubset(requested: SubscriptionFilter, capabilities?: Serv
     ) {
         honored.resourceSubscriptions = [...requested.resourceSubscriptions];
     }
+    for (const [key, value] of Object.entries(requested)) {
+        if (!(key in honored) && value === true && key.includes('/')) honored[key] = true;
+    }
     return honored;
 }
 
 /** Map a {@linkcode ServerEvent} onto its wire notification `{method, params}`. */
-export function serverEventToNotification(event: ServerEvent): { method: string; params?: { uri: string } } {
+export function serverEventToNotification(event: ServerEvent): { method: string; params?: JSONObject } {
     switch (event.kind) {
         case 'tools_list_changed': {
             return { method: 'notifications/tools/list_changed' };
@@ -189,6 +200,9 @@ export function serverEventToNotification(event: ServerEvent): { method: string;
         }
         case 'resource_updated': {
             return { method: 'notifications/resources/updated', params: { uri: event.uri } };
+        }
+        case 'extension': {
+            return { method: event.method, params: event.params };
         }
     }
 }

@@ -190,6 +190,40 @@ describe('createMcpHandler — subscriptions/listen', () => {
         await handler.close();
     });
 
+    it('acknowledges and delivers an opted-in extension notification', async () => {
+        const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
+        const response = await handler.fetch(listenRequest('tasks-subscription', { 'io.modelcontextprotocol/tasks': true }));
+        handler.notify.extension('io.modelcontextprotocol/tasks', 'notifications/tasks', {
+            taskId: 'task-1',
+            status: 'working',
+            progress: { completed: 1, total: 2 }
+        });
+        handler.notify.extension('io.modelcontextprotocol/other', 'notifications/other', { ignored: true });
+
+        const messages = (await readMessages(response, 2)) as { method: string; params: Record<string, unknown> }[];
+        expect(messages).toEqual([
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: {
+                    _meta: { [SUBSCRIPTION_ID_META_KEY]: 'tasks-subscription' },
+                    notifications: { 'io.modelcontextprotocol/tasks': true }
+                }
+            },
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/tasks',
+                params: {
+                    _meta: { [SUBSCRIPTION_ID_META_KEY]: 'tasks-subscription' },
+                    taskId: 'task-1',
+                    status: 'working',
+                    progress: { completed: 1, total: 2 }
+                }
+            }
+        ]);
+        await handler.close();
+    });
+
     it("refuses pre-ack with -32603 'Subscription limit reached' when at capacity", async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0, maxSubscriptions: 1 });
         const first = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
