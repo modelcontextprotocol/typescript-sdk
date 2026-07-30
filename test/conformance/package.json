@@ -37,20 +37,22 @@
         "test:conformance:server:run": "node --import tsx ./src/everythingServer.ts",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
-    "devDependencies": {
-        "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+    "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/conformance": "0.2.0-alpha.10",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
-        "cors": "catalog:runtimeServerOnly",
-        "express": "catalog:runtimeServerOnly",
-        "tsx": "catalog:devTools",
-        "zod": "catalog:runtimeShared"
+        "tsx": "catalog:devTools"
     }
 }

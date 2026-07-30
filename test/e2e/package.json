@@ -29,13 +29,18 @@
         "test": "vitest run",
         "test:watch": "vitest"
     },
-    "devDependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly",
+    "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/core-internal": "workspace:^",
+        "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/server-legacy": "workspace:^",
-        "@modelcontextprotocol/express": "workspace:^",
+        "express": "catalog:runtimeServerOnly",
+        "vitest": "catalog:devTools",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/fastify": "workspace:^",
         "@modelcontextprotocol/hono": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
@@ -48,14 +53,11 @@
         "@valibot/to-json-schema": "catalog:devTools",
         "arktype": "catalog:devTools",
         "cors": "catalog:runtimeServerOnly",
-        "express": "catalog:runtimeServerOnly",
         "fastify": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly",
         "jose": "catalog:runtimeClientOnly",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
-        "valibot": "catalog:devTools",
-        "vitest": "catalog:devTools",
-        "zod": "catalog:runtimeShared"
+        "valibot": "catalog:devTools"
     }
 }
