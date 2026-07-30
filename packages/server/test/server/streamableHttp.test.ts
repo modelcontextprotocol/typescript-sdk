@@ -539,9 +539,15 @@ describe('Zod v4', () => {
             const toolGate = new Promise<void>(resolve => {
                 releaseTool = resolve;
             });
-            let toolStarted = false;
+            // Signalled by the handler rather than polled: close() has to land while the handler is
+            // genuinely parked. Landing earlier means the POST is not yet validated and the test
+            // passes for the wrong reason, and a poll loop would make that depend on runner speed.
+            let signalToolStarted!: () => void;
+            const toolStarted = new Promise<void>(resolve => {
+                signalToolStarted = resolve;
+            });
             mcpServer.registerTool('slow', { description: 'Parks', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
-                toolStarted = true;
+                signalToolStarted();
                 await toolGate;
                 return { content: [] };
             });
@@ -556,18 +562,14 @@ describe('Zod v4', () => {
                 )
             );
 
-            // Only close once the handler is genuinely parked, or close() lands before the POST
-            // is even validated and the test proves nothing.
-            for (let i = 0; i < 200 && !toolStarted; i++) {
-                await new Promise(resolve => setTimeout(resolve, 5));
-            }
-            expect(toolStarted).toBe(true);
-
+            await toolStarted;
             await transport.close();
 
+            // The only remaining timer, and it fires solely on a regression: with the fix the
+            // response is already resolved by the time close() returns.
             const outcome = await Promise.race([
                 inFlight.then(response => ({ hung: false, status: response.status })),
-                new Promise<{ hung: true; status: number }>(resolve => setTimeout(() => resolve({ hung: true, status: 0 }), 1000))
+                new Promise<{ hung: true; status: number }>(resolve => setTimeout(() => resolve({ hung: true, status: 0 }), 2000))
             ]);
             releaseTool();
 
