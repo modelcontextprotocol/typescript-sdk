@@ -566,11 +566,17 @@ describe('Zod v4', () => {
             await transport.close();
 
             // The only remaining timer, and it fires solely on a regression: with the fix the
-            // response is already resolved by the time close() returns.
+            // response is already resolved by the time close() returns. Cleared either way so a
+            // passing run leaves no pending timer behind for the rest of the suite.
+            let hangTimer: ReturnType<typeof setTimeout> | undefined;
             const outcome = await Promise.race([
                 inFlight.then(response => ({ hung: false, status: response.status })),
-                new Promise<{ hung: true; status: number }>(resolve => setTimeout(() => resolve({ hung: true, status: 0 }), 2000))
-            ]);
+                new Promise<{ hung: true; status: number }>(resolve => {
+                    hangTimer = setTimeout(() => resolve({ hung: true, status: 0 }), 2000);
+                })
+            ]).finally(() => {
+                if (hangTimer !== undefined) clearTimeout(hangTimer);
+            });
             releaseTool();
 
             expect(outcome.hung).toBe(false);
