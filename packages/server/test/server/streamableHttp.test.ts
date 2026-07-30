@@ -531,6 +531,50 @@ describe('Zod v4', () => {
             });
         });
 
+        it('settles an in-flight request when the transport closes mid-handler', async () => {
+            // close() runs every stream mapping's cleanup. JSON mode's cleanup only dropped the
+            // map entry, leaving the Promise returned by handleRequest() unsettled — so the HTTP
+            // request hung until the client gave up rather than failing.
+            let releaseTool!: () => void;
+            const toolGate = new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+            let toolStarted = false;
+            mcpServer.registerTool('slow', { description: 'Parks', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
+                toolStarted = true;
+                await toolGate;
+                return { content: [] };
+            });
+
+            sessionId = await initializeServer();
+
+            const inFlight = transport.handleRequest(
+                createRequest(
+                    'POST',
+                    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'slow-1' } as JSONRPCMessage,
+                    { sessionId }
+                )
+            );
+
+            // Only close once the handler is genuinely parked, or close() lands before the POST
+            // is even validated and the test proves nothing.
+            for (let i = 0; i < 200 && !toolStarted; i++) {
+                await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            expect(toolStarted).toBe(true);
+
+            await transport.close();
+
+            const outcome = await Promise.race([
+                inFlight.then(response => ({ hung: false, status: response.status })),
+                new Promise<{ hung: true; status: number }>(resolve => setTimeout(() => resolve({ hung: true, status: 0 }), 1000))
+            ]);
+            releaseTool();
+
+            expect(outcome.hung).toBe(false);
+            expect(outcome.status).toBe(503);
+        });
+
         it('should handle tool calls in JSON response mode', async () => {
             sessionId = await initializeServer();
 
