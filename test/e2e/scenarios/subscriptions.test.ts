@@ -72,6 +72,7 @@ verifies('subscriptions:listen:ack-first-stamped', async () => {
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json, text/event-stream',
+                'mcp-protocol-version': '2026-07-28',
                 'mcp-method': 'subscriptions/listen'
             },
             body: JSON.stringify({
@@ -270,6 +271,7 @@ verifies('subscriptions:listen:capacity-guard', async () => {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': '2026-07-28',
                     'mcp-method': 'subscriptions/listen'
                 },
                 body: JSON.stringify({

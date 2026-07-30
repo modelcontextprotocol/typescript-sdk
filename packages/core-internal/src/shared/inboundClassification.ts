@@ -320,10 +320,11 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         codes: [HEADER_MISMATCH_ERROR_CODE],
         conformance: ['http-header-validation'],
         rationale:
-            'SEP-2243 standard `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and `Mcp-Name` ↔ body cross-check ' +
-            '— are validated by the HTTP entry on a modern-classified request after the supported-revision gate and before ' +
-            'dispatch. The classifier’s own header-mismatch cells (protocol-version, `Mcp-Method` mismatch) stay on the edge ' +
-            '`era-classification` rung; this rung carries the entry-layer presence/`Mcp-Name` half. Evaluated before the ' +
+            'SEP-2243 standard `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and ' +
+            '`Mcp-Name` ↔ body cross-check — are validated by the HTTP entry on a modern-classified request after the ' +
+            'supported-revision gate and before dispatch. The classifier’s own header-mismatch cells (protocol-version, ' +
+            '`Mcp-Method` mismatch) stay on the edge `era-classification` rung; this rung carries the entry-layer ' +
+            'presence/`Mcp-Name` half. Evaluated before the ' +
             'capability gate, the factory call, and the `Mcp-Param-*` rung so a request that fails several rungs is answered by ' +
             'the standard-header rung first. The documented order (after method-registry 5 and request-params 6) is NOT the ' +
             'observed precedence: serveModern evaluates this rung immediately after the supported-revision gate, so a request ' +
@@ -494,6 +495,10 @@ function stripHttpOws(value: string): string {
  * `era-classification` rung for the `MCP-Protocol-Version` and
  * `Mcp-Method` *mismatch* cells) when:
  *
+ * - the required `MCP-Protocol-Version` header is absent (the classifier's
+ *   edge rung only cross-checks the header against the body when it is
+ *   present, and the body claim alone must never stand in for the header the
+ *   spec requires on every modern POST);
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
  *   `prompts/get`, or `resources/read` request whose body carries the
@@ -518,6 +523,19 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return undefined;
     }
     const method = route.message.method;
+
+    if (request.protocolVersionHeader === undefined) {
+        // Every modern POST carries `MCP-Protocol-Version`. Its absence takes
+        // the same rejection path as a header/body disagreement: the request
+        // is unserved because the headers do not carry what the body claims.
+        return crossCheckMismatch(
+            'version-header-missing',
+            '(missing)',
+            `the body claims protocol revision ${route.classification.revision ?? '2026-07-28'} but the required ` +
+                'MCP-Protocol-Version header is absent',
+            'standard-header-validation'
+        );
+    }
 
     if (request.mcpMethodHeader === undefined) {
         return crossCheckMismatch(
