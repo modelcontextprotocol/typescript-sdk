@@ -204,6 +204,74 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/server');
     });
 
+    it('keeps a license header above the rewritten import, with its blank line intact', () => {
+        // #2575: the header survived in the text but the re-emitted import was inserted above it, so
+        // the header stopped being the first thing in the file (breaking eslint-plugin-header /
+        // SPDX scanners) and the blank line separating it from the code was consumed, turning the
+        // header into a doc comment for the next declaration. Content-only assertions miss both.
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            `// SPDX-License-Identifier: Apache-2.0`,
+            ``,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const ok = (): CallToolResult => ({ content: [] });`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        const lines = result.split('\n');
+
+        expect(lines[0]).toBe('// Copyright (c) 2026 Example Corp.');
+        expect(lines[1]).toBe('// SPDX-License-Identifier: Apache-2.0');
+        // the blank line between header and code must survive, or the header reads as a doc comment
+        expect(lines[2]).toBe('');
+        expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('does not split a multi-line header run when the SDK import is not the first import', () => {
+        // #2575, second shape: the rewritten import was inserted *inside* the leading `//` run,
+        // stranding line 1 above an unrelated import.
+        const input = [
+            `// page_to_markdown tool: fetches a URL and returns clean Markdown.`,
+            `// Uses @page2ai/core under the hood - inherits SSRF protection and a 10MB cap.`,
+            `// Static tab discovery emits per-tab sections for docs sites.`,
+            ``,
+            `import { fetchAndConvert } from '@page2ai/core';`,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const x = (r: CallToolResult) => fetchAndConvert(r);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        const lines = result.split('\n');
+
+        // the three header lines stay contiguous at the top of the file
+        expect(lines[0]).toContain('page_to_markdown tool');
+        expect(lines[1]).toContain('@page2ai/core under the hood');
+        expect(lines[2]).toContain('Static tab discovery');
+        expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(2);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('leaves a comment above a mid-file import attached to that import', () => {
+        // Guard on the scope of the header detach: only a block anchored at byte 0 is a file header.
+        // A comment above a later import documents that import and must not be hoisted to the top.
+        const input = [
+            `import { fetchAndConvert } from '@page2ai/core';`,
+            ``,
+            `// Result type returned to the caller.`,
+            `import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `export const x = (r: CallToolResult) => fetchAndConvert(r);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+
+        expect(result.split('// Result type returned to the caller.').length - 1).toBe(1);
+        expect(result.indexOf('// Result type returned to the caller.')).toBeGreaterThan(result.indexOf('@page2ai/core'));
+    });
+
     it('routes OAuth *Schema from sdk/shared/auth.js to core; the TYPE resolves by context', () => {
         // OAuthTokensSchema is a Zod schema re-exported by core (AUTH_SCHEMA_NAMES), so route it
         // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
