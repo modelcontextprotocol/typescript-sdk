@@ -246,6 +246,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _keepAliveMs: number;
     private _closed = false;
+    /**
+     * Set synchronously before `onsessionclosed` is awaited, so a DELETE that arrives while the
+     * callback is in flight does not fire it again. `_closed` cannot serve this purpose: it is set
+     * by `close()`, which only runs once the callback has already settled.
+     */
+    private _sessionClosedNotified = false;
 
     sessionId?: string;
     onclose?: () => void;
@@ -979,7 +985,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         try {
-            await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+            // Claim the notification before awaiting it — see `_sessionClosedNotified`. DELETE stays
+            // idempotent: a concurrent or repeat request still terminates the session and answers 200,
+            // it just does not re-run the callback.
+            if (!this._sessionClosedNotified) {
+                this._sessionClosedNotified = true;
+                await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+            }
             return new Response(null, { status: 200 });
         } finally {
             await this.close();
