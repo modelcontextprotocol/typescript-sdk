@@ -531,6 +531,58 @@ describe('Zod v4', () => {
             });
         });
 
+        it('settles an in-flight request when the transport closes mid-handler', async () => {
+            // close() runs every stream mapping's cleanup. JSON mode's cleanup only dropped the
+            // map entry, leaving the Promise returned by handleRequest() unsettled — so the HTTP
+            // request hung until the client gave up rather than failing.
+            let releaseTool!: () => void;
+            const toolGate = new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+            // Signalled by the handler rather than polled: close() has to land while the handler is
+            // genuinely parked. Landing earlier means the POST is not yet validated and the test
+            // passes for the wrong reason, and a poll loop would make that depend on runner speed.
+            let signalToolStarted!: () => void;
+            const toolStarted = new Promise<void>(resolve => {
+                signalToolStarted = resolve;
+            });
+            mcpServer.registerTool('slow', { description: 'Parks', inputSchema: z.object({}) }, async (): Promise<CallToolResult> => {
+                signalToolStarted();
+                await toolGate;
+                return { content: [] };
+            });
+
+            sessionId = await initializeServer();
+
+            const inFlight = transport.handleRequest(
+                createRequest(
+                    'POST',
+                    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'slow-1' } as JSONRPCMessage,
+                    { sessionId }
+                )
+            );
+
+            await toolStarted;
+            await transport.close();
+
+            // The only remaining timer, and it fires solely on a regression: with the fix the
+            // response is already resolved by the time close() returns. Cleared either way so a
+            // passing run leaves no pending timer behind for the rest of the suite.
+            let hangTimer: ReturnType<typeof setTimeout> | undefined;
+            const outcome = await Promise.race([
+                inFlight.then(response => ({ hung: false, status: response.status })),
+                new Promise<{ hung: true; status: number }>(resolve => {
+                    hangTimer = setTimeout(() => resolve({ hung: true, status: 0 }), 2000);
+                })
+            ]).finally(() => {
+                if (hangTimer !== undefined) clearTimeout(hangTimer);
+            });
+            releaseTool();
+
+            expect(outcome.hung).toBe(false);
+            expect(outcome.status).toBe(503);
+        });
+
         it('should handle tool calls in JSON response mode', async () => {
             sessionId = await initializeServer();
 
