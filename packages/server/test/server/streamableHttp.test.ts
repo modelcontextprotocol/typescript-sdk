@@ -602,6 +602,36 @@ describe('Zod v4', () => {
 
             expect(onClosed).toHaveBeenCalledWith('test-session-456');
         });
+
+        it('fires onsessionclosed once when two DELETEs arrive concurrently', async () => {
+            // The first DELETE parks on the callback await; `_closed` is only set by close() in the
+            // finally, so a second DELETE passes the same guards and fires the callback again for a
+            // session that is already being torn down.
+            let releaseCallback!: () => void;
+            const callbackGate = new Promise<void>(resolve => {
+                releaseCallback = resolve;
+            });
+            const onClosed = vi.fn().mockReturnValue(callbackGate);
+
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => 'test-session-789',
+                onsessionclosed: onClosed
+            });
+
+            await mcpServer.connect(transport);
+            await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+
+            const sendDelete = (): Promise<Response> =>
+                transport.handleRequest(createRequest('DELETE', undefined, { sessionId: 'test-session-789' }));
+
+            const first = sendDelete();
+            const second = sendDelete();
+            releaseCallback();
+            await Promise.all([first, second]);
+
+            expect(onClosed).toHaveBeenCalledTimes(1);
+        });
     });
 
     describe('HTTPServerTransport - Event Store (Resumability)', () => {
