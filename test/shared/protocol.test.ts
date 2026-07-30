@@ -14,7 +14,7 @@ import {
     type Notification,
     type Result
 } from '../../src/types.js';
-import { Protocol, mergeCapabilities } from '../../src/shared/protocol.js';
+import { Protocol, mergeCapabilities, type ProgressCallback } from '../../src/shared/protocol.js';
 import { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from '../../src/experimental/tasks/interfaces.js';
 import { MockInstance, vi } from 'vitest';
@@ -348,6 +348,115 @@ describe('protocol tests', () => {
                 }),
                 expect.any(Object)
             );
+        });
+    });
+
+    describe('late progress notifications', () => {
+        const resultSchema = z.object({
+            result: z.string()
+        });
+
+        const startProgressRequest = (onprogress: ProgressCallback = vi.fn()) => {
+            const requestPromise = protocol.request({ method: 'example', params: {} }, resultSchema, { onprogress });
+            const sentRequest = sendSpy.mock.calls.at(-1)![0] as {
+                id: number;
+                params: { _meta: { progressToken: number } };
+            };
+            return { requestPromise, sentRequest };
+        };
+
+        const completeRequest = async (requestPromise: Promise<{ result: string }>, requestId: number) => {
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: requestId,
+                result: { result: 'success' }
+            });
+            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+        };
+
+        const sendProgress = async (progressToken: number, progress: number) => {
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: {
+                    progressToken,
+                    progress,
+                    total: 100
+                }
+            });
+            await Promise.resolve();
+        };
+
+        test('should deliver progress received before the response', async () => {
+            const onProgressMock = vi.fn();
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            await protocol.connect(transport);
+
+            const { requestPromise, sentRequest } = startProgressRequest(onProgressMock);
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            await sendProgress(progressToken, 50);
+            await completeRequest(requestPromise, sentRequest.id);
+            expect(onProgressMock).toHaveBeenCalledWith({
+                progress: 50,
+                total: 100
+            });
+            expect(onErrorMock).not.toHaveBeenCalled();
+        });
+
+        test('should ignore progress received after the response for the same token', async () => {
+            const onProgressMock = vi.fn();
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            await protocol.connect(transport);
+
+            const { requestPromise, sentRequest } = startProgressRequest(onProgressMock);
+            const progressToken = sentRequest.params._meta.progressToken;
+
+            await completeRequest(requestPromise, sentRequest.id);
+            await sendProgress(progressToken, 100);
+
+            expect(onProgressMock).not.toHaveBeenCalled();
+            expect(onErrorMock).not.toHaveBeenCalled();
+        });
+
+        test('should report progress for a token that was never registered', async () => {
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            await protocol.connect(transport);
+
+            const requestPromise = protocol.request({ method: 'example', params: {} }, resultSchema);
+            const sentRequest = sendSpy.mock.calls.at(-1)![0] as { id: number };
+
+            await completeRequest(requestPromise, sentRequest.id);
+            await sendProgress(sentRequest.id, 50);
+            expect(onErrorMock).toHaveBeenCalledOnce();
+            const error = onErrorMock.mock.calls[0][0] as Error;
+            expect(error).toBeInstanceOf(Error);
+            expect(error.message).toContain('Received a progress notification for an unknown token');
+            expect(error.message).toContain(`"progressToken":${sentRequest.id}`);
+        });
+
+        test('should evict the oldest recently completed progress token', async () => {
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+            await protocol.connect(transport);
+
+            const retainedTokenCount = 64;
+            const completedProgressTokens: number[] = [];
+
+            for (let i = 0; i <= retainedTokenCount; i++) {
+                const { requestPromise, sentRequest } = startProgressRequest();
+                completedProgressTokens.push(sentRequest.params._meta.progressToken);
+                await completeRequest(requestPromise, sentRequest.id);
+            }
+
+            await sendProgress(completedProgressTokens[0], 100);
+            expect(onErrorMock).toHaveBeenCalledOnce();
+
+            await sendProgress(completedProgressTokens.at(-1)!, 100);
+            expect(onErrorMock).toHaveBeenCalledOnce();
         });
     });
 
