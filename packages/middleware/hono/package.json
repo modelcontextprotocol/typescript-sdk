@@ -55,6 +55,7 @@
         "hono": "catalog:runtimeServerOnly"
     },
     "devDependencies": {
+        "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",

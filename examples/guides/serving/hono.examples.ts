@@ -15,24 +15,50 @@
 /* eslint-disable no-console */
 import type { AuthInfo } from '@modelcontextprotocol/server';
 
-//#region createMcpHonoApp_mount
-import { createMcpHonoApp } from '@modelcontextprotocol/hono';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
-import type { Context } from 'hono';
+//#region mcp_mount
+import { mcp } from '@modelcontextprotocol/hono';
+import { McpServer } from '@modelcontextprotocol/server';
+import { Hono } from 'hono';
 import * as z from 'zod/v4';
 
-const handler = createMcpHandler(() => {
-    const server = new McpServer({ name: 'notes', version: '1.0.0' });
-    server.registerTool('add-note', { description: 'Append a note', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
-        content: [{ type: 'text', text: `Saved: ${text}` }]
-    }));
-    return server;
-});
-
-const app = createMcpHonoApp();
-app.all('/mcp', (c: Context) => handler.fetch(c.req.raw, { parsedBody: c.get('parsedBody') }));
+const app = new Hono();
+app.all(
+    '/mcp',
+    mcp(() => {
+        const server = new McpServer({ name: 'notes', version: '1.0.0' });
+        server.registerTool(
+            'add-note',
+            { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
+            async ({ text }) => ({
+                content: [{ type: 'text', text: `Saved: ${text}` }]
+            })
+        );
+        return server;
+    })
+);
 
 export default app;
+//#endregion mcp_mount
+
+//#region createMcpHonoApp_mount
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
+import { createMcpHandler } from '@modelcontextprotocol/server';
+import type { Context } from 'hono';
+
+const handler = createMcpHandler(() => {
+    const factoryServer = new McpServer({ name: 'notes', version: '1.0.0' });
+    factoryServer.registerTool(
+        'add-note',
+        { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
+        async ({ text }) => ({
+            content: [{ type: 'text', text: `Saved: ${text}` }]
+        })
+    );
+    return factoryServer;
+});
+
+const factoryApp = createMcpHonoApp();
+factoryApp.all('/mcp', (c: Context) => handler.fetch(c.req.raw, { parsedBody: c.get('parsedBody') }));
 //#endregion createMcpHonoApp_mount
 
 //#region createMcpHonoApp_allowedHosts

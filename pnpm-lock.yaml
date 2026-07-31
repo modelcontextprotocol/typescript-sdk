@@ -1681,6 +1681,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../../client
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../../common/eslint-config
