@@ -925,7 +925,7 @@ export const UnsubscribeRequestSchema = RequestSchema.extend({
  * request. Each type is opt-in; the server MUST NOT send a notification type
  * the client has not explicitly requested here.
  */
-export const SubscriptionFilterSchema = z.object({
+export const SubscriptionFilterSchema = z.looseObject({
     /**
      * If true, receive `notifications/tools/list_changed`.
      */

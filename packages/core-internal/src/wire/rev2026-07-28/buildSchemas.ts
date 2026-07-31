@@ -1060,7 +1060,7 @@ function build() {
     const DiscoverRequestSchema = wireRequest('server/discover', {});
 
     /** Anchor SubscriptionFilter (2026-only). */
-    const SubscriptionFilterSchema = z.object({
+    const SubscriptionFilterSchema = z.looseObject({
         toolsListChanged: z.boolean().optional(),
         promptsListChanged: z.boolean().optional(),
         resourcesListChanged: z.boolean().optional(),

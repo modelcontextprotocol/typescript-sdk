@@ -30,6 +30,28 @@ describe('listenFilterAccepts', () => {
         expect(listenFilterAccepts({ resourceSubscriptions: [] }, { kind: 'resource_updated', uri: 'file:///x' })).toBe(false);
         // Absent = no resource updates accepted.
         expect(listenFilterAccepts({}, { kind: 'resource_updated', uri: 'file:///x' })).toBe(false);
+        expect(
+            listenFilterAccepts(
+                { 'io.modelcontextprotocol/tasks': true },
+                {
+                    kind: 'extension',
+                    filterKey: 'io.modelcontextprotocol/tasks',
+                    method: 'notifications/tasks',
+                    params: { taskId: 'task-1', status: 'working' }
+                }
+            )
+        ).toBe(true);
+        expect(
+            listenFilterAccepts(
+                {},
+                {
+                    kind: 'extension',
+                    filterKey: 'io.modelcontextprotocol/tasks',
+                    method: 'notifications/tasks',
+                    params: { taskId: 'task-1', status: 'working' }
+                }
+            )
+        ).toBe(false);
     });
 
     it('an empty filter accepts nothing (un-requested types are provably never delivered)', () => {
@@ -52,6 +74,9 @@ describe('honoredSubset', () => {
     it('returns an empty object for an all-absent / all-false filter', () => {
         expect(honoredSubset({})).toEqual({});
         expect(honoredSubset({ toolsListChanged: false, resourceSubscriptions: [] })).toEqual({});
+        expect(honoredSubset({ 'io.modelcontextprotocol/tasks': true })).toEqual({
+            'io.modelcontextprotocol/tasks': true
+        });
     });
 
     it('does not alias the requested resourceSubscriptions array', () => {
@@ -91,6 +116,14 @@ describe('serverEventToNotification', () => {
             method: 'notifications/resources/updated',
             params: { uri: 'file:///a' }
         });
+        expect(
+            serverEventToNotification({
+                kind: 'extension',
+                filterKey: 'io.modelcontextprotocol/tasks',
+                method: 'notifications/tasks',
+                params: { taskId: 'task-1', status: 'working' }
+            })
+        ).toEqual({ method: 'notifications/tasks', params: { taskId: 'task-1', status: 'working' } });
     });
 });
 
@@ -140,11 +173,18 @@ describe('InMemoryServerEventBus', () => {
         notify.toolsChanged();
         notify.promptsChanged();
         notify.resourcesChanged();
+        notify.extension('io.modelcontextprotocol/tasks', 'notifications/tasks', { taskId: 'task-1', status: 'working' });
         notify.resourceUpdated('file:///a');
         expect(seen).toEqual([
             { kind: 'tools_list_changed' },
             { kind: 'prompts_list_changed' },
             { kind: 'resources_list_changed' },
+            {
+                kind: 'extension',
+                filterKey: 'io.modelcontextprotocol/tasks',
+                method: 'notifications/tasks',
+                params: { taskId: 'task-1', status: 'working' }
+            },
             { kind: 'resource_updated', uri: 'file:///a' }
         ]);
     });

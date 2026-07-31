@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import * as core from '../src/index';
-import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema } from '../src/index';
+import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema, SubscriptionFilterSchema } from '../src/index';
 
 function readCore(relativePath: string): string {
     return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
@@ -22,6 +22,12 @@ describe('@modelcontextprotocol/core', () => {
         expect(InitializeRequestSchema.safeParse({}).success).toBe(false);
         expect(OAuthTokensSchema.safeParse({}).success).toBe(false);
         expect(OAuthTokensSchema.safeParse({ access_token: 'tok', token_type: 'Bearer' }).success).toBe(true);
+    });
+
+    it('preserves extension-namespaced subscription filter keys', () => {
+        expect(SubscriptionFilterSchema.parse({ 'io.modelcontextprotocol/tasks': true })).toEqual({
+            'io.modelcontextprotocol/tasks': true
+        });
     });
 
     it('re-exports exactly core’s spec + OAuth schemas — no internal helpers (drift guard)', () => {
