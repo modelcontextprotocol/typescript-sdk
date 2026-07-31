@@ -76,7 +76,10 @@ const SHEET: readonly SheetRow[] = [
         conformance: ['server-stateless'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} })),
         route: 'modern',
-        rationale: 'Body-primary classification: a proxy stripping the protocol-version header must not change the era.'
+        rationale:
+            'Body-primary classification: a proxy stripping the protocol-version header must not change the era. This cell pins ' +
+            'the CLASSIFICATION only — such a request is still refused before dispatch by the standard-header rung, which requires ' +
+            'the header the spec mandates on every modern POST (see validateStandardRequestHeaders / version-header-missing).'
     },
     {
         cell: 'legacy-claimless-request',
