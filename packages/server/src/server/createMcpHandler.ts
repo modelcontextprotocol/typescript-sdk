@@ -675,6 +675,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         const stdHeaderRejection = validateStandardRequestHeaders(
             {
                 httpMethod: request.method,
+                protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
                 mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
                 mcpNameHeader: request.headers.get('mcp-name') ?? undefined
             },
