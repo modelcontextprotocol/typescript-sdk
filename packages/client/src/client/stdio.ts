@@ -46,6 +46,19 @@ export type StdioServerParameters = {
      * Defaults to 10 MB.
      */
     maxBufferSize?: number;
+
+    /**
+     * Kill the entire process tree when {@linkcode StdioClientTransport.close} is called.
+     *
+     * MCP servers are commonly launched through a wrapper (`npx`, `uvx`, `python -m`).
+     * `ChildProcess.kill()` signals only the direct child, so the wrapper's children survive
+     * as orphans. When this is `true`, the child is spawned as its own process-group leader
+     * (POSIX) and `close()` signals the whole group; on Windows the tree is torn down with
+     * `taskkill /T /F`.
+     *
+     * Defaults to `false`, preserving the current signal-propagation behaviour.
+     */
+    killProcessTree?: boolean;
 };
 
 /**
@@ -135,6 +148,9 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
+                // Own process group, so close() can signal the whole tree. Windows has no
+                // process groups in this sense; `taskkill /T` covers it there.
+                detached: this._serverParams.killProcessTree === true && process.platform !== 'win32',
                 windowsHide: process.platform === 'win32',
                 cwd: this._serverParams.cwd
             });
@@ -199,6 +215,38 @@ export class StdioClientTransport implements Transport {
      */
     get pid(): number | null {
         return this._process?.pid ?? null;
+    }
+
+    /**
+     * Signal the child, or its whole tree when `killProcessTree` is set.
+     * Always falls back to the plain single-process kill.
+     */
+    private _signalProcess(proc: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+        const pid = proc.pid;
+
+        if (!this._serverParams.killProcessTree || pid === undefined) {
+            proc.kill(signal);
+            return;
+        }
+
+        if (process.platform === 'win32') {
+            try {
+                spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+                return;
+            } catch {
+                // fall through to the direct kill below
+            }
+        } else {
+            try {
+                // Negative pid addresses the group created by `detached: true`.
+                process.kill(-pid, signal);
+                return;
+            } catch {
+                // Group already gone, or we never became the leader.
+            }
+        }
+
+        proc.kill(signal);
     }
 
     private processReadBuffer() {
@@ -292,7 +340,7 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGTERM');
+                    this._signalProcess(processToClose, 'SIGTERM');
                 } catch {
                     // ignore
                 }
@@ -302,7 +350,7 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGKILL');
+                    this._signalProcess(processToClose, 'SIGKILL');
                 } catch {
                     // ignore
                 }
