@@ -1,5 +1,6 @@
-import { isJsonContentType } from '@modelcontextprotocol/server';
-import type { Context } from 'hono';
+import type { CreateMcpHandlerOptions, McpServerFactory } from '@modelcontextprotocol/server';
+import { createMcpHandler, isJsonContentType } from '@modelcontextprotocol/server';
+import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation';
@@ -112,4 +113,49 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     }
 
     return app;
+}
+
+/**
+ * Options for the {@link mcp} middleware.
+ *
+ * Extends {@link CreateMcpHonoAppOptions} (host/origin protection) with the
+ * options forwarded to {@link createMcpHandler}.
+ */
+export interface McpMiddlewareOptions extends CreateMcpHonoAppOptions {
+    /**
+     * Options forwarded to {@link createMcpHandler} — e.g. `legacy: 'reject'`
+     * for a modern-only strict endpoint.
+     */
+    handler?: CreateMcpHandlerOptions;
+}
+
+/**
+ * Serves MCP as a single Hono middleware — the one-call way to mount MCP on a
+ * route you already own.
+ *
+ * It wires the same defaults as {@link createMcpHonoApp} (JSON body parsing and
+ * localhost DNS-rebinding / origin protection) in front of a
+ * {@link createMcpHandler}, so the endpoint serves the modern 2026-07-28
+ * protocol and falls back to stateless 2025-era serving. A fresh server is
+ * built from your factory for each request.
+ *
+ * @example
+ * ```ts
+ * const app = new Hono();
+ * app.all('/mcp', mcp(() => new McpServer({ name: 'my-server', version: '1.0.0' })));
+ * ```
+ *
+ * @param factory - Builds a fresh MCP server per request.
+ * @param options - Host/origin protection and handler options.
+ * @returns A Hono `MiddlewareHandler` that serves the MCP endpoint.
+ */
+export function mcp(factory: McpServerFactory, options?: McpMiddlewareOptions): MiddlewareHandler {
+    const { handler: handlerOptions, ...appOptions } = options ?? {};
+    const handler = createMcpHandler(factory, handlerOptions);
+    const app = createMcpHonoApp(appOptions);
+    app.all('*', (c: Context<{ Variables: { parsedBody: unknown } }>) => handler.fetch(c.req.raw, { parsedBody: c.get('parsedBody') }));
+    // The inner app is self-contained (its body parser and Host/Origin guards
+    // read only the request), so forwarding just the raw request is enough —
+    // and it avoids `c.executionCtx`, which throws off Cloudflare Workers.
+    return async c => app.fetch(c.req.raw);
 }

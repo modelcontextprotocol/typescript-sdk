@@ -9,29 +9,61 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/hono hono
 
 ## Mount the handler
 
-`createMcpHandler` turns a server factory into a web-standard HTTP handler, and `handler.fetch` takes the `Request` a Hono route already holds as `c.req.raw` — no Node adapter. `createMcpHonoApp` is `new Hono()` with JSON body parsing and DNS rebinding protection already applied.
+`mcp(factory)` is the shortest path: it returns a single Hono middleware that serves MCP over Streamable HTTP, with JSON body parsing and DNS rebinding protection already applied. It builds on `createMcpHandler`, so the endpoint serves the modern 2026-07-28 protocol and falls back to stateless 2025-era serving — a fresh `McpServer` from your factory backs every request. Mount it on a route you already own.
 
-```ts source="../../examples/guides/serving/hono.examples.ts#createMcpHonoApp_mount"
-import { createMcpHonoApp } from '@modelcontextprotocol/hono';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
-import type { Context } from 'hono';
+```ts source="../../examples/guides/serving/hono.examples.ts#mcp_mount"
+import { mcp } from '@modelcontextprotocol/hono';
+import { McpServer } from '@modelcontextprotocol/server';
+import { Hono } from 'hono';
 import * as z from 'zod/v4';
 
-const handler = createMcpHandler(() => {
-    const server = new McpServer({ name: 'notes', version: '1.0.0' });
-    server.registerTool('add-note', { description: 'Append a note', inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
-        content: [{ type: 'text', text: `Saved: ${text}` }]
-    }));
-    return server;
-});
-
-const app = createMcpHonoApp();
-app.all('/mcp', (c: Context) => handler.fetch(c.req.raw, { parsedBody: c.get('parsedBody') }));
+const app = new Hono();
+app.all(
+    '/mcp',
+    mcp(() => {
+        const server = new McpServer({ name: 'notes', version: '1.0.0' });
+        server.registerTool(
+            'add-note',
+            { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
+            async ({ text }) => ({
+                content: [{ type: 'text', text: `Saved: ${text}` }]
+            })
+        );
+        return server;
+    })
+);
 
 export default app;
 ```
 
-`app` is an ordinary Hono app, and `export default app` is the `{ fetch }` object Cloudflare Workers, Deno, and Bun serve directly; on Node, pass `app` to `serve` from `@hono/node-server`. The factory runs once per request, so a fresh `McpServer` serves every call: [Serve over HTTP](./http.md#understand-the-per-request-factory) covers that model.
+`app` is an ordinary Hono app, and `export default app` is the `{ fetch }` object Cloudflare Workers, Deno, and Bun serve directly; on Node, pass `app` to `serve` from `@hono/node-server`.
+
+### Wire the handler and route yourself
+
+When you want to own the routing — mount multiple endpoints, add your own middleware, or pass `authInfo` per request — drop down to `createMcpHandler` + `createMcpHonoApp` (which is what `mcp()` composes for you). `createMcpHandler` turns the same factory into a web-standard HTTP handler, and `handler.fetch` takes the `Request` a Hono route already holds as `c.req.raw` — no Node adapter. `createMcpHonoApp` is `new Hono()` with the same JSON body parsing and DNS rebinding protection applied.
+
+```ts source="../../examples/guides/serving/hono.examples.ts#createMcpHonoApp_mount"
+import { createMcpHonoApp } from '@modelcontextprotocol/hono';
+import { createMcpHandler } from '@modelcontextprotocol/server';
+import type { Context } from 'hono';
+
+const handler = createMcpHandler(() => {
+    const factoryServer = new McpServer({ name: 'notes', version: '1.0.0' });
+    factoryServer.registerTool(
+        'add-note',
+        { description: 'Append a note', inputSchema: z.object({ text: z.string() }) },
+        async ({ text }) => ({
+            content: [{ type: 'text', text: `Saved: ${text}` }]
+        })
+    );
+    return factoryServer;
+});
+
+const factoryApp = createMcpHonoApp();
+factoryApp.all('/mcp', (c: Context) => handler.fetch(c.req.raw, { parsedBody: c.get('parsedBody') }));
+```
+
+The factory runs once per request, so a fresh `McpServer` serves every call: [Serve over HTTP](./http.md#understand-the-per-request-factory) covers that model.
 
 ::: tip
 Keep the explicit `c: Context` annotation: on an inferred callback context `c.get`'s key parameter narrows to `never` and `c.get('parsedBody')` does not compile.
@@ -39,9 +71,9 @@ Keep the explicit `c: Context` annotation: on an inferred callback context `c.ge
 
 ## Protect against DNS rebinding
 
-A malicious page can DNS-rebind its own domain to `127.0.0.1` and reach a localhost server as if it were same-origin. `createMcpHonoApp` validates the `Host` and `Origin` headers against that: with the default `127.0.0.1` bind (and `localhost` / `::1`), a request carrying a non-localhost value gets `403` before your handler runs.
+A malicious page can DNS-rebind its own domain to `127.0.0.1` and reach a localhost server as if it were same-origin. `mcp()` and `createMcpHonoApp` both validate the `Host` and `Origin` headers against that: with the default `127.0.0.1` bind (and `localhost` / `::1`), a request carrying a non-localhost value gets `403` before your handler runs.
 
-Binding to all interfaces drops that default — name the hosts you serve instead.
+Binding to all interfaces drops that default — name the hosts you serve instead. `mcp()` takes the same `host` / `allowedHosts` / `allowedOrigins` options.
 
 ```ts source="../../examples/guides/serving/hono.examples.ts#createMcpHonoApp_allowedHosts"
 const publicApp = createMcpHonoApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
@@ -82,8 +114,8 @@ data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inpu
 
 ## Recap
 
-- One install line, one file: `createMcpHonoApp()` plus one `app.all('/mcp', …)` route over `createMcpHandler(factory).fetch`.
+- `mcp(factory)` is one Hono middleware — `app.all('/mcp', mcp(factory))` serves the whole endpoint (modern + legacy) with body parsing and Host/Origin validation applied.
+- Want to own the routing? Use `createMcpHonoApp()` plus one `app.all('/mcp', …)` route over `createMcpHandler(factory).fetch` — the same pieces `mcp()` composes.
 - Hono hands `c.req.raw` straight to `handler.fetch` — no Node adapter.
-- A fresh server instance from your factory serves every request.
 - The default `127.0.0.1` bind validates `Host` and `Origin`; pass `allowedHosts` when binding to `0.0.0.0`.
 - `authInfo` and `parsedBody` travel in `handler.fetch`'s second argument; handlers read auth as `ctx.http.authInfo`.
