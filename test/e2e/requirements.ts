@@ -2345,7 +2345,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client-auth:token-endpoint:https-guard': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
         behavior:
-            "The token-exchange and refresh paths refuse to send credentials to a non-https token endpoint (localhost / 127.0.0.1 / ::1 exempt) by throwing InsecureTokenEndpointError, and auth()'s refresh branch surfaces it instead of falling through to a fresh /authorize redirect.",
+            "The token-exchange and refresh paths refuse to send credentials to a non-https token endpoint (localhost / *.localhost / 127.0.0.1 / ::1 exempt) by throwing InsecureTokenEndpointError, and auth()'s refresh branch surfaces it instead of falling through to a fresh /authorize redirect.",
         transports: ['streamableHttp'],
         addedInSpecVersion: '2026-07-28',
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
