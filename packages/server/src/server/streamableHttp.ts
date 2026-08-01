@@ -1154,7 +1154,24 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // interpreted as the client cancelling its request.
             let eventId: string | undefined;
             if (this._eventStore) {
-                eventId = await this._eventStore.storeEvent(streamId, message);
+                try {
+                    eventId = await this._eventStore.storeEvent(streamId, message);
+                } catch (error) {
+                    // The event store is user-supplied. A rejected write used to
+                    // propagate straight out of send(), skipping every teardown
+                    // below: the per-request SSE stream stayed open with its
+                    // keep-alive timer armed, and the stream and correlation
+                    // entries leaked. Retire the request first, then rethrow so
+                    // the caller still sees the failure.
+                    this._streamMapping.get(streamId)?.cleanup();
+                    for (const [id, mappedStreamId] of [...this._requestToStreamMapping.entries()]) {
+                        if (mappedStreamId === streamId) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                    }
+                    throw error;
+                }
                 // Re-read after the await: a Last-Event-ID reconnect during
                 // storeEvent() may have registered a resumed stream under this
                 // streamId (mirrors the standalone path's post-await read).
