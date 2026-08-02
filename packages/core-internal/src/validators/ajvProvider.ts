@@ -45,10 +45,7 @@ function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 |
     // Register Google Cloud duration format to silence "unknown format" warnings
     // from MCP servers that use Google API schemas (e.g. Firebase MCP).
     if ('addFormat' in ajv && typeof ajv.addFormat === 'function') {
-        (ajv as { addFormat: (name: string, format: unknown) => void }).addFormat(
-            'google-duration',
-            GOOGLE_DURATION_RE
-        );
+        (ajv as { addFormat: (name: string, format: unknown) => void }).addFormat('google-duration', GOOGLE_DURATION_RE);
     }
     return ajv;
 }
