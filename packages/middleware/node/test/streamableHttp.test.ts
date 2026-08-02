@@ -2661,9 +2661,12 @@ describe('Zod v4', () => {
             const tempServer = result.server;
             const tempUrl = result.baseUrl;
 
-            // Initialize should fail when callback throws
+            // Initialize should fail when callback throws. The failure is
+            // server-internal — the client's body parsed fine — so it is
+            // reported as -32603, not as a parse error.
             const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
-            expect(initResponse.status).toBe(400);
+            expect(initResponse.status).toBe(500);
+            expect((await initResponse.json()).error.code).toBe(-32_603);
 
             // Clean up
             consoleErrorSpy.mockRestore();
