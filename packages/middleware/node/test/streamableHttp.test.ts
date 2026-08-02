@@ -2666,7 +2666,7 @@ describe('Zod v4', () => {
             // reported as -32603, not as a parse error.
             const initResponse = await sendPostRequest(tempUrl, TEST_MESSAGES.initialize);
             expect(initResponse.status).toBe(500);
-            expect((await initResponse.json()).error.code).toBe(-32_603);
+            expectErrorResponse(await initResponse.json(), -32_603, /Internal error/);
 
             // Clean up
             consoleErrorSpy.mockRestore();
