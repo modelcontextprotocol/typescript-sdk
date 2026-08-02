@@ -25,13 +25,13 @@ jobs:
             url: ${{ steps.deployment.outputs.page_url }}
 
         steps:
-            - uses: actions/checkout@v7
+            - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
                   run_install: false
-            - uses: actions/setup-node@v6
+            - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
               with:
                   node-version: 24
                   cache: pnpm
@@ -44,13 +44,13 @@ jobs:
               run: bash scripts/build-docs-site.sh tmp/docs-combined
 
             - name: Configure Pages
-              uses: actions/configure-pages@v6
+              uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d
 
             - name: Upload Pages artifact
-              uses: actions/upload-pages-artifact@v4
+              uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b
               with:
                   path: tmp/docs-combined
 
             - name: Deploy to GitHub Pages
               id: deployment
-              uses: actions/deploy-pages@v5
+              uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128
