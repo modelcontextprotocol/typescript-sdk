@@ -445,6 +445,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const primingEventId = await this._eventStore.storeEvent(streamId, {} as JSONRPCMessage);
 
+        // storeEvent() is user-supplied and suspends here: a close() landing
+        // during the write has already closed this controller, so enqueueing
+        // would throw `Invalid state` out of the POST handler.
+        if (this._closed) {
+            return;
+        }
+
         let primingEvent = `id: ${primingEventId}\ndata: \n\n`;
         if (this._retryInterval !== undefined) {
             primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
@@ -937,6 +944,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Write priming event if event store is configured (after mapping is set up)
             await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
 
+            // writePrimingEvent() awaits the user-supplied event store, so it is
+            // a third suspension point after the `_closed` checks above. Answer
+            // a close() that landed here the same way they do, rather than
+            // letting the stream teardown surface as a client-fault error.
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
             // handle each message
             for (const message of messages) {
                 // Build closeSSEStream callback for requests when eventStore is configured
@@ -964,9 +979,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             return new Response(readable, { status: 200, headers });
         } catch (error) {
-            // return JSON-RPC formatted error
+            // Both parse failures (invalid JSON, invalid JSON-RPC) are already
+            // answered with -32700 above, so anything reaching here is a
+            // server-internal failure — stream setup, the event store, a
+            // handler. Reporting those as a client parse error tells the client
+            // to fix a body that was fine, so map them to -32603 instead.
             this.onerror?.(error as Error);
-            return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error) });
+            return this.createJsonErrorResponse(500, -32_603, 'Internal error', { data: String(error) });
         }
     }
 
