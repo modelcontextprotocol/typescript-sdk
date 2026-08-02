@@ -2,7 +2,7 @@ import { defineConfig } from 'tsdown';
 
 export default defineConfig({
     failOnWarn: 'ci-only',
-    entry: ['src/index.ts'],
+    entry: ['src/index.ts', 'src/experimental/serverCardRouter.ts'],
     format: ['esm', 'cjs'],
     fixedExtension: true,
     outDir: 'dist',
