@@ -110,6 +110,9 @@ describe('@modelcontextprotocol/client experimental server-card subpath', () => 
         expect(content).toMatch(/\bdiscoverServerCards\b/);
         expect(content).toMatch(/\bfetchServerCard\b/);
         expect(content).toMatch(/\bresolveRemote\b/);
+        // Clients read card URLs from AI Catalog entries and must never
+        // construct them, so the hosting-side path suffix is not re-exported.
+        expect(content).not.toMatch(/\bSERVER_CARD_PATH_SUFFIX\b/);
         expect(content).not.toMatch(NODE_ONLY);
         for (const chunk of chunkImportsOf(entry)) {
             expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(

@@ -22,6 +22,9 @@ export { requiredRemoteInputs, resolveRemote } from './resolve';
 
 // Re-exported so client authors import everything from one module. Types and
 // constants only; the Zod schemas stay on the core subpath.
+// SERVER_CARD_PATH_SUFFIX is deliberately NOT re-exported here: clients read
+// card URLs from AI Catalog entries and must never construct them, so the
+// suffix stays a server-side hosting concern.
 export type {
     AICatalog,
     AICatalogEntry,
@@ -34,6 +37,5 @@ export {
     AI_CATALOG_MEDIA_TYPE,
     AI_CATALOG_WELL_KNOWN_PATH,
     SERVER_CARD_MEDIA_TYPE,
-    SERVER_CARD_PATH_SUFFIX,
     SERVER_CARD_SCHEMA_URL
 } from '@modelcontextprotocol/core/experimental/server-card';
