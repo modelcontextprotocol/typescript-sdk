@@ -1164,7 +1164,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     // entries leaked. Retire the request first, then rethrow so
                     // the caller still sees the failure.
                     this._streamMapping.get(streamId)?.cleanup();
-                    for (const [id, mappedStreamId] of [...this._requestToStreamMapping.entries()]) {
+                    for (const [id, mappedStreamId] of this._requestToStreamMapping) {
                         if (mappedStreamId === streamId) {
                             this._requestResponseMap.delete(id);
                             this._requestToStreamMapping.delete(id);
