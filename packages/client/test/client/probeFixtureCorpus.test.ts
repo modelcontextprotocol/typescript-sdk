@@ -19,7 +19,7 @@
  * probe wire shape (string id, `server/discover` first, never a real request).
  */
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -161,6 +161,56 @@ const CORPUS: CorpusRow[] = [
         outcome: { kind: 'result', result: { content: [{ type: 'text', text: `supportedVersions: ["${MODERN}"]` }] } },
         expected: 'legacy'
     },
+    // --- Auth statuses are never era evidence (#2561): an auth-protected
+    // server is not a legacy server, whatever the body says — typed failure,
+    // never initialize (fallbackAvailable is true in every row here).
+    {
+        name: 'auth: HTTP 401 challenge (WWW-Authenticate rides the header; body carries the OAuth error JSON) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 401, body: '{"error":"invalid_token","error_description":"Missing bearer token"}' },
+        expected: 'error'
+    },
+    {
+        name: 'auth: bare HTTP 401 (no body) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 401 },
+        expected: 'error'
+    },
+    {
+        name: 'auth: bare HTTP 403 denial (no body) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 403 },
+        expected: 'error'
+    },
+    {
+        name: 'auth: a 401 whose body parses as a JSON-RPC error is still an auth failure — the auth layer wrote that body, not server/discover',
+        outcome: { kind: 'http-error', status: 401, body: DEPLOYED_SESSION_REQUIRED_BODY },
+        expected: 'error'
+    },
+    // --- Server failures are never era evidence: the spec keys the HTTP
+    // legacy signal to a 4xx rejection, so a 5xx (mid-deploy proxy, crashed
+    // backend) rejects typed instead of demoting a modern server to legacy.
+    {
+        name: '5xx: HTTP 503 with an HTML error page (mid-deploy modern server) → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 503, body: '<html><body>Service Unavailable</body></html>' },
+        expected: 'error'
+    },
+    {
+        name: '5xx: bare HTTP 500 (no body) → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 500 },
+        expected: 'error'
+    },
+    {
+        name: '5xx: HTTP 502 with a JSON (but not JSON-RPC) gateway body → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 502, body: '{"message":"upstream connect error"}' },
+        expected: 'error'
+    },
+    {
+        name: '5xx: HTTP 500 whose body parses as a JSON-RPC error (-32603 from a crashed handler) is still a server failure — 5xx ranks above the body parse',
+        outcome: {
+            kind: 'http-error',
+            status: 500,
+            body: JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32_603, message: 'Internal error' } })
+        },
+        expected: 'error'
+    },
     // --- Q12 transport-aware timeout rows (stdio falls back, HTTP stays a typed error).
     {
         name: 'timeout on stdio → legacy fallback (the stdio backward-compatibility rule)',
@@ -208,6 +258,40 @@ describe('T9/T11 merged probe fixture corpus (probe classifier)', () => {
             expect(verdict.kind).toBe(row.expected);
         });
     }
+
+    it('the 401/403 typed failures carry the auth codes (never EraNegotiationFailed — auth walls must not enter era-recovery flows) plus status, reason phrase, and response text', () => {
+        for (const [status, code, statusText, body] of [
+            [401, SdkErrorCode.ClientHttpAuthentication, 'Unauthorized', '{"error":"invalid_token"}'],
+            [403, SdkErrorCode.ClientHttpForbidden, 'Forbidden', 'nope']
+        ] as const) {
+            const verdict = classifyProbeOutcome({ kind: 'http-error', status, statusText, body }, baseContext);
+            expect(verdict.kind).toBe('error');
+            if (verdict.kind === 'error') {
+                expect(verdict.error).toBeInstanceOf(SdkHttpError);
+                const error = verdict.error as SdkHttpError;
+                expect(error.code).toBe(code);
+                expect(error.status).toBe(status);
+                expect(error.statusText).toBe(statusText);
+                expect(error.data.text).toBe(body);
+                expect(error.message).toContain(String(status));
+            }
+        }
+    });
+
+    it('the 5xx typed failure is EraNegotiationFailed (a genuine negotiation failure) carrying the status', () => {
+        const verdict = classifyProbeOutcome(
+            { kind: 'http-error', status: 503, statusText: 'Service Unavailable', body: 'down' },
+            baseContext
+        );
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkHttpError);
+            const error = verdict.error as SdkHttpError;
+            expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(error.status).toBe(503);
+            expect(error.message).toContain('503');
+        }
+    });
 
     it('a DiscoverResult with a mutual version is the only result shape that yields a modern verdict', () => {
         const verdict = classifyProbeOutcome(

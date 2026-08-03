@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # input_required
 
 An **`input_required`** result is how a `tools/call`, `prompts/get`, or `resources/read` handler asks the connected client for input mid-call: the handler returns the embedded requests, the client answers them and retries the call, and the handler runs again with the responses.

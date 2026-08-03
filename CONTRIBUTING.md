@@ -51,7 +51,7 @@ By the time you open a PR, the "what" and "why" should already be settled in an 
 
 This repository has two main branches:
 
-- **`main`** – v2 of the SDK (currently in development). This is a monorepo with split packages.
+- **`main`** – v2 of the SDK (the stable release line). This is a monorepo with split packages.
 - **`v1.x`** – stable v1 release. Bug fixes and patches for v1 should target this branch.
 
 **Which branch should I use as a base?**
