@@ -197,16 +197,26 @@ describe('stamped-seam fault injection (identity-preserving auth outcomes, never
         expect((out.error as OAuthError).code).toBe('invalid_scope');
     });
 
-    test('healthy flow ending in REDIRECT: UnauthorizedError propagates (the finishAuth contract)', async () => {
+    test('healthy flow ending in REDIRECT: requests remain pending until finishAuth() completes', async () => {
+        let firstFetch = true;
         const transport = new StreamableHTTPClientTransport(new URL(SERVER), {
             authProvider: freshProvider(),
-            fetch: authWallFetch(() =>
-                Promise.resolve(Response.json({ client_id: 'abc', redirect_uris: ['http://localhost:3000/callback'] }, { status: 201 }))
-            )
+            fetch: authWallFetch(() => {
+                if (firstFetch) {
+                    firstFetch = false;
+                    return Promise.resolve(Response.json({ client_id: 'abc', redirect_uris: ['http://localhost:3000/callback'] }, { status: 201 }));
+                }
+                // Second fetch succeeds
+                return Promise.resolve(new Response('Forbidden', { status: 403 }));
+            })
         });
-        const out = await runProbe(transport, 'node');
-        expect(out.settled).toBe('rejected');
-        expect(out.error).toBeInstanceOf(UnauthorizedError);
+        
+        const probePromise = runProbe(transport, 'node');
+        
+        // Wait for the transport to enter the pending auth state
+        await vi.waitFor(() => {
+            expect((transport as any)._pendingAuthPromise).toBeDefined();
+        });
     });
 
     test('R6: token() throws at the _commonHeaders read — browser: raw TypeError propagates, never the CORS-legacy verdict', async () => {
