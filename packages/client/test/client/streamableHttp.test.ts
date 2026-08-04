@@ -909,8 +909,105 @@ describe('StreamableHTTPClientTransport', () => {
                 }
             });
 
-        await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
-        expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+        const sendPromise = transport.send(message);
+
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+        });
+
+        await transport.close();
+        await expect(sendPromise).rejects.toThrow('Transport closed');
+    });
+
+    it('completes full auth sequence after REDIRECT', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = globalThis.fetch as Mock;
+        let callCount = 0;
+        
+        fetchMock.mockImplementation(async (url, init) => {
+            const urlString = url.toString();
+            if (urlString.includes('/token')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        access_token: 'new-token',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    })
+                };
+            }
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        authorization_servers: ['http://localhost:1234'],
+                        resource: 'http://localhost:1234/mcp'
+                    })
+                };
+            }
+            if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                return {
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    })
+                };
+            }
+            
+            callCount++;
+            if (callCount === 1) {
+                // First call: 401 Unauthorized
+                return {
+                    ok: false,
+                    status: 401,
+                    statusText: 'Unauthorized',
+                    headers: new Headers(),
+                    text: async () => 'dont read my body'
+                };
+            } else {
+                // Second call (retry): 200 OK
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'application/json' }),
+                    text: async () => '{}',
+                    json: async () => ({
+                        jsonrpc: '2.0',
+                        id: 'test-id',
+                        result: {}
+                    })
+                };
+            }
+        });
+
+        // The request triggers auth and blocks
+        const sendPromise = transport.send(message);
+
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
+        });
+
+        // Simulate user returning from OAuth and calling finishAuth
+        await transport.finishAuth('test-code');
+
+        // The original request should now complete successfully
+        await sendPromise;
+        expect(callCount).toBe(2);
+        
+        fetchMock.mockReset();
     });
 
     it('silently refreshes and retries when a POST returns 401 invalid_token', async () => {
@@ -2042,7 +2139,14 @@ describe('StreamableHTTPClientTransport', () => {
 
         // Ensure the auth flow completes without unhandled rejections for this
         // error type; token invalidation behavior is covered in dedicated tests.
-        await transport.send(message).catch(() => {});
+        const sendPromise = transport.send(message);
+        
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalled();
+        });
+        
+        await transport.close();
+        await sendPromise.catch(() => {});
     });
 
     it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during auth', async () => {
@@ -2104,7 +2208,14 @@ describe('StreamableHTTPClientTransport', () => {
 
         // As above, just ensure the auth flow completes without unhandled
         // rejections in this scenario.
-        await transport.send(message).catch(() => {});
+        const sendPromise = transport.send(message);
+        
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalled();
+        });
+        
+        await transport.close();
+        await sendPromise.catch(() => {});
     });
 
     it('invalidates tokens on OAuthErrorCode.InvalidGrant during auth', async () => {
@@ -2165,7 +2276,14 @@ describe('StreamableHTTPClientTransport', () => {
         // Behavior for OAuthErrorCode.InvalidGrant during auth is covered in dedicated OAuth
         // unit tests and SSE transport tests. Here we just assert that the call
         // path completes without unhandled rejections.
-        await transport.send(message).catch(() => {});
+        const sendPromise = transport.send(message);
+        
+        await vi.waitFor(() => {
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalled();
+        });
+        
+        await transport.close();
+        await sendPromise.catch(() => {});
     });
 
     describe('custom fetch in auth code paths', () => {
@@ -2217,14 +2335,13 @@ describe('StreamableHTTPClientTransport', () => {
                 fetch: customFetch
             });
 
-            // Attempt to start - should trigger auth flow and eventually fail with UnauthorizedError
+            // Attempt to start - should trigger auth flow
             await transport.start();
-            await expect(
-                (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})
-            ).rejects.toThrow(UnauthorizedError);
+            const startPromise = (transport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({});
 
-            // Verify custom fetch was used
-            expect(customFetch).toHaveBeenCalled();
+            await vi.waitFor(() => {
+                expect(customFetch).toHaveBeenCalled();
+            });
 
             // Verify specific OAuth endpoints were called with custom fetch
             const customFetchCalls = customFetch.mock.calls;
@@ -2241,6 +2358,9 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Global fetch should never have been called
             expect(globalThis.fetch).not.toHaveBeenCalled();
+
+            await transport.close();
+            await expect(startPromise).rejects.toThrow('Transport closed');
         });
 
         it('uses custom fetch in finishAuth method - no global fetch fallback', async () => {
