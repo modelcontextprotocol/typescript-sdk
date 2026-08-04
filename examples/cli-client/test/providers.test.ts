@@ -5,6 +5,7 @@ import { describe, expect, it } from 'vitest';
 
 import { fromAnthropicResponse, toAnthropicRequest } from '../providers/anthropic';
 import { fromGeminiResponse, toGeminiRequest } from '../providers/gemini';
+import { MiniMaxProvider, newestMainlineModel } from '../providers/minimax';
 import { fromOpenAIResponse, toOpenAIRequest } from '../providers/openai';
 import type { ChatMessage, GenerateRequest } from '../providers/provider';
 import { ScriptedProvider } from '../providers/scripted';
@@ -164,5 +165,36 @@ describe('scripted provider', () => {
         expect(provider.remaining).toBe(0);
         const exhausted = await provider.generate({ messages: [] });
         expect(exhausted.text).toContain('no turns left');
+    });
+});
+
+describe('minimax mapping', () => {
+    it('picks the newest mainline MiniMax-M model from a model list', () => {
+        expect(
+            newestMainlineModel([
+                { id: 'MiniMax-M2.7', created: 100 },
+                { id: 'MiniMax-Hailuo-2.3', created: 200 },
+                { id: 'MiniMax-M3', created: 300 }
+            ])
+        ).toBe('MiniMax-M3');
+    });
+
+    it('returns undefined when no mainline model matches', () => {
+        expect(newestMainlineModel([{ id: 'MiniMax-Hailuo-2.3', created: 100 }])).toBeUndefined();
+        expect(newestMainlineModel([])).toBeUndefined();
+    });
+
+    it('requires MINIMAX_API_KEY to construct', () => {
+        const previous = process.env.MINIMAX_API_KEY;
+        delete process.env.MINIMAX_API_KEY;
+        try {
+            expect(() => new MiniMaxProvider()).toThrow(/MINIMAX_API_KEY/);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.MINIMAX_API_KEY;
+            } else {
+                process.env.MINIMAX_API_KEY = previous;
+            }
+        }
     });
 });
