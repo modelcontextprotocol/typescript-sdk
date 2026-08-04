@@ -330,7 +330,8 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise = client.connect(transport);
+        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
 
         // Flow ran exactly once: a single 401'd POST, a single redirect to the authorization endpoint.
         expect(mcpPosts).toHaveLength(1);
@@ -342,6 +343,9 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
 
         expect(as.discoveryCalls.some(p => p.includes('/.well-known/oauth-protected-resource'))).toBe(true);
         expect(as.discoveryCalls).toContain('/.well-known/oauth-authorization-server');
+        
+        await transport.close();
+        await expect(connectPromise).rejects.toThrow();
     } finally {
         await client.close();
         await mcpHost.close();
@@ -380,17 +384,17 @@ verifies('client-auth:negotiation:auth-before-era', async (_args: TestArgs) => {
     try {
         // Probe -> 401: the auth challenge propagates. The 401 never decides the
         // era -- the auth wall answered before the MCP layer saw server/discover.
-        await expect(client.connect(first)).rejects.toThrow(UnauthorizedError);
+        const connectPromise = client.connect(first);
+        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
         expect(mcpPosts).toEqual([{ method: 'server/discover', status: 401, hasAuth: false }]);
         expect(provider.redirectedTo).toHaveLength(1);
 
-        // Complete the flow (the mock AS exchanges any code), then reconnect on
-        // a FRESH transport -- a started transport cannot be restarted.
+        // Complete the flow (the mock AS exchanges any code).
+        // Since the transport remains pending, finishAuth will unblock the original connectPromise.
         await first.finishAuth('e2e-auth-code');
         expect(provider.saved.tokens?.access_token).toBe(validToken);
 
-        const second = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
-        await client.connect(second);
+        await connectPromise;
 
         // The post-auth re-probe supplied the era evidence: two probes total --
         // the pre-auth one 401'd, the post-auth one answered by the legacy
@@ -485,12 +489,15 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
     });
 
     try {
-        await expect(interactiveClient.connect(interactiveTransport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise = interactiveClient.connect(interactiveTransport);
+        while (interactiveProvider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
 
         expect(interactiveProvider.redirectedTo).toHaveLength(1);
         const upgradeRedirect = defined(interactiveProvider.redirectedTo[0], 'authorization redirect URL');
         expect(upgradeRedirect.searchParams.get('scope')).toBe(UPGRADED_SCOPE);
         expect(interactiveMcpRequests).toHaveLength(1);
+        await interactiveTransport.close();
+        await expect(connectPromise).rejects.toThrow();
     } finally {
         await interactiveClient.close();
     }
@@ -562,10 +569,13 @@ verifies('client-auth:stepup:scope-union', async (_args: TestArgs) => {
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise = client.connect(transport);
+        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
         expect(provider.redirectedTo).toHaveLength(1);
         const redirect = defined(provider.redirectedTo[0], 'authorize URL');
         expect(redirect.searchParams.get('scope')).toBe('files:read openid files:write');
+        await transport.close();
+        await expect(connectPromise).rejects.toThrow();
     } finally {
         await client.close();
     }
@@ -594,13 +604,16 @@ verifies(['client-auth:stepup:retry-cap', 'client-auth:stepup:refresh-bypass-on-
         const client = new Client({ name: 'c', version: '0' });
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise = client.connect(transport);
+            while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
             // Refresh was bypassed: no token-endpoint POST; the fresh authorize
             // request carries the union scope.
             expect(as.tokenCalls).toHaveLength(0);
             expect(provider.redirectedTo).toHaveLength(1);
             expect(defined(provider.redirectedTo[0], 'authorize URL').searchParams.get('scope')).toBe('files:read files:write');
             expect(isStrictScopeSuperset('files:read files:write', 'files:read')).toBe(true);
+            await transport.close();
+            await expect(connectPromise).rejects.toThrow();
         } finally {
             await client.close();
         }
@@ -819,7 +832,9 @@ async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMeta
     const client = new Client({ name: 'c', version: '0' });
     try {
         // First connect → 401 → discovery → REDIRECT.
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_834 = client.connect(transport);
+        connectPromise_834.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
         expect(provider.redirectedTo).toHaveLength(1);
 
         let thrown: unknown;
@@ -1005,7 +1020,9 @@ verifies('client-auth:cimd', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1020 = client.connect(transport);
+        connectPromise_1020.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // The CIMD URL is used directly as the client_id; no dynamic registration happens.
         expect(provider.saved.clientInformation?.client_id).toBe(cimdUrl);
@@ -1082,7 +1099,9 @@ verifies('client-auth:dcr', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1097 = client.connect(transport);
+        connectPromise_1097.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // No client_id was preconfigured, so the SDK must register at the AS /register endpoint.
         expect(as.registerCalls).toHaveLength(1);
@@ -1117,7 +1136,9 @@ verifies('client-auth:invalid-client-clears-all', async (_args: TestArgs) => {
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise_1132 = client.connect(transport);
+            connectPromise_1132.catch(() => {});
+            await new Promise(r => setTimeout(r, 20));
 
             // The refresh attempt with the stale registration is what surfaced the error.
             expect(as.tokenCalls).toHaveLength(1);
@@ -1153,7 +1174,9 @@ verifies('client-auth:invalid-grant-clears-tokens', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1168 = client.connect(transport);
+        connectPromise_1168.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // The refresh attempt with the expired grant is what surfaced the error.
         expect(as.tokenCalls).toHaveLength(1);
@@ -1205,7 +1228,9 @@ verifies('client-auth:pkce:s256', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1220 = client.connect(transport);
+        connectPromise_1220.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256');
@@ -1238,7 +1263,9 @@ verifies('client-auth:pre-registration', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1253 = client.connect(transport);
+        connectPromise_1253.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // DCR is skipped: the preconfigured client_id is what reaches the AS authorize endpoint.
         expect(as.registerCalls).toHaveLength(0);
@@ -1371,7 +1398,9 @@ verifies('client-auth:prm-discovery:no-prm-fallback', async (_args: TestArgs) =>
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1386 = client.connect(transport);
+        connectPromise_1386.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // Both PRM probes 404, then AS metadata is discovered directly at the MCP server's origin (legacy 2025-03-26 path).
         const origin = new URL(MCP_URL).origin;
@@ -1489,7 +1518,9 @@ verifies('client-auth:resource-parameter', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1504 = client.connect(transport);
+        connectPromise_1504.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('resource')).toBe(RESOURCE);
@@ -1530,7 +1561,9 @@ verifies('client-auth:scope-selection:priority', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1545 = client.connect(transport);
+        connectPromise_1545.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
         const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('scope')).toBe('mcp:custom');
     } finally {
@@ -1565,7 +1598,9 @@ verifies('typescript:client-auth:state:verify', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_1580 = client.connect(transport);
+        connectPromise_1580.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
         const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('state')).toBe(provider.saved.state);
         expect(provider.saved.state).toMatch(/^state-\d+$/);
@@ -1597,7 +1632,9 @@ verifies('client-auth:token-endpoint-auth-method', async (_args: TestArgs) => {
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise_1612 = client.connect(transport);
+            connectPromise_1612.catch(() => {});
+            await new Promise(r => setTimeout(r, 20));
             expect(provider.saved.clientInformation?.client_id).toBe(REGISTERED_ID);
 
             await transport.finishAuth('granted-authorization-code');
@@ -2171,7 +2208,7 @@ verifies(
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            await expect(client.connect(transport)).rejects.toThrow(/Server returned 401 after re-authentication/);
 
             // onUnauthorized ran once and the transport retried exactly once before giving up.
             expect(unauthorizedCalls).toBe(1);
@@ -2345,7 +2382,9 @@ verifies('client-auth:no-tokens:no-auth-header', async (_args: TestArgs) => {
     const noTokensTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: noTokensProvider, fetch: noTokensFetch });
 
     try {
-        await expect(noTokensClient.connect(noTokensTransport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_2360 = noTokensClient.connect(noTokensTransport);
+        connectPromise_2360.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // The single unauthenticated POST carried no Authorization header at all.
         expect(noTokensMcpHeaders).toHaveLength(1);
@@ -2386,7 +2425,9 @@ verifies('client-auth:no-tokens:no-auth-header', async (_args: TestArgs) => {
     });
 
     try {
-        await expect(noRefreshClient.connect(noRefreshTransport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_2401 = noRefreshClient.connect(noRefreshTransport);
+        connectPromise_2401.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         // The expired bearer was sent once, but with no refresh_token there is no token-endpoint call at all (no refresh grant).
         expect(noRefreshMcpAuthHeaders).toEqual(['Bearer expired-access-token']);
@@ -2440,7 +2481,9 @@ verifies('client-transport:sse:401-unauthorized-code', async (_args: TestArgs) =
 
     const authTransport = new SSEClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
     try {
-        await expect(authTransport.start()).rejects.toBeInstanceOf(UnauthorizedError);
+        const connectPromise = authTransport.start();
+        connectPromise.catch(() => {});
+        await vi.waitFor(() => expect(provider.redirectedTo).toHaveLength(1));
 
         // Same retry semantics as the streamable HTTP transport: the 401 redirected the user to the authorization endpoint.
         expect(provider.redirectedTo).toHaveLength(1);
@@ -2473,7 +2516,9 @@ verifies(['client-auth:dcr:app-type-heuristic', 'client-auth:dcr:grant-types-def
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_2488 = client.connect(transport);
+        connectPromise_2488.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         expect(as.registerCalls).toHaveLength(1);
         const body = defined(as.registerCalls[0], 'registration call').body;
@@ -2520,7 +2565,9 @@ verifies('client-auth:dcr:app-type-override', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        const connectPromise_2535 = client.connect(transport);
+        connectPromise_2535.catch(() => {});
+        await new Promise(r => setTimeout(r, 20));
 
         expect(as.registerCalls).toHaveLength(1);
         const body = defined(as.registerCalls[0], 'registration call').body;

@@ -616,7 +616,17 @@ export class StreamableHTTPClientTransport implements Transport {
                             { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
                             stepUpRetries
                         );
-                        if (result !== 'AUTHORIZED') {
+                        if (result === 'REDIRECT') {
+                            if (!this._pendingAuthPromise) {
+                                this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                    this._authResolve = resolve;
+                                    this._authReject = reject;
+                                });
+                                this._pendingAuthPromise.catch(() => {});
+                            }
+                            await this._pendingAuthPromise;
+                            return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                        } else if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
@@ -1124,7 +1134,17 @@ export class StreamableHTTPClientTransport implements Transport {
                             { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
                             stepUpRetries
                         );
-                        if (result !== 'AUTHORIZED') {
+                        if (result === 'REDIRECT') {
+                            if (!this._pendingAuthPromise) {
+                                this._pendingAuthPromise = new Promise<void>((resolve, reject) => {
+                                    this._authResolve = resolve;
+                                    this._authReject = reject;
+                                });
+                                this._pendingAuthPromise.catch(() => {});
+                            }
+                            await this._pendingAuthPromise;
+                            return this._send(message, options, isAuthRetry, stepUpRetries + 1);
+                        } else if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._send(message, options, isAuthRetry, stepUpRetries + 1);
