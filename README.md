@@ -2,15 +2,15 @@
 
 <!-- prettier-ignore -->
 > [!IMPORTANT]
-> **This is the `main` branch — v2 of the SDK, now in beta** (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`), implementing the [2026-07-28 MCP spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/).
+> **This is the `main` branch — v2 of the SDK** (`@modelcontextprotocol/server`, `@modelcontextprotocol/client`), implementing the [2026-07-28 MCP spec](https://modelcontextprotocol.io/specification/2026-07-28).
 >
 > **Have feedback? Please [open a v2 issue](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml)** — it is the most useful thing you can do for the SDK right now. The [v2 documentation](https://ts.sdk.modelcontextprotocol.io/v2/) starts with a ten-minute server tutorial.
 >
-> We expect a stable release alongside the full release of the 2026-07-28 spec on July 28, 2026. Until then, **v1.x remains the supported release for production**; it keeps receiving bug fixes and security updates for at least 6 months after v2 ships. v1 documentation: [ts.sdk.modelcontextprotocol.io](https://ts.sdk.modelcontextprotocol.io/) · v2: [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
+> **v2 is the stable release line**, released alongside the 2026-07-28 spec. v1.x continues to receive bug fixes and security updates for at least 6 months after v2's release. v1 documentation: [ts.sdk.modelcontextprotocol.io](https://ts.sdk.modelcontextprotocol.io/) · v2: [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
 
 <!-- prettier-ignore -->
 > [!WARNING]
-> **We're limiting pull requests to 1 per new contributor while we land the [2026-07-28 spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) implementation.**
+> **We're limiting pull requests to 1 per new contributor while v2 settles after the [2026-07-28 spec](https://modelcontextprotocol.io/specification/2026-07-28) release.**
 >
 > [Issues](https://github.com/modelcontextprotocol/typescript-sdk/issues/new?template=v2-feedback.yml) are the most useful feedback right now — we'll reopen PRs as v2 stabilizes.
 
@@ -38,7 +38,7 @@ This repository contains the TypeScript SDK implementation of the MCP specificat
 
 - MCP **server** libraries (tools/resources/prompts, Streamable HTTP, stdio, auth helpers)
 - MCP **client** libraries (transports, high-level helpers, OAuth helpers)
-- Optional **middleware packages** for specific runtimes/frameworks (Express, Hono, Node.js HTTP)
+- Optional **middleware packages** for specific runtimes/frameworks (Express, Fastify, Hono, Node.js HTTP)
 - Runnable **examples** (under [`examples/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples))
 
 ## Packages
@@ -58,6 +58,7 @@ They are intentionally thin adapters: they should not introduce new MCP function
 
 - **`@modelcontextprotocol/node`**: Node.js Streamable HTTP transport wrapper for `IncomingMessage` / `ServerResponse`
 - **`@modelcontextprotocol/express`**: Express helpers (app defaults + Host header validation)
+- **`@modelcontextprotocol/fastify`**: Fastify helpers (app defaults + Host header validation)
 - **`@modelcontextprotocol/hono`**: Hono helpers (app defaults + JSON body parsing hook + Host header validation)
 
 ## Installation
@@ -84,7 +85,7 @@ deno add npm:@modelcontextprotocol/client
 
 ### Optional middleware packages
 
-The SDK also publishes optional “middleware” packages that help you **wire MCP into a specific runtime or web framework** (for example Express, Hono, or Node.js `http`).
+The SDK also publishes optional “middleware” packages that help you **wire MCP into a specific runtime or web framework** (for example Express, Fastify, Hono, or Node.js `http`).
 
 These packages are intentionally thin adapters and should not introduce additional MCP features or business logic. See [`packages/middleware/README.md`](packages/middleware/README.md) for details.
 
@@ -94,6 +95,9 @@ npm install @modelcontextprotocol/node
 
 # Express integration:
 npm install @modelcontextprotocol/express express
+
+# Fastify integration:
+npm install @modelcontextprotocol/fastify fastify
 
 # Hono integration:
 npm install @modelcontextprotocol/hono hono

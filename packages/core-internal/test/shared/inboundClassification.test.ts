@@ -89,10 +89,18 @@ describe('envelope claim detection (claim = the reserved protocol-version key)',
 });
 
 describe('envelope validation issues are self-identifying (key + problem)', () => {
-    test('missing required keys are reported in canonical order', () => {
+    test('missing required keys are reported in canonical order (clientInfo is a SHOULD, never required)', () => {
         const issues = validateEnvelopeMeta({ [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION });
-        expect(issues.map(issue => issue.key)).toEqual([CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY]);
+        expect(issues.map(issue => issue.key)).toEqual([CLIENT_CAPABILITIES_META_KEY]);
         expect(issues.every(issue => issue.problem === 'missing')).toBe(true);
+        const withoutVersion = validateEnvelopeMeta({});
+        expect(withoutVersion.map(issue => issue.key)).toEqual([PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY]);
+    });
+
+    test('an envelope without clientInfo is valid (SHOULD since spec PR #3002)', () => {
+        const withoutClientInfo: Record<string, unknown> = { ...ENVELOPE };
+        delete withoutClientInfo[CLIENT_INFO_META_KEY];
+        expect(validateEnvelopeMeta(withoutClientInfo)).toEqual([]);
     });
 
     test('a malformed value inside a present key names the key', () => {
@@ -196,7 +204,7 @@ describe('body-primary era predicate', () => {
             httpStatus: 400,
             code: -32_602,
             settled: true,
-            data: { envelope: { key: CLIENT_INFO_META_KEY, problem: 'missing' } }
+            data: { envelope: { key: CLIENT_CAPABILITIES_META_KEY, problem: 'missing' } }
         });
     });
 

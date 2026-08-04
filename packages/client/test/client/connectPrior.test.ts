@@ -48,7 +48,7 @@ class ScriptedTransport implements Transport {
 const discoverResult = (supportedVersions: string[]): DiscoverResult => ({
     supportedVersions,
     capabilities: { tools: { listChanged: true } },
-    serverInfo: { name: 'persisted-server', version: '1.0.0' },
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'persisted-server', version: '1.0.0' } },
     instructions: 'persisted instructions'
 });
 
@@ -149,7 +149,7 @@ describe('getDiscoverResult() round-trip', () => {
                     result: {
                         supportedVersions: [MODERN],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'probed-server', version: '2.0.0' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'probed-server', version: '2.0.0' } }
                     }
                 });
             }
@@ -157,7 +157,7 @@ describe('getDiscoverResult() round-trip', () => {
         const bootstrap = new Client({ name: 'bootstrap', version: '0' }, { versionNegotiation: { mode: 'auto' } });
         await bootstrap.connect(bootstrapTransport);
         const probed = bootstrap.getDiscoverResult();
-        expect(probed?.serverInfo).toEqual({ name: 'probed-server', version: '2.0.0' });
+        expect(bootstrap.getServerVersion()).toEqual({ name: 'probed-server', version: '2.0.0' });
         expect(probed?.supportedVersions).toEqual([MODERN]);
         await bootstrap.close();
         // close() clears per-connection state.
@@ -190,17 +190,19 @@ describe('getDiscoverResult() round-trip', () => {
                         cacheScope: 'public',
                         supportedVersions: [MODERN],
                         capabilities: { tools: {} },
-                        serverInfo: { name: 'rediscovered', version: '3.0.0' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'rediscovered', version: '3.0.0' } }
                     }
                 });
             }
         });
         const client = new Client({ name: 'c', version: '0' });
         await client.connect(transport, { prior: modernPrior([MODERN]) });
-        expect(client.getDiscoverResult()?.serverInfo.name).toBe('persisted-server');
+        const metaName = (r?: { _meta?: Record<string, unknown> }) =>
+            (r?._meta?.['io.modelcontextprotocol/serverInfo'] as { name?: string } | undefined)?.name;
+        expect(metaName(client.getDiscoverResult())).toBe('persisted-server');
         const fresh = await client.discover();
-        expect(fresh.serverInfo.name).toBe('rediscovered');
-        expect(client.getDiscoverResult()?.serverInfo.name).toBe('rediscovered');
+        expect(metaName(fresh)).toBe('rediscovered');
+        expect(metaName(client.getDiscoverResult())).toBe('rediscovered');
         await client.close();
     });
 });
@@ -347,5 +349,25 @@ describe('connect({ prior }) — malformed persisted blobs (runtime hardening)',
                 error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed && /unrecognized prior/.test(error.message)
         );
         expect(transport.sent).toHaveLength(0);
+    });
+
+    test('a stale blob with a body serverInfo (not a spec field) connects with anonymous identity — the body is never read', async () => {
+        // The 2026-07-28 revision has no body serverInfo on DiscoverResult:
+        // identity travels in _meta (spec PR #3002). A persisted blob carrying
+        // the non-spec body member is still a schema-valid DiscoverResult
+        // (loose results tolerate unknown members), so validatePrior accepts
+        // it — but the identity read consults _meta only, so the connection is
+        // anonymous rather than adopting a field the spec does not define.
+        const transport = new ScriptedTransport();
+        const client = new Client({ name: 'worker', version: '0' });
+
+        const blob =
+            '{"kind":"modern","discover":{"supportedVersions":["2026-07-28"],"capabilities":{},' +
+            '"serverInfo":{"name":"stale-server","version":"0.4.0"}}}';
+        await client.connect(transport, { prior: JSON.parse(blob) as PriorDiscovery });
+        expect(transport.sent).toHaveLength(0);
+        expect(client.getProtocolEra()).toBe('modern');
+        expect(client.getServerVersion()).toBeUndefined();
+        await client.close();
     });
 });

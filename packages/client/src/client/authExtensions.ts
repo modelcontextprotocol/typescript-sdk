@@ -572,7 +572,7 @@ export interface CrossAppAccessProviderOptions {
  * a callback function that you provide. This allows flexibility in how you obtain and
  * cache ID Tokens from the IdP.
  *
- * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/draft/enterprise-managed-authorization.mdx
+ * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx
  *
  * @example
  * ```ts

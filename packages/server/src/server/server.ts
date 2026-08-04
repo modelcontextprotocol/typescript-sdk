@@ -207,6 +207,7 @@ export type ServerOptions = ProtocolOptions & {
  */
 let writeClientIdentity: (server: Server, identity: PerRequestClientIdentity) => void;
 let installDiscoverHandler: (server: Server, servedModernVersions: readonly string[]) => void;
+let readServerIdentity: (server: Server) => Implementation;
 
 /** Connection-scoped client-identity fields backfilled per request from a validated `_meta` envelope. */
 export interface PerRequestClientIdentity {
@@ -241,6 +242,17 @@ export function installModernOnlyHandlers(server: Server, servedModernVersions: 
 }
 
 /**
+ * Package-internal: the instance's implementation identity, for the serving
+ * entries to stamp onto entry-built results (the `subscriptions/listen`
+ * graceful-close result — built outside the encode seam, but the spec's
+ * `SubscriptionsListenResultMeta` extends `ResultMetaObject`, so it carries
+ * the serverInfo SHOULD like every other result). Not public API.
+ */
+export function serverIdentityOf(server: Server): Implementation {
+    return readServerIdentity(server);
+}
+
+/**
  * An MCP server on top of a pluggable transport.
  *
  * This server will automatically respond to the initialization flow as initiated from the client.
@@ -269,6 +281,7 @@ export class Server extends Protocol<ServerContext> {
             }
             server.setRequestHandler('server/discover', () => server._ondiscover());
         };
+        readServerIdentity = server => server._serverInfo;
     }
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
@@ -932,16 +945,26 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Answers `server/discover` (protocol revision 2026-07-28). `supportedVersions`
      * lists only modern revisions (2025-era versions are negotiated via `initialize`);
-     * the advertised capabilities exclude the listChanged/subscribe-class capabilities
+     * the capabilities are advertised as-is, listChanged/subscribe bits included
      * (see {@linkcode discoverAdvertisedCapabilities}).
      */
     private _ondiscover(): DiscoverResult {
+        // Server identity is not a body field: the encode seam stamps it into
+        // the result `_meta` via `_outboundServerInfo` (spec PR #3002).
         return {
             supportedVersions: modernProtocolVersions(this._supportedProtocolVersions),
             capabilities: discoverAdvertisedCapabilities(this.getCapabilities()),
-            serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
+    }
+
+    /**
+     * The identity the 2026-era encode seam stamps into every outbound
+     * result's `_meta` under `io.modelcontextprotocol/serverInfo` (spec PR
+     * #3002: servers SHOULD identify themselves on every response).
+     */
+    protected override _outboundServerInfo(): Implementation | undefined {
+        return this._serverInfo;
     }
 
     /**
@@ -1234,7 +1257,7 @@ export class Server extends Protocol<ServerContext> {
      * notification for the specified elicitation ID.
      *
      * The notification (and the `elicitationId` it references) exists only on protocol revision
-     * 2025-11-25 — the 2026-07-28 draft removed both. On a connection negotiated at 2026-07-28 the
+     * 2025-11-25 — the 2026-07-28 revision removed both. On a connection negotiated at 2026-07-28 the
      * returned callback rejects with a typed local error before anything reaches the transport
      * (the method is not part of that revision's wire registry).
      *
