@@ -136,32 +136,14 @@ class InteractiveOAuthClient {
         });
     }
 
-    private async attemptConnection(oauthProvider: InMemoryOAuthClientProvider): Promise<void> {
-        console.log('🚢 Creating transport with OAuth provider...');
-        const baseUrl = new URL(this.serverUrl);
-        const transport = new StreamableHTTPClientTransport(baseUrl, {
-            authProvider: oauthProvider
-        });
-        console.log('🚢 Transport created');
-
+    private async attemptConnection(transport: StreamableHTTPClientTransport): Promise<void> {
         try {
             console.log('🔌 Attempting connection (this will trigger OAuth redirect)...');
             await this.client!.connect(transport);
             console.log('✅ Connected successfully');
         } catch (error) {
-            if (error instanceof UnauthorizedError) {
-                console.log('🔐 OAuth required - waiting for authorization...');
-                const callbackParams = await this.waitForOAuthCallback();
-                // Pass the whole callback query — the SDK extracts `code` and validates
-                // `iss` against the recorded issuer (RFC 9207) before exchanging the code.
-                await transport.finishAuth(callbackParams);
-                console.log('🔐 Authorization code received:', callbackParams.get('code'));
-                console.log('🔌 Reconnecting with authenticated transport...');
-                await this.attemptConnection(oauthProvider);
-            } else {
-                console.error('❌ Connection failed with non-auth error:', error);
-                throw error;
-            }
+            console.error('❌ Connection failed:', error);
+            throw error;
         }
     }
 
@@ -180,6 +162,8 @@ class InteractiveOAuthClient {
             token_endpoint_auth_method: 'client_secret_post'
         };
 
+        let currentTransport: StreamableHTTPClientTransport;
+
         console.log('🔐 Creating OAuth provider...');
         const oauthProvider = new InMemoryOAuthClientProvider(
             CALLBACK_URL,
@@ -187,11 +171,26 @@ class InteractiveOAuthClient {
             (redirectUrl: URL) => {
                 console.log(`📌 OAuth redirect handler called - opening browser`);
                 console.log(`Opening browser to: ${redirectUrl.toString()}`);
+                
+                console.log('🔐 OAuth required - waiting for authorization...');
+                this.waitForOAuthCallback().then(async callbackParams => {
+                    console.log('🔐 Authorization code received:', callbackParams.get('code'));
+                    await currentTransport.finishAuth(callbackParams);
+                    console.log('🔌 Authentication complete!');
+                }).catch(err => {
+                    console.error("❌ OAuth flow failed:", err);
+                });
+
                 this.openBrowser(redirectUrl.toString());
             },
             this.clientMetadataUrl
         );
         console.log('🔐 OAuth provider created');
+        
+        const baseUrl = new URL(this.serverUrl);
+        currentTransport = new StreamableHTTPClientTransport(baseUrl, {
+            authProvider: oauthProvider
+        });
 
         console.log('👤 Creating MCP client...');
         this.client = new Client(
@@ -205,7 +204,7 @@ class InteractiveOAuthClient {
 
         console.log('🔐 Starting OAuth flow...');
 
-        await this.attemptConnection(oauthProvider);
+        await this.attemptConnection(currentTransport);
 
         // Start interactive loop
         await this.interactiveLoop();

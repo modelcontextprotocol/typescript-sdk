@@ -96,6 +96,11 @@ const client = new Client(
 // `redirectToAuthorization` — in `simpleOAuthClient.ts` that opens a browser;
 // here we just capture it.
 let capturedAuthorizationUrl: URL | undefined;
+let urlCapturedCallback: () => void;
+const urlCapturedPromise = new Promise<void>(resolve => {
+    urlCapturedCallback = resolve;
+});
+
 const clientMetadata: OAuthClientMetadata = {
     client_name: 'Headless OAuth MCP Client (CI)',
     redirect_uris: [CALLBACK_URL],
@@ -106,24 +111,20 @@ const clientMetadata: OAuthClientMetadata = {
 };
 const provider = new InMemoryOAuthClientProvider(CALLBACK_URL, clientMetadata, authUrl => {
     capturedAuthorizationUrl = authUrl;
+    urlCapturedCallback();
 });
 
 const firstTransport = new StreamableHTTPClientTransport(new globalThis.URL(url), { authProvider: provider });
-let challenged = false;
-try {
-    await client.connect(firstTransport);
-} catch (error) {
-    // Both `--legacy` and `mode: 'auto'` surface the original
-    // `UnauthorizedError` directly (the negotiation probe propagates it
-    // unchanged; older releases wrapped it as the `data.cause` of an
-    // EraNegotiationFailed `SdkError`, which the unwrap below still
-    // tolerates). Either way the auth driver has already run by the time we
-    // land here — DCR done, auth URL captured.
-    const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;
-    if (!(root instanceof UnauthorizedError)) throw error;
-    challenged = true;
-}
-check.ok(challenged, 'first connect must 401 and throw UnauthorizedError');
+const connectPromise = client.connect(firstTransport).catch(error => {
+    // Both `--legacy` and `mode: 'auto'` surfaced the original
+    // `UnauthorizedError` directly before the pending contract change.
+    // Now they should just succeed after finishAuth completes!
+    throw error;
+});
+
+// Give the async connect time to hit the auth wall and trigger the callback
+await urlCapturedPromise;
+
 check.ok(capturedAuthorizationUrl, 'SDK auth driver should have produced an authorization URL');
 check.ok(provider.clientInformation()?.client_id, 'dynamic client registration should have run');
 
@@ -139,6 +140,9 @@ const callbackParams = await followAuthorizationRedirects(capturedAuthorizationU
 // (+ PKCE `code_verifier`) to the AS `/token` endpoint and saves the tokens
 // on `provider`.
 await firstTransport.finishAuth(callbackParams);
+
+// The original connect should now complete!
+await connectPromise;
 const tokens = provider.tokens();
 check.ok(tokens?.access_token, 'token exchange should have yielded an access_token');
 check.equal(tokens?.token_type, 'Bearer');
