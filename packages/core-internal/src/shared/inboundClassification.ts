@@ -454,14 +454,24 @@ function crossCheckMismatch(
 }
 
 /**
- * The methods whose body carries a `params.name` / `params.uri` value the
- * `Mcp-Name` header must mirror, and which body field supplies it (SEP-2243
- * § Standard Request Headers, `Required For` column).
+ * The methods whose body carries a `params.name` / `params.uri` /
+ * `params.taskId` value the `Mcp-Name` header must mirror, and which body
+ * field supplies it. The core rows come from SEP-2243 § Standard Request
+ * Headers (`Required For` column); the `tasks/*` rows come from SEP-2663's
+ * Streamable HTTP binding ("the client MUST set the `Mcp-Name` header to the
+ * value of `params.taskId`" for `tasks/get` / `tasks/update` /
+ * `tasks/cancel`, so intermediaries can route every request for a task to the
+ * instance holding its state). Shared by the client transport (header
+ * emission) and the server ladder (validation) so both sides derive from one
+ * table.
  */
-export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = {
+export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri' | 'taskId'>> = {
     'tools/call': 'name',
     'prompts/get': 'name',
-    'resources/read': 'uri'
+    'resources/read': 'uri',
+    'tasks/get': 'taskId',
+    'tasks/update': 'taskId',
+    'tasks/cancel': 'taskId'
 };
 
 /** Strip RFC 9110 optional whitespace (SP / HTAB) around a field value in linear time. */
@@ -496,11 +506,13 @@ function stripHttpOws(value: string): string {
  *
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
- *   `prompts/get`, or `resources/read` request whose body carries the
- *   `params.name` / `params.uri` value the header mirrors;
+ *   `prompts/get`, `resources/read`, or (per SEP-2663's Streamable HTTP
+ *   binding) `tasks/get` / `tasks/update` / `tasks/cancel` request whose
+ *   body carries the `params.name` / `params.uri` / `params.taskId` value
+ *   the header mirrors;
  * - the `Mcp-Name` header carries an invalid `=?base64?…?=` sentinel; or
  * - the (decoded) `Mcp-Name` value disagrees with the body's
- *   `params.name` / `params.uri`.
+ *   `params.name` / `params.uri` / `params.taskId`.
  *
  * Returns `undefined` (pass) for notifications (the spec table reads
  * "All requests"), for methods that have no `Mcp-Name` source, and when the

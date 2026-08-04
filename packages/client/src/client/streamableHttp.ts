@@ -11,6 +11,7 @@ import {
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     JSONRPCMessageSchema,
+    MCP_NAME_HEADER_SOURCE,
     mediaTypeEssence,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
@@ -481,24 +482,26 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set('mcp-protocol-version', envelopeVersion);
         headers.set('mcp-method', message.method);
         // SEP-2243 standard headers, step 2 of the 5-step client algorithm:
-        // Mcp-Name mirrors `params.name` (tools/call, prompts/get) or
-        // `params.uri` (resources/read). The value is run through the same
-        // `=?base64?…?=` sentinel encoding the `Mcp-Param-*` codec uses so a
-        // non-ASCII name/URI (or one with leading/trailing whitespace,
-        // control characters, or CR/LF) cannot make `Headers.set()` throw a
-        // TypeError or silently normalize to a value that differs from the
-        // body. The spec's value-encoding rules apply to `Mcp-Name`; the SDK
-        // server's `validateStandardRequestHeaders` decodes the sentinel via
-        // `decodeMcpParamValue` before the `Mcp-Name` ↔ body cross-check.
-        const params = message.params as { name?: unknown; uri?: unknown } | undefined;
-        const nameHeader =
-            message.method === 'resources/read'
-                ? typeof params?.uri === 'string'
-                    ? params.uri
-                    : undefined
-                : typeof params?.name === 'string'
-                  ? params.name
-                  : undefined;
+        // Mcp-Name mirrors `params.name` (tools/call, prompts/get),
+        // `params.uri` (resources/read), or — per SEP-2663's Streamable HTTP
+        // binding — `params.taskId` (tasks/get, tasks/update, tasks/cancel).
+        // The method → source-field mapping is the same
+        // `MCP_NAME_HEADER_SOURCE` table the SDK server validates against, so
+        // emission and validation cannot drift apart. The value is run
+        // through the same `=?base64?…?=` sentinel encoding the `Mcp-Param-*`
+        // codec uses so a non-ASCII name/URI (or one with leading/trailing
+        // whitespace, control characters, or CR/LF) cannot make
+        // `Headers.set()` throw a TypeError or silently normalize to a value
+        // that differs from the body. The spec's value-encoding rules apply
+        // to `Mcp-Name`; the SDK server's `validateStandardRequestHeaders`
+        // decodes the sentinel via `decodeMcpParamValue` before the
+        // `Mcp-Name` ↔ body cross-check. `message.method` is caller-supplied,
+        // so the lookup is `Object.hasOwn`-guarded against
+        // `Object.prototype` collisions, mirroring the server-side lookup.
+        const params = message.params as Record<string, unknown> | undefined;
+        const sourceField = Object.hasOwn(MCP_NAME_HEADER_SOURCE, message.method) ? MCP_NAME_HEADER_SOURCE[message.method] : undefined;
+        const sourceValue = sourceField === undefined ? undefined : params?.[sourceField];
+        const nameHeader = typeof sourceValue === 'string' ? sourceValue : undefined;
         if (nameHeader !== undefined) {
             headers.set('mcp-name', encodeMcpParamValue(nameHeader));
         }

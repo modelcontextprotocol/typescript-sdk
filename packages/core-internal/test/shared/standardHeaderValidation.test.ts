@@ -212,8 +212,45 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
     });
 
-    test('the Mcp-Name source map covers exactly the spec table', () => {
-        expect(MCP_NAME_HEADER_SOURCE).toEqual({ 'tools/call': 'name', 'prompts/get': 'name', 'resources/read': 'uri' });
+    test('the Mcp-Name source map covers exactly the spec table (SEP-2243 core + SEP-2663 tasks)', () => {
+        expect(MCP_NAME_HEADER_SOURCE).toEqual({
+            'tools/call': 'name',
+            'prompts/get': 'name',
+            'resources/read': 'uri',
+            'tasks/get': 'taskId',
+            'tasks/update': 'taskId',
+            'tasks/cancel': 'taskId'
+        });
+    });
+
+    test('a tasks/get without an Mcp-Name header is rejected and names params.taskId (SEP-2663)', () => {
+        const { request, route } = modernPost('tasks/get', { taskId: 'task-123' }, { mcpMethod: 'tasks/get' });
+        const result = validateStandardRequestHeaders(request, route);
+        expectRejection(result, 'name-header-missing');
+        expect(result?.message).toContain('params.taskId');
+    });
+
+    test('a matching Mcp-Name on tasks/get, tasks/update, and tasks/cancel compares against params.taskId', () => {
+        for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+            const { request, route } = modernPost(method, { taskId: 'task-123' }, { mcpMethod: method, mcpName: 'task-123' });
+            expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+        }
+    });
+
+    test('an Mcp-Name header disagreeing with params.taskId is rejected (name-header-mismatch)', () => {
+        const { request, route } = modernPost(
+            'tasks/update',
+            { taskId: 'task-123', inputResponses: {} },
+            { mcpMethod: 'tasks/update', mcpName: 'some-other-task' }
+        );
+        const result = validateStandardRequestHeaders(request, route);
+        expectRejection(result, 'name-header-mismatch');
+        expect(result?.message).toContain('"some-other-task"');
+    });
+
+    test('a tasks/list stays off-table: no Mcp-Name required', () => {
+        const { request, route } = modernPost('tasks/list', {}, { mcpMethod: 'tasks/list' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
     });
 
     test('a method colliding with Object.prototype members is treated as off-table (passes through to dispatch)', () => {
