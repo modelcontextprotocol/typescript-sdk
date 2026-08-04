@@ -820,3 +820,57 @@ describe('createMcpHandler — close()', () => {
 // Type-level pin: a zero-argument factory stays assignable to McpServerFactory unchanged.
 const zeroArgFactory = () => new McpServer({ name: 'zero-arg', version: '1.0.0' });
 void createMcpHandler(zeroArgFactory);
+
+describe('createMcpHandler — keepAliveMs', () => {
+    function gatedFactory(): { factory: () => McpServer; release: () => void } {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const factory = (): McpServer => {
+            const s = new McpServer({ name: 'ka', version: '1.0.0' });
+            s.registerTool('gated', { inputSchema: z.object({}) }, async () => {
+                await gate;
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+            return s;
+        };
+        return { factory, release };
+    }
+
+    it('threads keepAliveMs into the modern per-request exchange stream', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { responseMode: 'sse', keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(postRequest(modernToolsCall('gated', {})));
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('threads keepAliveMs into the legacy stateless fallback per-request transport', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(
+                postRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'gated', arguments: {} } })
+            );
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

@@ -17,7 +17,6 @@ import {
     Client,
     LOG_LEVEL_META_KEY,
     ProtocolError,
-    SdkError,
     StreamableHTTPClientTransport,
     SUPPORTED_PROTOCOL_VERSIONS,
     UnauthorizedError
@@ -25,7 +24,6 @@ import {
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 import type { ChatMessage, ContentPart, GenerateResult, LLMProvider, ToolCall, ToolDefinition } from '../providers/provider';
-import { isRecord } from '../providers/provider';
 import { completeAuthorizationWithBrowser, createOAuthProvider, findCallbackPort, isSafeBrowserUrl } from './auth';
 import type { CliClientConfig, ServerConfig } from './config';
 import { isHttpServer } from './config';
@@ -98,16 +96,6 @@ export function resolveVersionOptions(legacy: boolean, protocolVersion?: string)
         );
     }
     return { versionNegotiation: { mode: { pin: protocolVersion } } };
-}
-
-function unwrapUnauthorized(error: unknown): UnauthorizedError | undefined {
-    if (error instanceof UnauthorizedError) return error;
-    // Under versionNegotiation 'auto', a connect-time 401 surfaces as
-    // SdkError(EraNegotiationFailed) with the UnauthorizedError in error.data.cause.
-    if (error instanceof SdkError && isRecord(error.data) && error.data.cause instanceof UnauthorizedError) {
-        return error.data.cause;
-    }
-    return undefined;
 }
 
 function samplingContentToParts(content: CreateMessageRequest['params']['messages'][number]['content']): ContentPart[] {
@@ -488,7 +476,9 @@ export class McpHost {
                 try {
                     await client.connect(httpTransport);
                 } catch (error) {
-                    if (!unwrapUnauthorized(error)) throw error;
+                    // A connect-time 401 propagates UnauthorizedError unchanged
+                    // in every negotiation mode, including the probing ones.
+                    if (!(error instanceof UnauthorizedError)) throw error;
                     const finishTransport = httpTransport;
                     const authorized = await completeAuthorizationWithBrowser({
                         serverName: name,

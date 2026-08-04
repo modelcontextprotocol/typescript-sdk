@@ -516,7 +516,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client:jsonschema:unsupported-dialect-graceful': {
         source: 'sdk',
         behavior:
-            'A tool whose advertised outputSchema declares a $schema dialect URI the built-in validator does not recognise is refused gracefully on the client: callTool throws InvalidParams with a clear "unsupported dialect … 2020-12 only" message instead of having the underlying engine fail opaquely.'
+            'A tool whose advertised outputSchema declares a $schema dialect URI the built-in validator does not recognise (2020-12, 2019-09, draft-07, and draft-06 are supported) is refused gracefully on the client: callTool throws InvalidParams with a clear "unsupported dialect" message instead of having the underlying engine fail opaquely.'
     },
     'client:jsonschema:bad-schema-isolates-tool': {
         source: 'sdk',
@@ -2046,6 +2046,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'A 401 on a request triggers the OAuth authorization flow once.',
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:negotiation:auth-before-era': {
+        source: 'sdk',
+        behavior:
+            "An OAuth-protected legacy server is reachable under versionNegotiation mode 'auto': the connect-time probe's 401 propagates the auth challenge (UnauthorizedError) without deciding the era — auth settles first, era second — and after finishAuth the reconnect re-probes with the token, takes the legacy server's real server/discover rejection as the era evidence, completes the legacy initialize, and serves tools/call.",
+        transports: ['streamableHttp'],
+        note: "Wire-order pin: exactly two server/discover POSTs — the pre-auth one 401'd by the auth wall, the post-auth one answered by the legacy stack — then a single initialize, only after the second probe. Same single-cell setup as the rest of the client-auth family (self-contained body; the matrix transport arg is ignored)."
     },
     'client-auth:403-scope-upgrade': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#step-up-authorization-flow',
