@@ -472,6 +472,62 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(z.union([z.never(), z.never()]), 'input').type).toBe('object');
     });
 
+    test('unrepresentable non-object OUTPUT roots throw too (loudness parity)', () => {
+        // These threw at tools/list pre-#2464; post-degrade they would list silently
+        // as permanently-broken tools (bigint results even fail JSON-RPC
+        // serialization; Map/Set ship {} garbage).
+        expect(() => standardSchemaToJsonSchema(z.bigint(), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.bigint(), z.symbol()]), 'output')).toThrow(/must describe objects/);
+        // Representable non-object output roots are legal per SEP-2106 ...
+        expect(standardSchemaToJsonSchema(z.string(), 'output').type).toBe('string');
+        expect(standardSchemaToJsonSchema(z.array(z.number()), 'output').type).toBe('array');
+        // ... and quiet typeless shapes keep listing.
+        expect(standardSchemaToJsonSchema(z.never(), 'output').type).toBeUndefined();
+    });
+
+    test('z.file() union members are quiet non-object verdicts', () => {
+        // A File can never ride JSON, so a loud co-member restores the pre-#2464 throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.file(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // ... while quiet pre-#2464 shapes keep listing (or throwing via the
+        // explicit-type guard, for the bare string/binary emission).
+        expect(standardSchemaToJsonSchema(z.union([z.file(), z.string()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.file()), 'input').type).toBe('object');
+        expect(() => standardSchemaToJsonSchema(z.file(), 'input')).toThrow(/got type/);
+    });
+
+    test('the oneOf rewrite reaches schemas under keyword-named properties', () => {
+        // Keys inside `properties` are user names, not keywords — a property
+        // literally named `description` still carries a schema that the loosen
+        // rewrite must reach.
+        const schema = z.object({
+            description: z.discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const description = (result.properties as Record<string, Record<string, unknown>>).description!;
+        expect(description.oneOf).toBeUndefined();
+        expect(Array.isArray(description.anyOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ description: { t: 'a', x: 'v' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('tolerant tuple REST elements and non-finite literals accept their wire forms', () => {
+        const schema = z.object({
+            t: z.tuple([z.string()], z.number().default(0)),
+            inf: z.literal(Infinity),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A tuple rest element lands under `items`; an undefined rest element ships
+        // as null. Non-finite literal values also serialize to null, and zod's own
+        // emission ({type: 'number', const: null}) satisfies nothing.
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: ['a', 1, null], inf: null, name: 'n' }).valid).toBe(true);
+    });
+
     test('the oneOf rewrite does not descend into annotation values', () => {
         const schema = z.object({
             cfg: z.object({ oneOf: z.array(z.number()) }).default({ oneOf: [1, 2] }),

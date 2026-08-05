@@ -314,6 +314,34 @@ function zodConversionOptions(
                         }
                     }
                 }
+                // ... and for the REST element, whose emitted subschema lands under
+                // `items` in draft-2020-12.
+                const restItems = ctx.jsonSchema.items;
+                if (
+                    def.rest !== undefined &&
+                    typeof restItems === 'object' &&
+                    restItems !== null &&
+                    !Array.isArray(restItems) &&
+                    hasStructuralMissingKeyTolerance(def.rest)
+                ) {
+                    loosened.value = true;
+                    ctx.jsonSchema.items = { anyOf: [restItems, { type: 'null' }] };
+                }
+                return;
+            }
+            if (
+                def.type === 'literal' &&
+                Array.isArray(def.values) &&
+                def.values.some(value => typeof value === 'number' && !Number.isFinite(value))
+            ) {
+                // Non-finite number literal values (Infinity/-Infinity/NaN) serialize to
+                // null, and zod's own emission is the self-contradictory
+                // {type: 'number', const: null} that nothing satisfies — wrap it so the
+                // wire form validates.
+                loosened.value = true;
+                const emitted = { ...ctx.jsonSchema };
+                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
+                ctx.jsonSchema.anyOf = [emitted, { type: 'null' }];
                 return;
             }
             if (def.type !== 'object') return;
@@ -358,9 +386,24 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         delete record.oneOf;
     }
     for (const [key, value] of Object.entries(record)) {
+        // Maps whose VALUES are schemas by construction: recurse into every value —
+        // their keys are user-chosen names that may collide with annotation keywords
+        // (a property literally named `description` still carries a schema).
+        if (
+            (key === 'properties' || key === 'patternProperties' || key === '$defs' || key === 'dependentSchemas') &&
+            typeof value === 'object' &&
+            value !== null &&
+            !Array.isArray(value)
+        ) {
+            if (seen.has(value)) continue;
+            seen.add(value);
+            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
+            continue;
+        }
         // Annotation keywords (and const/enum) carry user DATA, not schemas — a
         // plain-data object inside them may legitimately have a literal `oneOf` key
-        // that must not be renamed.
+        // that must not be renamed. This name-keyed skip applies only at schema-node
+        // positions (the schema-map case above already recursed).
         if (ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key === 'const' || key === 'enum' || key.startsWith('x-')) continue;
         rewriteOneOfToAnyOf(value, seen);
     }
@@ -609,7 +652,22 @@ export function standardSchemaToJsonSchema(
         // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
         // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
         if (result.type !== undefined) return result;
-        return isProvablyObjectShapedRoot(result) ? { type: 'object', ...result } : result;
+        if (isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
+        // Loudness parity for misregistered OUTPUT roots too: an unrepresentable
+        // non-object root (z.bigint(), z.map(), unions of them) threw at tools/list
+        // pre-#2464 and must keep doing so — post-degrade it would list silently as
+        // a permanently-broken tool (bigint results even fail JSON-RPC
+        // serialization; Map/Set ship `{}` garbage). Representable non-object roots
+        // (legal per SEP-2106) carry an explicit `type` and returned above; quiet
+        // shapes keep listing.
+        const outputVerdict = nonObjectTypelessRootVerdict(schema);
+        if (outputVerdict !== undefined && outputVerdict.loud) {
+            throw new Error(
+                `MCP tool and prompt schemas must describe objects (got a non-object ${outputVerdict.type} schema). ` +
+                    `Wrap your schema in z.object({...}) or equivalent.`
+            );
+        }
+        return result;
     }
     if (result.type !== undefined && result.type !== 'object') {
         throw new Error(
@@ -722,6 +780,13 @@ function nonObjectTypelessRootVerdict(
         // union loud when a loud co-member (e.g. a bigint) is present, restoring the
         // pre-#2464 throw for those.
         return { type: 'never', loud: false };
+    }
+    if (def.type === 'file') {
+        // A File can never ride JSON: it cannot make a union JSON-satisfiable. Quiet —
+        // bare z.file() roots throw via the explicit-type guard (string/binary
+        // emission) and file+representable shapes listed silently pre-#2464; only a
+        // loud co-member restores the pre-#2464 throw.
+        return { type: 'file', loud: false };
     }
     return NON_OBJECT_UNREPRESENTABLE_TYPES.has(def.type) ? { type: def.type, loud: true } : undefined;
 }
