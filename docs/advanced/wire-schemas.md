@@ -4,7 +4,7 @@ shape: how-to
 
 # Wire schemas
 
-`@modelcontextprotocol/core` exports the **wire schemas** — the exact Zod constants the SDK validates protocol and OAuth payloads against — for code that holds raw JSON instead of SDK objects.
+`@modelcontextprotocol/core` exports the **wire schemas** — the exact Zod constants the SDK validates protocol and OAuth payloads against — for code that holds raw JSON instead of SDK objects. (One qualification: at the SDK's own token-response parse sites, `OAuthTokensSchema` is additionally applied through a null-tolerant preprocessing wrapper — see the note in the OAuth section below.)
 
 ## Validate a wire payload
 
@@ -129,7 +129,7 @@ A document missing a required endpoint fails the parse; a valid one comes back t
 https://auth.example.com/token
 ```
 
-The group follows the same naming convention: `OAuthTokensSchema` for token responses, `OAuthProtectedResourceMetadataSchema` for protected-resource metadata, `OpenIdProviderDiscoveryMetadataSchema` for OpenID provider discovery.
+The group follows the same naming convention: `OAuthTokensSchema` for token responses, `OAuthProtectedResourceMetadataSchema` for protected-resource metadata, `OpenIdProviderDiscoveryMetadataSchema` for OpenID provider discovery. Note that the SDK's own token-response parse sites validate with `OAuthTokenResponseSchema`, an internal null-tolerant wrapper around `OAuthTokensSchema` that drops null-valued optional members before validating; the exported `OAuthTokensSchema` itself remains strict and rejects nulls.
 
 ## Get the TypeScript types, guards and errors from the SDK packages
 
