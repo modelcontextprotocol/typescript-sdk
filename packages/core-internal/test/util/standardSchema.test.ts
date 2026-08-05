@@ -95,6 +95,11 @@ describe('zod conversion options (#2464)', () => {
         // key on the zod shape, not the emitted JSON.
         expect((result.properties as Record<string, Record<string, unknown>>).counted?.$ref).toBeDefined();
         expect(result.required).toEqual(['name']);
+        // zod copies the registry id verbatim as a draft-04 `id` keyword, which Ajv v8
+        // hard-rejects at COMPILE time — the advertisement must stay compilable by the
+        // SDK's own client-side validator.
+        expect((result.$defs as Record<string, Record<string, unknown>>).StandardSchemaTestCounted!.id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ name: 'x' }).valid).toBe(true);
     });
 
     test('a required field annotated with .meta({default}) stays required in output schemas', () => {
@@ -539,6 +544,34 @@ describe('zod conversion options (#2464)', () => {
         // `default` carries user DATA — its literal `oneOf` key must survive.
         const cfg = (result.properties as Record<string, Record<string, unknown>>).cfg!;
         expect(cfg.default).toEqual({ oneOf: [1, 2] });
+    });
+
+    test('custom .meta() keys are annotation-opaque at both carve-out sites', () => {
+        // zod merges arbitrary .meta() keys verbatim and 2020-12 validators ignore
+        // unknown keywords — they are annotations by construction, like x-*.
+        const schema = z.object({
+            v: z.number().meta({ ui: { oneOf: [1, 2] } }),
+            c: z
+                .number()
+                .catch(0)
+                .meta({ ui: { hint: 'slider' }, title: 't' }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+
+        // The oneOf rewrite must not recurse into the custom key's DATA ...
+        expect(properties.v!.ui).toEqual({ oneOf: [1, 2] });
+        // ... and the catch degrade must keep it (while still stripping constraints).
+        expect(properties.c).toEqual({ default: 0, title: 't', ui: { hint: 'slider' } });
+    });
+
+    test('z.file() output fields also accept their wire form', () => {
+        // A File serializes to {} on the wire while zod emits string/binary.
+        const result = standardSchemaToJsonSchema(z.object({ f: z.file(), name: z.string() }), 'output');
+
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ f: {}, name: 'n' }).valid).toBe(true);
     });
 
     test('.catch() and union-nested defaults with async stages are dropped from output required', () => {

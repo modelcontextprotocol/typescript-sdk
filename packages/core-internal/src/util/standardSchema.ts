@@ -208,6 +208,17 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   the raw zod schema, which rejects every JSON payload. Use a JSON-representable
  *   type (`z.iso.date()`/`z.iso.datetime()`, `z.number()`, `z.record(...)`,
  *   `z.array(...)`) or make the field optional.
+ * - Likewise a REQUIRED OUTPUT field of a loud unrepresentable type (`z.bigint()`,
+ *   `z.map()`, `z.set()`) lists silently as a permanently-broken tool: bigint
+ *   results fail JSON-RPC serialization, and Map/Set values ship as `{}` garbage
+ *   that vacuously satisfies the unconstrained `{}` advertisement. A field-level
+ *   throw would resurrect the whole-`tools/list` outage this fix eliminates, so
+ *   only unrepresentable output ROOTS throw (see the output epilogue).
+ * - The `type: 'object'` kept on degraded object-`.catch()` nodes is itself
+ *   unenforced on the raw value: catch-validation accepts any raw, so a wrong-typed
+ *   raw at an object-catch position ships and fails client re-validation while the
+ *   scalar-catch spelling of the same tolerance passes. The keep is structurally
+ *   forced by the 2025-era legacy-wrap object proof and zod's instance dedup.
  * - Dynamic catch values (`.catch(ctx => …)`) still throw inside zod's own
  *   catchProcessor before this hook runs ("Dynamic catch values are not supported
  *   in JSON Schema"), so one such tool still fails the entire `tools/list` — the
@@ -236,6 +247,15 @@ function zodConversionOptions(
         unrepresentable: 'any',
         override: ctx => {
             const def = ctx.zodSchema._zod.def;
+            if ('id' in ctx.jsonSchema) {
+                // zod copies registry metadata (`.meta({id: 'X'})`) verbatim, emitting a
+                // literal draft-04 `id` keyword that Ajv v8 hard-rejects at COMPILE time
+                // ('NOT SUPPORTED: keyword "id", use "$id"' — strict: false does not
+                // help), so the SDK's own client could never validate the advertisement.
+                // `$ref`s are path-based (#/$defs/Name) and cannot dangle; renaming to
+                // `$id` would change base-URI resolution, so plain removal.
+                delete ctx.jsonSchema.id;
+            }
             if (def.type === 'date') {
                 // Under `unrepresentable: 'any'` the node carries only user annotations
                 // (`.describe()` / `.meta()`) — keep them and stamp the wire shape beside them.
@@ -262,9 +282,6 @@ function zodConversionOptions(
                 // wire shape.
                 loosened.value = true;
                 for (const key of Object.keys(ctx.jsonSchema)) {
-                    // `x-*` vendor extensions are annotation-only (same convention as the
-                    // elicitation walker) and carry no validation constraint.
-                    if (ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key.startsWith('x-')) continue;
                     if (key === 'type' && ctx.jsonSchema.type === 'object') continue;
                     if ((key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(ctx.jsonSchema[key])) {
                         const skeletons = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
@@ -277,7 +294,12 @@ function zodConversionOptions(
                         ctx.jsonSchema[key === 'oneOf' ? 'anyOf' : key] = skeletons;
                         continue;
                     }
-                    delete ctx.jsonSchema[key];
+                    // Only schema-carrying and enforced keywords constrain validation;
+                    // everything else — vocabulary annotations, `x-*` extensions, custom
+                    // `.meta()` keys — is annotation-opaque and kept.
+                    if (SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key) || ENFORCED_JSON_SCHEMA_KEYWORDS.has(key)) {
+                        delete ctx.jsonSchema[key];
+                    }
                 }
                 return;
             }
@@ -344,6 +366,16 @@ function zodConversionOptions(
                 ctx.jsonSchema.anyOf = [emitted, { type: 'null' }];
                 return;
             }
+            if (def.type === 'file') {
+                // A File value serializes to `{}` on the wire (no enumerable own
+                // properties, no toJSON) while zod emits string/binary — accept the
+                // actual wire form too.
+                loosened.value = true;
+                const emitted = { ...ctx.jsonSchema };
+                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
+                ctx.jsonSchema.anyOf = [emitted, { type: 'object' }];
+                return;
+            }
             if (def.type !== 'object') return;
             const isStrict = def.catchall?._zod.def.type === 'never';
             if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
@@ -386,25 +418,20 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         delete record.oneOf;
     }
     for (const [key, value] of Object.entries(record)) {
-        // Maps whose VALUES are schemas by construction: recurse into every value —
-        // their keys are user-chosen names that may collide with annotation keywords
-        // (a property literally named `description` still carries a schema).
-        if (
-            (key === 'properties' || key === 'patternProperties' || key === '$defs' || key === 'dependentSchemas') &&
-            typeof value === 'object' &&
-            value !== null &&
-            !Array.isArray(value)
-        ) {
+        // Only schema-carrying keywords are recursed into: everything else —
+        // vocabulary annotations, `const`/`enum` data, `x-*` extensions, custom
+        // `.meta()` keys — carries user DATA whose literal `oneOf` keys must not be
+        // renamed.
+        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+        // Schema MAPS hold schemas under user-chosen names that may collide with
+        // annotation keywords (a property literally named `description` still
+        // carries a schema) — recurse into every value unconditionally.
+        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
             for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
             continue;
         }
-        // Annotation keywords (and const/enum) carry user DATA, not schemas — a
-        // plain-data object inside them may legitimately have a literal `oneOf` key
-        // that must not be renamed. This name-keyed skip applies only at schema-node
-        // positions (the schema-map case above already recursed).
-        if (ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key === 'const' || key === 'enum' || key.startsWith('x-')) continue;
         rewriteOneOfToAnyOf(value, seen);
     }
 }
@@ -432,19 +459,73 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
 }
 
 /**
- * JSON Schema annotation-vocabulary keywords (plus `default`, itself an annotation)
- * preserved when a node's constraints are degraded because validation does not enforce
- * them on the raw value (`.catch()` nodes).
+ * JSON Schema keywords whose values carry SCHEMAS (directly, as arrays of schemas, or
+ * as name→schema maps). Every key outside this set and
+ * {@linkcode ENFORCED_JSON_SCHEMA_KEYWORDS} — vocabulary annotations, `x-*` vendor
+ * extensions, and custom `.meta()` keys zod merges verbatim — is annotation-opaque:
+ * 2020-12 validators ignore unknown keywords, so such keys are kept and never
+ * recursed into.
  */
-const ANNOTATION_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
-    '$comment',
-    'default',
-    'deprecated',
-    'description',
-    'examples',
-    'readOnly',
-    'title',
-    'writeOnly'
+const SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
+    'properties',
+    'patternProperties',
+    '$defs',
+    'dependentSchemas',
+    'items',
+    'prefixItems',
+    'anyOf',
+    'oneOf',
+    'allOf',
+    'not',
+    'if',
+    'then',
+    'else',
+    'additionalProperties',
+    'propertyNames',
+    'contains',
+    'unevaluatedProperties',
+    'unevaluatedItems'
+]);
+
+/** Schema-map keywords among the above: their KEYS are user-chosen names, their values schemas. */
+const SCHEMA_MAP_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set(['properties', 'patternProperties', '$defs', 'dependentSchemas']);
+
+/**
+ * Non-schema-carrying keywords that validators ENFORCE — the `.catch()` degrade must
+ * delete them (catch-validation enforces nothing on the raw value), unlike unknown
+ * annotation-opaque keys, which are kept.
+ */
+const ENFORCED_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
+    'type',
+    'const',
+    'enum',
+    'required',
+    'format',
+    'pattern',
+    'minimum',
+    'maximum',
+    'exclusiveMinimum',
+    'exclusiveMaximum',
+    'multipleOf',
+    'minLength',
+    'maxLength',
+    'minItems',
+    'maxItems',
+    'uniqueItems',
+    'minContains',
+    'maxContains',
+    'minProperties',
+    'maxProperties',
+    'dependentRequired',
+    'contentEncoding',
+    'contentMediaType',
+    'contentSchema',
+    '$ref',
+    '$dynamicRef',
+    '$dynamicAnchor',
+    '$anchor',
+    '$id',
+    'id'
 ]);
 
 /**
