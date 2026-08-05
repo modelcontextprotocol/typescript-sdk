@@ -409,8 +409,16 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         return;
     }
     const record = node as Record<string, unknown>;
-    if (Array.isArray(record.oneOf) && record.anyOf === undefined) {
-        record.anyOf = record.oneOf;
+    if (Array.isArray(record.oneOf)) {
+        if (record.anyOf === undefined) {
+            record.anyOf = record.oneOf;
+        } else {
+            // A user `.meta({anyOf})` can coexist with the emitted `oneOf` — preserve
+            // conjunction semantics without clobbering it: keywords on one node
+            // combine with AND, so `{anyOf: members}` under `allOf` is equivalent.
+            const allOf = Array.isArray(record.allOf) ? record.allOf : (record.allOf = []);
+            allOf.push({ anyOf: record.oneOf });
+        }
         delete record.oneOf;
     }
     for (const [key, value] of Object.entries(record)) {
@@ -419,6 +427,10 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         // `.meta()` keys — carries user DATA whose literal `oneOf` keys must not be
         // renamed.
         if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+        // oneOf→anyOf is a loosening only in POSITIVE polarity: under `not` it
+        // inverts (a payload matching ≥2 members passed `not {oneOf}` but fails
+        // `not {anyOf}`), and under `if` it can flip which then/else branch applies.
+        if (key === 'not' || key === 'if') continue;
         // Schema MAPS hold schemas under user-chosen names that may collide with
         // annotation keywords (a property literally named `description` still
         // carries a schema) — recurse into every value unconditionally.

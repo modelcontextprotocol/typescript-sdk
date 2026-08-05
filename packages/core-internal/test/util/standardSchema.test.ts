@@ -622,6 +622,42 @@ describe('zod conversion options (#2464)', () => {
         expect(cfg.default).toEqual({ oneOf: [1, 2] });
     });
 
+    test('the oneOf rewrite preserves a coexisting user anyOf via allOf', () => {
+        // zod merges .meta({anyOf}) verbatim beside the emitted oneOf — bailing there
+        // left a reject-everything oneOf after the members were loosened.
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.oneOf).toBeUndefined();
+        expect(result.anyOf).toEqual([{ type: 'object' }]); // the user's anyOf, unclobbered
+        const allOf = result.allOf as Array<{ anyOf: Array<Record<string, unknown>> }>;
+        expect(allOf).toHaveLength(1);
+        expect(allOf[0]!.anyOf.map(member => member.type)).toEqual(['object', 'object']);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
+    });
+
+    test('the oneOf rewrite skips negated and conditional positions', () => {
+        // Under `not`, oneOf→anyOf inverts polarity and TIGHTENS: {v: 4} matches
+        // both members, so it passed `not {oneOf}` pre-#2464 but would fail the
+        // rewritten `not {anyOf}`.
+        const schema = z.object({
+            v: z.number().meta({ not: { oneOf: [{ type: 'integer' }, { multipleOf: 2 }] } }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).v!.not).toEqual({
+            oneOf: [{ type: 'integer' }, { multipleOf: 2 }]
+        });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ v: 4, counted: 1, name: 'n' }).valid).toBe(true);
+    });
+
     test('custom .meta() keys are annotation-opaque at both carve-out sites', () => {
         // zod merges arbitrary .meta() keys verbatim and 2020-12 validators ignore
         // unknown keywords — they are annotations by construction, like x-*.
