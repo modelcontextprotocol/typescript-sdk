@@ -18,8 +18,10 @@ proxy provider) now validate with a new `OAuthTokenResponseSchema` (defined in
 `core-internal`'s re-export shim) that removes
 null-valued optional members before validation, so they are strictly absent
 from the parsed output. The exported `OAuthTokensSchema` is unchanged — still a
-plain object schema that rejects nulls, with its `.shape`/`.extend` and input
-types intact. `refreshAuthorization` additionally hardens its merge with the
+plain object schema, with its `.shape`/`.extend` and input types intact: it
+rejects `null` for its string-typed optional members, though `expires_in: null`
+still coerces to `0` there (use `OAuthTokenResponseSchema` for raw wire
+input). `refreshAuthorization` additionally hardens its merge with the
 previously-stored refresh token, so an explicitly `undefined` `refresh_token`
 in a parsed response can never clobber the preserved token. Note that a
 stripped null `scope` is thereafter indistinguishable from an omitted `scope`
