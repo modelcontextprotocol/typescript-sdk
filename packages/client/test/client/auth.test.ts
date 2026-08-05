@@ -3088,6 +3088,150 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        // RFC 6749 §5.1/§6: the SDK sends no `scope` parameter on refresh, so a response
+        // without `scope` (or with `scope: null`, stripped by OAuthTokenResponseSchema)
+        // asserts the grant is unchanged. The stored scope must survive the refresh —
+        // otherwise, after a restart, the insufficient_scope step-up would compute its
+        // scope union without the original grant and force interactive re-authorization.
+        const mockRefreshFetchWithTokenResponse = (tokenResponse: Record<string, unknown>) => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => tokenResponse
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+        };
+
+        it('keeps the stored scope when the refresh response returns scope: null', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                scope: null
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    refresh_token: 'refresh123',
+                    scope: 'read write'
+                }),
+                expect.anything()
+            );
+        });
+
+        it('keeps the stored scope when the refresh response omits scope', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    refresh_token: 'refresh123',
+                    scope: 'read write'
+                }),
+                expect.anything()
+            );
+        });
+
+        it('stores the scope the refresh response grants when one is present', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                scope: 'read'
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // A scope the server does return is authoritative (a refresh may narrow the
+            // grant, RFC 6749 §6) — preservation only applies to an absent member.
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    scope: 'read'
+                }),
+                expect.anything()
+            );
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {

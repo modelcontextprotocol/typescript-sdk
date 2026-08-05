@@ -148,14 +148,16 @@ export const OAuthTokensSchema = z
  *
  * Some authorization servers serialize absent optional members as JSON `null`
  * (nonconformant with RFC 6749 §5.1, but common in the wild). Null-valued
- * optional members are normalized to absent — the key is removed, mirroring
- * ElicitResult's `content` null normalization — before {@linkcode OAuthTokensSchema}
- * validates, so valid-but-sloppy responses parse and `expires_in: null` never
- * reaches `z.coerce.number()` (`Number(null) === 0` would yield an
- * instantly-expired token). Removing the key (rather than mapping it to
- * `undefined`) matters: callers such as `refreshAuthorization` spread the parsed
- * response when merging with previously-stored tokens, and a present-but-undefined
- * `refresh_token` key would clobber the preserved value.
+ * optional members are normalized to absent — the key is removed — before
+ * {@linkcode OAuthTokensSchema} validates, so valid-but-sloppy responses parse
+ * and `expires_in: null` never reaches `z.coerce.number()` (`Number(null) === 0`
+ * would yield an instantly-expired token). Removing the key (rather than mapping
+ * it to `undefined`) matters: callers such as `refreshAuthorization` spread the
+ * parsed response when merging with previously-stored tokens, and a
+ * present-but-undefined `refresh_token` key would clobber the preserved value.
+ * This shares the null-leniency goal of ElicitResult's `content` normalization
+ * but uses a stronger mechanic: ElicitResult maps `null` to a
+ * present-but-`undefined` member, whereas here the key must be strictly absent.
  *
  * Per RFC 6749 §5.1, an absent `scope` member is a positive assertion that
  * the granted scope is identical to the scope the client requested, so

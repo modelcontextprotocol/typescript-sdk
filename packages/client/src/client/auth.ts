@@ -1314,7 +1314,12 @@ async function authInternal(
                 fetchFn
             });
 
-            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
+            // RFC 6749 §5.1/§6: the SDK sends no `scope` parameter on refresh, so a
+            // response without `scope` (including a null-stripped one) asserts the grant
+            // is unchanged — preserve the stored scope instead of erasing the recorded
+            // grant (the 403 insufficient_scope step-up unions it to avoid losing
+            // previously-granted permissions).
+            await provider.saveTokens({ ...newTokens, scope: newTokens.scope ?? tokens.scope, issuer }, infoCtx);
             return 'AUTHORIZED';
         } catch (error) {
             // A non-TLS token endpoint is a configuration error — re-authorizing cannot
