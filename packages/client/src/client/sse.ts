@@ -23,6 +23,7 @@ import {
 } from './auth';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
+import { markAuthSeamEscape } from './authSeam';
 
 export class SseError extends Error {
     static {
@@ -160,7 +161,14 @@ export class SSEClientTransport implements Transport {
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        const token = await this._authProvider?.token();
+        let token: string | undefined;
+        try {
+            token = await this._authProvider?.token();
+        } catch (error) {
+            // Auth-seam stamp: a throwing token() is an auth failure, never a
+            // network failure.
+            throw markAuthSeamEscape(error);
+        }
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
@@ -212,15 +220,18 @@ export class SSEClientTransport implements Transport {
                         this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
-                            // onUnauthorized failed → not yet reported.
-                            error => {
-                                this.onerror?.(error);
+                            // onUnauthorized failed → not yet reported. Auth-seam
+                            // stamp: covers the SDK's OAuth flow and custom
+                            // callbacks alike.
+                            (error: unknown) => {
+                                markAuthSeamEscape(error);
+                                this.onerror?.(error as Error);
                                 reject(error);
                             }
                         );
                         return;
                     }
-                    const error = new UnauthorizedError();
+                    const error = markAuthSeamEscape(new UnauthorizedError());
                     reject(error);
                     this.onerror?.(error);
                     return;
@@ -362,23 +373,31 @@ export class SSEClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        try {
+                            await this._authProvider.onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit
+                            });
+                        } catch (error) {
+                            // Auth-seam stamp: covers the SDK's OAuth flow and
+                            // custom onUnauthorized callbacks alike.
+                            throw markAuthSeamEscape(error);
+                        }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._send(message, true);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401,
-                            statusText: response.statusText
-                        });
+                        throw markAuthSeamEscape(
+                            new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                                status: 401,
+                                statusText: response.statusText
+                            })
+                        );
                     }
-                    throw new UnauthorizedError();
+                    throw markAuthSeamEscape(new UnauthorizedError());
                 }
 
                 const text = await response.text?.().catch(() => null);
