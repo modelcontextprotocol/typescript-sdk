@@ -240,13 +240,19 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   as a `Date` instance and fails the advertised schema there.
  * - Hand-authored reference keywords disable the wire-truthfulness loosening
  *   entirely: when the emission carries any `$ref`/`$dynamicRef` beyond zod's own
- *   registry shapes (`#`, `#/$defs/<name>`), any `$anchor`/`$dynamicAnchor`, any
- *   `$id`, or a non-root `$defs`, the conversion ships the strict pre-#2464-shaped
- *   emission instead (see {@linkcode hasHandAuthoredReferenceConstructs}) — the
- *   loosen family relocates and deletes document positions, which such constructs
- *   observe as dangling pointers, stale anchors, or shifted base-relative paths.
- *   Those conversions keep pre-#2464 strictness (e.g. `additionalProperties: false`
- *   stays advertised, tolerant fields stay `required`), trading loosening for
+ *   registry shapes (`#`, `#/$defs/<name>`), ANY ref — registry-shaped included —
+ *   consumed under a `not`/`if`/`contains` polarity boundary, any
+ *   `$anchor`/`$dynamicAnchor`, any `$id`, any `$recursiveRef`/`$recursiveAnchor`
+ *   (2019-09 spellings the SDK's Ajv2020 engine still enforces), a non-root
+ *   `$defs`, or any `unevaluatedProperties`/`unevaluatedItems` (annotation
+ *   consumers that observe in-place loosening of their contributors as a
+ *   tightening), the conversion ships the strict pre-#2464-shaped emission
+ *   instead (see {@linkcode hasHandAuthoredReferenceConstructs}) — the loosen
+ *   family relocates and deletes document positions, which such constructs
+ *   observe as dangling pointers, stale anchors, shifted base-relative paths, or
+ *   polarity-inverted/annotation-stripped tightenings. Those conversions keep
+ *   pre-#2464 strictness (e.g. `additionalProperties: false` stays advertised,
+ *   tolerant fields stay `required`), trading loosening for
  *   compilability-by-construction.
  * - The loosen rewrite's `oneOf` → `anyOf` rename skips lexical `not`/`if`/`contains`
  *   positions, but a `.meta({not: {oneOf: […]}})` cloning a positive-position
@@ -356,15 +362,28 @@ function zodConversionOptions(
                 return;
             }
             if (def.type === 'tuple') {
-                // Same wire mechanism per prefix position.
+                // Same wire mechanism per prefix position. The wrap REASSIGNS a
+                // fresh array on the node's top-level key — never writes into the
+                // existing one: a `.meta({prefixItems})` array is the user's
+                // registry-owned object (zod's Object.assign meta merge shares it
+                // by reference, and this hook runs before the terminal deep
+                // clone), so an in-place element write would permanently corrupt
+                // registry metadata, nest one more anyOf per conversion, and leak
+                // false null-tolerance into input advertisements.
                 const prefixItems = ctx.jsonSchema.prefixItems;
                 if (Array.isArray(def.items) && Array.isArray(prefixItems)) {
-                    for (const [index, item] of def.items.entries()) {
-                        const emitted = prefixItems[index];
-                        if (typeof emitted === 'object' && emitted !== null && fieldAcceptsMissingKey(item)) {
-                            loosened.value = true;
-                            prefixItems[index] = { anyOf: [emitted, { type: 'null' }] };
+                    let wrappedAny = false;
+                    const wrapped = prefixItems.map((emitted, index) => {
+                        const item = index < (def.items as unknown[]).length ? (def.items as z.core.$ZodType[])[index] : undefined;
+                        if (item !== undefined && typeof emitted === 'object' && emitted !== null && fieldAcceptsMissingKey(item)) {
+                            wrappedAny = true;
+                            return { anyOf: [emitted, { type: 'null' }] };
                         }
+                        return emitted as unknown;
+                    });
+                    if (wrappedAny) {
+                        loosened.value = true;
+                        ctx.jsonSchema.prefixItems = wrapped as typeof ctx.jsonSchema.prefixItems;
                     }
                 }
                 // ... and for the REST element, whose emitted subschema lands under
@@ -438,11 +457,11 @@ function zodConversionOptions(
  * none, and zod's own registry refs (`#`, `#/$defs/<name>`) never traverse a
  * `oneOf` segment.
  */
-function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): void {
+function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set(), isRoot = true): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {
-        for (const item of node) rewriteOneOfToAnyOf(item, seen);
+        for (const item of node) rewriteOneOfToAnyOf(item, seen, false);
         return;
     }
     const record = node as Record<string, unknown>;
@@ -458,15 +477,20 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
             // The relocated members' objectness becomes invisible to the wrap proof's
             // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
             // [{minProperties: 1}]})) — stamp the explicit type here, preserving the
-            // pre-#2464 stamp these roots got via their emitted oneOf. The stamp is
-            // ENFORCED, so it requires a genuine instance-typing proof — every
-            // relocated member explicitly `type: 'object'` — NOT the wrap
-            // heuristic's keyword-presence rule (`properties`/`required`/… are
-            // vacuous for non-object instances, so a hand-authored type-less member
-            // is satisfiable by `42` and must not be stamped away). Zod-emitted DU
-            // members and catch skeletons always carry the explicit type, so the
-            // legacy-wrap protection is unaffected.
-            if (record.type === undefined && membersAreExplicitlyObjectTyped(record.oneOf)) {
+            // pre-#2464 stamp these roots got via their emitted oneOf. The proof is
+            // POSITION-AWARE: at the conversion ROOT the keyword-presence heuristic
+            // is byte-parity with main's epilogue stamp (first-present-key-wins
+            // would have read this oneOf and stamped, deciding the 2025-era legacy
+            // wrap), so declining it would flip the wire shape; at NESTED nodes —
+            // which never received any stamp pre-#2464 — the stamp is a fresh
+            // ENFORCED constraint and requires the genuine instance-typing proof
+            // (every relocated member explicitly `type: 'object'`; mere
+            // `properties`/`required` carriage is vacuous for non-object
+            // instances, so a hand-authored type-less member satisfiable by `42`
+            // must not be stamped away). Zod-emitted DU members and catch
+            // skeletons always carry the explicit type either way.
+            const proven = isRoot ? isProvablyObjectShapedRoot({ anyOf: record.oneOf }) : membersAreExplicitlyObjectTyped(record.oneOf);
+            if (record.type === undefined && proven) {
                 record.type = 'object';
             }
         }
@@ -491,10 +515,10 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
+            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen, false);
             continue;
         }
-        rewriteOneOfToAnyOf(value, seen);
+        rewriteOneOfToAnyOf(value, seen, false);
     }
 }
 
@@ -581,6 +605,11 @@ function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): 
             if (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value)) return true;
         }
         if (record.$anchor !== undefined || record.$dynamicAnchor !== undefined || record.$id !== undefined) return true;
+        // 2019-09 recursion keywords: zod never emits them, and the SDK's
+        // Ajv2020 engine enforces $recursiveRef in every draft mode — a negated
+        // `{$recursiveRef: '#'}` observes root loosening as a tightening exactly
+        // like its $dynamicRef successor (which the polarity clause catches).
+        if (record.$recursiveRef !== undefined || record.$recursiveAnchor !== undefined) return true;
         if (!isRoot && record.$defs !== undefined) return true;
         // `unevaluatedProperties`/`unevaluatedItems` consume the 2020-12
         // evaluation annotations their sibling (and `$ref`-mediated) subschemas
@@ -677,6 +706,11 @@ const SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
     'patternProperties',
     '$defs',
     'dependentSchemas',
+    // Draft-07 spelling of dependentSchemas (name→schema map; the
+    // array-of-strings property-dependency form walks harmlessly) — Ajv2020
+    // with strict:false still compiles and ENFORCES it, so the guard and the
+    // rename walk must see inside.
+    'dependencies',
     'items',
     'prefixItems',
     'anyOf',
@@ -694,7 +728,13 @@ const SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
 ]);
 
 /** Schema-map keywords among the above: their KEYS are user-chosen names, their values schemas. */
-const SCHEMA_MAP_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set(['properties', 'patternProperties', '$defs', 'dependentSchemas']);
+const SCHEMA_MAP_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
+    'properties',
+    'patternProperties',
+    '$defs',
+    'dependentSchemas',
+    'dependencies'
+]);
 
 /**
  * Non-schema-carrying keywords that validators ENFORCE — the `.catch()` degrade must

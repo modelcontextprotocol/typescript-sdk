@@ -1036,6 +1036,77 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(refFree)({ x: { p: 'v' }, name: 'n' }).valid).toBe(true);
     });
 
+    test('the tuple wrap never mutates a registry-owned prefixItems array', () => {
+        // zod's Object.assign meta merge shares the user's array by reference and
+        // the override runs before the terminal deep clone — an in-place element
+        // write would corrupt registry metadata, nest one more anyOf per
+        // conversion, and leak false null-tolerance into input advertisements.
+        const userPrefixItems = [{ type: 'string' }, { type: 'number' }];
+        const schema = z.object({
+            t: z.tuple([z.string().default('x'), z.number()]).meta({ prefixItems: userPrefixItems }),
+            name: z.string()
+        });
+        const first = standardSchemaToJsonSchema(schema, 'output');
+        const second = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(userPrefixItems).toEqual([{ type: 'string' }, { type: 'number' }]); // registry untouched
+        // No nesting growth: both conversions advertise the identical single wrap.
+        expect(second).toEqual(first);
+        const prefixItems = (first.properties as Record<string, Record<string, unknown>>).t!.prefixItems as Array<Record<string, unknown>>;
+        expect(prefixItems[0]).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+    });
+
+    test('legacy-draft reference spellings disable loosening (dependencies, $recursiveRef)', () => {
+        // Ajv2020 with strict:false still compiles and ENFORCES draft-07
+        // `dependencies` and 2019-09 `$recursiveRef` — both must ship strict.
+        const gated = standardSchemaToJsonSchema(
+            z.object({
+                du: z.discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+                ]),
+                gated: z.unknown().meta({ type: 'object', dependencies: { a: { $ref: '#/properties/du/oneOf/0' } } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        expect((gated.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeDefined(); // strict: no rename
+        expect(new AjvJsonSchemaValidator().getValidator(gated)({ du: { t: 'a' }, gated: { b: 1 }, name: 'n' }).valid).toBe(true);
+
+        const recursive = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.number().default(0),
+                guarded: z.unknown().meta({ not: { $recursiveRef: '#' } }),
+                name: z.string().default('n')
+            }),
+            'output'
+        );
+        // Strict: the root keeps required/additionalProperties, so `{}` still
+        // fails the root and the negation keeps passing (pre-PR behavior).
+        expect(recursive.required).toEqual(['cfg', 'guarded', 'name']);
+        expect(new AjvJsonSchemaValidator().getValidator(recursive)({ cfg: 1, guarded: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the allOf-push stamp is root-aware (keyword-presence parity at roots only)', () => {
+        // At the conversion ROOT, main's epilogue stamped via the
+        // keyword-presence rule (first-present-key-wins read the emitted oneOf) —
+        // declining there would flip the 2025-era legacy wrap when an unrelated
+        // .default() fires the loosen pass.
+        const root = z
+            .union([z.object({ c: z.number().default(0), a: z.string() }), z.null()])
+            .meta({ oneOf: [{ properties: { a: { type: 'string' } } }] });
+        const loosenedRoot = standardSchemaToJsonSchema(root, 'output');
+        expect(loosenedRoot.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(loosenedRoot)).toBe(false);
+        // Without the trigger the epilogue proof stamps the untouched root — the
+        // wire shape must not depend on an unrelated .default().
+        const untouchedRoot = standardSchemaToJsonSchema(
+            z.union([z.object({ a: z.string() }), z.null()]).meta({ oneOf: [{ properties: { a: { type: 'string' } } }] }),
+            'output'
+        );
+        expect(untouchedRoot.type).toBe('object');
+    });
+
     test('relocated members keep their stamp beside a null-membered user anyOf', () => {
         // The loosen rewrite relocates the DU members under allOf beside the user's
         // .meta({anyOf}) and stamps `type: 'object'` itself — the epilogue proof
