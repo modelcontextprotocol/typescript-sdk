@@ -10,6 +10,7 @@
 import { isJsonContentType } from '../shared/mediaType.js';
 import { Transport } from '../shared/transport.js';
 import { AuthInfo } from './auth/types.js';
+import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive.js';
 import {
     MessageExtraInfo,
     RequestInfo,
@@ -71,6 +72,12 @@ interface StreamMapping {
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
+    /**
+     * Event IDs delivered to this stream by replay when it was registered.
+     * Lets send() avoid re-delivering events the replay already wrote when a
+     * resume raced in-flight event-store writes.
+     */
+    replayedEventIds?: Set<string>;
 }
 
 /**
@@ -146,6 +153,12 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * client reconnection timing for polling behavior.
      */
     retryInterval?: number;
+
+    /**
+     * Interval in milliseconds between SSE keep-alive comment frames.
+     * Defaults to `15000`; values below 1 (including `0`) disable keep-alive.
+     */
+    keepAliveMs?: number;
 }
 
 /**
@@ -214,6 +227,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _hasHandledRequest: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
+    /**
+     * Request streams whose client holds a Last-Event-ID cursor (at least one
+     * id-bearing event was delivered on them), so a stored response can be
+     * replayed on resume.
+     */
+    private _resumableStreams: Set<string> = new Set();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
@@ -225,6 +244,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _keepAliveMs: number;
+    private _closed = false;
 
     sessionId?: string;
     onclose?: () => void;
@@ -241,6 +262,31 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+    }
+
+    /**
+     * Arms a keep-alive interval for an SSE stream that periodically writes an SSE
+     * comment frame so intermediaries and idle timeouts don't kill the connection.
+     * The returned timer is owned by the stream it was armed for: the stream's
+     * cancel/cleanup callbacks must clear it. The interval clears itself if a
+     * write fails (stream already closed/cancelled).
+     */
+    private startKeepAlive(
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        encoder: TextEncoder
+    ): ReturnType<typeof setInterval> | undefined {
+        // After close() nothing may arm: the stream cleanups have already run.
+        if (this._closed) return undefined;
+
+        const timer = armSseKeepAlive(this._keepAliveMs, () => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                if (timer !== undefined) clearInterval(timer);
+            }
+        });
+        return timer;
     }
 
     /**
@@ -321,6 +367,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a Response object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        if (this._closed) {
+            return this.createJsonErrorResponse(404, -32001, 'Session not found');
+        }
+
         // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
         // Reusing a stateless transport causes message ID collisions between clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
@@ -375,6 +425,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             primingEvent = `id: ${primingEventId}\nretry: ${this._retryInterval}\ndata: \n\n`;
         }
         controller.enqueue(encoder.encode(primingEvent));
+        this._resumableStreams.add(streamId);
     }
 
     /**
@@ -417,6 +468,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const encoder = new TextEncoder();
         let streamController: ReadableStreamDefaultController<Uint8Array>;
+        let keepAliveTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
         // Create a ReadableStream with a controller we can use to push SSE events
         const readable = new ReadableStream<Uint8Array>({
@@ -424,15 +476,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 streamController = controller;
             },
             cancel: () => {
-                // Stream was cancelled by client
-                this._streamMapping.delete(this._standaloneSseStreamId);
+                // Stream was cancelled by client. Only tear down the mapping if it
+                // still points at this stream — a stale cancel arriving after a
+                // reconnect re-registered the id must not tear down the successor.
+                if (keepAliveTimer !== undefined) {
+                    clearInterval(keepAliveTimer);
+                }
+                if (this._streamMapping.get(this._standaloneSseStreamId)?.controller === streamController) {
+                    this._streamMapping.delete(this._standaloneSseStreamId);
+                }
             }
         });
 
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
         };
 
         // After initialization, always include the session ID if we have one
@@ -445,6 +505,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                if (keepAliveTimer !== undefined) {
+                    clearInterval(keepAliveTimer);
+                }
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -453,6 +516,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         });
+
+        keepAliveTimer = this.startKeepAlive(streamController!, encoder);
 
         return new Response(readable, { headers });
     }
@@ -488,7 +553,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             if (this.sessionId !== undefined) {
@@ -498,19 +564,31 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined = undefined;
+            let replayedStreamId: string | undefined = undefined;
+            let cancelled = false;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
                 },
                 cancel: () => {
-                    // Stream was cancelled by client
-                    // Cleanup will be handled by the mapping
+                    // Stream was cancelled by client. Only tear down the mapping if
+                    // it still points at this stream — a stale cancel must not tear
+                    // down a successor registered by a later resume.
+                    cancelled = true;
+                    if (keepAliveTimer !== undefined) {
+                        clearInterval(keepAliveTimer);
+                    }
+                    if (replayedStreamId !== undefined && this._streamMapping.get(replayedStreamId)?.controller === streamController) {
+                        this._streamMapping.delete(replayedStreamId);
+                    }
                 }
             });
 
             // Replay events - returns the streamId for backwards compatibility
-            const replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
+            const replayedEventIds = new Set<string>();
+            replayedStreamId = await this._eventStore.replayEventsAfter(lastEventId, {
                 send: async (eventId: string, message: JSONRPCMessage) => {
                     const success = this.writeSSEEvent(streamController!, encoder, message, eventId);
                     if (!success) {
@@ -520,15 +598,38 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         } catch {
                             // Controller might already be closed
                         }
+                    } else {
+                        replayedEventIds.add(eventId);
                     }
                 }
             });
 
+            // close() may have run, or the stream may have been cancelled, while
+            // the event store was replaying: don't hand out or register a stream
+            // that nothing can ever clean up again.
+            if (this._closed || cancelled) {
+                try {
+                    streamController!.close();
+                } catch {
+                    // Controller might already be closed
+                }
+                return this.createJsonErrorResponse(404, -32001, 'Session not found');
+            }
+
+            // A reconnect re-registers the same stream id: close the predecessor
+            // stream cleanly (clearing its keep-alive timer) instead of leaving it
+            // registered nowhere with its timer still running.
+            this._streamMapping.get(replayedStreamId)?.cleanup();
+
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
+                replayedEventIds,
                 cleanup: () => {
-                    this._streamMapping.delete(replayedStreamId);
+                    if (keepAliveTimer !== undefined) {
+                        clearInterval(keepAliveTimer);
+                    }
+                    this._streamMapping.delete(replayedStreamId!);
                     try {
                         streamController!.close();
                     } catch {
@@ -536,6 +637,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
                 }
             });
+
+            // The resume itself proves the client holds a Last-Event-ID cursor
+            this._resumableStreams.add(replayedStreamId);
+
+            keepAliveTimer = this.startKeepAlive(streamController!, encoder);
 
             return new Response(readable, { headers });
         } catch (error) {
@@ -650,6 +756,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(400, -32700, 'Parse error: Invalid JSON-RPC message');
             }
 
+            // close() may have run while awaiting the request body above: don't
+            // initialize a session (or fire onsessioninitialized) on a transport
+            // whose cleanups have already run.
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32001, 'Session not found');
+            }
+
             // Check if this is an initialization request
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
             const isInitializationRequest = messages.some(isInitializeRequest);
@@ -686,6 +799,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 if (protocolError) {
                     return protocolError;
                 }
+            }
+
+            // close() may have run while awaiting the request body or the session
+            // initialization callback above: don't register streams into maps the
+            // close sweep has already cleared, or hand out a stream that nothing
+            // will ever write to.
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32001, 'Session not found');
             }
 
             // check if it contains requests
@@ -736,21 +857,30 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // SSE streaming mode - use ReadableStream with controller for more reliable data pushing
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined = undefined;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
                 },
                 cancel: () => {
-                    // Stream was cancelled by client
-                    this._streamMapping.delete(streamId);
+                    // Stream was cancelled by client. Only tear down the mapping if
+                    // it still points at this stream — a stale cancel arriving after
+                    // a resume re-registered the id must not tear down the successor.
+                    if (keepAliveTimer !== undefined) {
+                        clearInterval(keepAliveTimer);
+                    }
+                    if (this._streamMapping.get(streamId)?.controller === streamController) {
+                        this._streamMapping.delete(streamId);
+                    }
                 }
             });
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                'Cache-Control': 'no-cache, no-transform',
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             // After initialization, always include the session ID if we have one
@@ -766,6 +896,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
+                            if (keepAliveTimer !== undefined) {
+                                clearInterval(keepAliveTimer);
+                            }
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
@@ -778,30 +911,51 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
-            // Write priming event if event store is configured (after mapping is set up)
-            await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
+            try {
+                // Write priming event if event store is configured (after mapping is set up)
+                await this.writePrimingEvent(streamController!, encoder, streamId, clientProtocolVersion);
 
-            // handle each message
-            for (const message of messages) {
-                // Build closeSSEStream callback for requests when eventStore is configured
-                // AND client supports resumability (protocol version >= 2025-11-25).
-                // Old clients can't resume if the stream is closed early because they
-                // didn't receive a priming event with an event ID.
-                let closeSSEStream: (() => void) | undefined;
-                let closeStandaloneSSEStream: (() => void) | undefined;
-                if (isJSONRPCRequest(message) && this._eventStore && clientProtocolVersion >= '2025-11-25') {
-                    closeSSEStream = () => {
-                        this.closeSSEStream(message.id);
-                    };
-                    closeStandaloneSSEStream = () => {
-                        this.closeStandaloneSSEStream();
-                    };
+                // handle each message
+                for (const message of messages) {
+                    // Build closeSSEStream callback for requests when eventStore is configured
+                    // AND client supports resumability (protocol version >= 2025-11-25).
+                    // Old clients can't resume if the stream is closed early because they
+                    // didn't receive a priming event with an event ID.
+                    let closeSSEStream: (() => void) | undefined;
+                    let closeStandaloneSSEStream: (() => void) | undefined;
+                    if (isJSONRPCRequest(message) && this._eventStore && clientProtocolVersion >= '2025-11-25') {
+                        closeSSEStream = () => {
+                            this.closeSSEStream(message.id);
+                        };
+                        closeStandaloneSSEStream = () => {
+                            this.closeStandaloneSSEStream();
+                        };
+                    }
+
+                    this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
                 }
-
-                this.onmessage?.(message, { authInfo: options?.authInfo, requestInfo, closeSSEStream, closeStandaloneSSEStream });
+            } catch (error) {
+                // Failing before the Response is handed out means nothing can ever
+                // cancel this stream: release it and its request correlations here.
+                this._streamMapping.get(streamId)?.cleanup();
+                this._resumableStreams.delete(streamId);
+                for (const message of messages) {
+                    if (isJSONRPCRequest(message)) {
+                        this._requestToStreamMapping.delete(message.id);
+                    }
+                }
+                throw error;
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
+
+            // Arm keep-alive only after the fallible awaits above: an error path
+            // returns 400 and discards the Response, so nothing could ever cancel
+            // the stream and clear an already-armed timer. Skip if the responses
+            // already completed and cleaned the stream up.
+            if (this._streamMapping.get(streamId)?.controller === streamController!) {
+                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+            }
 
             return new Response(readable, { status: 200, headers });
         } catch (error) {
@@ -824,9 +978,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return protocolError;
         }
 
-        await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
-        await this.close();
-        return new Response(null, { status: 200 });
+        try {
+            await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+            return new Response(null, { status: 200 });
+        } finally {
+            await this.close();
+        }
     }
 
     /**
@@ -895,7 +1052,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        // Close all SSE connections
+        if (this._closed) {
+            return;
+        }
+        // Stop any deferred keep-alive arm (e.g. a replay await resolving after
+        // close) from creating a timer nothing can clear.
+        this._closed = true;
+
+        // Close all SSE connections (each cleanup clears its own keep-alive timer)
         this._streamMapping.forEach(({ cleanup }) => {
             cleanup();
         });
@@ -903,6 +1067,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         // Clear any pending responses
         this._requestResponseMap.clear();
+        this._resumableStreams.clear();
         this.onclose?.();
     }
 
@@ -962,8 +1127,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return;
             }
 
-            // Send the message to the standalone SSE stream
-            if (standaloneSse.controller && standaloneSse.encoder) {
+            // Send the message to the standalone SSE stream, unless this stream
+            // was registered by a replay that already delivered this event (the
+            // store made it visible before this call resumed).
+            if (
+                standaloneSse.controller &&
+                standaloneSse.encoder &&
+                (eventId === undefined || !standaloneSse.replayedEventIds?.has(eventId))
+            ) {
                 this.writeSSEEvent(standaloneSse.controller, standaloneSse.encoder, message, eventId);
             }
             return;
@@ -975,17 +1146,31 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             throw new Error(`No connection established for request ID: ${String(requestId)}`);
         }
 
-        const stream = this._streamMapping.get(streamId);
+        let stream = this._streamMapping.get(streamId);
 
-        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
-            // For SSE responses, generate event ID if event store is provided
+        if (!this._enableJsonResponse) {
+            // Store the event even if the stream is disconnected (e.g. after
+            // closeSSEStream switched the client to polling), so it can be
+            // replayed on reconnect — mirroring the standalone stream path.
             let eventId: string | undefined;
 
             if (this._eventStore) {
                 eventId = await this._eventStore.storeEvent(streamId, message);
+                // Re-fetch after the await: a resume completing meanwhile replaces
+                // this stream's registration with a successor, and the message
+                // must go to the live stream, not the evicted one.
+                stream = this._streamMapping.get(streamId);
             }
-            // Write the event to the response stream
-            this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+            // Skip the write if the stream was registered by a replay that
+            // already delivered this event (the store made it visible before
+            // this call resumed).
+            if (stream?.controller && stream?.encoder && (eventId === undefined || !stream.replayedEventIds?.has(eventId))) {
+                const written = this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+                // The client now holds a Last-Event-ID cursor for this stream
+                if (written && eventId !== undefined) {
+                    this._resumableStreams.add(streamId);
+                }
+            }
         }
 
         if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
@@ -999,6 +1184,37 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
+                    // close() ran while the event store write above was awaiting:
+                    // release the entries this call re-created after the sweep,
+                    // then treat the late completion as a no-op.
+                    if (this._closed) {
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                        return;
+                    }
+                    if (!this._enableJsonResponse && this._eventStore && this._resumableStreams.has(streamId)) {
+                        // The stream went away (client disconnect, or
+                        // closeSSEStream switched the client to polling), but the
+                        // response was stored above and will be replayed on
+                        // resume — release the correlations rather than throwing.
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                        this._resumableStreams.delete(streamId);
+                        return;
+                    }
+                    // Without resumability (or in JSON response mode, where the
+                    // pending HTTP response can never be settled by a replay),
+                    // a missing stream means the response cannot be delivered.
+                    // Release the correlations so the entries don't outlive the
+                    // undeliverable response.
+                    for (const id of relatedIds) {
+                        this._requestResponseMap.delete(id);
+                        this._requestToStreamMapping.delete(id);
+                    }
                     throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {
@@ -1026,6 +1242,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     this._requestResponseMap.delete(id);
                     this._requestToStreamMapping.delete(id);
                 }
+                this._resumableStreams.delete(streamId);
             }
         }
     }
