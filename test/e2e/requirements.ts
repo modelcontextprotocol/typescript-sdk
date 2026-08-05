@@ -219,23 +219,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'protocol:progress:callback': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
         behavior:
-            "Progress notifications emitted by a handler during a request are delivered to the caller's progress callback, in order, with their progress, total, and message.",
-        knownFailures: [
-            {
-                transport: 'sse',
-                note: "Real-socket SSE delivers a handler's progress notifications and its response in one batch; the response is processed first, so the progress notifications never reach the caller's progress callback."
-            }
-        ]
+            "Progress notifications emitted by a handler during a request are delivered to the caller's progress callback, in order, with their progress, total, and message."
     },
     'typescript:protocol:progress:token-injected': {
         source: 'sdk',
-        behavior: 'Passing onprogress causes a progressToken to be injected into request _meta, preserving existing _meta fields.',
-        knownFailures: [
-            {
-                transport: 'sse',
-                note: "Real-socket SSE delivers a handler's progress notifications and its response in one batch; the response is processed first, so the progress notifications never reach the caller's progress callback."
-            }
-        ]
+        behavior: 'Passing onprogress causes a progressToken to be injected into request _meta, preserving existing _meta fields.'
     },
     'protocol:progress:token-unique': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
@@ -247,17 +235,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:timeout:max-total': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
-        behavior: 'A maximum total timeout is enforced even when progress notifications keep arriving.'
+        behavior: 'A maximum total timeout is enforced even when progress notifications keep arriving.',
+        transports: ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'entryStateless', 'entryModern']
     },
     'protocol:timeout:reset-on-progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
         behavior: "When configured to do so, each progress notification resets the request's read timeout.",
-        knownFailures: [
-            {
-                transport: 'sse',
-                note: 'Same real-socket SSE batching race as protocol:progress:callback: the progress notifications are dropped before they can reset the timeout, so the request times out.'
-            }
-        ]
+        transports: ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'entryStateless', 'entryModern']
     },
     'protocol:timeout:sends-cancellation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
@@ -386,13 +370,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'tools:call:progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
-        behavior: "Progress notifications emitted by a tool handler reach the caller's progress callback before the tool result returns.",
-        knownFailures: [
-            {
-                transport: 'sse',
-                note: "Real-socket SSE delivers a handler's progress notifications and its response in one batch; the response is processed first, so the progress notifications never reach the caller's progress callback."
-            }
-        ]
+        behavior: "Progress notifications emitted by a tool handler reach the caller's progress callback before the tool result returns."
     },
     'tools:call:sampling-roundtrip': {
         transports: STATEFUL_TRANSPORTS,
