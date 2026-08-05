@@ -361,9 +361,7 @@ function zodConversionOptions(
                 // {type: 'number', const: null} that nothing satisfies — wrap it so the
                 // wire form validates.
                 loosened.value = true;
-                const emitted = { ...ctx.jsonSchema };
-                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
-                ctx.jsonSchema.anyOf = [emitted, { type: 'null' }];
+                wrapConstraintsInAnyOf(ctx.jsonSchema, { type: 'null' });
                 return;
             }
             if (def.type === 'file') {
@@ -371,9 +369,7 @@ function zodConversionOptions(
                 // properties, no toJSON) while zod emits string/binary — accept the
                 // actual wire form too.
                 loosened.value = true;
-                const emitted = { ...ctx.jsonSchema };
-                for (const key of Object.keys(ctx.jsonSchema)) delete ctx.jsonSchema[key];
-                ctx.jsonSchema.anyOf = [emitted, { type: 'object' }];
+                wrapConstraintsInAnyOf(ctx.jsonSchema, { type: 'object' });
                 return;
             }
             if (def.type !== 'object') return;
@@ -434,6 +430,24 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         }
         rewriteOneOfToAnyOf(value, seen);
     }
+}
+
+/**
+ * Moves a node's constraint keywords (schema-carrying + enforced) into `anyOf[0]`,
+ * adding `alternative` as `anyOf[1]`, while leaving annotation-opaque keys (and
+ * `default`) at the node top level where consumers read them — an annotation buried
+ * inside an applicator branch the wire payload never matches applies to nothing
+ * under 2020-12 annotation-collection semantics.
+ */
+function wrapConstraintsInAnyOf(node: Record<string, unknown>, alternative: Record<string, unknown>): void {
+    const constrained: Record<string, unknown> = {};
+    for (const key of Object.keys(node)) {
+        if (SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key) || ENFORCED_JSON_SCHEMA_KEYWORDS.has(key)) {
+            constrained[key] = node[key];
+            delete node[key];
+        }
+    }
+    node.anyOf = [constrained, alternative];
 }
 
 /**
@@ -741,7 +755,7 @@ export function standardSchemaToJsonSchema(
         // serialization; Map/Set ship `{}` garbage). Representable non-object roots
         // (legal per SEP-2106) carry an explicit `type` and returned above; quiet
         // shapes keep listing.
-        const outputVerdict = nonObjectTypelessRootVerdict(schema);
+        const outputVerdict = nonObjectTypelessRootVerdict(schema, 'output');
         if (outputVerdict !== undefined && outputVerdict.loud) {
             throw new Error(
                 `MCP tool and prompt schemas must describe objects (got a non-object ${outputVerdict.type} schema). ` +
@@ -761,7 +775,7 @@ export function standardSchemaToJsonSchema(
     // so misregistered roots keep failing loudly instead of being advertised as
     // permanently-uncallable `{type: 'object'}` tools.
     if (result.type === undefined) {
-        const verdict = nonObjectTypelessRootVerdict(schema);
+        const verdict = nonObjectTypelessRootVerdict(schema, 'input');
         // Quiet verdicts (compositions of only non-finite number literals) listed
         // silently pre-#2464 and keep the unconditional stamp below.
         if (verdict !== undefined && verdict.loud) {
@@ -786,15 +800,16 @@ export function standardSchemaToJsonSchema(
  * roots converted before #2464.
  *
  * The verdict carries loudness for the loudness-parity contract: `loud` shapes made
- * pre-#2464 conversion throw (bigint/symbol/date/…, literals with undefined/bigint/
- * symbol values) and must keep throwing; `quiet` shapes (non-finite number literals,
- * which zod silently emits as `{type: 'number', const: null}`) listed silently
- * pre-#2464 and must keep listing — the guard throws only for a loud-containing
- * verdict. `ancestors` tracks only the current traversal path, so a shared instance
+ * pre-#2464 conversion throw (bigint/symbol/date/…, literals with undefined or
+ * bigint values) and must keep throwing; `quiet` shapes (non-finite number and
+ * symbol literals, which zod silently emitted without a conversion error) listed
+ * silently pre-#2464 and must keep listing — the guard throws only for a
+ * loud-containing verdict. `ancestors` tracks only the current traversal path, so a shared instance
  * gets a real verdict at every occurrence while recursive lazies stay bounded.
  */
 function nonObjectTypelessRootVerdict(
     schema: unknown,
+    io: 'input' | 'output',
     ancestors: ReadonlySet<unknown> = new Set()
 ): { type: string; loud: boolean } | undefined {
     if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return undefined;
@@ -820,33 +835,44 @@ function nonObjectTypelessRootVerdict(
     path.add(schema);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
         try {
-            return nonObjectTypelessRootVerdict((def.getter as () => unknown)(), path);
+            return nonObjectTypelessRootVerdict((def.getter as () => unknown)(), io, path);
         } catch {
             return undefined;
         }
     }
-    if (def.type === 'pipe' && def.in !== undefined) {
-        const inVerdict = nonObjectTypelessRootVerdict(def.in, path);
-        if (inVerdict !== undefined) return inVerdict;
-        // `z.preprocess(fn, inner)` builds the opposite pipe — the transform sits at
-        // `def.in` (verdict undefined by design) and the real schema at `def.out`.
-        const inDef = (def.in as { _zod?: { def?: { type?: string } } })._zod?.def;
-        if (inDef?.type === 'transform' && def.out !== undefined) {
-            return nonObjectTypelessRootVerdict(def.out, path);
+    if (def.type === 'pipe') {
+        // Loudness parity must anchor to the side zod's conversion actually
+        // processed: input conversion reads `def.in`, output conversion `def.out` —
+        // pre-#2464, `z.date().transform(d => d.toISOString()).pipe(z.string().nullable())`
+        // converted fine on the output path (only its OUT side was visited).
+        const primary = io === 'output' ? def.out : def.in;
+        const secondary = io === 'output' ? def.in : def.out;
+        if (primary !== undefined) {
+            const verdict = nonObjectTypelessRootVerdict(primary, io, path);
+            if (verdict !== undefined) return verdict;
+            // A bare transform on the processed side has no verdict of its own — the
+            // real schema sits on the other side (`z.preprocess(fn, inner)` on input;
+            // on output, zod threw 'Transforms cannot be represented' pre-#2464, so
+            // consulting `def.in` keeps genuinely-unrepresentable inputs loud while
+            // representable ones degrade gracefully).
+            const primaryDef = (primary as { _zod?: { def?: { type?: string } } })._zod?.def;
+            if (primaryDef?.type === 'transform' && secondary !== undefined) {
+                return nonObjectTypelessRootVerdict(secondary, io, path);
+            }
         }
         return undefined;
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-        return nonObjectTypelessRootVerdict(def.innerType, path);
+        return nonObjectTypelessRootVerdict(def.innerType, io, path);
     }
     if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
-        const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, path));
+        const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path));
         if (verdicts.includes(undefined)) return undefined;
         return { type: 'union', loud: verdicts.some(verdict => verdict?.loud === true) };
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
-        const left = nonObjectTypelessRootVerdict(def.left, path);
-        const right = nonObjectTypelessRootVerdict(def.right, path);
+        const left = nonObjectTypelessRootVerdict(def.left, io, path);
+        const right = nonObjectTypelessRootVerdict(def.right, io, path);
         if (left === undefined && right === undefined) return undefined;
         return { type: 'intersection', loud: left?.loud === true || right?.loud === true };
     }
@@ -875,11 +901,12 @@ function nonObjectTypelessRootVerdict(
 /**
  * The non-object loudness of a literal's values, or `undefined` when the literal may
  * be JSON-satisfiable. `'loud'`: a value zod's own converter threw on pre-#2464
- * (`undefined`, bigint, symbol) — such roots must keep failing loudly. `'quiet'`:
- * only non-finite numbers (`Infinity`/`-Infinity`/`NaN`), which zod silently emits
- * as `{type: 'number', const: null}` — non-object, but such roots listed silently
- * pre-#2464 and must keep listing. Any representable value (string, finite number,
- * boolean, null) makes the literal satisfiable via JSON: `undefined`
+ * (`undefined`, bigint) — such roots must keep failing loudly. `'quiet'`: non-finite
+ * numbers (`Infinity`/`-Infinity`/`NaN`, silently emitted as
+ * `{type: 'number', const: null}`) and symbol values (silently emitted as
+ * `{type: 'symbol'}`) — non-object, but such roots listed silently pre-#2464 and
+ * must keep listing. Any representable value (string, finite number, boolean, null)
+ * makes the literal satisfiable via JSON: `undefined`
  * (`z.union([z.literal('admin'), z.literal('member')])`, zod's idiomatic enum
  * spelling, and mixed-type lists like `z.literal(['a', 1])` all keep converting
  * exactly as they did pre-#2464).
@@ -887,24 +914,35 @@ function nonObjectTypelessRootVerdict(
 function nonObjectLiteralLoudness(values: unknown): 'loud' | 'quiet' | undefined {
     if (!Array.isArray(values) || values.length === 0) return 'loud';
     let representable = false;
-    let nonFinite = false;
+    let quiet = false;
     for (const value of values) {
         if (value === null) {
             representable = true;
             continue;
         }
         const valueType = typeof value;
-        if (valueType !== 'string' && valueType !== 'number' && valueType !== 'boolean') {
-            return 'loud'; // undefined / bigint / symbol values threw pre-#2464
+        if (valueType === 'undefined' || valueType === 'bigint') {
+            // These literal VALUES threw pre-#2464 regardless of co-values.
+            return 'loud';
+        }
+        if (valueType === 'symbol') {
+            // Not JSON-satisfiable, but zod silently emitted {type: 'symbol'} for it
+            // pre-#2464 — quiet, like non-finite numbers.
+            quiet = true;
+            continue;
         }
         if (valueType === 'number' && !Number.isFinite(value as number)) {
-            nonFinite = true;
-        } else {
-            representable = true;
+            quiet = true;
+            continue;
         }
+        if (valueType === 'string' || valueType === 'number' || valueType === 'boolean') {
+            representable = true;
+            continue;
+        }
+        return 'loud'; // unknown value kind — conservative
     }
     if (representable) return undefined;
-    return nonFinite ? 'quiet' : undefined;
+    return quiet ? 'quiet' : undefined;
 }
 
 /**

@@ -490,6 +490,82 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(z.never(), 'output').type).toBeUndefined();
     });
 
+    test('output pipes anchor loudness to their OUT side (codec roots keep listing)', () => {
+        // Pre-#2464, output conversion only visited a pipe's OUT side — these codecs
+        // (raw Date/bigint in, representable declared output) listed and worked
+        // wire-truthfully; anchoring the verdict to def.in threw 'non-object date'
+        // and killed the whole tools/list.
+        const dateCodec = z
+            .date()
+            .transform(d => d.toISOString())
+            .pipe(z.string().nullable() as unknown as z.ZodType<string | null, string>);
+        expect(standardSchemaToJsonSchema(dateCodec, 'output').anyOf).toBeDefined();
+        const bigintCodec = z
+            .bigint()
+            .transform(String)
+            .pipe(z.string().nullable() as unknown as z.ZodType<string | null, string>);
+        expect(standardSchemaToJsonSchema(bigintCodec, 'output').anyOf).toBeDefined();
+        // A bare-transform OUT side falls back to def.in: pre-#2464 zod threw
+        // 'Transforms cannot be represented' on output, so genuinely-unrepresentable
+        // inputs stay loud ...
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // ... and input-path pipe semantics are unchanged.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+    });
+
+    test('quiet literal values (symbols) keep compositions listing', () => {
+        // Pre-#2464, z.literal(Symbol) silently emitted {type: 'symbol'} — only
+        // undefined/bigint literal VALUES threw. These compositions listed pre-#2464.
+        expect(
+            standardSchemaToJsonSchema(
+                z.union([z.literal(Symbol('a') as unknown as string), z.literal(Symbol('b') as unknown as string)]),
+                'input'
+            ).type
+        ).toBe('object');
+        expect(
+            standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal(Symbol('x') as unknown as string)), 'input')
+                .type
+        ).toBe('object');
+        // A representable co-value keeps mixed lists satisfiable (no early loud return).
+        expect(
+            standardSchemaToJsonSchema(z.union([z.literal(['x', Symbol('s') as unknown as string]), z.literal(['y', 1])]), 'input').type
+        ).toBe('object');
+        // Loud co-members and loud literal values still throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Symbol('a') as unknown as string), z.bigint()]), 'input')).toThrow(
+            /must describe objects/
+        );
+        // ... and a bare symbol literal root keeps throwing via the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.literal(Symbol('x') as unknown as string), 'input')).toThrow(/got type/);
+    });
+
+    test('the anyOf constraint wrap keeps annotations at the node top level', () => {
+        const schema = z.object({
+            f: z.file().describe('binary upload'),
+            inf: z.literal(Infinity).describe('sentinel'),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+
+        // An annotation buried inside an applicator branch the wire payload never
+        // matches applies to nothing — consumers read the top-level description.
+        expect(properties.f!.description).toBe('binary upload');
+        expect(properties.inf!.description).toBe('sentinel');
+        // The wire forms still validate.
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ f: {}, inf: null, name: 'n' }).valid).toBe(true);
+    });
+
     test('z.file() union members are quiet non-object verdicts', () => {
         // A File can never ride JSON, so a loud co-member restores the pre-#2464 throw ...
         expect(() => standardSchemaToJsonSchema(z.union([z.file(), z.bigint()]), 'input')).toThrow(/must describe objects/);

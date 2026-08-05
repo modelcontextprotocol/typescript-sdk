@@ -10,7 +10,9 @@ during conversion and fails the entire `tools/list` response — dates are adver
 other unrepresentable types degrade to an unconstrained schema. (BigInt values embedded as
 defaults or metadata, e.g. `.default(0n)`, still fail conversion — JSON cannot carry them —
 and so do dynamic catch values, `.catch(ctx => …)`; the `.catch()` degrade covers static
-fallback values only.)
+fallback values only. And a misregistered non-object ROOT — `z.bigint()` or `z.map()` as
+the whole `inputSchema`/`outputSchema` — still fails `tools/list` loudly by design,
+preserving the pre-fix error instead of listing a permanently-broken tool.)
 Output schemas no longer advertise constraints the server doesn't enforce on the raw
 `structuredContent` it ships: fields that may be legitimately absent (`.default()`,
 undefined-accepting types) are dropped from `required` — on objects and enum-keyed records —
