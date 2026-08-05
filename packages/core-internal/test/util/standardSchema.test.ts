@@ -658,6 +658,71 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ v: 4, counted: 1, name: 'n' }).valid).toBe(true);
     });
 
+    test('the oneOf rewrite skips contains (count-tightening under maxContains)', () => {
+        // Per element, anyOf matches a superset of oneOf, so the contains-count can
+        // only rise — under a sibling maxContains the rename would TIGHTEN: 4 and 6
+        // match both branches (excluded by oneOf, counted by anyOf).
+        const schema = z.object({
+            arr: z.array(z.number()).meta({ contains: { oneOf: [{ type: 'integer' }, { multipleOf: 2 }] }, maxContains: 2 }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).arr!.contains).toEqual({
+            oneOf: [{ type: 'integer' }, { multipleOf: 2 }]
+        });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ arr: [3, 5, 4, 6], counted: 1, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the object proof consults every composition key (allOf uses some-semantics)', () => {
+        // The loosen rewrite relocates the DU members under allOf beside the user's
+        // .meta({anyOf}) — a first-key-wins proof would read the user's anyOf, see
+        // the null member, and flip the 2025-era legacy wrap.
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }, { type: 'null' }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('bigint-valued literal output roots throw across spellings', () => {
+        // These emit an explicit {type: 'number', const: …} under
+        // unrepresentable: 'any' (bypassing the typeless guard), yet no result can
+        // ever be serialized — JSON.stringify throws on BigInt. Pre-#2464 they threw.
+        expect(() => standardSchemaToJsonSchema(z.literal(1n), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.literal(1n).optional(), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.literal(1n).readonly(), 'output')).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.lazy(() => z.literal(1n)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // The input spelling keeps throwing via the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.literal(1n), 'input')).toThrow(/got type/);
+    });
+
+    test('nullable date output roots list and validate their wire forms', () => {
+        // The date override makes date-rooted OUTPUT emissions wire-truthful (a raw
+        // Date ships as an ISO string), so 'timestamp or null' must list — classifying
+        // date as loud on output killed the whole tools/list for it.
+        const result = standardSchemaToJsonSchema(z.date().nullable(), 'output');
+
+        expect(Array.isArray(result.anyOf)).toBe(true);
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate(new Date().toISOString()).valid).toBe(true);
+        expect(validate(null).valid).toBe(true);
+        // Input-path date members stay loud (pinned elsewhere: union(date,date) throws)
+        // and output unions still turn loud with a genuinely-loud co-member.
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.bigint()]), 'output')).toThrow(/must describe objects/);
+    });
+
     test('custom .meta() keys are annotation-opaque at both carve-out sites', () => {
         // zod merges arbitrary .meta() keys verbatim and 2020-12 validators ignore
         // unknown keywords — they are annotations by construction, like x-*.

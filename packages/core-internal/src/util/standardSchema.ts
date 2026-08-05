@@ -238,6 +238,12 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   transport. `InMemoryTransport` passes messages by reference with no JSON
  *   round-trip, so the raw `Date` the server must ship reaches a validating client
  *   as a `Date` instance and fails the advertised schema there.
+ * - The loosen rewrite's `oneOf` → `anyOf` rename skips lexical `not`/`if`/`contains`
+ *   positions, but a `.meta({not: {$ref: '#/properties/…'}})` aliasing a
+ *   positive-position target observes the (legitimately) renamed schema, inverting
+ *   polarity — the same node cannot read `anyOf` for its positive consumer and
+ *   `oneOf` for a negated alias, so cross-polarity `$ref` aliasing into loosened
+ *   subtrees stays untruthful.
  */
 function zodConversionOptions(
     io: 'input' | 'output',
@@ -429,8 +435,11 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
         // oneOf→anyOf is a loosening only in POSITIVE polarity: under `not` it
         // inverts (a payload matching ≥2 members passed `not {oneOf}` but fails
-        // `not {anyOf}`), and under `if` it can flip which then/else branch applies.
-        if (key === 'not' || key === 'if') continue;
+        // `not {anyOf}`), under `if` it can flip which then/else branch applies,
+        // and under `contains` it raises the contains-count, tightening against a
+        // sibling `maxContains` (zod never emits `contains`, so skipping is
+        // regression-free).
+        if (key === 'not' || key === 'if' || key === 'contains') continue;
         // Schema MAPS hold schemas under user-chosen names that may collide with
         // annotation keywords (a property literally named `description` still
         // carries a schema) — recurse into every value unconditionally.
@@ -758,6 +767,16 @@ export function standardSchemaToJsonSchema(
         // as-is — stamping there would be self-contradictory. Anything that does not end up
         // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
         // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
+        // Loudness parity BEFORE the explicit-type early return: a bigint-valued
+        // literal root emits an explicit `{type: 'number', const: …}` under
+        // `unrepresentable: 'any'`, yet no such result can ever be serialized
+        // (JSON.stringify throws on BigInt) — pre-#2464 these threw loudly.
+        if (isBigintValuedLiteralRoot(schema)) {
+            throw new Error(
+                `MCP tool and prompt schemas must describe objects (got a non-object literal schema). ` +
+                    `Wrap your schema in z.object({...}) or equivalent.`
+            );
+        }
         if (result.type !== undefined) return result;
         if (isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
         // Loudness parity for misregistered OUTPUT roots too: an unrepresentable
@@ -798,6 +817,32 @@ export function standardSchemaToJsonSchema(
         }
     }
     return { type: 'object', ...result };
+}
+
+/**
+ * Whether the root unwinds (through transparent wrappers and lazies) to a literal
+ * carrying a bigint value. Its emission under `unrepresentable: 'any'` is an explicit
+ * `{type: 'number', const: …}` that bypasses the typeless-root guard via the
+ * explicit-type early return — yet server-side validation accepts only bigints, which
+ * JSON.stringify can never serialize.
+ */
+function isBigintValuedLiteralRoot(schema: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
+    if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return false;
+    const def = (schema as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; values?: unknown } } })._zod?.def;
+    if (def === undefined || typeof def.type !== 'string') return false;
+    const path = new Set(ancestors);
+    path.add(schema);
+    if (def.type === 'lazy' && typeof def.getter === 'function') {
+        try {
+            return isBigintValuedLiteralRoot((def.getter as () => unknown)(), path);
+        } catch {
+            return false;
+        }
+    }
+    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
+        return isBigintValuedLiteralRoot(def.innerType, path);
+    }
+    return def.type === 'literal' && Array.isArray(def.values) && def.values.some(value => typeof value === 'bigint');
 }
 
 /**
@@ -892,6 +937,14 @@ function nonObjectTypelessRootVerdict(
         const loudness = nonObjectLiteralLoudness(def.values);
         return loudness === undefined ? undefined : { type: 'literal', loud: loudness === 'loud' };
     }
+    if (def.type === 'date') {
+        // The date override rewrites every date node to its true wire form
+        // (string/date-time), so a date-rooted OUTPUT emission is wire-truthful and
+        // must keep listing (`z.date().nullable()` is a working 'timestamp or null'
+        // tool); on INPUT no JSON payload satisfies raw z.date() validation, so date
+        // members stay loud there.
+        return { type: 'date', loud: io === 'input' };
+    }
     if (def.type === 'never') {
         // z.never() matches no value: it can never make a union satisfiable or
         // object-shaped. Quiet, though — bare/all-never shapes emitted `{not: {}}`
@@ -958,14 +1011,13 @@ function nonObjectLiteralLoudness(values: unknown): 'loud' | 'quiet' | undefined
 }
 
 /**
- * Zod def types that are genuinely unrepresentable in JSON Schema and whose values can
- * never be a JSON object — the input-root guard must keep rejecting roots and
- * compositions built from them. Most degrade to a typeless `{}` under
- * `unrepresentable: 'any'`; `date` is instead rewritten to `string`/`date-time` (so a
- * bare date ROOT throws via the explicit-type guard), but a `Date` value can never be
- * a JSON object either, so date composition MEMBERS classify as non-object here.
- * `custom` and bare `transform` are deliberately excluded (they can legitimately
- * accept objects), and typeless literals are classified separately by value in
+ * Zod def types that are genuinely unrepresentable in JSON Schema (they degrade to a
+ * typeless `{}` under `unrepresentable: 'any'`) and whose values can never be a JSON
+ * object — the root guards must keep rejecting roots and compositions built from
+ * them. `custom` and bare `transform` are deliberately excluded (they can
+ * legitimately accept objects); `date` gets a dedicated io-aware branch (loud on
+ * input, quiet on output where the override makes it wire-truthful); and typeless
+ * literals are classified separately by value in
  * {@linkcode nonObjectLiteralLoudness}.
  */
 const NON_OBJECT_UNREPRESENTABLE_TYPES: ReadonlySet<string> = new Set([
@@ -976,8 +1028,7 @@ const NON_OBJECT_UNREPRESENTABLE_TYPES: ReadonlySet<string> = new Set([
     'void',
     'undefined',
     'nan',
-    'function',
-    'date'
+    'function'
 ]);
 
 /** Transparent wrapper def types whose `innerType` carries the real root semantics. */
@@ -1003,16 +1054,20 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
     if ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema) {
         return true;
     }
+    const isObjectMember = (member: unknown): boolean =>
+        member !== null &&
+        typeof member === 'object' &&
+        ((member as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(member as Record<string, unknown>));
+    // Keywords on one node AND-combine, so ANY present composition key proving
+    // objectness suffices (a first-key-wins rule breaks when the loosen rewrite
+    // relocates all-object members under `allOf` beside a user `.meta({anyOf})`).
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
         const members = schema[key];
-        if (Array.isArray(members) && members.length > 0) {
-            return members.every(
-                m =>
-                    m !== null &&
-                    typeof m === 'object' &&
-                    ((m as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(m as Record<string, unknown>))
-            );
-        }
+        if (!Array.isArray(members) || members.length === 0) continue;
+        // A disjunction proves objectness only when EVERY member is an object; a
+        // conjunction already does when ONE conjunct is (the value must satisfy it).
+        const proves = key === 'allOf' ? members.some(member => isObjectMember(member)) : members.every(member => isObjectMember(member));
+        if (proves) return true;
     }
     return false;
 }
