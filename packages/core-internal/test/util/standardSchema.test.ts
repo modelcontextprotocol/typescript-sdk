@@ -799,6 +799,73 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, name: 'n' }).valid).toBe(true);
     });
 
+    test('anchor-form refs whose anchors rode deleted subtrees are neutralized', () => {
+        // Anchors are name-resolved and immune to relocation, but they dangle by
+        // DELETION: the catch degrade drops a catch node's `properties` (and the
+        // skeleton drops member constraints) along with any anchors nested inside.
+        const schema = z.object({
+            cfg: z.object({ q: z.string().meta({ $anchor: 'innerA' }) }).catch({ q: 'd' }),
+            skel: z.union([z.object({ q: z.string().meta({ $anchor: 'deepA' }) }), z.object({ w: z.number() })]).catch({ q: 'd' }),
+            live: z.object({ q: z.string() }).meta({ $dynamicAnchor: 'liveD' }),
+            gone: z.unknown().meta({ $ref: '#innerA' }),
+            goneDeep: z.unknown().meta({ $ref: '#deepA' }),
+            kept: z.unknown().meta({ $dynamicRef: '#liveD' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.gone!.$ref).toBeUndefined();
+        expect(properties.goneDeep!.$ref).toBeUndefined();
+        expect(properties.kept!.$dynamicRef).toBe('#liveD'); // surviving anchor — untouched
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, skel: {}, live: { q: 'x' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('base-addressed refs into a mutated embedded-$id resource are neutralized', () => {
+        // The recorded moves are document-rooted, so a `<uri>#/…` ref into an
+        // embedded `$id` resource whose oneOf the loosen rewrite renamed cannot be
+        // redirected — it is verified against the embedded resource and dropped.
+        const schema = z.object({
+            du: z
+                .discriminatedUnion('t', [z.object({ t: z.literal('a').catch('a') }), z.object({ t: z.literal('b') })])
+                .meta({ $id: 'https://example.com/du' }),
+            cfg: z.object({ q: z.string() }).meta({ $id: 'https://example.com/cfg' }),
+            gone: z.unknown().meta({ $ref: 'https://example.com/du#/oneOf/0' }),
+            kept: z.unknown().meta({ $ref: 'https://example.com/cfg#/properties/q' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.gone!.$ref).toBeUndefined();
+        // A ref into a SURVIVING part of an embedded resource still resolves — kept.
+        expect(properties.kept!.$ref).toBe('https://example.com/cfg#/properties/q');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, cfg: { q: 'x' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('dangling refs under negative or conditional keywords remove the enclosing conjunct', () => {
+        // Deleting the ref itself would TIGHTEN: `not: {}` rejects everything and
+        // `if: {}` makes a sibling `then` always apply — the enclosing boundary
+        // keyword is removed instead (then/else without if are ignored).
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+            negated: z.number().meta({ not: { $ref: '#/properties/cfg/properties/q' } }),
+            conditional: z.number().meta({ if: { $ref: '#/properties/cfg/properties/q' }, then: { multipleOf: 2 } }),
+            control: z.number().meta({ not: { $ref: '#/properties/name' } }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.negated!.not).toBeUndefined();
+        expect(properties.conditional!.if).toBeUndefined();
+        expect(properties.control!.not).toEqual({ $ref: '#/properties/name' }); // resolvable — untouched
+        // Pre-PR both payloads validated: `not` never matched a number, and `if`
+        // never fired its `then`.
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ cfg: {}, negated: 4, conditional: 3, control: 5, name: 'n' }).valid).toBe(true);
+    });
+
     test('untouched conversions keep a dangling ref (neutralization is loosen-scoped)', () => {
         // No degrade fired here: a ref the user broke themselves failed compile
         // identically pre-#2464 and is not the loosen machinery's to repair.
@@ -930,6 +997,39 @@ describe('zod conversion options (#2464)', () => {
         const noDate = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.never(), z.never()])), 'output');
         expect(noDate.type).toBeUndefined();
         expect(isNonObjectJsonSchemaRoot(noDate)).toBe(true);
+    });
+
+    test('date-carrying non-object unions keep intersections loud on output (structural)', () => {
+        // Every co-member spelling that provably cannot satisfy the object side —
+        // representable non-objects (short-circuited the old may-be-object bail)
+        // and quiet compositions of unsatisfiable kinds (escaped the old leaf-kind
+        // enumeration) — must not launder the date: all seven threw pre-#2464.
+        const coMembers = [
+            z.string(),
+            z.number(),
+            z.null(),
+            z.literal('x'),
+            z.union([z.never(), z.never()]),
+            z.intersection(z.never(), z.never()),
+            z.union([z.file(), z.literal(Infinity)])
+        ];
+        for (const coMember of coMembers) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), coMember])), 'output')
+            ).toThrow(/must describe objects/);
+        }
+        // A may-be-object member makes the intersection satisfiable — keeps listing.
+        const satisfiable = standardSchemaToJsonSchema(
+            z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+            'output'
+        );
+        expect(satisfiable.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(satisfiable)).toBe(true);
+        // Root/union positions are untouched: outside intersections a
+        // representable member discharges the union (a working
+        // 'timestamp-or-string' tool on either io path).
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'output').type).toBeUndefined();
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
     });
 
     test('piped and undefined-filtered loud literal output roots throw', () => {

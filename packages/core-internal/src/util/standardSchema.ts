@@ -552,27 +552,166 @@ function rewriteRelocatedJsonPointers(root: unknown, moves: readonly RelocatedPo
 }
 
 /**
- * Last-resort pointer integrity for LOOSENED conversions: any same-document
- * `$ref`/`$dynamicRef` JSON Pointer that no longer resolves — its target subtree
- * was deleted by the catch degrade's constraint drop or the skeleton's member
- * reduction, where nothing survives for a move to redirect to — is neutralized by
- * deleting the reference keyword. Loosen-only (an absent `$ref` constrains
- * nothing) and strictly better than shipping it: a dangling pointer makes the
- * whole advertisement uncompilable, so the tool would list but every `callTool`
- * would fail client-side before the request is sent. Anchor-form fragments
- * (`#name`) are name-resolved and cannot dangle by position; cross-document refs
- * cannot be verified locally — both are left untouched. Runs after
- * {@linkcode rewriteRelocatedJsonPointers} so pointers that were redirected to a
- * surviving location are recognized as resolvable and kept.
+ * Last-resort pointer integrity for LOOSENED conversions: any locally-verifiable
+ * `$ref`/`$dynamicRef` that no longer resolves is neutralized. Three dangle
+ * sources, all produced by the loosen machinery itself:
+ * - pointer-form `#/…` targets deleted by the catch degrade's constraint drop or
+ *   the skeleton's member reduction (no move target survives to redirect to);
+ * - anchor-form `#name` whose `$anchor`/`$dynamicAnchor` rode a deleted subtree —
+ *   anchors are name-resolved and immune to RELOCATION, but they dangle by
+ *   DELETION;
+ * - base-addressed `<uri>#/…` into an embedded-`$id` resource whose insides the
+ *   loosen rewrite moved: the recorded moves are document-rooted, so these are
+ *   verified against the embedded resource and dropped rather than redirected.
+ * Neutralization is loosen-only by construction:
+ * - in POSITIVE polarity the reference keyword is deleted (an absent `$ref`
+ *   constrains nothing);
+ * - inside `not`/`if`/`contains`, deleting the ref would TIGHTEN (`not: {}`
+ *   rejects everything; `if: {}` makes a sibling `then` always apply; a looser
+ *   `contains` subschema raises the match count against `maxContains`) — the
+ *   ENCLOSING boundary keyword is deleted instead, at its outermost occurrence:
+ *   top-level keywords AND-combine, so removing the whole conjunct can only
+ *   loosen, while any per-ref repair deeper inside is unsound once polarity
+ *   re-inverts (`then`/`else` without `if` are ignored per 2020-12, and
+ *   `maxContains` without `contains` likewise).
+ * Strictly better than shipping the dangling ref, which makes the whole
+ * advertisement uncompilable — the tool would list but every `callTool` would
+ * fail client-side before the request is sent. Truly cross-document refs (base
+ * URI matching no embedded `$id`) cannot be verified locally and are left
+ * untouched. Runs after {@linkcode rewriteRelocatedJsonPointers} so pointers
+ * redirected to a surviving location are recognized as resolvable and kept.
  */
 function neutralizeDanglingLocalRefs(root: Record<string, unknown>): void {
-    visitLocalRefBearingNodes(root, record => {
-        for (const refKey of ['$ref', '$dynamicRef'] as const) {
-            const value = record[refKey];
-            if (typeof value !== 'string' || !value.startsWith('#/')) continue;
-            if (!localJsonPointerResolves(root, value.slice(1))) delete record[refKey];
+    const targets = collectLocalReferenceTargets(root);
+    const dangles = (value: unknown): boolean => {
+        if (typeof value !== 'string' || value === '' || value === '#') return false;
+        if (value.startsWith('#/')) return !localJsonPointerResolves(root, value.slice(1));
+        // Anchor-form fragment: resolvable iff SOME surviving anchor bears the
+        // name. Document-wide collection is a superset of 2020-12's
+        // resource-scoped lookup, erring toward keeping: a resolvable ref is never
+        // neutralized, while a scope-mismatched dangle the superset hides was
+        // already broken by its author, not by the loosen machinery.
+        if (value.startsWith('#')) return !targets.anchors.has(value.slice(1));
+        const hashIndex = value.indexOf('#');
+        const base = hashIndex === -1 ? value : value.slice(0, hashIndex);
+        const resource = targets.resources.get(base);
+        if (resource === undefined) return false; // truly cross-document — unverifiable
+        const fragment = hashIndex === -1 ? '' : value.slice(hashIndex + 1);
+        if (fragment === '') return false; // the embedded resource root itself
+        if (fragment.startsWith('/')) return !localJsonPointerResolves(resource, fragment);
+        return !targets.anchors.has(fragment);
+    };
+    neutralizeWalk(root, dangles);
+}
+
+/**
+ * Keywords whose subschemas invert or conditionalize validation polarity: a
+ * loosen-only ref repair inside them must remove the whole enclosing conjunct
+ * instead of the reference keyword.
+ */
+const POLARITY_BOUNDARY_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set(['not', 'if', 'contains']);
+
+/** The polarity-aware neutralization walk — see {@linkcode neutralizeDanglingLocalRefs}. */
+function neutralizeWalk(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): void {
+    if (typeof node !== 'object' || node === null || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+        for (const item of node) neutralizeWalk(item, dangles, seen);
+        return;
+    }
+    const record = node as Record<string, unknown>;
+    for (const refKey of ['$ref', '$dynamicRef'] as const) {
+        if (dangles(record[refKey])) delete record[refKey];
+    }
+    for (const [key, value] of Object.entries(record)) {
+        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+        if (POLARITY_BOUNDARY_JSON_SCHEMA_KEYWORDS.has(key)) {
+            // Outermost-boundary rule: a dangling ref ANYWHERE inside removes this
+            // whole conjunct — deeper nesting may re-invert polarity, so no per-ref
+            // repair inside is sound in both directions, while conjunct removal at
+            // a positive position only ever loosens.
+            if (subtreeHasDanglingLocalRef(value, dangles)) delete record[key];
+            continue;
         }
-    });
+        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            if (seen.has(value)) continue;
+            seen.add(value);
+            for (const subschema of Object.values(value as Record<string, unknown>)) {
+                if (subtreeEstablishesNewIdBase(subschema)) continue;
+                neutralizeWalk(subschema, dangles, seen);
+            }
+            continue;
+        }
+        if (subtreeEstablishesNewIdBase(value)) continue;
+        neutralizeWalk(value, dangles, seen);
+    }
+}
+
+/** Whether any `$ref`/`$dynamicRef` in the subtree dangles — the boundary-keyword scan. */
+function subtreeHasDanglingLocalRef(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): boolean {
+    if (typeof node !== 'object' || node === null || seen.has(node)) return false;
+    seen.add(node);
+    if (Array.isArray(node)) return node.some(item => subtreeHasDanglingLocalRef(item, dangles, seen));
+    const record = node as Record<string, unknown>;
+    if (dangles(record.$ref) || dangles(record.$dynamicRef)) return true;
+    for (const [key, value] of Object.entries(record)) {
+        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            if (seen.has(value)) continue;
+            seen.add(value);
+            for (const subschema of Object.values(value as Record<string, unknown>)) {
+                if (subtreeEstablishesNewIdBase(subschema)) continue;
+                if (subtreeHasDanglingLocalRef(subschema, dangles, seen)) return true;
+            }
+            continue;
+        }
+        if (subtreeEstablishesNewIdBase(value)) continue;
+        if (subtreeHasDanglingLocalRef(value, dangles, seen)) return true;
+    }
+    return false;
+}
+
+/**
+ * Collects the document's locally-resolvable reference targets: every surviving
+ * `$anchor`/`$dynamicAnchor` name (plus draft-07's fragment-form `$id: '#name'`
+ * anchor spelling) and every embedded non-fragment `$id` resource mapped to its
+ * subtree. Position-aware like the other walks, but deliberately descends into
+ * embedded `$id` resources — their anchors and nested resources are still in
+ * this document.
+ */
+function collectLocalReferenceTargets(root: Record<string, unknown>): {
+    anchors: Set<string>;
+    resources: Map<string, Record<string, unknown>>;
+} {
+    const anchors = new Set<string>();
+    const resources = new Map<string, Record<string, unknown>>();
+    const walk = (node: unknown, seen: Set<unknown>): void => {
+        if (typeof node !== 'object' || node === null || seen.has(node)) return;
+        seen.add(node);
+        if (Array.isArray(node)) {
+            for (const item of node) walk(item, seen);
+            return;
+        }
+        const record = node as Record<string, unknown>;
+        if (typeof record.$anchor === 'string') anchors.add(record.$anchor);
+        if (typeof record.$dynamicAnchor === 'string') anchors.add(record.$dynamicAnchor);
+        if (typeof record.$id === 'string' && record.$id !== '') {
+            if (record.$id.startsWith('#')) anchors.add(record.$id.slice(1));
+            else resources.set(record.$id, record);
+        }
+        for (const [key, value] of Object.entries(record)) {
+            if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+            if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                if (seen.has(value)) continue;
+                seen.add(value);
+                for (const subschema of Object.values(value as Record<string, unknown>)) walk(subschema, seen);
+                continue;
+            }
+            walk(value, seen);
+        }
+    };
+    walk(root, new Set());
+    return { anchors, resources };
 }
 
 /** Whether an RFC 6901 pointer (leading `/…`, tokens still escaped) resolves in `root`. */
@@ -595,16 +734,17 @@ function localJsonPointerResolves(root: unknown, pointer: string): boolean {
 
 /**
  * Position-aware walk over every schema node whose same-document references are
- * resolvable against the DOCUMENT ROOT, invoking `visit` once per node. Only
- * schema-carrying keywords are descended into (data-valued
- * `const`/`enum`/`default`/`examples` and annotations are opaque); schema-map
- * VALUES are always descended into while their keys stay names; and —
+ * resolvable against the DOCUMENT ROOT, invoking `visit` once per node — the
+ * REDIRECT pass's walk. Only schema-carrying keywords are descended into
+ * (data-valued `const`/`enum`/`default`/`examples` and annotations are opaque);
+ * schema-map VALUES are always descended into while their keys stay names; and —
  * unlike the oneOf rename walk — `not`/`if`/`contains` subtrees ARE descended
- * into (pointer fixups are resolution-preserving, never polarity-sensitive
- * loosenings). Subtrees establishing a new `$id` base are skipped: their
- * same-document pointers resolve against the embedded base, not the document
- * root. A ROOT `$id` names the document itself, so the root node is always
- * visited.
+ * into (REDIRECTING a pointer is resolution-preserving, never a
+ * polarity-sensitive loosening; the polarity-sensitive NEUTRALIZE pass uses its
+ * own walk, {@linkcode neutralizeWalk}). Subtrees establishing a new `$id` base
+ * are skipped: their same-document pointers resolve against the embedded base,
+ * not the document root. A ROOT `$id` names the document itself, so the root
+ * node is always visited.
  */
 function visitLocalRefBearingNodes(node: unknown, visit: (record: Record<string, unknown>) => void, seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
@@ -1104,11 +1244,22 @@ function isLoudLiteralOutputRoot(schema: unknown, ancestors: ReadonlySet<unknown
  * silently pre-#2464 and must keep listing — the guard throws only for a
  * loud-containing verdict. `ancestors` tracks only the current traversal path, so a shared instance
  * gets a real verdict at every occurrence while recursive lazies stay bounded.
+ *
+ * `atIntersection` threads intersection context through the recursion: an
+ * intersection value must satisfy BOTH sides, so a date member reached anywhere
+ * under an intersection side — however deeply nested in unions/wrappers/pipes —
+ * turns that side loud on the output path (every date-containing intersection
+ * threw pre-#2464), while the same date stays quiet as a root or plain union
+ * member (the date override makes those emissions wire-truthful). The
+ * may-be-object bail keeps this satisfiability-aware: a union with an
+ * `undefined`-verdict member (e.g. `z.union([z.date(), z.object({…})])`) may be
+ * satisfiable against an object conjunct and stays accepted.
  */
 function nonObjectTypelessRootVerdict(
     schema: unknown,
     io: 'input' | 'output',
-    ancestors: ReadonlySet<unknown> = new Set()
+    ancestors: ReadonlySet<unknown> = new Set(),
+    atIntersection = false
 ): { type: string; loud: boolean } | undefined {
     if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return undefined;
     const def = (
@@ -1133,7 +1284,7 @@ function nonObjectTypelessRootVerdict(
     path.add(schema);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
         try {
-            return nonObjectTypelessRootVerdict((def.getter as () => unknown)(), io, path);
+            return nonObjectTypelessRootVerdict((def.getter as () => unknown)(), io, path, atIntersection);
         } catch {
             return undefined;
         }
@@ -1146,7 +1297,7 @@ function nonObjectTypelessRootVerdict(
         const primary = io === 'output' ? def.out : def.in;
         const secondary = io === 'output' ? def.in : def.out;
         if (primary !== undefined) {
-            const verdict = nonObjectTypelessRootVerdict(primary, io, path);
+            const verdict = nonObjectTypelessRootVerdict(primary, io, path, atIntersection);
             if (verdict !== undefined) return verdict;
             // A bare transform on the processed side has no verdict of its own — the
             // real schema sits on the other side (`z.preprocess(fn, inner)` on input;
@@ -1155,61 +1306,66 @@ function nonObjectTypelessRootVerdict(
             // representable ones degrade gracefully).
             const primaryDef = (primary as { _zod?: { def?: { type?: string } } })._zod?.def;
             if (primaryDef?.type === 'transform' && secondary !== undefined) {
-                return nonObjectTypelessRootVerdict(secondary, io, path);
+                return nonObjectTypelessRootVerdict(secondary, io, path, atIntersection);
             }
         }
         return undefined;
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-        return nonObjectTypelessRootVerdict(def.innerType, io, path);
+        return nonObjectTypelessRootVerdict(def.innerType, io, path, atIntersection);
     }
     if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
-        const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path));
+        const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path, atIntersection));
+        // The may-be-object bail: an `undefined` member (z.object, z.any,
+        // z.custom, …) can make the union satisfiable in ANY position — including
+        // against an object conjunct at an intersection, which is exactly when a
+        // loud at-intersection date member must be discarded rather than
+        // propagated (`z.union([z.date(), z.object({…})])` intersections are
+        // satisfiable and keep listing). Representable non-object members return
+        // DEFINED quiet verdicts and do not trigger this bail.
         if (verdicts.includes(undefined)) return undefined;
-        const loud = verdicts.some(verdict => verdict?.loud === true);
-        // A union that admits AT MOST Dates is a date side: every member is a date
-        // or a quiet kind that adds no JSON-satisfiable value (`never` matches
-        // nothing; a File or a non-finite/symbol literal is never a JSON object),
-        // so the intersection branch's date-parity rule below must see it — mixed
-        // spellings like `z.union([z.date(), z.never()])` threw on the date
-        // pre-#2464 exactly like the all-date union. At least one member must BE a
-        // date (a date-free union of nevers listed pre-#2464 and must keep doing
-        // so). A root or union-member position reads only `loud`, so the type is
-        // inert there.
-        if (
-            verdicts.some(verdict => verdict?.type === 'date') &&
-            verdicts.every(
-                verdict =>
-                    verdict?.type === 'date' ||
-                    (verdict?.loud === false && (verdict.type === 'never' || verdict.type === 'file' || verdict.type === 'literal'))
-            )
-        ) {
-            return { type: 'date', loud };
-        }
-        return { type: 'union', loud };
+        const satisfiable = verdicts.some(verdict => verdict?.type === 'representable');
+        // Union semantics discharge loudness OUTSIDE intersections: one
+        // representable member makes the whole union a working schema
+        // (`z.union([z.date(), z.string()])` accepts strings on input — the date
+        // member is redundant, not fatal), preserving the established
+        // representable-member-keeps-the-composition-accepted policy. AT an
+        // intersection nothing representable can satisfy the object conjunct, so
+        // a loud member's verdict stands.
+        const loud = verdicts.some(verdict => verdict?.loud === true) && (atIntersection || !satisfiable);
+        // A satisfiable union is itself representable-satisfiable for OUTER
+        // compositions (`z.union([z.date(), z.union([z.string(), z.number()])])`
+        // must discharge exactly like its flattened spelling).
+        return { type: satisfiable ? 'representable' : 'union', loud };
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
-        const left = nonObjectTypelessRootVerdict(def.left, io, path);
-        const right = nonObjectTypelessRootVerdict(def.right, io, path);
+        // Sides recurse in intersection context: the value must satisfy BOTH
+        // sides, so a date reached anywhere under either side (directly, or nested
+        // in unions whose every co-member is provably non-object) is fatal on the
+        // output path and reports loud from the date leaf itself.
+        const left = nonObjectTypelessRootVerdict(def.left, io, path, true);
+        const right = nonObjectTypelessRootVerdict(def.right, io, path, true);
         if (left === undefined && right === undefined) return undefined;
-        // A date side is quiet on the output path as a root or union member (the
-        // override makes those emissions wire-truthful), but no value can satisfy
-        // BOTH intersection sides when one is a Date — every date-containing
-        // intersection threw pre-#2464, so parity keeps them loud here.
-        const loudDateSide = io === 'output' && (left?.type === 'date' || right?.type === 'date');
-        return { type: 'intersection', loud: left?.loud === true || right?.loud === true || loudDateSide };
+        return { type: 'intersection', loud: left?.loud === true || right?.loud === true };
     }
     if (def.type === 'literal') {
+        // The verdict stays DEFINED whatever the values: literal values are
+        // primitives, so the node can never satisfy an object conjunct. A
+        // representable value (string/finite number/boolean/null) wins over quiet
+        // ones and marks the literal satisfiable.
         const loudness = nonObjectLiteralLoudness(def.values);
-        return loudness === undefined ? undefined : { type: 'literal', loud: loudness === 'loud' };
+        if (loudness === undefined) return { type: 'representable', loud: false };
+        return { type: 'literal', loud: loudness === 'loud' };
     }
     if (def.type === 'date') {
         // The date override rewrites every date node to its true wire form
         // (string/date-time), so a date-rooted OUTPUT emission is wire-truthful and
         // must keep listing (`z.date().nullable()` is a working 'timestamp or null'
-        // tool); on INPUT no JSON payload satisfies raw z.date() validation, so date
-        // members stay loud there.
-        return { type: 'date', loud: io === 'input' };
+        // tool); on INPUT no JSON payload satisfies raw z.date() validation, and at
+        // an intersection no value satisfies both a Date side and the other side —
+        // every date-containing intersection threw pre-#2464, so parity keeps
+        // those loud.
+        return { type: 'date', loud: io === 'input' || atIntersection };
     }
     if (def.type === 'never') {
         // z.never() matches no value: it can never make a union satisfiable or
@@ -1226,8 +1382,32 @@ function nonObjectTypelessRootVerdict(
         // loud co-member restores the pre-#2464 throw.
         return { type: 'file', loud: false };
     }
+    if (REPRESENTABLE_NON_OBJECT_ZOD_DEF_TYPES.has(def.type)) {
+        // Representable and provably non-object: quiet in every position (these
+        // all converted and listed pre-#2464), but DEFINED — unlike the
+        // may-be-object `undefined` verdict — so a union pairing one with a date
+        // cannot launder the intersection date-parity rule through the bail above
+        // (`z.union([z.date(), z.string()])` against an object conjunct admits no
+        // satisfying value and threw pre-#2464).
+        return { type: 'representable', loud: false };
+    }
     return NON_OBJECT_UNREPRESENTABLE_TYPES.has(def.type) ? { type: def.type, loud: true } : undefined;
 }
+
+/**
+ * Zod def types that always emit a representable NON-OBJECT JSON type. Their
+ * verdicts are quiet but DEFINED: `undefined` is reserved for may-be-object
+ * shapes (`z.object`, `z.any`, `z.custom`, unrecognized defs), which is what the
+ * union bail keys on to keep possibly-satisfiable intersections listing.
+ */
+const REPRESENTABLE_NON_OBJECT_ZOD_DEF_TYPES: ReadonlySet<string> = new Set([
+    'string',
+    'number',
+    'boolean',
+    'null',
+    'enum',
+    'template_literal'
+]);
 
 /**
  * The non-object loudness of a literal's values, or `undefined` when the literal may
