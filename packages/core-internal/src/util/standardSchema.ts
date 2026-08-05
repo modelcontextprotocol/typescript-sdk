@@ -425,6 +425,12 @@ function zodConversionOptions(
             if (def.type !== 'object') return;
             const isStrict = def.catchall?._zod.def.type === 'never';
             if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
+                // A member-visible loosening like every other mutation here: two
+                // registry-hoisted plain objects distinguished only by their extra
+                // keys become mutually satisfiable, so a hand-authored exactly-one
+                // `oneOf` over registry refs turns reject-everything unless the
+                // epilogue rename fires — the flag must be set.
+                loosened.value = true;
                 delete ctx.jsonSchema.additionalProperties;
             }
             const required = ctx.jsonSchema.required;
@@ -457,11 +463,11 @@ function zodConversionOptions(
  * none, and zod's own registry refs (`#`, `#/$defs/<name>`) never traverse a
  * `oneOf` segment.
  */
-function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set(), isRoot = true): void {
+function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {
-        for (const item of node) rewriteOneOfToAnyOf(item, seen, false);
+        for (const item of node) rewriteOneOfToAnyOf(item, seen);
         return;
     }
     const record = node as Record<string, unknown>;
@@ -472,27 +478,12 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set(), isRo
             // A user `.meta({anyOf})` can coexist with the emitted `oneOf` — preserve
             // conjunction semantics without clobbering it: keywords on one node
             // combine with AND, so `{anyOf: members}` under `allOf` is equivalent.
+            // No type stamp here: the relocation destroys evidence the 2025-era
+            // wrap proof would read, so the epilogue decides the root stamp from
+            // the STRICT pre-loosen snapshot instead (byte-parity with main), and
+            // nested nodes never received any stamp pre-#2464.
             const allOf = Array.isArray(record.allOf) ? record.allOf : (record.allOf = []);
             allOf.push({ anyOf: record.oneOf });
-            // The relocated members' objectness becomes invisible to the wrap proof's
-            // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
-            // [{minProperties: 1}]})) — stamp the explicit type here, preserving the
-            // pre-#2464 stamp these roots got via their emitted oneOf. The proof is
-            // POSITION-AWARE: at the conversion ROOT the keyword-presence heuristic
-            // is byte-parity with main's epilogue stamp (first-present-key-wins
-            // would have read this oneOf and stamped, deciding the 2025-era legacy
-            // wrap), so declining it would flip the wire shape; at NESTED nodes —
-            // which never received any stamp pre-#2464 — the stamp is a fresh
-            // ENFORCED constraint and requires the genuine instance-typing proof
-            // (every relocated member explicitly `type: 'object'`; mere
-            // `properties`/`required` carriage is vacuous for non-object
-            // instances, so a hand-authored type-less member satisfiable by `42`
-            // must not be stamped away). Zod-emitted DU members and catch
-            // skeletons always carry the explicit type either way.
-            const proven = isRoot ? isProvablyObjectShapedRoot({ anyOf: record.oneOf }) : membersAreExplicitlyObjectTyped(record.oneOf);
-            if (record.type === undefined && proven) {
-                record.type = 'object';
-            }
         }
         delete record.oneOf;
     }
@@ -515,40 +506,11 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set(), isRo
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen, false);
+            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
             continue;
         }
-        rewriteOneOfToAnyOf(value, seen, false);
+        rewriteOneOfToAnyOf(value, seen);
     }
-}
-
-/**
- * A genuine instance-typing proof for a composition's members: every member —
- * recursively through nested compositions — carries an explicit enforced
- * `type: 'object'`. Sound per 2020-12 semantics: keywords on one node
- * AND-combine, so a member forces objectness when it carries the type directly,
- * when an exhaustive nested composition does (EVERY `oneOf`/`anyOf` branch a
- * value could satisfy), or when ANY `allOf` conjunct does. Unlike
- * {@linkcode isProvablyObjectShapedRoot}'s keyword-PRESENCE rule (a 2025-era
- * wrap-decision heuristic, parity-sound only at roots), mere `properties`/
- * `required` carriage proves nothing — those keywords are vacuous for
- * non-object instances.
- */
-function membersAreExplicitlyObjectTyped(members: readonly unknown[]): boolean {
-    return (
-        members.length > 0 &&
-        members.every(member => {
-            if (typeof member !== 'object' || member === null || Array.isArray(member)) return false;
-            const record = member as Record<string, unknown>;
-            if (record.type === 'object') return true;
-            for (const key of ['oneOf', 'anyOf'] as const) {
-                const nested = record[key];
-                if (Array.isArray(nested) && membersAreExplicitlyObjectTyped(nested)) return true;
-            }
-            const allOf = record.allOf;
-            return Array.isArray(allOf) && allOf.some(conjunct => membersAreExplicitlyObjectTyped([conjunct]));
-        })
-    );
 }
 
 /** The only `$ref` shape zod's emitter produces besides bare `#`: a top-level `$defs` entry. */
@@ -724,7 +686,11 @@ const SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
     'propertyNames',
     'contains',
     'unevaluatedProperties',
-    'unevaluatedItems'
+    'unevaluatedItems',
+    // Draft-07 tail-items spelling: the SDK's cfworker provider enforces it in
+    // every draft mode (and collects refs inside it for resolution), so the
+    // guard must walk inside — parallel to `dependencies` above.
+    'additionalItems'
 ]);
 
 /** Schema-map keywords among the above: their KEYS are user-chosen names, their values schemas. */
@@ -957,6 +923,7 @@ export function standardSchemaToJsonSchema(
         );
     };
     let result: Record<string, unknown>;
+    let strictRootProven: boolean | undefined;
     if (options?.unrepresentable === 'throw') {
         result = convert(undefined);
     } else if (io !== 'output' || std.vendor !== 'zod') {
@@ -975,17 +942,31 @@ export function standardSchemaToJsonSchema(
         // zod's own registry refs, stable under every mutation) convert again with
         // the loosen family active.
         const strict = convert(zodConversionOptions(io, loosened, false));
-        result = hasHandAuthoredReferenceConstructs(strict) ? strict : convert(zodConversionOptions(io, loosened, true));
+        if (hasHandAuthoredReferenceConstructs(strict)) {
+            result = strict;
+        } else {
+            // The 2025-era wrap-stamp decision must match main, which read the RAW
+            // emission: loosen mutations can destroy proof-relevant keys (the
+            // allOf-push relocates a root `oneOf`; the catch degrade deletes
+            // meta-authored `required`/`properties`) or expose ones main's
+            // first-present-key-wins rule never read — flipping the SEP-2106
+            // legacy wrap either direction on an unrelated trigger. Snapshot the
+            // proof on the strict emission; the output epilogue consults it
+            // instead of the post-loosen document.
+            strictRootProven = isProvablyObjectShapedRoot(strict);
+            result = convert(zodConversionOptions(io, loosened, true));
+        }
     }
     if (io === 'output' && loosened.value) {
-        // Exactly-one semantics cannot survive member loosening: once the catch
-        // degrade or the required-filter fired anywhere in this conversion, `oneOf`
-        // members (zod's discriminated-union emission) may have become mutually
-        // satisfiable — e.g. catch-wrapped discriminators — and Ajv would reject
-        // every payload with "must match exactly one schema in oneOf". Rewrite to
-        // the honest `anyOf` (loosen-only and wrap-neutral:
-        // `isProvablyObjectShapedRoot` treats the composition keywords identically;
-        // no reference can observe the rename — the guard above vouched for it).
+        // Exactly-one semantics cannot survive member loosening: once ANY loosen
+        // mutation fired anywhere in this conversion — a catch degrade, the
+        // required-filter, or the additionalProperties drop — `oneOf` members
+        // (zod's discriminated-union emission, or a hand-authored oneOf over
+        // registry refs) may have become mutually satisfiable, and Ajv would
+        // reject every payload with "must match exactly one schema in oneOf".
+        // Rewrite to the honest `anyOf` (loosen-only; wrap-neutral because the
+        // 2025-era stamp decision reads the strict pre-loosen snapshot; no
+        // reference can observe the rename — the guard above vouched for it).
         rewriteOneOfToAnyOf(result);
     }
     if (io === 'output') {
@@ -1027,8 +1008,11 @@ export function standardSchemaToJsonSchema(
         }
         // The stamp runs AFTER the guard: a loud conjunct (e.g.
         // `z.intersection(z.object(...), z.bigint())`) must throw even when an object
-        // conjunct could prove the root.
-        if (isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
+        // conjunct could prove the root. When a loosen pass ran, the proof reads the
+        // STRICT pre-loosen snapshot — byte-parity with main, immune to loosen
+        // mutations of proof-relevant keys; otherwise (guard-shipped strict result,
+        // non-zod vendors) the document itself is the un-mutated emission.
+        if (strictRootProven ?? isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
         return result;
     }
     if (result.type !== undefined && result.type !== 'object') {

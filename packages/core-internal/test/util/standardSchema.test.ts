@@ -2,6 +2,7 @@ import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
 import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
+import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
 import { isNonObjectJsonSchemaRoot } from '../../src/wire/rev2025-11-25/legacyWrap';
 
 describe('standardSchemaToJsonSchema', () => {
@@ -436,18 +437,31 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(nested)({ res: { t: 'a', x: 'v' }, name: 'n' }).valid).toBe(true);
     });
 
-    test('a discriminated union without degraded nodes keeps its oneOf', () => {
-        // Untouched schemas must not be loosened: exactly-one semantics stay
-        // truthful while the members keep their discriminating constraints.
+    test('a discriminated union of plain objects renames to anyOf (additionalProperties drop is loosening)', () => {
+        // The members' additionalProperties: false drop is member-visible
+        // loosening (two objects distinguished only by their extra keys become
+        // mutually satisfiable), so the rename gate must fire. Harmless for zod
+        // DUs — the discriminator consts keep members exclusive under anyOf.
         const du = z.discriminatedUnion('t', [
             z.object({ t: z.literal('a'), x: z.string() }),
             z.object({ t: z.literal('b'), y: z.string() })
         ]);
         const result = standardSchemaToJsonSchema(du, 'output');
 
-        expect(Array.isArray(result.oneOf)).toBe(true);
-        expect(result.anyOf).toBeUndefined();
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
+        expect(result.oneOf).toBeUndefined();
+        expect(Array.isArray(result.anyOf)).toBe(true);
+        expect(result.type).toBe('object'); // wrap parity: the strict snapshot proves the oneOf
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ t: 'a', x: 'v' }).valid).toBe(true);
+        expect(validate({ t: 'c' }).valid).toBe(false); // discriminators still enforce
+        // STRICT objects keep additionalProperties: false — nothing loosens, the
+        // exactly-one oneOf survives.
+        const strictDu = standardSchemaToJsonSchema(
+            z.discriminatedUnion('t', [z.strictObject({ t: z.literal('a'), x: z.string() }), z.strictObject({ t: z.literal('b') })]),
+            'output'
+        );
+        expect(Array.isArray(strictDu.oneOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(strictDu)({ t: 'a', x: 'v' }).valid).toBe(true);
     });
 
     test('tolerant array/tuple elements also accept null in output schemas', () => {
@@ -968,10 +982,11 @@ describe('zod conversion options (#2464)', () => {
         ).toBe(true);
     });
 
-    test('the allOf-push stamp requires explicit member types (vacuous keywords prove nothing)', () => {
+    test('nested nodes are never stamped by the loosen rewrite (vacuous keywords prove nothing)', () => {
         // `properties`/`required` are vacuous for non-object instances — a
         // hand-authored type-less oneOf member is satisfiable by 42, so stamping
-        // an enforced `type: 'object'` would reject pre-PR-valid payloads.
+        // an enforced `type: 'object'` would reject pre-PR-valid payloads. The
+        // root's wrap stamp comes from the strict pre-loosen snapshot instead.
         const schema = z.object({
             counted: z.number().default(0), // unrelated loosening trigger
             poly: z.unknown().meta({ oneOf: [{ properties: { a: { type: 'string' } } }], anyOf: [{}] }),
@@ -1087,31 +1102,121 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(recursive)({ cfg: 1, guarded: {}, name: 'n' }).valid).toBe(true);
     });
 
-    test('the allOf-push stamp is root-aware (keyword-presence parity at roots only)', () => {
-        // At the conversion ROOT, main's epilogue stamped via the
-        // keyword-presence rule (first-present-key-wins read the emitted oneOf) —
-        // declining there would flip the 2025-era legacy wrap when an unrelated
-        // .default() fires the loosen pass.
+    test('the wrap stamp reads the strict pre-loosen emission (parity with main at roots)', () => {
+        // Main decided the 2025-era wrap on the RAW emission — the epilogue now
+        // snapshots the proof on the strict pass, so loosen mutations of
+        // proof-relevant keys cannot flip the wire shape either direction.
+        // Keyword-presence-provable root oneOf: stamped with AND without an
+        // unrelated .default() trigger.
         const root = z
             .union([z.object({ c: z.number().default(0), a: z.string() }), z.null()])
             .meta({ oneOf: [{ properties: { a: { type: 'string' } } }] });
         const loosenedRoot = standardSchemaToJsonSchema(root, 'output');
         expect(loosenedRoot.type).toBe('object');
         expect(isNonObjectJsonSchemaRoot(loosenedRoot)).toBe(false);
-        // Without the trigger the epilogue proof stamps the untouched root — the
-        // wire shape must not depend on an unrelated .default().
         const untouchedRoot = standardSchemaToJsonSchema(
             z.union([z.object({ a: z.string() }), z.null()]).meta({ oneOf: [{ properties: { a: { type: 'string' } } }] }),
             'output'
         );
         expect(untouchedRoot.type).toBe('object');
+
+        // FAILING root oneOf (no object keyword): the allOf-push deletes the
+        // oneOf, but the snapshot keeps reading it — typeless and wrapped, with
+        // and without the trigger.
+        const failing = z
+            .union([z.object({ c: z.number().default(0), a: z.string() }), z.object({ b: z.string() })])
+            .meta({ oneOf: [{ minimum: 1 }] });
+        const failingLoosened = standardSchemaToJsonSchema(failing, 'output');
+        expect(failingLoosened.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(failingLoosened)).toBe(true);
+        const failingUntouched = standardSchemaToJsonSchema(
+            z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]).meta({ oneOf: [{ minimum: 1 }] }),
+            'output'
+        );
+        expect(failingUntouched.type).toBeUndefined();
+
+        // NESTED member whose provability evidence the push relocates: the
+        // snapshot still proves it through the member's oneOf.
+        const nested = z.union([
+            z.object({ c: z.number().default(0), a: z.string() }),
+            z.unknown().meta({ oneOf: [{ properties: { q: { type: 'string' } } }], anyOf: [{}] })
+        ]);
+        expect(standardSchemaToJsonSchema(nested, 'output').type).toBe('object');
+
+        // Catch degrade deleting meta-authored proof keys (`required`): the
+        // snapshot read them before the degrade.
+        const catchRoot = z
+            .union([z.object({ x: z.number() }), z.null()])
+            .catch({ x: 1 })
+            .meta({ required: ['x'] });
+        expect(standardSchemaToJsonSchema(catchRoot, 'output').type).toBe('object');
+    });
+
+    test('a solo additionalProperties drop still fires the oneOf rename', () => {
+        // The drop is member-visible loosening through positive-polarity registry
+        // refs: both $defs entries lose additionalProperties: false, the payload
+        // matches both, and a surviving exactly-one oneOf would reject everything.
+        const A = z.object({ kind: z.string() }).meta({ id: 'ReproA' });
+        const B = z.object({ kind: z.string(), extra: z.number() }).meta({ id: 'ReproB' });
+        const schema = z.object({
+            x: A,
+            y: B,
+            // A string-keyed record carrier: not missing-key-tolerant, so no other
+            // loosen mutation fires — the drop must set the flag itself.
+            choice: z.record(z.string(), z.unknown()).meta({ oneOf: [{ $ref: '#/$defs/ReproA' }, { $ref: '#/$defs/ReproB' }] }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const choice = (result.properties as Record<string, Record<string, unknown>>).choice!;
+        expect(choice.oneOf).toBeUndefined();
+        expect(Array.isArray(choice.anyOf)).toBe(true);
+        const payload = { x: { kind: 'k' }, y: { kind: 'k', extra: 1 }, choice: { kind: 'k', extra: 1 }, name: 'n' };
+        expect(new AjvJsonSchemaValidator().getValidator(result)(payload).valid).toBe(true);
+    });
+
+    test('refs inside draft-07 additionalItems disable loosening (cfworker enforces it)', () => {
+        // @cfworker/json-schema validates additionalItems in every draft mode and
+        // collects refs inside it — a dangling one throws at validator build.
+        const schema = z.object({
+            du: z.discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ]),
+            arr: z.unknown().meta({ type: 'array', items: [{ type: 'string' }], additionalItems: { $ref: '#/properties/du/oneOf/0' } }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeDefined(); // strict shipped
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ du: { t: 'a' }, arr: ['head', { t: 'a', x: 'v' }], name: 'n' }).valid).toBe(true);
+        expect(validate({ du: { t: 'a' }, arr: ['head', { z: 1 }], name: 'n' }).valid).toBe(false); // ref still enforces
+
+        // Catch-degrade spelling: the ref's target would be deleted.
+        const degraded = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+                arr: z
+                    .unknown()
+                    .meta({ type: 'array', items: [{ type: 'string' }], additionalItems: { $ref: '#/properties/cfg/properties/q' } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        const cfg = (degraded.properties as Record<string, Record<string, unknown>>).cfg!;
+        expect((cfg.properties as Record<string, unknown>).q).toEqual({ type: 'string' }); // strict: no degrade
+        expect(new CfWorkerJsonSchemaValidator().getValidator(degraded)({ cfg: { q: 'x' }, arr: ['head', 'tail'], name: 'n' }).valid).toBe(
+            true
+        );
     });
 
     test('relocated members keep their stamp beside a null-membered user anyOf', () => {
-        // The loosen rewrite relocates the DU members under allOf beside the user's
-        // .meta({anyOf}) and stamps `type: 'object'` itself — the epilogue proof
-        // reads the user's anyOf first (first-present-key-wins), sees the null
-        // member, and could not prove the root on its own.
+        // The loosen rewrite relocates the DU members under allOf beside the
+        // user's .meta({anyOf}) — the epilogue's strict pre-loosen snapshot read
+        // the emitted oneOf (first-present-key-wins) and stamps the root, where
+        // the post-loosen document alone could not prove it (the user's anyOf has
+        // a null member).
         const du = z
             .discriminatedUnion('t', [
                 z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
