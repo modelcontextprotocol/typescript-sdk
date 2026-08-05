@@ -445,6 +445,46 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
     });
 
+    test('tolerant array/tuple elements also accept null in output schemas', () => {
+        // JSON.stringify turns an undefined array ELEMENT into null (it drops
+        // undefined-valued object keys), so the raw payload the server validates and
+        // ships ([1, undefined, 3]) reaches the wire as [1, null, 3].
+        const schema = z.object({
+            a: z.array(z.number().default(0)),
+            t: z.tuple([z.string().default('x'), z.number()]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ a: [1, null, 3], t: [null, 1], name: 'n' }).valid).toBe(true);
+        // Non-tolerant elements keep their strict subschema.
+        const plain = standardSchemaToJsonSchema(z.object({ a: z.array(z.number()) }), 'output');
+        expect((plain.properties as Record<string, Record<string, unknown>>).a!.items).toEqual({ type: 'number' });
+    });
+
+    test('z.never() union members are quiet non-object verdicts', () => {
+        // z.never() matches no value: it cannot make a union satisfiable, so a loud
+        // co-member must keep the pre-#2464 throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.never(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // ... while quiet shapes (which converted silently pre-#2464) keep listing.
+        expect(standardSchemaToJsonSchema(z.never(), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.never(), z.string()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.never(), z.never()]), 'input').type).toBe('object');
+    });
+
+    test('the oneOf rewrite does not descend into annotation values', () => {
+        const schema = z.object({
+            cfg: z.object({ oneOf: z.array(z.number()) }).default({ oneOf: [1, 2] }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `default` carries user DATA — its literal `oneOf` key must survive.
+        const cfg = (result.properties as Record<string, Record<string, unknown>>).cfg!;
+        expect(cfg.default).toEqual({ oneOf: [1, 2] });
+    });
+
     test('.catch() and union-nested defaults with async stages are dropped from output required', () => {
         const schema = z.object({
             c: z

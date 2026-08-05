@@ -290,6 +290,32 @@ function zodConversionOptions(
                 }
                 return;
             }
+            if (def.type === 'array') {
+                // JSON.stringify turns an undefined array ELEMENT into `null` (unlike an
+                // undefined-valued object key, which it drops), so a tolerant element
+                // (`.default()`/`.prefault()`, …) may ship as null — the advertised item
+                // subschema must accept it.
+                const items = ctx.jsonSchema.items;
+                if (typeof items === 'object' && items !== null && !Array.isArray(items) && hasStructuralMissingKeyTolerance(def.element)) {
+                    loosened.value = true;
+                    ctx.jsonSchema.items = { anyOf: [items, { type: 'null' }] };
+                }
+                return;
+            }
+            if (def.type === 'tuple') {
+                // Same wire mechanism per prefix position.
+                const prefixItems = ctx.jsonSchema.prefixItems;
+                if (Array.isArray(def.items) && Array.isArray(prefixItems)) {
+                    for (const [index, item] of def.items.entries()) {
+                        const emitted = prefixItems[index];
+                        if (typeof emitted === 'object' && emitted !== null && hasStructuralMissingKeyTolerance(item)) {
+                            loosened.value = true;
+                            prefixItems[index] = { anyOf: [emitted, { type: 'null' }] };
+                        }
+                    }
+                }
+                return;
+            }
             if (def.type !== 'object') return;
             const isStrict = def.catchall?._zod.def.type === 'never';
             if (!isStrict && ctx.jsonSchema.additionalProperties === false) {
@@ -331,7 +357,13 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         record.anyOf = record.oneOf;
         delete record.oneOf;
     }
-    for (const value of Object.values(record)) rewriteOneOfToAnyOf(value, seen);
+    for (const [key, value] of Object.entries(record)) {
+        // Annotation keywords (and const/enum) carry user DATA, not schemas — a
+        // plain-data object inside them may legitimately have a literal `oneOf` key
+        // that must not be renamed.
+        if (ANNOTATION_JSON_SCHEMA_KEYWORDS.has(key) || key === 'const' || key === 'enum' || key.startsWith('x-')) continue;
+        rewriteOneOfToAnyOf(value, seen);
+    }
 }
 
 /**
@@ -682,6 +714,14 @@ function nonObjectTypelessRootVerdict(
     if (def.type === 'literal') {
         const loudness = nonObjectLiteralLoudness(def.values);
         return loudness === undefined ? undefined : { type: 'literal', loud: loudness === 'loud' };
+    }
+    if (def.type === 'never') {
+        // z.never() matches no value: it can never make a union satisfiable or
+        // object-shaped. Quiet, though — bare/all-never shapes emitted `{not: {}}`
+        // without throwing pre-#2464 and must keep listing; the verdict only turns a
+        // union loud when a loud co-member (e.g. a bigint) is present, restoring the
+        // pre-#2464 throw for those.
+        return { type: 'never', loud: false };
     }
     return NON_OBJECT_UNREPRESENTABLE_TYPES.has(def.type) ? { type: def.type, loud: true } : undefined;
 }
