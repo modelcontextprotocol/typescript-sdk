@@ -951,6 +951,89 @@ describe('zod conversion options (#2464)', () => {
         const rec = standardSchemaToJsonSchema(z.object({ tree, c: z.number().catch(0), name: z.string() }), 'output');
         expect(rec.required).toEqual(['tree', 'name']);
         expect(new AjvJsonSchemaValidator().getValidator(rec)({ tree: { v: 'r', kids: [{ v: 'k' }] }, name: 'n' }).valid).toBe(true);
+
+        // A POSITIVE-polarity hand-authored registry-shaped alias is loosen-safe
+        // too: entries mutate in place, so the alias observes the loosened entry.
+        const aliased = standardSchemaToJsonSchema(
+            z.object({ x: reg, alias: z.unknown().meta({ $ref: '#/$defs/Reg' }), name: z.string() }),
+            'output'
+        );
+        expect(((aliased.$defs as Record<string, Record<string, unknown>>).Reg!.required as string[]) ?? []).not.toContain('c');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(aliased)({
+                x: { q: 'a', du: { t: 'a' } },
+                alias: { q: 'b', du: { t: 'b' } },
+                name: 'n'
+            }).valid
+        ).toBe(true);
+    });
+
+    test('the allOf-push stamp requires explicit member types (vacuous keywords prove nothing)', () => {
+        // `properties`/`required` are vacuous for non-object instances — a
+        // hand-authored type-less oneOf member is satisfiable by 42, so stamping
+        // an enforced `type: 'object'` would reject pre-PR-valid payloads.
+        const schema = z.object({
+            counted: z.number().default(0), // unrelated loosening trigger
+            poly: z.unknown().meta({ oneOf: [{ properties: { a: { type: 'string' } } }], anyOf: [{}] }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const poly = (result.properties as Record<string, Record<string, unknown>>).poly!;
+        expect(poly.type).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ counted: 1, poly: 42, name: 'n' }).valid).toBe(true);
+        // Explicitly-typed members (zod DU emissions) keep the stamp — the
+        // 2025-era legacy-wrap protection is unaffected.
+        const du = standardSchemaToJsonSchema(
+            z
+                .discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+                ])
+                .meta({ anyOf: [{ type: 'object' }, { type: 'null' }] }),
+            'output'
+        );
+        expect(du.type).toBe('object');
+    });
+
+    test('polarity-consumed registry refs and unevaluated* keywords disable loosening', () => {
+        // (1) A registry-shaped ref under `not`: the entry loosens IN PLACE, so
+        // the negated consumer would observe every loosening as a tightening —
+        // the guard ships strict instead and `{}` keeps failing the target.
+        const regY = z.object({ q: z.string().default('d') }).meta({ id: 'Y' });
+        const negated = standardSchemaToJsonSchema(
+            z.object({ cfg: regY, guarded: z.unknown().meta({ not: { $ref: '#/$defs/Y' } }), name: z.string() }),
+            'output'
+        );
+        expect(((negated.$defs as Record<string, Record<string, unknown>>).Y!.required as string[]) ?? []).toContain('q'); // strict
+        expect(new AjvJsonSchemaValidator().getValidator(negated)({ cfg: { q: 'x' }, guarded: {}, name: 'n' }).valid).toBe(true);
+
+        // (2) A registry ref beside `unevaluatedProperties: false`: the catch
+        // degrade would strip the target's `properties`, so the still-resolving
+        // ref would stop contributing evaluation annotations.
+        const regX = z.object({ p: z.string() }).catch({ p: 'd' }).meta({ id: 'X' });
+        const annotated = standardSchemaToJsonSchema(
+            z.object({ cfg: regX, guarded: z.unknown().meta({ $ref: '#/$defs/X', unevaluatedProperties: false }), name: z.string() }),
+            'output'
+        );
+        expect(((annotated.$defs as Record<string, Record<string, unknown>>).X!.properties as Record<string, unknown>).p).toBeDefined();
+        expect(new AjvJsonSchemaValidator().getValidator(annotated)({ cfg: { p: 'v' }, guarded: { p: 'w' }, name: 'n' }).valid).toBe(true);
+
+        // (3) No ref at all: a hand-authored `unevaluatedProperties: false` on a
+        // zod-emitted union whose member the catch degrade would skeletonize
+        // loses that member's annotation contributions identically.
+        const refFree = standardSchemaToJsonSchema(
+            z.object({
+                x: z
+                    .union([z.looseObject({ p: z.string() }).catch({ p: 'd' }), z.looseObject({ q: z.number() })])
+                    .meta({ unevaluatedProperties: false }),
+                name: z.string()
+            }),
+            'output'
+        );
+        const member = ((refFree.properties as Record<string, Record<string, unknown>>).x!.anyOf as Array<Record<string, unknown>>)[0]!;
+        expect(member.properties).toBeDefined(); // strict: no skeleton
+        expect(new AjvJsonSchemaValidator().getValidator(refFree)({ x: { p: 'v' }, name: 'n' }).valid).toBe(true);
     });
 
     test('relocated members keep their stamp beside a null-membered user anyOf', () => {

@@ -457,10 +457,16 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
             allOf.push({ anyOf: record.oneOf });
             // The relocated members' objectness becomes invisible to the wrap proof's
             // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
-            // [{minProperties: 1}]})) — stamp the sound explicit type here (the value
-            // must satisfy the pushed conjunct), preserving the pre-#2464 stamp these
-            // roots got via their emitted oneOf.
-            if (record.type === undefined && isProvablyObjectShapedRoot({ anyOf: record.oneOf })) {
+            // [{minProperties: 1}]})) — stamp the explicit type here, preserving the
+            // pre-#2464 stamp these roots got via their emitted oneOf. The stamp is
+            // ENFORCED, so it requires a genuine instance-typing proof — every
+            // relocated member explicitly `type: 'object'` — NOT the wrap
+            // heuristic's keyword-presence rule (`properties`/`required`/… are
+            // vacuous for non-object instances, so a hand-authored type-less member
+            // is satisfiable by `42` and must not be stamped away). Zod-emitted DU
+            // members and catch skeletons always carry the explicit type, so the
+            // legacy-wrap protection is unaffected.
+            if (record.type === undefined && membersAreExplicitlyObjectTyped(record.oneOf)) {
                 record.type = 'object';
             }
         }
@@ -492,6 +498,35 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
     }
 }
 
+/**
+ * A genuine instance-typing proof for a composition's members: every member —
+ * recursively through nested compositions — carries an explicit enforced
+ * `type: 'object'`. Sound per 2020-12 semantics: keywords on one node
+ * AND-combine, so a member forces objectness when it carries the type directly,
+ * when an exhaustive nested composition does (EVERY `oneOf`/`anyOf` branch a
+ * value could satisfy), or when ANY `allOf` conjunct does. Unlike
+ * {@linkcode isProvablyObjectShapedRoot}'s keyword-PRESENCE rule (a 2025-era
+ * wrap-decision heuristic, parity-sound only at roots), mere `properties`/
+ * `required` carriage proves nothing — those keywords are vacuous for
+ * non-object instances.
+ */
+function membersAreExplicitlyObjectTyped(members: readonly unknown[]): boolean {
+    return (
+        members.length > 0 &&
+        members.every(member => {
+            if (typeof member !== 'object' || member === null || Array.isArray(member)) return false;
+            const record = member as Record<string, unknown>;
+            if (record.type === 'object') return true;
+            for (const key of ['oneOf', 'anyOf'] as const) {
+                const nested = record[key];
+                if (Array.isArray(nested) && membersAreExplicitlyObjectTyped(nested)) return true;
+            }
+            const allOf = record.allOf;
+            return Array.isArray(allOf) && allOf.some(conjunct => membersAreExplicitlyObjectTyped([conjunct]));
+        })
+    );
+}
+
 /** The only `$ref` shape zod's emitter produces besides bare `#`: a top-level `$defs` entry. */
 const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
 
@@ -499,9 +534,13 @@ const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
  * Whether the emitted document carries any reference construct beyond what zod's
  * own emitter produces: a `$ref`/`$dynamicRef` that is not `#` or
  * `#/$defs/<name>` (the only shapes zod emits, for recursive, deduplicated, and
- * registered schemas), any `$anchor`/`$dynamicAnchor`, any `$id`, or a `$defs`
- * container anywhere but the conversion root. All of these can only enter an
- * emission through `.meta()`/registry metadata — i.e. they are hand-authored.
+ * registered schemas), ANY ref — registry-shaped included — consumed under a
+ * `not`/`if`/`contains` polarity boundary, any `$anchor`/`$dynamicAnchor`, any
+ * `$id`, a `$defs` container anywhere but the conversion root, or any
+ * `unevaluatedProperties`/`unevaluatedItems` (annotation consumers that observe
+ * in-place loosening of their contributors as a tightening). All of these can
+ * only enter an emission through `.meta()`/registry metadata — i.e. they are
+ * hand-authored.
  *
  * The wire-truthfulness loosen family relocates and deletes document positions
  * (required-filter drops, catch degrades, null-tolerance element wraps, the
@@ -524,33 +563,50 @@ const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
  * break all the same.
  */
 function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): boolean {
-    const walk = (node: unknown, isRoot: boolean, seen: Set<unknown>): boolean => {
+    const walk = (node: unknown, isRoot: boolean, underPolarityBoundary: boolean, seen: Set<unknown>): boolean => {
         if (typeof node !== 'object' || node === null || seen.has(node)) return false;
         seen.add(node);
-        if (Array.isArray(node)) return node.some(item => walk(item, false, seen));
+        if (Array.isArray(node)) return node.some(item => walk(item, false, underPolarityBoundary, seen));
         const record = node as Record<string, unknown>;
         for (const refKey of ['$ref', '$dynamicRef'] as const) {
             const value = record[refKey];
             if (value === undefined) continue;
-            if (typeof value !== 'string' || (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value))) return true;
+            if (typeof value !== 'string') return true;
+            // Registry refs are loosen-safe only for POSITIVE-polarity consumers:
+            // the loosen family mutates `$defs` entries IN PLACE, so a consumer
+            // reading the target under `not`/`if`/`contains` observes every
+            // loosening as a tightening the rename walk's lexical polarity skip
+            // cannot see through the ref indirection.
+            if (underPolarityBoundary) return true;
+            if (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value)) return true;
         }
         if (record.$anchor !== undefined || record.$dynamicAnchor !== undefined || record.$id !== undefined) return true;
         if (!isRoot && record.$defs !== undefined) return true;
+        // `unevaluatedProperties`/`unevaluatedItems` consume the 2020-12
+        // evaluation annotations their sibling (and `$ref`-mediated) subschemas
+        // contribute — in-place loosening of any contributor (a catch-degraded
+        // union member, a loosened `$defs` target) silently strips annotations
+        // and TIGHTENS the surviving consumer. zod never emits these keywords,
+        // so their presence is hand-authored by definition.
+        if (record.unevaluatedProperties !== undefined || record.unevaluatedItems !== undefined) return true;
         for (const [key, value] of Object.entries(record)) {
             if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+            // Sticky through nesting: anything beneath a negative/conditional
+            // keyword stays polarity-suspect (deeper `not`s only re-invert).
+            const childUnderBoundary = underPolarityBoundary || key === 'not' || key === 'if' || key === 'contains';
             if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
                 if (seen.has(value)) continue;
                 seen.add(value);
                 for (const subschema of Object.values(value as Record<string, unknown>)) {
-                    if (walk(subschema, false, seen)) return true;
+                    if (walk(subschema, false, childUnderBoundary, seen)) return true;
                 }
                 continue;
             }
-            if (walk(value, false, seen)) return true;
+            if (walk(value, false, childUnderBoundary, seen)) return true;
         }
         return false;
     };
-    return walk(document, true, new Set());
+    return walk(document, true, false, new Set());
 }
 
 /**
