@@ -247,7 +247,8 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  */
 function zodConversionOptions(
     io: 'input' | 'output',
-    loosened: { value: boolean }
+    loosened: { value: boolean },
+    moves: RelocatedPointerPrefix[]
 ): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
         unrepresentable: 'any',
@@ -290,14 +291,15 @@ function zodConversionOptions(
                 for (const key of Object.keys(ctx.jsonSchema)) {
                     if (key === 'type' && ctx.jsonSchema.type === 'object') continue;
                     if ((key === 'anyOf' || key === 'oneOf' || key === 'allOf') && Array.isArray(ctx.jsonSchema[key])) {
-                        const skeletons = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
-                        // `oneOf` means EXACTLY one: with member constraints stripped, the
-                        // skeletons are indistinguishable and every payload would match all
-                        // of them — advertise the honest loosening `anyOf` instead
-                        // (wrap-neutral: `isProvablyObjectShapedRoot` treats the
-                        // composition keywords identically).
-                        if (key === 'oneOf') delete ctx.jsonSchema[key];
-                        ctx.jsonSchema[key === 'oneOf' ? 'anyOf' : key] = skeletons;
+                        // Members reduce to skeletons UNDER THEIR EMITTED KEY. An
+                        // exactly-one `oneOf` of indistinguishable skeletons would
+                        // reject every payload, but the rename to the honest `anyOf`
+                        // is DEFERRED to the epilogue's `rewriteOneOfToAnyOf` — it
+                        // always runs once the degrade set `loosened`, and unlike
+                        // this override hook it knows the node's document path, so
+                        // the rename records the pointer move that keeps inbound
+                        // `$ref: '#/…/oneOf/<i>'` aliases resolvable.
+                        ctx.jsonSchema[key] = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
                         continue;
                     }
                     // Reference TARGETS and containers constrain no instance value —
@@ -326,16 +328,20 @@ function zodConversionOptions(
                 // JSON.stringify turns an undefined array ELEMENT into `null` (unlike an
                 // undefined-valued object key, which it drops), so a tolerant element
                 // (`.default()`/`.prefault()`, …) may ship as null — the advertised item
-                // subschema must accept it.
+                // subschema must accept it. The wrap relocates the element subschema to
+                // `items/anyOf/0`, so the move is recorded (via `ctx.path`) for the
+                // epilogue's pointer redirect — an inbound `$ref: '#/…/items/…'` alias
+                // would otherwise dangle.
                 const items = ctx.jsonSchema.items;
                 if (typeof items === 'object' && items !== null && !Array.isArray(items) && hasStructuralMissingKeyTolerance(def.element)) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [items, { type: 'null' }] };
+                    recordNullToleranceWrapMove(moves, ctx.path, 'items');
                 }
                 return;
             }
             if (def.type === 'tuple') {
-                // Same wire mechanism per prefix position.
+                // Same wire mechanism (and same recorded move) per prefix position.
                 const prefixItems = ctx.jsonSchema.prefixItems;
                 if (Array.isArray(def.items) && Array.isArray(prefixItems)) {
                     for (const [index, item] of def.items.entries()) {
@@ -343,6 +349,7 @@ function zodConversionOptions(
                         if (typeof emitted === 'object' && emitted !== null && hasStructuralMissingKeyTolerance(item)) {
                             loosened.value = true;
                             prefixItems[index] = { anyOf: [emitted, { type: 'null' }] };
+                            recordNullToleranceWrapMove(moves, ctx.path, 'prefixItems', index);
                         }
                     }
                 }
@@ -358,6 +365,7 @@ function zodConversionOptions(
                 ) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [restItems, { type: 'null' }] };
+                    recordNullToleranceWrapMove(moves, ctx.path, 'items');
                 }
                 return;
             }
@@ -405,6 +413,27 @@ function zodConversionOptions(
 }
 
 /**
+ * Records the pointer move of an override-time null-tolerance wrap: the wrapped
+ * element subschema relocated from `<path>/<slot…>` to `<path>/<slot…>/anyOf/0`.
+ * `path` is zod's emission path for the node being overridden (`ctx.path`, raw
+ * segments — RFC 6901-escaped here). On zod versions that predate `ctx.path` the
+ * move is skipped: the wrap itself still ships, and a pointer left dangling by it
+ * is neutralized (loosen-only) by the epilogue's last-resort pass instead of
+ * redirected. The same fallback covers reused zod instances — the override runs
+ * once per instance, so only the first emission position's copy gets a recorded
+ * move — and registry-referenced nodes, whose emitted home is `#/$defs/<id>`
+ * while `ctx.path` names the referencing position (a prefix that matches no
+ * resolvable pointer, so the stray move can redirect nothing wrongly).
+ */
+function recordNullToleranceWrapMove(moves: RelocatedPointerPrefix[], path: unknown, ...slot: ReadonlyArray<string | number>): void {
+    if (!Array.isArray(path)) return;
+    const from = [...(path as ReadonlyArray<string | number>), ...slot]
+        .map(segment => `/${escapeJsonPointerSegment(String(segment))}`)
+        .join('');
+    moves.push({ from, to: `${from}/anyOf/0` });
+}
+
+/**
  * A JSON-Pointer prefix relocation performed by {@linkcode rewriteOneOfToAnyOf}:
  * every same-document pointer that traverses `from` must be redirected to `to`.
  * `from`'s ancestor segments are spelled in the coordinates that held AFTER the
@@ -426,7 +455,9 @@ function escapeJsonPointerSegment(segment: string): string {
  * to `anyOf`. Used when a conversion's catch degrade or required-filter fired: the
  * loosened members of an untouched parent `oneOf` (e.g. a discriminated union whose
  * catch-wrapped discriminators were degraded) may have become mutually satisfiable,
- * inverting exactly-one semantics into reject-everything.
+ * inverting exactly-one semantics into reject-everything. Also performs the
+ * oneOf→anyOf renames the catch degrade deferred: its override hook cannot place
+ * the rename in the document, while this walk knows every node's path.
  *
  * Each relocation is appended to `moves` (as a JSON-Pointer prefix pair rooted at
  * `path`) so {@linkcode rewriteRelocatedJsonPointers} can redirect same-document
@@ -497,42 +528,93 @@ function rewriteOneOfToAnyOf(node: unknown, path = '', moves: RelocatedPointerPr
  * Redirects same-document `$ref`/`$dynamicRef` JSON Pointers through the prefix
  * relocations {@linkcode rewriteOneOfToAnyOf} performed, mirroring the legacy-wrap
  * envelope's pointer rewrite (`wire/rev2025-11-25/legacyWrap.ts`): a pointer that
- * traverses a moved `oneOf` segment (`#/…/oneOf/<i>/…`) is rewritten to the
- * segment's new home (`#/…/anyOf/<i>/…`, or `#/…/allOf/<n>/anyOf/<i>/…` on the
- * allOf-push branch) so it keeps resolving to the same subschema. Position-aware
- * like the rename walk itself: only schema-carrying keywords are descended into
- * (data-valued `const`/`enum`/`default`/`examples` and annotations are opaque),
- * schema-map VALUES are always descended into while their keys stay names, and —
- * unlike the rename walk — `not`/`if`/`contains` subtrees ARE descended into
- * (redirecting a pointer is resolution-preserving, never a polarity-sensitive
- * loosening). Subtrees establishing a new `$id` base are skipped: their
- * same-document pointers resolve against the embedded base, not the document root
- * the move prefixes are rooted at. Cross-document refs (not starting with `#/`)
- * are left untouched.
+ * traverses a moved segment — a renamed/pushed `oneOf` (`#/…/oneOf/<i>/…` →
+ * `#/…/anyOf/<i>/…` or `#/…/allOf/<n>/anyOf/<i>/…`) or a null-tolerance-wrapped
+ * element (`#/…/items/…` → `#/…/items/anyOf/0/…`) — is rewritten to the segment's
+ * new home so it keeps resolving to the same subschema. Cross-document refs (not
+ * starting with `#/`) are left untouched; see
+ * {@linkcode visitLocalRefBearingNodes} for the walk's position/`$id` rules.
  */
-function rewriteRelocatedJsonPointers(node: unknown, moves: readonly RelocatedPointerPrefix[], seen: Set<unknown> = new Set()): void {
+function rewriteRelocatedJsonPointers(root: unknown, moves: readonly RelocatedPointerPrefix[]): void {
+    visitLocalRefBearingNodes(root, record => {
+        for (const refKey of ['$ref', '$dynamicRef'] as const) {
+            const value = record[refKey];
+            if (typeof value !== 'string' || !value.startsWith('#/')) continue;
+            let pointer = value.slice(1);
+            for (const move of moves) {
+                if (pointer === move.from || pointer.startsWith(`${move.from}/`)) {
+                    pointer = move.to + pointer.slice(move.from.length);
+                }
+            }
+            record[refKey] = `#${pointer}`;
+        }
+    });
+}
+
+/**
+ * Last-resort pointer integrity for LOOSENED conversions: any same-document
+ * `$ref`/`$dynamicRef` JSON Pointer that no longer resolves — its target subtree
+ * was deleted by the catch degrade's constraint drop or the skeleton's member
+ * reduction, where nothing survives for a move to redirect to — is neutralized by
+ * deleting the reference keyword. Loosen-only (an absent `$ref` constrains
+ * nothing) and strictly better than shipping it: a dangling pointer makes the
+ * whole advertisement uncompilable, so the tool would list but every `callTool`
+ * would fail client-side before the request is sent. Anchor-form fragments
+ * (`#name`) are name-resolved and cannot dangle by position; cross-document refs
+ * cannot be verified locally — both are left untouched. Runs after
+ * {@linkcode rewriteRelocatedJsonPointers} so pointers that were redirected to a
+ * surviving location are recognized as resolvable and kept.
+ */
+function neutralizeDanglingLocalRefs(root: Record<string, unknown>): void {
+    visitLocalRefBearingNodes(root, record => {
+        for (const refKey of ['$ref', '$dynamicRef'] as const) {
+            const value = record[refKey];
+            if (typeof value !== 'string' || !value.startsWith('#/')) continue;
+            if (!localJsonPointerResolves(root, value.slice(1))) delete record[refKey];
+        }
+    });
+}
+
+/** Whether an RFC 6901 pointer (leading `/…`, tokens still escaped) resolves in `root`. */
+function localJsonPointerResolves(root: unknown, pointer: string): boolean {
+    let node: unknown = root;
+    for (const token of pointer.split('/').slice(1)) {
+        const segment = token.replaceAll('~1', '/').replaceAll('~0', '~');
+        if (Array.isArray(node)) {
+            const index = Number(segment);
+            if (!Number.isInteger(index) || String(index) !== segment || index < 0 || index >= node.length) return false;
+            node = node[index];
+        } else if (typeof node === 'object' && node !== null && Object.hasOwn(node, segment)) {
+            node = (node as Record<string, unknown>)[segment];
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Position-aware walk over every schema node whose same-document references are
+ * resolvable against the DOCUMENT ROOT, invoking `visit` once per node. Only
+ * schema-carrying keywords are descended into (data-valued
+ * `const`/`enum`/`default`/`examples` and annotations are opaque); schema-map
+ * VALUES are always descended into while their keys stay names; and —
+ * unlike the oneOf rename walk — `not`/`if`/`contains` subtrees ARE descended
+ * into (pointer fixups are resolution-preserving, never polarity-sensitive
+ * loosenings). Subtrees establishing a new `$id` base are skipped: their
+ * same-document pointers resolve against the embedded base, not the document
+ * root. A ROOT `$id` names the document itself, so the root node is always
+ * visited.
+ */
+function visitLocalRefBearingNodes(node: unknown, visit: (record: Record<string, unknown>) => void, seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {
-        for (const item of node) rewriteRelocatedJsonPointers(item, moves, seen);
+        for (const item of node) visitLocalRefBearingNodes(item, visit, seen);
         return;
     }
     const record = node as Record<string, unknown>;
-    // Base-establishing `$id` guards sit at the recursion sites below, not here: a
-    // ROOT `$id` names the document itself, so `#/…` pointers under it still
-    // address these very coordinates and must be rewritten, while NESTED bases own
-    // their subtrees' resolution and are never descended into.
-    for (const refKey of ['$ref', '$dynamicRef'] as const) {
-        const value = record[refKey];
-        if (typeof value !== 'string' || !value.startsWith('#/')) continue;
-        let pointer = value.slice(1);
-        for (const move of moves) {
-            if (pointer === move.from || pointer.startsWith(`${move.from}/`)) {
-                pointer = move.to + pointer.slice(move.from.length);
-            }
-        }
-        record[refKey] = `#${pointer}`;
-    }
+    visit(record);
     for (const [key, value] of Object.entries(record)) {
         if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
@@ -540,12 +622,12 @@ function rewriteRelocatedJsonPointers(node: unknown, moves: readonly RelocatedPo
             seen.add(value);
             for (const subschema of Object.values(value as Record<string, unknown>)) {
                 if (subtreeEstablishesNewIdBase(subschema)) continue;
-                rewriteRelocatedJsonPointers(subschema, moves, seen);
+                visitLocalRefBearingNodes(subschema, visit, seen);
             }
             continue;
         }
         if (subtreeEstablishesNewIdBase(value)) continue;
-        rewriteRelocatedJsonPointers(value, moves, seen);
+        visitLocalRefBearingNodes(value, visit, seen);
     }
 }
 
@@ -604,9 +686,13 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
     }
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
         if (Array.isArray(source[key])) {
-            // Skeletonized `oneOf` members are indistinguishable, so exactly-one
-            // semantics would reject every payload — emit `anyOf` instead.
-            skeleton[key === 'oneOf' ? 'anyOf' : key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
+            // Kept under the emitted key — including `oneOf`, whose skeletonized
+            // members are indistinguishable and would reject every payload under
+            // exactly-one semantics. The oneOf→anyOf rename is deferred to the
+            // epilogue's `rewriteOneOfToAnyOf` (the degrade that skeletonizes
+            // always sets `loosened`), which performs it at a known document path
+            // WITH pointer-move bookkeeping.
+            skeleton[key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
         }
     }
     return skeleton;
@@ -827,7 +913,12 @@ export function standardSchemaToJsonSchema(
 ): Record<string, unknown> {
     const std = schema['~standard'];
     const loosened = { value: false };
-    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io, loosened);
+    // Pointer-prefix relocations, in chronological order: the override's
+    // null-tolerance wraps record theirs during emission (via `ctx.path`), the
+    // epilogue's oneOf rewrite appends its renames — sequential application then
+    // walks every inbound pointer from its authored coordinates to the final ones.
+    const moves: RelocatedPointerPrefix[] = [];
+    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io, loosened, moves);
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
         result = std.jsonSchema[io]({
@@ -875,9 +966,15 @@ export function standardSchemaToJsonSchema(
         // then redirect any same-document pointers that traversed a moved segment
         // so they keep resolving (a dangling `$ref` is uncompilable — worse than
         // any loosening).
-        const moves: RelocatedPointerPrefix[] = [];
         rewriteOneOfToAnyOf(result, '', moves);
         if (moves.length > 0) rewriteRelocatedJsonPointers(result, moves);
+        // Targets the degrade DELETED (a catch node's `properties`, a skeleton
+        // member's constraints) have no new home for a move to redirect to —
+        // neutralize any pointer left dangling so the advertisement stays
+        // compilable. Scoped to loosened conversions: an untouched emission's
+        // dangling ref (a user typo) failed compile identically pre-#2464 and is
+        // not this rewrite's to repair.
+        neutralizeDanglingLocalRefs(result);
     }
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
@@ -1070,11 +1167,25 @@ function nonObjectTypelessRootVerdict(
         const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path));
         if (verdicts.includes(undefined)) return undefined;
         const loud = verdicts.some(verdict => verdict?.loud === true);
-        // An all-date union IS a date side: `z.union([z.date(), z.date()])` admits
-        // only Dates, so the intersection branch's date-parity rule below must see
-        // it (pre-#2464 the conversion threw on the date either way). A root or
-        // union-member position reads only `loud`, so the type is inert there.
-        if (verdicts.every(verdict => verdict?.type === 'date')) return { type: 'date', loud };
+        // A union that admits AT MOST Dates is a date side: every member is a date
+        // or a quiet kind that adds no JSON-satisfiable value (`never` matches
+        // nothing; a File or a non-finite/symbol literal is never a JSON object),
+        // so the intersection branch's date-parity rule below must see it — mixed
+        // spellings like `z.union([z.date(), z.never()])` threw on the date
+        // pre-#2464 exactly like the all-date union. At least one member must BE a
+        // date (a date-free union of nevers listed pre-#2464 and must keep doing
+        // so). A root or union-member position reads only `loud`, so the type is
+        // inert there.
+        if (
+            verdicts.some(verdict => verdict?.type === 'date') &&
+            verdicts.every(
+                verdict =>
+                    verdict?.type === 'date' ||
+                    (verdict?.loud === false && (verdict.type === 'never' || verdict.type === 'file' || verdict.type === 'literal'))
+            )
+        ) {
+            return { type: 'date', loud };
+        }
         return { type: 'union', loud };
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {

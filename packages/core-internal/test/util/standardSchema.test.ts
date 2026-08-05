@@ -731,6 +731,82 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
     });
 
+    test('pointers through a catch-degraded oneOf follow the deferred rename', () => {
+        // The catch degrade skeletonizes composition members at override time,
+        // where no document path exists — the oneOf→anyOf rename is deferred to
+        // the epilogue so the pointer move is recorded, both for the catch node's
+        // own oneOf and for a skeletonized member's nested one.
+        const schema = z.object({
+            cfg: z
+                .discriminatedUnion('t', [z.object({ t: z.literal('a'), x: z.string() }), z.object({ t: z.literal('b'), y: z.string() })])
+                .catch({ t: 'a', x: 'd' }),
+            nested: z
+                .union([
+                    z.discriminatedUnion('t', [z.object({ t: z.literal('a') }), z.object({ t: z.literal('b') })]),
+                    z.object({ w: z.number() })
+                ])
+                .catch({ w: 1 }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/oneOf/0' }),
+            nestedAlias: z.unknown().meta({ $ref: '#/properties/nested/anyOf/0/oneOf/1' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.cfg!.oneOf).toBeUndefined();
+        expect(properties.alias!.$ref).toBe('#/properties/cfg/anyOf/0');
+        expect(properties.nestedAlias!.$ref).toBe('#/properties/nested/anyOf/0/anyOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { t: 'a' }, nested: { w: 1 }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('pointers into wrapped array and tuple element subschemas follow the wrap', () => {
+        // The null-tolerance wrap relocates the element subschema to
+        // `…/items/anyOf/0` (and the prefixItems/rest equivalents) — the move is
+        // recorded via the override's `ctx.path` so inbound aliases keep resolving.
+        const schema = z.object({
+            arr: z.array(z.object({ x: z.string() }).optional()),
+            t: z.tuple([z.object({ x: z.string() }).optional(), z.string()], z.object({ y: z.number() }).optional()),
+            itemsAlias: z.unknown().meta({ $ref: '#/properties/arr/items/properties/x' }),
+            prefixAlias: z.unknown().meta({ $ref: '#/properties/t/prefixItems/0/properties/x' }),
+            restAlias: z.unknown().meta({ $ref: '#/properties/t/items/properties/y' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.itemsAlias!.$ref).toBe('#/properties/arr/items/anyOf/0/properties/x');
+        expect(properties.prefixAlias!.$ref).toBe('#/properties/t/prefixItems/0/anyOf/0/properties/x');
+        expect(properties.restAlias!.$ref).toBe('#/properties/t/items/anyOf/0/properties/y');
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ arr: [{ x: 'v' }, null], t: [null, 's', null], name: 'n' }).valid).toBe(true);
+    });
+
+    test('pointers into degrade-deleted subtrees are neutralized, resolvable ones kept', () => {
+        // The catch degrade DELETES a catch node's `properties` — no move target
+        // exists, so a pointer into it is neutralized (loosen-only: an absent $ref
+        // constrains nothing) instead of shipping an uncompilable advertisement.
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+            deletedAlias: z.unknown().meta({ $ref: '#/properties/cfg/properties/q' }),
+            keptAlias: z.unknown().meta({ $ref: '#/properties/name' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.deletedAlias!.$ref).toBeUndefined();
+        expect(properties.keptAlias!.$ref).toBe('#/properties/name'); // resolvable — untouched
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('untouched conversions keep a dangling ref (neutralization is loosen-scoped)', () => {
+        // No degrade fired here: a ref the user broke themselves failed compile
+        // identically pre-#2464 and is not the loosen machinery's to repair.
+        const result = standardSchemaToJsonSchema(z.object({ alias: z.string().meta({ $ref: '#/nowhere' }), name: z.string() }), 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).alias!.$ref).toBe('#/nowhere');
+    });
+
     test('a degraded member $defs survives the skeleton at its pointer-addressed spot', () => {
         // `$defs` entries are PATH-addressed (`#/…/$defs/X`) — the catch degrade's
         // type skeleton must carry them (like the name-resolved anchors) or inbound
@@ -837,6 +913,23 @@ describe('zod conversion options (#2464)', () => {
         const root = standardSchemaToJsonSchema(z.union([z.date(), z.date()]), 'output');
         expect(root.type).toBeUndefined();
         expect(isNonObjectJsonSchemaRoot(root)).toBe(true);
+    });
+
+    test('mixed quiet-member unions carrying a date keep intersections loud on output', () => {
+        // A quiet co-member that adds no JSON-satisfiable value (never matches
+        // nothing; Files and non-finite literals are never JSON objects) must not
+        // launder the union's date-sidedness: all three spellings threw on the
+        // date pre-#2464.
+        for (const coMember of [z.never(), z.literal(Infinity), z.file()]) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), coMember])), 'output')
+            ).toThrow(/must describe objects/);
+        }
+        // No date member, no date side: a union of nevers listed pre-#2464 (it
+        // emitted {not: {}} members without throwing) and must keep doing so.
+        const noDate = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.never(), z.never()])), 'output');
+        expect(noDate.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(noDate)).toBe(true);
     });
 
     test('piped and undefined-filtered loud literal output roots throw', () => {
