@@ -229,6 +229,12 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   cannot evaluate the fn, and deferring the preprocess spelling to the
  *   validate(undefined) probe would mis-require async-refined preprocess fields
  *   (the probe goes async and conservatively claims nothing).
+ * - The converse trade for async-staged VALIDATING pipe OUT sides: a genuinely
+ *   tolerant `.default(5).pipe(z.number().min(1).refine(async () => true))` stays
+ *   advertised as required — the probe goes async, and claiming IN-side tolerance
+ *   structurally would wrongly drop `.default(0).pipe(z.number().min(1).refine(
+ *   async …))`. Neither structural direction is sound there, so the conservative
+ *   stay-required posture (byte-parity with the pre-#2464 emission) wins.
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
  *   post-transform shape (`io: 'output'`) even though the server validates and ships
  *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
@@ -530,21 +536,25 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
 const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
 
 /**
- * Whether any reference keyword in the document carries a hand-authored value —
- * anything but zod's own registry shapes (`#`, `#/$defs/<name>`). Zod's registry
- * refs are root-base JSON Pointers that never resolve through a draft-04 `id`
- * base, so stripping `id` around them is safe; every OTHER ref may depend on an
- * `id` base on the cfworker engine (URI-form refs resolve through
- * `schema.$id || schema.id` registration, and even a fragment pointer INSIDE an
- * `id` resource resolves relative to that base). Position-aware like the guard
- * walk.
+ * Whether any reference keyword in the document carries a hand-authored value.
+ * Hand-authored-ness is decided by value SHAPE and lexical CONTEXT together:
+ * outside `id` resources, anything but zod's own registry shapes (`#`,
+ * `#/$defs/<name>` — root-base JSON Pointers that never resolve through a
+ * draft-04 `id` base) is hand-authored; INSIDE a draft-04 `id`-carrying
+ * resource, EVERY ref counts — resolution there is base-relative on the
+ * cfworker engine (`schema.$id || schema.id` registration), so even a
+ * registry-shaped `$ref: '#'` addresses the resource, a spelling zod's emitter
+ * never produces at that position. `$recursiveRef` counts regardless of value
+ * or position — zod never emits the keyword at all.
  */
 function hasHandAuthoredRefValues(document: Record<string, unknown>): boolean {
-    return someSchemaNode(document, record =>
+    return someSchemaNode(document, (record, insideIdResource) =>
         ['$ref', '$dynamicRef', '$recursiveRef'].some(refKey => {
             const value = record[refKey];
             if (value === undefined) return false;
-            return typeof value !== 'string' || (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value));
+            if (refKey === '$recursiveRef') return true;
+            if (typeof value !== 'string' || insideIdResource) return true;
+            return value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value);
         })
     );
 }
@@ -571,30 +581,37 @@ function stripLegacyIdKeywords(document: Record<string, unknown>): void {
  * keywords are descended into (data-valued `const`/`enum`/`default`/`examples`
  * and annotation values stay opaque), and schema-map VALUES are schemas while
  * their keys stay names — a property literally named `id` or `$ref` is user
- * data, not a keyword. Stops at the first node where `predicate` returns true.
+ * data, not a keyword. The predicate also receives whether the node sits
+ * lexically inside (or at) a draft-04 `id`-carrying resource, where ref
+ * resolution is base-relative. Stops at the first node where `predicate`
+ * returns true.
  */
-function someSchemaNode(document: Record<string, unknown>, predicate: (record: Record<string, unknown>) => boolean): boolean {
-    const walk = (node: unknown, seen: Set<unknown>): boolean => {
+function someSchemaNode(
+    document: Record<string, unknown>,
+    predicate: (record: Record<string, unknown>, insideIdResource: boolean) => boolean
+): boolean {
+    const walk = (node: unknown, seen: Set<unknown>, insideIdResource: boolean): boolean => {
         if (typeof node !== 'object' || node === null || seen.has(node)) return false;
         seen.add(node);
-        if (Array.isArray(node)) return node.some(item => walk(item, seen));
+        if (Array.isArray(node)) return node.some(item => walk(item, seen, insideIdResource));
         const record = node as Record<string, unknown>;
-        if (predicate(record)) return true;
+        const inIdResource = insideIdResource || typeof record.id === 'string';
+        if (predicate(record, inIdResource)) return true;
         for (const [key, value] of Object.entries(record)) {
             if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
             if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
                 if (seen.has(value)) continue;
                 seen.add(value);
                 for (const subschema of Object.values(value as Record<string, unknown>)) {
-                    if (walk(subschema, seen)) return true;
+                    if (walk(subschema, seen, inIdResource)) return true;
                 }
                 continue;
             }
-            if (walk(value, seen)) return true;
+            if (walk(value, seen, inIdResource)) return true;
         }
         return false;
     };
-    return walk(document, new Set());
+    return walk(document, new Set(), false);
 }
 
 /**
@@ -630,11 +647,18 @@ function someSchemaNode(document: Record<string, unknown>, predicate: (record: R
  * break all the same.
  */
 function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): boolean {
-    const walk = (node: unknown, isRoot: boolean, underPolarityBoundary: boolean, seen: Set<unknown>): boolean => {
+    const walk = (
+        node: unknown,
+        isRoot: boolean,
+        underPolarityBoundary: boolean,
+        insideIdResource: boolean,
+        seen: Set<unknown>
+    ): boolean => {
         if (typeof node !== 'object' || node === null || seen.has(node)) return false;
         seen.add(node);
-        if (Array.isArray(node)) return node.some(item => walk(item, false, underPolarityBoundary, seen));
+        if (Array.isArray(node)) return node.some(item => walk(item, false, underPolarityBoundary, insideIdResource, seen));
         const record = node as Record<string, unknown>;
+        const inIdResource = insideIdResource || typeof record.id === 'string';
         for (const refKey of ['$ref', '$dynamicRef'] as const) {
             const value = record[refKey];
             if (value === undefined) continue;
@@ -645,6 +669,11 @@ function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): 
             // loosening as a tightening the rename walk's lexical polarity skip
             // cannot see through the ref indirection.
             if (underPolarityBoundary) return true;
+            // And they are loosen-safe only OUTSIDE draft-04 `id` resources: the
+            // cfworker engine resolves refs base-relatively there, and zod never
+            // emits a bare `#` inside an id-carrying entry — such refs are
+            // hand-authored and observe the strip/loosening.
+            if (inIdResource) return true;
             if (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value)) return true;
         }
         if (record.$anchor !== undefined || record.$dynamicAnchor !== undefined || record.$id !== undefined) return true;
@@ -670,15 +699,15 @@ function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): 
                 if (seen.has(value)) continue;
                 seen.add(value);
                 for (const subschema of Object.values(value as Record<string, unknown>)) {
-                    if (walk(subschema, false, childUnderBoundary, seen)) return true;
+                    if (walk(subschema, false, childUnderBoundary, inIdResource, seen)) return true;
                 }
                 continue;
             }
-            if (walk(value, false, childUnderBoundary, seen)) return true;
+            if (walk(value, false, childUnderBoundary, inIdResource, seen)) return true;
         }
         return false;
     };
-    return walk(document, true, false, new Set());
+    return walk(document, true, false, false, new Set());
 }
 
 /**
@@ -893,7 +922,15 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
     // would step past the very node granting tolerance (bare `.optional()` fields
     // are already excluded from `required` by zod's emitter, but one inside a pipe
     // — `z.string().optional().transform(async ...)` — is not).
-    if (def.type === 'default' || def.type === 'prefault' || def.type === 'catch' || def.type === 'optional') return true;
+    if (def.type === 'default' || def.type === 'catch' || def.type === 'optional') return true;
+    if (def.type === 'prefault') {
+        // UNLIKE `.default()`, `.prefault(v)` feeds v THROUGH the inner schema —
+        // `z.number().min(1).prefault(0)` rejects a missing key. Filling-then-
+        // revalidating is not filling: claim nothing and let the probe decide
+        // (sync verdicts are correct both ways; an async-refined valid-prefault
+        // field conservatively stays required, matching the documented posture).
+        return false;
+    }
     if (def.type === 'any' || def.type === 'unknown' || def.type === 'undefined' || def.type === 'void') return true;
     if (def.type === 'symbol' || def.type === 'function') return true;
     if (def.type === 'literal' && Array.isArray(def.values) && def.values.includes(undefined)) return true;
@@ -931,26 +968,82 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
         return def.options.some(option => hasStructuralMissingKeyTolerance(option, path));
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
-        // EVERY-side semantics: `undefined` must parse through BOTH sides (each
-        // filling its default) for zod to merge the results.
-        return hasStructuralMissingKeyTolerance(def.left, path) && hasStructuralMissingKeyTolerance(def.right, path);
+        // `undefined` must parse through BOTH sides AND the two filled results
+        // must MERGE — zod throws 'Unmergable intersection' otherwise (two scalar
+        // defaults with different values reject every payload omitting the key).
+        // Merging is provable structurally only for the distinct-key
+        // plain-object-defaults shape (the pinned async-refined spelling, where
+        // the probe cannot be used); everything else defers to the probe.
+        return intersectionSidesFillDisjointObjects(def.left, def.right);
+    }
+    if (def.type === 'promise') {
+        // zod 4's promise parse rejects `undefined` outright regardless of the
+        // inner type — there is no undefined-tolerant z.promise spelling. Claim
+        // nothing (the generic unwind below would wrongly grant the inner's
+        // tolerance); `promise` stays in WRAPPER_ZOD_DEF_TYPES for the
+        // root-TYPE-verdict walks, where transparency is correct.
+        return false;
     }
     if (def.type === 'nonoptional') {
         // z.nonoptional() RE-FORBIDS undefined, so tolerance by ACCEPTANCE inside
         // it (an inner optional, any/unknown, undefined-valued literals) does NOT
-        // survive the wrapper — only tolerance by FILLING does (default/prefault/
-        // static catch replace undefined before nonoptional's check runs). The
+        // survive the wrapper — only tolerance by FILLING does (default/static
+        // catch replace undefined before nonoptional's check runs). The
         // structural walk cannot tell the two apart, so it claims nothing and the
         // validate(undefined) probe in fieldAcceptsMissingKey decides: it returns
         // issues for `.optional().nonoptional()` (stays required) and success for
         // `.default(1).nonoptional()` (stays droppable). The generic unwind below
         // would wrongly propagate acceptance-tolerance through the re-forbid.
-        return false;
+        // SERIALIZATION-drop tolerance is the exception: a symbol/function leaf
+        // can never appear on the wire (JSON.stringify drops the key) no matter
+        // what validation demands, and the probe cannot see that — it survives
+        // the re-forbid.
+        return hasSerializationDroppedLeaf(def.innerType);
     }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
         return hasStructuralMissingKeyTolerance(def.innerType, path);
     }
     return false;
+}
+
+/**
+ * Whether the field unwinds (through transparent wrappers) to a symbol- or
+ * function-typed leaf — values `JSON.stringify` drops from the payload entirely,
+ * so the key can never appear on the wire regardless of what validation demands.
+ * Used where VALIDATION-based tolerance must not propagate but
+ * SERIALIZATION-based tolerance still applies (the `nonoptional` re-forbid).
+ */
+function hasSerializationDroppedLeaf(field: unknown): boolean {
+    if (typeof field !== 'object' || field === null) return false;
+    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown } } })._zod?.def;
+    if (def === undefined || typeof def.type !== 'string') return false;
+    if (def.type === 'symbol' || def.type === 'function') return true;
+    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) return hasSerializationDroppedLeaf(def.innerType);
+    return false;
+}
+
+/**
+ * The one structurally-provable mergeable-intersection shape: BOTH sides are
+ * `.default()`s whose fill values are plain objects with disjoint key sets, so
+ * zod's merge of the two fills cannot throw. Function-form defaults
+ * (`.default(() => …)`) and every other spelling defer to the probe.
+ */
+function intersectionSidesFillDisjointObjects(left: unknown, right: unknown): boolean {
+    const leftFill = plainObjectDefaultFill(left);
+    if (leftFill === undefined) return false;
+    const rightFill = plainObjectDefaultFill(right);
+    if (rightFill === undefined) return false;
+    return Object.keys(leftFill).every(key => !Object.hasOwn(rightFill, key));
+}
+
+/** The side's `.default()` fill value, when it is a plain (non-array) object. */
+function plainObjectDefaultFill(side: unknown): Record<string, unknown> | undefined {
+    if (typeof side !== 'object' || side === null) return undefined;
+    const def = (side as { _zod?: { def?: { type?: string; defaultValue?: unknown } } })._zod?.def;
+    if (def?.type !== 'default') return undefined;
+    const fill = def.defaultValue;
+    if (typeof fill !== 'object' || fill === null || Array.isArray(fill)) return undefined;
+    return fill as Record<string, unknown>;
 }
 
 /** Options for {@linkcode standardSchemaToJsonSchema}. */

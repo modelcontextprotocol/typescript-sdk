@@ -1200,6 +1200,53 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(bareTransform, 'output').required).toEqual(['name']);
     });
 
+    test('prefault, unmergeable intersections, and promise fields stay advertised required', () => {
+        // .prefault(v) feeds v THROUGH the inner schema — filling-then-revalidating
+        // is not filling, so the probe decides: the rejected fill keeps the field
+        // required, a valid fill keeps it droppable.
+        const prefaulted = z.object({ p: z.number().min(1).prefault(0), name: z.string() });
+        expect(standardSchemaToJsonSchema(prefaulted, 'output').required).toEqual(['p', 'name']);
+        const validPrefault = z.object({ p: z.number().min(1).prefault(5), name: z.string() });
+        expect(standardSchemaToJsonSchema(validPrefault, 'output').required).toEqual(['name']);
+        // Two scalar defaults with different values make zod throw 'Unmergable
+        // intersection' on every payload omitting the key.
+        const unmergeable = z.object({ m: z.intersection(z.number().default(0), z.number().default(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(unmergeable, 'output').required).toEqual(['m', 'name']);
+        // zod 4's promise parse rejects undefined regardless of the inner type.
+        const promised = z.object({ p: z.promise(z.number().default(0)), name: z.string() });
+        expect(standardSchemaToJsonSchema(promised, 'output').required).toEqual(['p', 'name']);
+    });
+
+    test('symbol leaves keep their wire-drop tolerance through nonoptional', () => {
+        // JSON.stringify drops symbol-valued keys regardless of what validation
+        // demands — serialization tolerance survives the re-forbid even though
+        // the probe (validation-only) cannot see it.
+        const required = z.object({ s: z.symbol().optional(), name: z.string() }).required();
+        expect(standardSchemaToJsonSchema(required, 'output').required).toEqual(['name']);
+        // Acceptance tolerance still must NOT survive.
+        const acceptance = z.object({ a: z.string().optional(), name: z.string() }).required();
+        expect(standardSchemaToJsonSchema(acceptance, 'output').required).toEqual(['a', 'name']);
+    });
+
+    test('registry-shaped refs inside an id resource keep the id (context-aware gate)', () => {
+        // cfworker resolves a `$ref: '#'` inside a draft-04 id resource
+        // base-relatively to THAT resource — zod never emits that spelling there,
+        // so it is hand-authored and the strip would invert every verdict.
+        const reg = z.object({ q: z.string(), self: z.unknown().optional().meta({ $ref: '#' }) }).meta({ id: 'RegSelf' });
+        const schema = z.object({ x: reg, name: z.string() });
+        for (const io of ['output', 'input'] as const) {
+            const result = standardSchemaToJsonSchema(schema, io);
+            expect(((result.$defs as Record<string, Record<string, unknown>>).RegSelf ?? {}).id).toBe('RegSelf');
+            const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+            expect(validate({ x: { q: 'a', self: { q: 'b' } }, name: 'n' }).valid).toBe(true); // resource-shaped self
+            expect(validate({ x: { q: 'a', self: { x: { q: 'c' }, name: 'm' } }, name: 'n' }).valid).toBe(false); // root-shaped self
+        }
+        // Registry-only documents (no refs inside entries) still get the strip.
+        const plain = z.object({ q: z.string() }).meta({ id: 'RegPlain' });
+        const stripped = standardSchemaToJsonSchema(z.object({ x: plain, y: plain, name: z.string() }), 'output');
+        expect(((stripped.$defs as Record<string, Record<string, unknown>>).RegPlain ?? {}).id).toBeUndefined();
+    });
+
     test('input conversions keep draft-04 id when hand-authored refs need its base', () => {
         // The input branch defers the strip under the same gate as the output
         // paths — no reference guard runs on input, but the hand-authored-ref
