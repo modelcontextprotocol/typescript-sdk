@@ -708,6 +708,63 @@ describe('zod conversion options (#2464)', () => {
         expect(() => standardSchemaToJsonSchema(z.literal(1n), 'input')).toThrow(/got type/);
     });
 
+    test('untouched intersection output roots keep their pre-#2464 verdicts', () => {
+        // A loud conjunct must throw even though the object conjunct could prove the
+        // root (an intersection value can never satisfy both sides) ...
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.bigint()), 'output')).toThrow(
+            /must describe objects/
+        );
+        // ... and a quiet non-provable conjunct keeps the typeless root, preserving
+        // the 2025-era legacy wrap for a WORKING pre-#2464 registration.
+        const anyConjunct = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.any()), 'output');
+        expect(anyConjunct.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(anyConjunct)).toBe(true);
+    });
+
+    test('piped and undefined-filtered loud literal output roots throw', () => {
+        // A bigint literal on a pipe's OUT side emits {type: 'number', const: 1},
+        // bypassing the typeless guard — pre-#2464 the conversion threw.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z
+                    .number()
+                    .transform(() => 1n)
+                    .pipe(z.literal(1n)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z
+                    .number()
+                    .transform(() => 1n)
+                    .pipe(z.literal([1n, 2n])),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // zod filters undefined out of the value list, emitting {type: 'string',
+        // const: 'a'} — but the undefined value threw pre-#2464.
+        expect(() => standardSchemaToJsonSchema(z.literal([undefined, 'a']), 'output')).toThrow(/must describe objects/);
+        // Representable literal output roots keep listing.
+        expect(standardSchemaToJsonSchema(z.literal('a'), 'output').type).toBe('string');
+    });
+
+    test('the catch degrade keeps reference targets ($anchor) compilable', () => {
+        // $anchor/$dynamicAnchor/$id constrain no instance value — deleting them only
+        // dangles inbound $refs, making the advertisement uncompilable (every
+        // callTool would fail at Ajv compile, before the request is sent).
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }).meta({ $anchor: 'cfgAnchor' }),
+            alias: z.unknown().meta({ $ref: '#cfgAnchor' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).cfg!.$anchor).toBe('cfgAnchor');
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ cfg: { q: 'x' }, alias: { q: 'y' }, name: 'n' }).valid).toBe(true);
+    });
+
     test('nullable date output roots list and validate their wire forms', () => {
         // The date override makes date-rooted OUTPUT emissions wire-truthful (a raw
         // Date ships as an ISO string), so 'timestamp or null' must list — classifying

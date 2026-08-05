@@ -300,6 +300,9 @@ function zodConversionOptions(
                         ctx.jsonSchema[key === 'oneOf' ? 'anyOf' : key] = skeletons;
                         continue;
                     }
+                    // Reference TARGETS constrain no instance value — deleting them only
+                    // dangles inbound `$ref`s and makes the advertisement uncompilable.
+                    if (key === '$anchor' || key === '$dynamicAnchor' || key === '$id') continue;
                     // Only schema-carrying and enforced keywords constrain validation;
                     // everything else — vocabulary annotations, `x-*` extensions, custom
                     // `.meta()` keys — is annotation-opaque and kept.
@@ -767,18 +770,17 @@ export function standardSchemaToJsonSchema(
         // as-is — stamping there would be self-contradictory. Anything that does not end up
         // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
         // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
-        // Loudness parity BEFORE the explicit-type early return: a bigint-valued
-        // literal root emits an explicit `{type: 'number', const: …}` under
-        // `unrepresentable: 'any'`, yet no such result can ever be serialized
-        // (JSON.stringify throws on BigInt) — pre-#2464 these threw loudly.
-        if (isBigintValuedLiteralRoot(schema)) {
+        // Loudness parity BEFORE the explicit-type early return: a loud-valued
+        // literal root (bigint, or undefined filtered from the value list) emits an
+        // explicit type under `unrepresentable: 'any'`, yet no such result can ever
+        // ride JSON truthfully — pre-#2464 these threw loudly.
+        if (isLoudLiteralOutputRoot(schema)) {
             throw new Error(
                 `MCP tool and prompt schemas must describe objects (got a non-object literal schema). ` +
                     `Wrap your schema in z.object({...}) or equivalent.`
             );
         }
         if (result.type !== undefined) return result;
-        if (isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
         // Loudness parity for misregistered OUTPUT roots too: an unrepresentable
         // non-object root (z.bigint(), z.map(), unions of them) threw at tools/list
         // pre-#2464 and must keep doing so — post-degrade it would list silently as
@@ -793,6 +795,10 @@ export function standardSchemaToJsonSchema(
                     `Wrap your schema in z.object({...}) or equivalent.`
             );
         }
+        // The stamp runs AFTER the guard: a loud conjunct (e.g.
+        // `z.intersection(z.object(...), z.bigint())`) must throw even when an object
+        // conjunct could prove the root.
+        if (isProvablyObjectShapedRoot(result)) return { type: 'object', ...result };
         return result;
     }
     if (result.type !== undefined && result.type !== 'object') {
@@ -820,29 +826,46 @@ export function standardSchemaToJsonSchema(
 }
 
 /**
- * Whether the root unwinds (through transparent wrappers and lazies) to a literal
- * carrying a bigint value. Its emission under `unrepresentable: 'any'` is an explicit
- * `{type: 'number', const: …}` that bypasses the typeless-root guard via the
- * explicit-type early return — yet server-side validation accepts only bigints, which
- * JSON.stringify can never serialize.
+ * Whether an OUTPUT root unwinds (through transparent wrappers, lazies, and pipe OUT
+ * sides) to a literal with loud values (bigint, or `undefined` beside representable
+ * co-values that zod filters out). Such emissions carry an explicit `type` under
+ * `unrepresentable: 'any'` — bypassing the typeless-root guard via the explicit-type
+ * early return — yet the raw values server-side validation accepts can never ride
+ * JSON truthfully. Pre-#2464 all of them threw loudly.
  */
-function isBigintValuedLiteralRoot(schema: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
+function isLoudLiteralOutputRoot(schema: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
     if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return false;
-    const def = (schema as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; values?: unknown } } })._zod?.def;
+    const def = (
+        schema as {
+            _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; in?: unknown; out?: unknown; values?: unknown } };
+        }
+    )._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
     const path = new Set(ancestors);
     path.add(schema);
     if (def.type === 'lazy' && typeof def.getter === 'function') {
         try {
-            return isBigintValuedLiteralRoot((def.getter as () => unknown)(), path);
+            return isLoudLiteralOutputRoot((def.getter as () => unknown)(), path);
         } catch {
             return false;
         }
     }
-    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
-        return isBigintValuedLiteralRoot(def.innerType, path);
+    if (def.type === 'pipe') {
+        // Output conversion processes the OUT side; a bare transform there has no
+        // literal of its own, so fall back to the IN side (mirroring the verdict walk).
+        if (def.out !== undefined) {
+            if (isLoudLiteralOutputRoot(def.out, path)) return true;
+            const outDef = (def.out as { _zod?: { def?: { type?: string } } })._zod?.def;
+            if (outDef?.type === 'transform' && def.in !== undefined) {
+                return isLoudLiteralOutputRoot(def.in, path);
+            }
+        }
+        return false;
     }
-    return def.type === 'literal' && Array.isArray(def.values) && def.values.some(value => typeof value === 'bigint');
+    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
+        return isLoudLiteralOutputRoot(def.innerType, path);
+    }
+    return def.type === 'literal' && nonObjectLiteralLoudness(def.values) === 'loud';
 }
 
 /**
@@ -1061,13 +1084,15 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
     // Keywords on one node AND-combine, so ANY present composition key proving
     // objectness suffices (a first-key-wins rule breaks when the loosen rewrite
     // relocates all-object members under `allOf` beside a user `.meta({anyOf})`).
+    // Every key uses EVERY-member semantics, preserving the pre-#2464 stamp/wrap
+    // decision for untouched emissions (e.g. `z.intersection(z.object(...), z.any())`
+    // stays typeless and 2025-era-wrapped); the loosen rewrite's relocated
+    // `{anyOf: members}` conjunct is itself provably object-shaped, so its proof
+    // survives the stricter rule.
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
         const members = schema[key];
         if (!Array.isArray(members) || members.length === 0) continue;
-        // A disjunction proves objectness only when EVERY member is an object; a
-        // conjunction already does when ONE conjunct is (the value must satisfy it).
-        const proves = key === 'allOf' ? members.some(member => isObjectMember(member)) : members.every(member => isObjectMember(member));
-        if (proves) return true;
+        if (members.every(member => isObjectMember(member))) return true;
     }
     return false;
 }
