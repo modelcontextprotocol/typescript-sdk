@@ -333,7 +333,11 @@ function zodConversionOptions(
                 // epilogue's pointer redirect — an inbound `$ref: '#/…/items/…'` alias
                 // would otherwise dangle.
                 const items = ctx.jsonSchema.items;
-                if (typeof items === 'object' && items !== null && !Array.isArray(items) && hasStructuralMissingKeyTolerance(def.element)) {
+                // Tolerance uses the same predicate as the object required-filter
+                // and record branches — structural walk PLUS the validate(undefined)
+                // probe — so probe-only-tolerant elements (e.g. a z.preprocess whose
+                // fn itself maps undefined to a value) get the wrap too.
+                if (typeof items === 'object' && items !== null && !Array.isArray(items) && fieldAcceptsMissingKey(def.element)) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [items, { type: 'null' }] };
                     recordNullToleranceWrapMove(moves, ctx.path, 'items');
@@ -346,7 +350,7 @@ function zodConversionOptions(
                 if (Array.isArray(def.items) && Array.isArray(prefixItems)) {
                     for (const [index, item] of def.items.entries()) {
                         const emitted = prefixItems[index];
-                        if (typeof emitted === 'object' && emitted !== null && hasStructuralMissingKeyTolerance(item)) {
+                        if (typeof emitted === 'object' && emitted !== null && fieldAcceptsMissingKey(item)) {
                             loosened.value = true;
                             prefixItems[index] = { anyOf: [emitted, { type: 'null' }] };
                             recordNullToleranceWrapMove(moves, ctx.path, 'prefixItems', index);
@@ -361,7 +365,7 @@ function zodConversionOptions(
                     typeof restItems === 'object' &&
                     restItems !== null &&
                     !Array.isArray(restItems) &&
-                    hasStructuralMissingKeyTolerance(def.rest)
+                    fieldAcceptsMissingKey(def.rest ?? undefined)
                 ) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [restItems, { type: 'null' }] };
@@ -581,16 +585,38 @@ function rewriteRelocatedJsonPointers(root: unknown, moves: readonly RelocatedPo
  * untouched. Runs after {@linkcode rewriteRelocatedJsonPointers} so pointers
  * redirected to a surviving location are recognized as resolvable and kept.
  */
-function neutralizeDanglingLocalRefs(root: Record<string, unknown>): void {
+function neutralizeDanglingLocalRefs(root: Record<string, unknown>): boolean {
+    // Iterated to a FIXPOINT: a boundary-conjunct deletion is itself a fresh
+    // dangle source — the deleted subtree may have carried an `$anchor` a
+    // surviving `#name` ref was judged against (stale snapshot), or been the
+    // target of a pointer-form ref checked earlier in the same walk (visit-order
+    // dependence). Each round re-derives the target snapshot and re-examines
+    // every ref; per-ref deletions create no new dangles, so only rounds that
+    // deleted a conjunct (here or in an embedded resource) continue. Terminates:
+    // every continuing round deletes at least one of finitely many conjuncts.
+    let mutatedEver = false;
+    let mutated = true;
+    while (mutated) {
+        mutated = neutralizeWalk(root, makeDanglesPredicate(root));
+        mutatedEver ||= mutated;
+    }
+    return mutatedEver;
+}
+
+/**
+ * The dangle test for refs whose resolution root is `root` — the document, or an
+ * embedded `$id` resource treated as a sub-document.
+ */
+function makeDanglesPredicate(root: Record<string, unknown>): (value: unknown) => boolean {
     const targets = collectLocalReferenceTargets(root);
-    const dangles = (value: unknown): boolean => {
+    return (value: unknown): boolean => {
         if (typeof value !== 'string' || value === '' || value === '#') return false;
         if (value.startsWith('#/')) return !localJsonPointerResolves(root, value.slice(1));
         // Anchor-form fragment: resolvable iff SOME surviving anchor bears the
-        // name. Document-wide collection is a superset of 2020-12's
-        // resource-scoped lookup, erring toward keeping: a resolvable ref is never
-        // neutralized, while a scope-mismatched dangle the superset hides was
-        // already broken by its author, not by the loosen machinery.
+        // name. Root-wide collection is a superset of 2020-12's resource-scoped
+        // lookup, erring toward keeping: a resolvable ref is never neutralized,
+        // while a scope-mismatched dangle the superset hides was already broken
+        // by its author, not by the loosen machinery.
         if (value.startsWith('#')) return !targets.anchors.has(value.slice(1));
         const hashIndex = value.indexOf('#');
         const base = hashIndex === -1 ? value : value.slice(0, hashIndex);
@@ -601,7 +627,6 @@ function neutralizeDanglingLocalRefs(root: Record<string, unknown>): void {
         if (fragment.startsWith('/')) return !localJsonPointerResolves(resource, fragment);
         return !targets.anchors.has(fragment);
     };
-    neutralizeWalk(root, dangles);
 }
 
 /**
@@ -611,13 +636,23 @@ function neutralizeDanglingLocalRefs(root: Record<string, unknown>): void {
  */
 const POLARITY_BOUNDARY_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set(['not', 'if', 'contains']);
 
-/** The polarity-aware neutralization walk — see {@linkcode neutralizeDanglingLocalRefs}. */
-function neutralizeWalk(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): void {
-    if (typeof node !== 'object' || node === null || seen.has(node)) return;
+/**
+ * The polarity-aware neutralization walk — see
+ * {@linkcode neutralizeDanglingLocalRefs}. Returns whether it deleted a boundary
+ * conjunct (directly or inside an embedded resource) — the signal that a new
+ * fixpoint round is needed. An embedded `$id` subtree is not skipped but treated
+ * as a SUB-DOCUMENT: the loosen machinery mutates freely inside such resources,
+ * so their base-relative refs are repaired by a nested neutralization whose
+ * resolution root is the resource node itself (renames inside a resource are
+ * neutralized rather than redirected — the recorded moves are document-rooted).
+ */
+function neutralizeWalk(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): boolean {
+    if (typeof node !== 'object' || node === null || seen.has(node)) return false;
     seen.add(node);
+    let mutated = false;
     if (Array.isArray(node)) {
-        for (const item of node) neutralizeWalk(item, dangles, seen);
-        return;
+        for (const item of node) mutated = neutralizeWalk(item, dangles, seen) || mutated;
+        return mutated;
     }
     const record = node as Record<string, unknown>;
     for (const refKey of ['$ref', '$dynamicRef'] as const) {
@@ -630,20 +665,52 @@ function neutralizeWalk(node: unknown, dangles: (value: unknown) => boolean, see
             // whole conjunct — deeper nesting may re-invert polarity, so no per-ref
             // repair inside is sound in both directions, while conjunct removal at
             // a positive position only ever loosens.
-            if (subtreeHasDanglingLocalRef(value, dangles)) delete record[key];
+            if (subtreeHasDanglingLocalRef(value, dangles)) {
+                delete record[key];
+                deleteDeadAnnotationSiblings(record, key);
+                mutated = true;
+            }
             continue;
         }
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
             for (const subschema of Object.values(value as Record<string, unknown>)) {
-                if (subtreeEstablishesNewIdBase(subschema)) continue;
-                neutralizeWalk(subschema, dangles, seen);
+                if (subtreeEstablishesNewIdBase(subschema)) {
+                    mutated = neutralizeDanglingLocalRefs(subschema as Record<string, unknown>) || mutated;
+                    continue;
+                }
+                mutated = neutralizeWalk(subschema, dangles, seen) || mutated;
             }
             continue;
         }
-        if (subtreeEstablishesNewIdBase(value)) continue;
-        neutralizeWalk(value, dangles, seen);
+        if (subtreeEstablishesNewIdBase(value)) {
+            mutated = neutralizeDanglingLocalRefs(value as Record<string, unknown>) || mutated;
+            continue;
+        }
+        mutated = neutralizeWalk(value, dangles, seen) || mutated;
+    }
+    return mutated;
+}
+
+/**
+ * Companion to a boundary-conjunct deletion, closing the 2020-12 ANNOTATION
+ * channel: `contains` contributes the item-evaluation annotations a sibling
+ * `unevaluatedItems: false` consumed, and `if`'s branches contribute property-
+ * and item-evaluation annotations for `unevaluatedProperties`/`unevaluatedItems`
+ * (while `then`/`else` are dead without `if`) — deleting the conjunct alone
+ * would TIGHTEN those siblings against previously-evaluated members. Deleting
+ * `unevaluated*` is genuinely loosen-only. `not` needs no companion: only
+ * successful subschemas contribute annotations, and `not` requires failure.
+ */
+function deleteDeadAnnotationSiblings(record: Record<string, unknown>, deletedKey: string): void {
+    if (deletedKey === 'contains') {
+        delete record.unevaluatedItems;
+    } else if (deletedKey === 'if') {
+        delete record.then;
+        delete record.else;
+        delete record.unevaluatedProperties;
+        delete record.unevaluatedItems;
     }
 }
 
@@ -660,15 +727,28 @@ function subtreeHasDanglingLocalRef(node: unknown, dangles: (value: unknown) => 
             if (seen.has(value)) continue;
             seen.add(value);
             for (const subschema of Object.values(value as Record<string, unknown>)) {
-                if (subtreeEstablishesNewIdBase(subschema)) continue;
-                if (subtreeHasDanglingLocalRef(subschema, dangles, seen)) return true;
+                if (subtreeHasDanglingLocalRefScoped(subschema, dangles, seen)) return true;
             }
             continue;
         }
-        if (subtreeEstablishesNewIdBase(value)) continue;
-        if (subtreeHasDanglingLocalRef(value, dangles, seen)) return true;
+        if (subtreeHasDanglingLocalRefScoped(value, dangles, seen)) return true;
     }
     return false;
+}
+
+/**
+ * Scope dispatch for the boundary scan: an embedded `$id` resource is scanned
+ * with its OWN dangle predicate (base-relative refs inside it resolve against
+ * the resource, not the enclosing root) — a dangle anywhere inside still
+ * condemns the enclosing boundary conjunct, since no per-ref repair inside a
+ * negative/conditional position is sound.
+ */
+function subtreeHasDanglingLocalRefScoped(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown>): boolean {
+    if (subtreeEstablishesNewIdBase(node)) {
+        const resource = node as Record<string, unknown>;
+        return subtreeHasDanglingLocalRef(resource, makeDanglesPredicate(resource));
+    }
+    return subtreeHasDanglingLocalRef(node, dangles, seen);
 }
 
 /**
@@ -743,8 +823,10 @@ function localJsonPointerResolves(root: unknown, pointer: string): boolean {
  * polarity-sensitive loosening; the polarity-sensitive NEUTRALIZE pass uses its
  * own walk, {@linkcode neutralizeWalk}). Subtrees establishing a new `$id` base
  * are skipped: their same-document pointers resolve against the embedded base,
- * not the document root. A ROOT `$id` names the document itself, so the root
- * node is always visited.
+ * not the document root the moves are rooted at — refs inside them broken by the
+ * loosen machinery are repaired by the neutralize pass's per-resource recursion
+ * instead. A ROOT `$id` names the document itself, so the root node is always
+ * visited.
  */
 function visitLocalRefBearingNodes(node: unknown, visit: (record: Record<string, unknown>) => void, seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
@@ -1406,7 +1488,12 @@ const REPRESENTABLE_NON_OBJECT_ZOD_DEF_TYPES: ReadonlySet<string> = new Set([
     'boolean',
     'null',
     'enum',
-    'template_literal'
+    'template_literal',
+    // A JSON array is never a JSON object (z.object rejects arrays at parse
+    // time), so array/tuple members are provably non-object exactly like the
+    // primitive types above.
+    'array',
+    'tuple'
 ]);
 
 /**
