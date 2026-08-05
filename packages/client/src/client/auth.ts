@@ -1318,8 +1318,10 @@ async function authInternal(
             // response without `scope` (including a null-stripped one) asserts the grant
             // is unchanged — preserve the stored scope instead of erasing the recorded
             // grant (the 403 insufficient_scope step-up unions it to avoid losing
-            // previously-granted permissions).
-            await provider.saveTokens({ ...newTokens, scope: newTokens.scope ?? tokens.scope, issuer }, infoCtx);
+            // previously-granted permissions). The conditional spread keeps `scope`
+            // strictly absent when neither side has one — never present-but-undefined.
+            const preservedScope = newTokens.scope ?? tokens.scope;
+            await provider.saveTokens({ ...newTokens, ...(preservedScope !== undefined && { scope: preservedScope }), issuer }, infoCtx);
             return 'AUTHORIZED';
         } catch (error) {
             // A non-TLS token endpoint is a configuration error — re-authorizing cannot

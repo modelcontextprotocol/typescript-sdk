@@ -3232,6 +3232,44 @@ describe('OAuth Authorization', () => {
             );
         });
 
+        it('saves a payload without a scope key when neither the response nor the stored tokens have one', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // Scope preservation must not manufacture a present-but-undefined `scope`
+            // key — the exact key shape this PR's normalization exists to prevent.
+            // toStrictEqual distinguishes an absent key from one set to undefined.
+            // The last saveTokens call is the refresh save (the first is the
+            // SEP-2352 issuer back-stamp of the legacy unstamped token set).
+            const savedTokens = (mockProvider.saveTokens as Mock).mock.lastCall![0];
+            expect('scope' in savedTokens).toBe(false);
+            expect(savedTokens).toStrictEqual({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'refresh123',
+                issuer: 'https://auth.example.com'
+            });
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {
