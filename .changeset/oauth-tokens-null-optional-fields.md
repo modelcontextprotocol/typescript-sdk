@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': patch
+'@modelcontextprotocol/core': minor
 '@modelcontextprotocol/core-internal': patch
 '@modelcontextprotocol/client': patch
 '@modelcontextprotocol/server-legacy': patch
