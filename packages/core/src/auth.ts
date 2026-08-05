@@ -144,6 +144,46 @@ export const OAuthTokensSchema = z
     .strip();
 
 /**
+ * OAuth 2.1 token response as received over the wire from an authorization server.
+ *
+ * Some authorization servers serialize absent optional members as JSON `null`
+ * (nonconformant with RFC 6749 §5.1, but common in the wild). Null-valued
+ * optional members are normalized to absent — the key is removed — before
+ * {@linkcode OAuthTokensSchema} validates, so valid-but-sloppy responses parse
+ * and `expires_in: null` never reaches `z.coerce.number()` (`Number(null) === 0`
+ * would yield an instantly-expired token). Removing the key (rather than mapping
+ * it to `undefined`) matters: callers such as `refreshAuthorization` spread the
+ * parsed response when merging with previously-stored tokens, and a
+ * present-but-undefined `refresh_token` key would clobber the preserved value.
+ * This shares the null-leniency goal of ElicitResult's `content` normalization
+ * but uses a stronger mechanic: ElicitResult maps `null` to a
+ * present-but-`undefined` member, whereas here the key must be strictly absent.
+ *
+ * Per RFC 6749 §5.1, an absent `scope` member is a positive assertion that
+ * the granted scope is identical to the scope the client requested, so
+ * stripping `scope: null` converts a response with undefined semantics into
+ * that assertion. This has little bearing on enforcement — the resource
+ * server remains authoritative — but the SDK does use `tokens.scope`
+ * conservatively in the 403 `insufficient_scope` step-up path, where an
+ * absent scope is treated as the empty set and forces a fresh authorization
+ * request rather than a refresh. Consumers must not derive granted-scope
+ * conclusions from the member's absence; those that need the authoritative
+ * grant should use token introspection instead.
+ */
+export const OAuthTokenResponseSchema = z.preprocess(value => {
+    if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+        return value;
+    }
+    const normalized: Record<string, unknown> = { ...value };
+    for (const [key, memberSchema] of Object.entries(OAuthTokensSchema.shape)) {
+        if (normalized[key] === null && memberSchema.safeParse(undefined).success) {
+            delete normalized[key];
+        }
+    }
+    return normalized;
+}, OAuthTokensSchema);
+
+/**
  * RFC 8693 §2.2.1 Token Exchange response for ID-JAG tokens.
  *
  * `token_type` is intentionally optional: per RFC 8693 §2.2.1 it is informational when

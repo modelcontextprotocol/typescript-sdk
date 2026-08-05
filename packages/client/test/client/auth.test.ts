@@ -2005,6 +2005,39 @@ describe('OAuth Authorization', () => {
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
+        it('treats null optional fields as absent (some auth servers serialize absent members as null)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'access123',
+                    token_type: 'Bearer',
+                    expires_in: null,
+                    scope: null,
+                    refresh_token: null,
+                    id_token: null
+                })
+            });
+
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                resource: new URL('https://api.example.com/mcp-server')
+            });
+
+            // toStrictEqual pins the null-valued members as strictly ABSENT keys, not
+            // present-but-undefined: refreshAuthorization spreads the parsed response
+            // when merging with stored tokens, so a present `refresh_token: undefined`
+            // key would clobber the preserved refresh token. It also pins that
+            // expires_in: null did not coerce to 0 (an instantly-expired token).
+            expect(tokens).toStrictEqual({
+                access_token: 'access123',
+                token_type: 'Bearer'
+            });
+        });
+
         it('exchanges code for tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2255,6 +2288,26 @@ describe('OAuth Authorization', () => {
             });
 
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
+        });
+
+        it('keeps the existing refresh token when the server returns refresh_token: null', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validTokens, refresh_token: null })
+            });
+
+            const refreshToken = 'refresh123';
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken
+            });
+
+            // The null must not clobber the preserved token when the parsed response
+            // is merged with the previously-stored tokens (it would then be persisted
+            // via saveTokens, silently destroying the stored refresh token).
+            expect(tokens.refresh_token).toBe(refreshToken);
+            expect(tokens).toStrictEqual({ ...validTokens, refresh_token: refreshToken });
         });
 
         it('validates token response schema', async () => {
@@ -3033,6 +3086,188 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
+        });
+
+        // RFC 6749 §5.1/§6: the SDK sends no `scope` parameter on refresh, so a response
+        // without `scope` (or with `scope: null`, stripped by OAuthTokenResponseSchema)
+        // asserts the grant is unchanged. The stored scope must survive the refresh —
+        // otherwise, after a restart, the insufficient_scope step-up would compute its
+        // scope union without the original grant and force interactive re-authorization.
+        const mockRefreshFetchWithTokenResponse = (tokenResponse: Record<string, unknown>) => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => tokenResponse
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+        };
+
+        it('keeps the stored scope when the refresh response returns scope: null', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                scope: null
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    refresh_token: 'refresh123',
+                    scope: 'read write'
+                }),
+                expect.anything()
+            );
+        });
+
+        it('keeps the stored scope when the refresh response omits scope', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    refresh_token: 'refresh123',
+                    scope: 'read write'
+                }),
+                expect.anything()
+            );
+        });
+
+        it('stores the scope the refresh response grants when one is present', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                scope: 'read'
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'read write'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // A scope the server does return is authoritative (a refresh may narrow the
+            // grant, RFC 6749 §6) — preservation only applies to an absent member.
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access123',
+                    scope: 'read'
+                }),
+                expect.anything()
+            );
+        });
+
+        it('saves a payload without a scope key when neither the response nor the stored tokens have one', async () => {
+            mockRefreshFetchWithTokenResponse({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            // Scope preservation must not manufacture a present-but-undefined `scope`
+            // key — the exact key shape this PR's normalization exists to prevent.
+            // toStrictEqual distinguishes an absent key from one set to undefined.
+            // The last saveTokens call is the refresh save (the first is the
+            // SEP-2352 issuer back-stamp of the legacy unstamped token set).
+            const savedTokens = (mockProvider.saveTokens as Mock).mock.lastCall![0];
+            expect('scope' in savedTokens).toBe(false);
+            expect(savedTokens).toStrictEqual({
+                access_token: 'new-access123',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'refresh123',
+                issuer: 'https://auth.example.com'
+            });
         });
 
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
