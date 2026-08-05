@@ -81,6 +81,10 @@ describe('isCallToolResult', () => {
         expect(isCallToolResult({})).toBe(false);
     });
 
+    it('returns false for an explicit content: undefined (the schema default parses it, but the narrowed type requires the array)', () => {
+        expect(isCallToolResult({ content: undefined, structuredContent: { ok: true } })).toBe(false);
+    });
+
     it('returns true for a result with content', () => {
         expect(
             isCallToolResult({

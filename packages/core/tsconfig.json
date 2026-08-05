@@ -4,9 +4,7 @@
     "exclude": ["node_modules", "dist"],
     "compilerOptions": {
         "paths": {
-            "*": ["./*"],
-            "@modelcontextprotocol/core-internal/schemas": ["./node_modules/@modelcontextprotocol/core-internal/src/types/schemas.ts"],
-            "@modelcontextprotocol/core-internal/auth": ["./node_modules/@modelcontextprotocol/core-internal/src/shared/auth.ts"]
+            "*": ["./*"]
         }
     }
 }

@@ -46,8 +46,9 @@ function read(rel: string): string {
 /** Matches any import/re-export whose module specifier contains `wire/rev`. */
 const WIRE_REV_IMPORT = /^(import|export)\b[^;]*?\bfrom\s+['"][^'"]*wire\/rev[^'"]*['"]/m;
 
-/** Matches a runtime (non-type-only) import or re-export of the public schemas module. */
-const RUNTIME_SCHEMAS_IMPORT = /^(import|export)\s+(?!type\b)[^;]*?\bfrom\s+['"][^'"]*types\/schemas(?:\.js)?['"]/m;
+/** Matches a runtime (non-type-only) import or re-export of the public schemas module (old path or its core home). */
+const RUNTIME_SCHEMAS_IMPORT =
+    /^(import|export)\s+(?!type\b)[^;]*?\bfrom\s+['"](?:[^'"]*types\/schemas(?:\.js)?|@modelcontextprotocol\/core(?:\/internal)?)['"]/m;
 
 /** Matches an eslint-disable directive that touches a no-restricted-imports rule. */
 const DISABLE_RESTRICTED = /eslint-disable[^\n]*no-restricted-imports/;

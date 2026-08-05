@@ -128,9 +128,12 @@ describe('createMcpHandler — modern path', () => {
             postRequest({ jsonrpc: '2.0', id: 5, method: 'server/discover', params: { _meta: ENVELOPE } })
         );
         expect(response.status).toBe(200);
-        const body = (await response.json()) as { result: { supportedVersions: string[]; serverInfo: { name: string } } };
+        const body = (await response.json()) as {
+            result: { supportedVersions: string[]; _meta: Record<string, { name: string }> };
+        };
         expect(body.result.supportedVersions).toEqual([MODERN_REVISION]);
-        expect(body.result.serverInfo.name).toBe('entry-test-server');
+        // #3002: identity in the result `_meta`, never the body.
+        expect(body.result._meta['io.modelcontextprotocol/serverInfo']!.name).toBe('entry-test-server');
     });
 
     it('backfills the deprecated accessors and the negotiated revision from the validated envelope (per-request instance state)', async () => {
@@ -309,7 +312,10 @@ describe('createMcpHandler — modern path', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_602);
-        expect(JSON.stringify(body.error.data)).toContain('clientInfo');
+        // clientCapabilities is the missing REQUIRED key; clientInfo is a
+        // SHOULD since spec PR #3002 and its absence is never an error.
+        expect(JSON.stringify(body.error.data)).toContain('clientCapabilities');
+        expect(JSON.stringify(body.error.data)).not.toContain('clientInfo');
         expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });
@@ -814,3 +820,57 @@ describe('createMcpHandler — close()', () => {
 // Type-level pin: a zero-argument factory stays assignable to McpServerFactory unchanged.
 const zeroArgFactory = () => new McpServer({ name: 'zero-arg', version: '1.0.0' });
 void createMcpHandler(zeroArgFactory);
+
+describe('createMcpHandler — keepAliveMs', () => {
+    function gatedFactory(): { factory: () => McpServer; release: () => void } {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const factory = (): McpServer => {
+            const s = new McpServer({ name: 'ka', version: '1.0.0' });
+            s.registerTool('gated', { inputSchema: z.object({}) }, async () => {
+                await gate;
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+            return s;
+        };
+        return { factory, release };
+    }
+
+    it('threads keepAliveMs into the modern per-request exchange stream', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { responseMode: 'sse', keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(postRequest(modernToolsCall('gated', {})));
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('threads keepAliveMs into the legacy stateless fallback per-request transport', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(
+                postRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'gated', arguments: {} } })
+            );
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

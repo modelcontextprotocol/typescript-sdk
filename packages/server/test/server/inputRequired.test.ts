@@ -119,17 +119,18 @@ function errorOf(message: JSONRPCMessage): { code: number; message: string; data
 describe('input-required returns on the 2026-07-28 era', () => {
     it('a write-once tool returning inputRequired() reaches the wire as input_required and completes on the retry', async () => {
         const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
+        const confirmationSchema = z.object({ confirm: z.boolean().meta({ title: 'Confirm deployment' }) });
         server.registerTool(
             'deploy',
             { inputSchema: z.object({ env: z.string() }), outputSchema: z.object({ deployed: z.boolean() }) },
             async ({ env }, ctx) => {
-                const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+                const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
                 if (!confirmed?.confirm) {
                     return inputRequired({
                         inputRequests: {
                             confirm: inputRequired.elicit({
                                 message: `Deploy to ${env}?`,
-                                requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } } }
+                                requestedSchema: confirmationSchema
                             })
                         },
                         requestState: 'opaque-deploy-state'
@@ -147,7 +148,19 @@ describe('input-required returns on the 2026-07-28 era', () => {
         );
         expect(first.resultType).toBe('input_required');
         expect(first.requestState).toBe('opaque-deploy-state');
-        expect(first.inputRequests).toMatchObject({ confirm: { method: 'elicitation/create' } });
+        expect(first.inputRequests).toMatchObject({
+            confirm: {
+                method: 'elicitation/create',
+                params: {
+                    mode: 'form',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { confirm: { type: 'boolean', title: 'Confirm deployment' } },
+                        required: ['confirm']
+                    }
+                }
+            }
+        });
         expect(first.ttlMs).toBeUndefined();
         expect(first.cacheScope).toBeUndefined();
         expect(first.content).toBeUndefined();

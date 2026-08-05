@@ -4,7 +4,7 @@
  * Provides standalone functions for RFC 8693 Token Exchange and RFC 7523 JWT Authorization Grant
  * flows as specified in the Enterprise Managed Authorization specification (SEP-990).
  *
- * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/draft/enterprise-managed-authorization.mdx
+ * @see https://github.com/modelcontextprotocol/ext-auth/blob/main/specification/stable/enterprise-managed-authorization.mdx
  * @module
  */
 

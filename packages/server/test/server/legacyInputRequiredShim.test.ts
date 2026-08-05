@@ -35,19 +35,21 @@ import { errorOf, legacyInitialize, resultOf, toolText, wireLegacy } from './leg
 import { McpServer } from '../../src/server/mcp';
 import { Server } from '../../src/server/server';
 
+const CONFIRM_SCHEMA = z.object({ confirm: z.boolean().meta({ title: 'Confirm deployment' }) });
+
 /** A sessionful legacy connection serving one write-once elicitation tool. */
 async function elicitingToolServer(options?: ConstructorParameters<typeof McpServer>[1]) {
     const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} }, ...options });
     const seenResponses: Array<Record<string, unknown> | undefined> = [];
     server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
         seenResponses.push(ctx.mcpReq.inputResponses);
-        const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+        const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', CONFIRM_SCHEMA);
         if (!confirmed?.confirm) {
             return inputRequired({
                 inputRequests: {
                     confirm: inputRequired.elicit({
                         message: `Deploy to ${env}?`,
-                        requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                        requestedSchema: CONFIRM_SCHEMA
                     })
                 }
             });
@@ -82,10 +84,18 @@ describe('legacy shim: write-once fulfilment on a sessionful 2025-era connection
         // The mis-typed input_required result never reached the wire.
         expect(resultOf(answer).resultType).toBeUndefined();
 
-        // A real wire request went out, form-mode, with the handler's params.
+        // A real wire request went out, form-mode, with the Standard Schema converted to MCP's restricted JSON Schema.
         const legs = wire.peerRequests('elicitation/create');
         expect(legs).toHaveLength(1);
-        expect(legs[0]!.params).toMatchObject({ mode: 'form', message: 'Deploy to prod?' });
+        expect(legs[0]!.params).toMatchObject({
+            mode: 'form',
+            message: 'Deploy to prod?',
+            requestedSchema: {
+                type: 'object',
+                properties: { confirm: { type: 'boolean', title: 'Confirm deployment' } },
+                required: ['confirm']
+            }
+        });
 
         // Stream association: the leg is stamped with the ORIGINATING request id.
         const [legOptions] = wire.sentOptionsFor('elicitation/create');

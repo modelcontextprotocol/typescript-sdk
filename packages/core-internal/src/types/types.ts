@@ -127,6 +127,7 @@ import type {
     ResourceTemplateSchema,
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
+    ResultMetaObjectSchema,
     ResultSchema,
     RoleSchema,
     RootSchema,
@@ -175,10 +176,8 @@ import type {
     UntitledSingleSelectEnumSchemaSchema
 } from './schemas';
 
-/* JSON types */
-export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-export type JSONObject = { [key: string]: JSONValue };
-export type JSONArray = JSONValue[];
+/* JSON types — moved to @modelcontextprotocol/core (packages/core/src/types.ts). */
+export type { JSONArray, JSONObject, JSONValue } from '@modelcontextprotocol/core/internal';
 
 /**
  * Utility types
@@ -248,7 +247,11 @@ export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
  */
 export type RequestMetaEnvelope = {
     [PROTOCOL_VERSION_META_KEY]: string;
-    [CLIENT_INFO_META_KEY]: Implementation;
+    /**
+     * Optional since spec PR #3002: clients SHOULD send it, servers must not
+     * require it (and should not rely on it for behavior or security).
+     */
+    [CLIENT_INFO_META_KEY]?: Implementation;
     [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilities;
     [LOG_LEVEL_META_KEY]?: LoggingLevel;
 };
@@ -918,6 +921,11 @@ export interface MessageExtraInfo {
 
 export type MetaObject = Record<string, unknown>;
 export type RequestMetaObject = RequestMeta;
+/**
+ * The contents of a result's `_meta` field (the 2026-07-28 `ResultMetaObject`):
+ * loose, with the optional self-reported serverInfo key typed when present.
+ */
+export type ResultMetaObject = Infer<typeof ResultMetaObjectSchema>;
 
 /**
  * {@linkcode CreateMessageRequestParams} without tools - for backwards-compatible overload.

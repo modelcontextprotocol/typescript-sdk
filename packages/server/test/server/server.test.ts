@@ -154,13 +154,10 @@ describe('Server', () => {
         });
     });
 
-    describe('tools/call handler-result validation (required content)', () => {
-        // Server-side pin for the documented wire break (docs/migration/upgrade-to-v2.md,
-        // "Wire tightening (every era)"): with the
-        // content.default([]) affordance removed, a handler result without
-        // `content` is rejected with -32602 `Invalid tools/call result` —
-        // never silently defaulted onto the wire — while an authored-content
-        // result passes through the wrapped handler untouched.
+    describe('tools/call handler-result validation (content default)', () => {
+        // Pin for the v1-parity authoring affordance: content-less handler
+        // results normalize to content: [] before era validation, on every
+        // leg; other result families are not normalized.
         async function callToolOnServer(result: CallToolResult): Promise<JSONRPCMessage> {
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
             server.setRequestHandler('tools/call', () => result);
@@ -193,13 +190,42 @@ describe('Server', () => {
             return response;
         }
 
-        it('rejects a structured-only handler result (no content) with -32602 Invalid tools/call result', async () => {
+        it('defaults a structured-only handler result (no content) to content: [] on the wire (v1 parity)', async () => {
+            // Runtime defaults structured-only results (v1 parity); the wire
+            // stays spec-valid with content: [].
             const response = await callToolOnServer({ structuredContent: { ok: true } } as unknown as CallToolResult);
+
+            const result = (response as { result?: { content?: unknown; structuredContent?: unknown } }).result;
+            expect(result).toBeDefined();
+            expect(result!.content).toEqual([]);
+            expect(result!.structuredContent).toEqual({ ok: true });
+        });
+
+        it('does not normalize an array handler result — rejected loudly', async () => {
+            const response = await callToolOnServer([{ type: 'text', text: 'hi' }] as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('does not normalize a foreign-family body with an explicit content: undefined', async () => {
+            const response = await callToolOnServer({
+                task: { taskId: 't-1', status: 'working' },
+                content: undefined
+            } as unknown as CallToolResult);
+            const error = (response as { error?: { code: number } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+        });
+
+        it('does not normalize a body carrying another result family — rejected loudly', async () => {
+            const response = await callToolOnServer({
+                inputRequests: { r1: { method: 'elicitation/create' } }
+            } as unknown as CallToolResult);
 
             const error = (response as { error?: { code: number; message: string } }).error;
             expect(error).toBeDefined();
             expect(error!.code).toBe(-32602);
-            expect(error!.message).toContain('Invalid tools/call result');
         });
 
         it('passes an authored-content result through to the wire', async () => {

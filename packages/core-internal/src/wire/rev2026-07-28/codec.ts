@@ -29,10 +29,11 @@ import type * as z from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
-import type { CallToolResult, Result } from '../../types/types';
+import type { CallToolResult, Implementation, Result } from '../../types/types';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
-import { fillCacheFields, stampResultType } from './encodeContract';
+import { buildSchemas2026 } from './buildSchemas';
+import { fillCacheFields, stampResultType, stampServerInfoMeta } from './encodeContract';
 import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired';
 import {
     getNotificationSchema2026,
@@ -41,18 +42,6 @@ import {
     hasNotificationMethod2026,
     hasRequestMethod2026
 } from './registry';
-import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    DiscoverResultSchema,
-    GetPromptResultSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
-    ReadResourceResultSchema,
-    RequestMetaEnvelopeSchema
-} from './schemas';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -67,8 +56,13 @@ function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOu
 
 const NOT_IN_ERA: ValidateOutcome<never> = { ok: false, reason: 'not-in-era' };
 
-/** The reserved `_meta` keys an envelope must carry on this era (in reporting order). */
-const REQUIRED_ENVELOPE_KEYS: readonly string[] = [PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY];
+/**
+ * The reserved `_meta` keys an envelope must carry on this era (in reporting
+ * order). `clientInfo` is NOT here: spec PR #3002 demoted it to SHOULD, so a
+ * request without it is accepted (a present-but-malformed value still fails
+ * the envelope schema parse below).
+ */
+const REQUIRED_ENVELOPE_KEYS: readonly string[] = [PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY];
 
 /** Strip the known deleted-field set from an outbound result (Q1-SD3 iii). */
 function enforceDeletedFields(method: string, result: Result): Result {
@@ -146,7 +140,7 @@ export const rev2026Codec: WireCodec & {
         for (const key of REQUIRED_ENVELOPE_KEYS) {
             if (!(key in meta)) issues.push({ key, problem: 'missing' });
         }
-        const parsed = RequestMetaEnvelopeSchema.safeParse(meta);
+        const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(meta);
         if (!parsed.success) {
             for (const issue of parsed.error.issues) {
                 const path = issue.path.map(String);
@@ -244,7 +238,8 @@ export const rev2026Codec: WireCodec & {
         // Own-key lookup: `method` is peer-influenced on related-request
         // paths, and a prototype-chain hit (e.g. 'constructor') must not
         // masquerade as a schema and throw out of the decode hop.
-        const wireSchema = Object.hasOwn(WIRE_RESULT_SCHEMAS, method) ? WIRE_RESULT_SCHEMAS[method] : undefined;
+        const wireResultSchemas = getWireResultSchemas();
+        const wireSchema = Object.hasOwn(wireResultSchemas, method) ? wireResultSchemas[method] : undefined;
         if (wireSchema !== undefined) {
             const parsed = wireSchema.safeParse(raw);
             if (!parsed.success) {
@@ -261,12 +256,14 @@ export const rev2026Codec: WireCodec & {
         return { kind: 'complete', result: lifted as Result };
     },
 
-    encodeResult(method: string, result: Result): Result {
+    encodeResult(method: string, result: Result, serverInfo?: Implementation): Result {
         // The stamp seam, in pinned order: deleted-field strictness, then the
         // resultType stamp (handler pass-through only for methods whose
         // vocabulary goes beyond 'complete'), then the cache fill for the
-        // cacheable operations (only on post-stamp 'complete' results).
-        return fillCacheFields(method, stampResultType(method, enforceDeletedFields(method, result)));
+        // cacheable operations (only on post-stamp 'complete' results), then
+        // the `_meta` serverInfo identity stamp (#3002 — every result,
+        // handler-authored value wins).
+        return stampServerInfoMeta(fillCacheFields(method, stampResultType(method, enforceDeletedFields(method, result))), serverInfo);
     },
 
     // The −32002 resource-not-found domain code maps to −32602 Invalid Params
@@ -277,10 +274,10 @@ export const rev2026Codec: WireCodec & {
         if (material.envelope === undefined) {
             return (
                 'Request is missing the required _meta envelope for protocol revision 2026-07-28 ' +
-                '(io.modelcontextprotocol/protocolVersion, io.modelcontextprotocol/clientInfo, io.modelcontextprotocol/clientCapabilities)'
+                '(io.modelcontextprotocol/protocolVersion, io.modelcontextprotocol/clientCapabilities)'
             );
         }
-        const parsed = RequestMetaEnvelopeSchema.safeParse(material.envelope);
+        const parsed = buildSchemas2026().RequestMetaEnvelopeSchema.safeParse(material.envelope);
         if (!parsed.success) {
             return `Invalid _meta envelope for protocol revision 2026-07-28: ${parsed.error.issues.map(issue => issue.message).join('; ')}`;
         }
@@ -288,15 +285,31 @@ export const rev2026Codec: WireCodec & {
     }
 };
 
-/** Wire-true result wrappers consulted by decode step 2, keyed by method. */
-const WIRE_RESULT_SCHEMAS: Record<string, z.ZodType> = {
-    'tools/call': CallToolResultSchema,
-    'tools/list': ListToolsResultSchema,
-    'prompts/get': GetPromptResultSchema,
-    'prompts/list': ListPromptsResultSchema,
-    'resources/list': ListResourcesResultSchema,
-    'resources/templates/list': ListResourceTemplatesResultSchema,
-    'resources/read': ReadResourceResultSchema,
-    'completion/complete': CompleteResultSchema,
-    'server/discover': DiscoverResultSchema
-};
+/** Wire-true result wrappers consulted by decode step 2, keyed by method —
+ * built once through the era's schema memo on the first decode. */
+let wireResultSchemasMemo: Record<string, z.ZodType> | undefined;
+
+function getWireResultSchemas(): Record<string, z.ZodType> {
+    if (wireResultSchemasMemo) return wireResultSchemasMemo;
+    const s = buildSchemas2026();
+    wireResultSchemasMemo = {
+        'tools/call': s.CallToolResultSchema,
+        'tools/list': s.ListToolsResultSchema,
+        'prompts/get': s.GetPromptResultSchema,
+        'prompts/list': s.ListPromptsResultSchema,
+        'resources/list': s.ListResourcesResultSchema,
+        'resources/templates/list': s.ListResourceTemplatesResultSchema,
+        'resources/read': s.ReadResourceResultSchema,
+        'completion/complete': s.CompleteResultSchema,
+        'server/discover': s.DiscoverResultSchema
+    };
+    return wireResultSchemasMemo;
+}
+
+/**
+ * Forces the lazy wire-result wrapper map (and, through it, the era's schema
+ * memo). Warm-up hook for `preloadSchemas()` — no-op once the map exists.
+ */
+export function warmWireResultSchemas2026(): void {
+    getWireResultSchemas();
+}

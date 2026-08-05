@@ -4,7 +4,8 @@ import {
     ClientResultSchema,
     ServerNotificationSchema,
     ServerRequestSchema,
-    ServerResultSchema
+    ServerResultSchema,
+    TOOL_RESULT_FOREIGN_FAMILY_KEYS
 } from '@modelcontextprotocol/core-internal';
 import type { Transport } from '@modelcontextprotocol/server';
 import {
@@ -15,6 +16,10 @@ import {
     isJSONRPCResultResponse,
     isSpecType
 } from '@modelcontextprotocol/server';
+
+function isPlainRecord(v: unknown): v is Record<string, unknown> {
+    return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
 
 export type WireParty = 'client' | 'server';
 
@@ -100,7 +105,28 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
         // (InputRequiredResultSchema lives alongside, never widening it).
         // Era-gated: only cells wired for the modern era opt in, so an
         // input_required on a 2025-era cell's wire is still flagged.
-        if (party === 'server' && opts.allowInputRequiredResults === true && isInputRequiredResult(result)) return;
+        if (party === 'server' && isInputRequiredResult(result)) {
+            if (opts.allowInputRequiredResults === true) return;
+            fail(party, `input_required result on a cell not opted into multi-round-trip`, msg);
+        }
+        // With content.default([]) restored, the neutral union accepts any
+        // object via the CallToolResult member — so union conformance below
+        // is a weak check, and the other result families are asserted here
+        // explicitly, by vocabulary. Cells that opt into vendor-extension
+        // methods skip this check (the sniffer is method-blind for results;
+        // before the default was restored these bodies failed the union parse
+        // and were excused by the same flag).
+        if (party === 'server' && !opts.allowCustomMethods && isPlainRecord(result) && result.content === undefined) {
+            for (const key of TOOL_RESULT_FOREIGN_FAMILY_KEYS) {
+                if (key in result) {
+                    fail(
+                        party,
+                        `content-less result carrying '${key}' — another result family must not read as an empty tools/call success`,
+                        msg
+                    );
+                }
+            }
+        }
         const r = schemas.result.safeParse(result);
         if (!r.success) {
             // A result for a vendor-extension request legitimately won't match the spec union.

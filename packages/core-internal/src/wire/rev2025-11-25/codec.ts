@@ -31,9 +31,9 @@ import type * as z from 'zod/v4';
 import type { CallToolResult, Result } from '../../types/types';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
+import { buildSchemas2025 } from './buildSchemas';
 import { isNonObjectJsonSchemaRoot, wrapOutputSchemaForLegacy } from './legacyWrap';
 import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry';
-import { CreateMessageResultSchema, CreateMessageResultWithToolsSchema } from './schemas';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -75,9 +75,13 @@ export const rev2025Codec: WireCodec = {
     validateInputResponse: (): ValidateOutcome<never> => NOT_IN_ERA,
 
     // Arrow literals can't carry overload signatures; the cast is sound (the
-    // boolean dispatches to exactly the schema each overload names).
-    samplingResultVariant: ((hasTools: boolean, raw: unknown) =>
-        triState(hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema, raw)) as WireCodec['samplingResultVariant'],
+    // boolean dispatches to exactly the schema each overload names). The
+    // schemas are pulled through the era's memo so the codec module itself
+    // stays construction-free at import time.
+    samplingResultVariant: ((hasTools: boolean, raw: unknown) => {
+        const s = buildSchemas2025();
+        return triState(hasTools ? s.CreateMessageResultWithToolsSchema : s.CreateMessageResultSchema, raw);
+    }) as WireCodec['samplingResultVariant'],
 
     // The 2025 era carries no per-request `_meta` envelope — legacy wire
     // bytes stay identical (the never-stamp guarantee, outbound-request half).
@@ -105,8 +109,9 @@ export const rev2025Codec: WireCodec = {
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
-        // dropped before validation, whatever its value. There is no
-        // discrimination on this era — `resultType` carries no meaning here.
+        // dropped before validation, whatever its value. Validation judges the
+        // husk — the registry wire-seam schema on the plain path, the caller's
+        // schema on the explicit path (task interop).
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];

@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # Wire schemas
 
 `@modelcontextprotocol/core` exports the **wire schemas** — the exact Zod constants the SDK validates protocol and OAuth payloads against — for code that holds raw JSON instead of SDK objects.
@@ -56,7 +57,7 @@ These are the `*Schema` constants v1 exported from `@modelcontextprotocol/sdk/ty
 
 If you build with `McpServer` or `Client`, skip this package: [tools](../servers/tools.md) arrive in your handler already validated, and [tool calls](../clients/calling.md) come back as typed results. Reach for `@modelcontextprotocol/core` when nothing stands between you and the JSON — gateways, proxies, test harnesses, [worker fleets](./gateway.md).
 
-Install it separately (`npm install @modelcontextprotocol/core`) — `@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface and never depend on it. The package is runtime-neutral; `zod` is its only dependency.
+`@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface, but they resolve their shared schema graph from this package at runtime, so it already arrives transitively in your tree. Add it to your own `dependencies` (`npm install @modelcontextprotocol/core`) when you import from it directly. The package is runtime-neutral; `zod` is its only dependency.
 
 ## Pick the schema for the message you hold
 

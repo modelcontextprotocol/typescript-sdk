@@ -5,6 +5,7 @@ import {
     createFetchWithInit,
     encodeMcpParamValue,
     isInitializedNotification,
+    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -33,9 +34,13 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced via {@linkcode} in finishAuth JSDoc
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
+import { markAuthSeamEscape } from './authSeam';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
+
+/** The parsed 403 `insufficient_scope` challenge handed to the step-up flow. */
+type StepUpChallenge = { scope?: string; resourceMetadataUrl?: URL; errorDescription?: string; statusText?: string; text?: string | null };
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -366,10 +371,18 @@ export class StreamableHTTPClientTransport implements Transport {
      * `_startOrAuthSse` path so both apply the same `'throw'` short-circuit,
      * the same superset-gated refresh bypass, and the same retry cap.
      */
-    private async _stepUpAuthorize(
-        challenge: { scope?: string; resourceMetadataUrl?: URL; errorDescription?: string; statusText?: string; text?: string | null },
-        stepUpRetries: number
-    ): Promise<'AUTHORIZED' | 'REDIRECT'> {
+    private async _stepUpAuthorize(challenge: StepUpChallenge, stepUpRetries: number): Promise<'AUTHORIZED' | 'REDIRECT'> {
+        // Auth-seam stamp, method-level: covers the InsufficientScopeError
+        // throws, the retry-limit SdkHttpError, the tokens() read, and every
+        // auth() escape (typed or not).
+        try {
+            return await this._stepUpAuthorizeInner(challenge, stepUpRetries);
+        } catch (error) {
+            throw markAuthSeamEscape(error);
+        }
+    }
+
+    private async _stepUpAuthorizeInner(challenge: StepUpChallenge, stepUpRetries: number): Promise<'AUTHORIZED' | 'REDIRECT'> {
         if (this._onInsufficientScope === 'throw') {
             throw new InsufficientScopeError({
                 requiredScope: challenge.scope,
@@ -421,7 +434,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        const token = await this._authProvider?.token();
+        let token: string | undefined;
+        try {
+            token = await this._authProvider?.token();
+        } catch (error) {
+            // Auth-seam stamp: a throwing token() is an auth failure, never a
+            // network failure.
+            throw markAuthSeamEscape(error);
+        }
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
@@ -542,23 +562,31 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        try {
+                            await this._authProvider.onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit
+                            });
+                        } catch (error) {
+                            // Auth-seam stamp: covers the SDK's OAuth flow and
+                            // custom onUnauthorized callbacks alike.
+                            throw markAuthSeamEscape(error);
+                        }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._startOrAuthSse(options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401,
-                            statusText: response.statusText
-                        });
+                        throw markAuthSeamEscape(
+                            new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                                status: 401,
+                                statusText: response.statusText
+                            })
+                        );
                     }
-                    throw new UnauthorizedError();
+                    throw markAuthSeamEscape(new UnauthorizedError());
                 }
 
                 if (response.status === 403) {
@@ -570,7 +598,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             stepUpRetries
                         );
                         if (result !== 'AUTHORIZED') {
-                            throw new UnauthorizedError();
+                            throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
                     }
@@ -936,6 +964,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             this._applyBodyDerivedHeaders(headers, message);
+            // A new session starts "without a session ID attached" (2025-11-25 transports §Session Management).
+            const isHandshake = Array.isArray(message) ? message.some(m => isInitializeRequest(m)) : isInitializeRequest(message);
+            if (isHandshake) {
+                headers.delete('mcp-session-id');
+            }
             // Per-request additional headers (the Client passes SEP-2243
             // `Mcp-Param-*` here on a 2026-07-28 connection). Reserved
             // standard/auth header names are skipped so a caller cannot
@@ -973,10 +1006,10 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Handle session ID received during initialization
-            const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId) {
-                this._sessionId = sessionId;
+            // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
+            // Clients include only an id "returned by the server during initialization", so a sessionless handshake clears any stale id.
+            if (isHandshake && response.ok) {
+                this._sessionId = response.headers.get('mcp-session-id') || undefined;
             }
 
             if (!response.ok) {
@@ -991,23 +1024,31 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        try {
+                            await this._authProvider.onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit
+                            });
+                        } catch (error) {
+                            // Auth-seam stamp: covers the SDK's OAuth flow and
+                            // custom onUnauthorized callbacks alike.
+                            throw markAuthSeamEscape(error);
+                        }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._send(message, options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401,
-                            statusText: response.statusText
-                        });
+                        throw markAuthSeamEscape(
+                            new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                                status: 401,
+                                statusText: response.statusText
+                            })
+                        );
                     }
-                    throw new UnauthorizedError();
+                    throw markAuthSeamEscape(new UnauthorizedError());
                 }
 
                 const text = await response.text?.().catch(() => null);
@@ -1021,7 +1062,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             stepUpRetries
                         );
                         if (result !== 'AUTHORIZED') {
-                            throw new UnauthorizedError();
+                            throw markAuthSeamEscape(new UnauthorizedError());
                         }
                         return this._send(message, options, isAuthRetry, stepUpRetries + 1);
                     }

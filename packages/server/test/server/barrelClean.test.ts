@@ -1,10 +1,11 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, test } from 'vitest';
+
+import { ensureBuilt } from '../helpers/ensureBuilt';
 
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
@@ -37,11 +38,12 @@ function rootExportBlockOf(content: string): string {
 }
 
 describe('@modelcontextprotocol/server root entry is browser-safe', () => {
-    beforeAll(() => {
-        if (!existsSync(join(distDir, 'index.mjs')) || !existsSync(join(distDir, 'stdio.mjs'))) {
-            execFileSync('pnpm', ['build'], { cwd: pkgDir, stdio: 'inherit' });
-        }
-    }, 60_000);
+    beforeAll(async () => {
+        // Single-flight across parallel vitest workers: this file and
+        // workerdSchemaPreload.test.ts both read the built dist, and two
+        // unlocked `pnpm build`s would race tsdown's clean step.
+        await ensureBuilt(pkgDir);
+    }, 180_000);
 
     test('dist/index.mjs does not export StdioServerTransport and has no process-stdio runtime imports', () => {
         const entry = readFileSync(join(distDir, 'index.mjs'), 'utf8');
@@ -66,7 +68,7 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
     });
 
     test('runtime shims vendor default validator backends instead of requiring consumers to install them', () => {
-        for (const shim of ['shimsNode.mjs', 'shimsWorkerd.mjs']) {
+        for (const shim of ['shimsNode.mjs', 'shimsWorkerd.mjs', 'shimsBrowser.mjs']) {
             const entry = join(distDir, shim);
             expect(readFileSync(entry, 'utf8')).not.toMatch(VALIDATOR_BACKEND_IMPORT);
 

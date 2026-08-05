@@ -30,3 +30,10 @@ export function parseSchema<T extends AnySchema>(
 ): { success: true; data: z.output<T> } | { success: false; error: z.core.$ZodError } {
     return z.safeParse(schema, data);
 }
+
+/**
+ * Union of the declared shape keys across several Zod object schemas.
+ */
+export function shapeKeys(schemas: Array<{ shape: Record<string, unknown> }>): ReadonlySet<string> {
+    return new Set(schemas.flatMap(schema => Object.keys(schema.shape)));
+}
