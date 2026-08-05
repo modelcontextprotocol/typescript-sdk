@@ -1176,6 +1176,62 @@ describe('zod conversion options (#2464)', () => {
         expect(filled.required).toEqual(['b']);
     });
 
+    test('pipe tolerance needs the OUT side to be a bare transform', () => {
+        // A validating OUT side may reject the filled/passed value, so the walk
+        // claims nothing and the validate(undefined) probe decides — the filled 0
+        // fails min(1), and optional-through-coerce yields NaN.
+        const validatingOut = z.object({ p: z.number().default(0).pipe(z.number().min(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(validatingOut, 'output').required).toEqual(['p', 'name']);
+        const coerced = z.object({ p: z.string().optional().pipe(z.coerce.number()), name: z.string() });
+        expect(standardSchemaToJsonSchema(coerced, 'output').required).toEqual(['p', 'name']);
+        // A defaulted value satisfying the OUT side keeps the field droppable via
+        // the probe...
+        const satisfied = z.object({ p: z.number().default(5).pipe(z.number().min(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(satisfied, 'output').required).toEqual(['name']);
+        // ...and the bare-transform OUT side keeps the structural shortcut (the
+        // async stage below is exactly why the probe cannot be used there).
+        const bareTransform = z.object({
+            p: z
+                .number()
+                .default(7)
+                .transform(async value => value + 1),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(bareTransform, 'output').required).toEqual(['name']);
+    });
+
+    test('input conversions keep draft-04 id when hand-authored refs need its base', () => {
+        // The input branch defers the strip under the same gate as the output
+        // paths — no reference guard runs on input, but the hand-authored-ref
+        // test does.
+        const reg = z.object({ q: z.string() }).meta({ id: 'RegIn' });
+        const inResult = standardSchemaToJsonSchema(
+            z.object({ x: reg, alias: z.unknown().meta({ $ref: 'RegIn' }), name: z.string() }),
+            'input'
+        );
+        expect(((inResult.$defs as Record<string, Record<string, unknown>>).RegIn ?? {}).id).toBe('RegIn');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(inResult);
+        expect(validate({ x: { q: 'a' }, alias: { q: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a' }, alias: { nope: 1 }, name: 'n' }).valid).toBe(false); // ref enforces
+        // Registry-only inputs still get the strip (Ajv compilability).
+        const registryOnly = standardSchemaToJsonSchema(z.object({ x: reg, y: reg, name: z.string() }), 'input');
+        expect(((registryOnly.$defs as Record<string, Record<string, unknown>>).RegIn ?? {}).id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(registryOnly)({ x: { q: 'a' }, y: { q: 'b' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('fragment refs inside an id resource keep the id (base-relative resolution)', () => {
+        // cfworker resolves a fragment pointer inside a draft-04 id resource
+        // relative to THAT base — stripping the id would retarget it to the root
+        // and dangle. Any hand-authored ref, fragment-form included, keeps the id.
+        const reg = z.object({ q: z.string(), alias: z.unknown().meta({ $ref: '#/properties/q' }) }).meta({ id: 'RegY' });
+        const result = standardSchemaToJsonSchema(z.object({ x: reg, name: z.string() }), 'output');
+
+        expect(((result.$defs as Record<string, Record<string, unknown>>).RegY ?? {}).id).toBe('RegY');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ x: { q: 'a', alias: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a', alias: 1 }, name: 'n' }).valid).toBe(false); // resolves against the RegY base
+    });
+
     test('guard-shipped documents keep draft-04 id when URI-form refs need its base', () => {
         // cfworker resolves URI-form refs through `schema.$id || schema.id` base
         // registration — the strict emission must keep the `id` the ref resolves
@@ -1526,12 +1582,12 @@ describe('zod conversion options (#2464)', () => {
         expect(Array.isArray(standardSchemaToJsonSchema(z.date().nullable(), 'output').anyOf)).toBe(true);
     });
 
-    test('the allOf-push stamps the sound type when user conjuncts defeat the proof', () => {
+    test('user conjuncts defeating the post-loosen proof still get the root stamp (strict snapshot)', () => {
         // A .meta() carrying BOTH a non-all-object anyOf AND a non-object-provable
         // allOf conjunct defeats every() on every composition key after the push —
-        // the pushed members still prove the value is an object, so the rewrite
-        // stamps the explicit type itself (pre-#2464 these roots were stamped via
-        // their emitted oneOf).
+        // but the epilogue's strictRootProven snapshot read the STRICT emission,
+        // whose first present key was the DU's all-object oneOf, so the root is
+        // stamped exactly as pre-#2464 (the push branch itself stamps nothing).
         const du = z
             .discriminatedUnion('t', [
                 z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),

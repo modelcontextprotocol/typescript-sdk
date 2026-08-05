@@ -13,6 +13,13 @@ and so do dynamic catch values, `.catch(ctx => …)`; the `.catch()` degrade cov
 fallback values only. And a misregistered non-object ROOT — `z.bigint()` or `z.map()` as
 the whole `inputSchema`/`outputSchema` — still fails `tools/list` loudly by design,
 preserving the pre-fix error instead of listing a permanently-broken tool.)
+Registry metadata (`.meta({id: 'X'})`) no longer emits the draft-04 `id` keyword on either
+io path — Ajv v8 hard-rejects it at compile time ('NOT SUPPORTED: keyword "id"'), so the
+SDK's own client could never validate such advertisements. The key is kept only when the
+document carries a hand-authored ref beyond zod's registry shapes: those may resolve
+through the `id` base-URI on the `@cfworker/json-schema` engine (URI-form refs, and
+fragment pointers inside an `id` resource), so stripping would break them — such documents
+ship with `id` intact, exactly as pre-fix.
 Output schemas no longer advertise constraints the server doesn't enforce on the raw
 `structuredContent` it ships: fields that may be legitimately absent (`.default()`,
 undefined-accepting types) are dropped from `required` — on objects and enum-keyed records —

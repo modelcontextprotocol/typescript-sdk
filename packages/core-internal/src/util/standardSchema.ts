@@ -223,6 +223,12 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   catchProcessor before this hook runs ("Dynamic catch values are not supported
  *   in JSON Schema"), so one such tool still fails the entire `tools/list` — the
  *   degrade below covers static `.catch(value)` only.
+ * - An undefined-unsafe `z.preprocess` fn wrapping a tolerant inner (`z.preprocess(
+ *   v => (v as string).length, z.number().default(7))`) still advertises the field
+ *   as droppable even though a missing key throws in the fn: the structural walk
+ *   cannot evaluate the fn, and deferring the preprocess spelling to the
+ *   validate(undefined) probe would mis-require async-refined preprocess fields
+ *   (the probe goes async and conservatively claims nothing).
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
  *   post-transform shape (`io: 'output'`) even though the server validates and ships
  *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
@@ -279,10 +285,12 @@ function zodConversionOptions(
                 // help), so the SDK's own client could never validate the advertisement.
                 // Registry `$ref`s are path-based (#/$defs/Name) and cannot dangle;
                 // renaming to `$id` would change base-URI resolution, so plain removal.
-                // The zod OUTPUT flow defers this strip on its strict pass — a
-                // guard-shipped document with URI-form refs needs the `id` base the
-                // cfworker engine resolves them through (see the guard branch in
-                // standardSchemaToJsonSchema).
+                // The strict and input passes DEFER this strip and apply it
+                // post-hoc only when no hand-authored ref exists — refs beyond
+                // zod's registry shapes may resolve through an `id` base on the
+                // cfworker engine (see standardSchemaToJsonSchema). The loosen
+                // pass strips in-hook: the guard already vouched the document
+                // carries no hand-authored reference construct.
                 delete ctx.jsonSchema.id;
             }
             if (def.type === 'date') {
@@ -522,27 +530,34 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
 const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
 
 /**
- * Whether any reference keyword in the document carries a non-fragment value — a
- * ref that may resolve through a base URI (`$id`, or the draft-04 `id` the
- * cfworker engine also registers) rather than by same-document pointer/anchor.
- * Position-aware like the guard walk.
+ * Whether any reference keyword in the document carries a hand-authored value —
+ * anything but zod's own registry shapes (`#`, `#/$defs/<name>`). Zod's registry
+ * refs are root-base JSON Pointers that never resolve through a draft-04 `id`
+ * base, so stripping `id` around them is safe; every OTHER ref may depend on an
+ * `id` base on the cfworker engine (URI-form refs resolve through
+ * `schema.$id || schema.id` registration, and even a fragment pointer INSIDE an
+ * `id` resource resolves relative to that base). Position-aware like the guard
+ * walk.
  */
-function hasNonFragmentRefs(document: Record<string, unknown>): boolean {
+function hasHandAuthoredRefValues(document: Record<string, unknown>): boolean {
     return someSchemaNode(document, record =>
         ['$ref', '$dynamicRef', '$recursiveRef'].some(refKey => {
             const value = record[refKey];
-            return typeof value === 'string' && !value.startsWith('#');
+            if (value === undefined) return false;
+            return typeof value !== 'string' || (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value));
         })
     );
 }
 
 /**
  * Deletes every keyword-position draft-04 `id` in the document — the post-hoc
- * spelling of the override hook's strip, for the guard-strict path where the
+ * spelling of the override hook's strip, for the conversion paths where the
  * override runs with the strip deferred. Only safe when
- * {@linkcode hasNonFragmentRefs} is false: with fragment-only refs the `id` keys
- * are inert bases nothing resolves through, while Ajv v8 hard-rejects the
- * keyword at compile time.
+ * {@linkcode hasHandAuthoredRefValues} is false: with only zod-registry refs the
+ * `id` keys are inert bases nothing resolves through, while Ajv v8 hard-rejects
+ * the keyword at compile time. Any hand-authored ref — URI-form or
+ * fragment-form — keeps the `id` (exact pre-#2464 parity: Ajv rejected those
+ * documents then too, and the cfworker engine needs the base).
  */
 function stripLegacyIdKeywords(document: Record<string, unknown>): void {
     someSchemaNode(document, record => {
@@ -892,10 +907,21 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
         }
     }
     if (def.type === 'pipe' && def.in !== undefined) {
-        if (hasStructuralMissingKeyTolerance(def.in, path)) return true;
-        // `z.preprocess(fn, inner)` builds the opposite pipe — the transform sits at
-        // `def.in` and the tolerant node (e.g. a default) at `def.out`.
         const inDef = (def.in as { _zod?: { def?: { type?: string } } })._zod?.def;
+        const outDef = (def.out as { _zod?: { def?: { type?: string } } } | undefined)?._zod?.def;
+        // IN-side tolerance survives the pipe only when the OUT side is a BARE
+        // TRANSFORM (nothing re-validates the filled/passed value — the pinned
+        // `.default(7).transform(async …)` shape, where the async stage is exactly
+        // why the probe cannot be used). A validating OUT side may reject the
+        // filled value (`.default(0).pipe(z.number().min(1))` rejects 0;
+        // `.optional().pipe(z.coerce.number())` coerces undefined to NaN), so the
+        // walk claims nothing there and the validate(undefined) probe decides.
+        if (outDef?.type === 'transform' && hasStructuralMissingKeyTolerance(def.in, path)) return true;
+        // `z.preprocess(fn, inner)` builds the opposite pipe — the transform sits at
+        // `def.in` and the tolerant node (e.g. a default) at `def.out`. The fn's
+        // own undefined-safety is NOT checked (a Known residual gap): deferring to
+        // the probe would mis-require async-refined preprocess fields the pinned
+        // tests keep droppable.
         if (inDef?.type === 'transform' && def.out !== undefined) {
             return hasStructuralMissingKeyTolerance(def.out, path);
         }
@@ -1006,9 +1032,13 @@ export function standardSchemaToJsonSchema(
         result = convert(undefined);
     } else if (io !== 'output' || std.vendor !== 'zod') {
         // The loosen family rewrites only zod OUTPUT advertisements — every other
-        // conversion runs once, with the sanitizing overrides (date rewrite,
-        // draft-04 `id` strip) alone for zod inputs.
-        result = convert(zodConversionOptions(io, loosened, false));
+        // conversion runs once, with the sanitizing overrides alone for zod
+        // inputs. The draft-04 `id` strip is deferred and applied post-hoc under
+        // the same hand-authored-ref gate as the output paths: an input document
+        // whose refs resolve through an `id` base must keep it for the cfworker
+        // engine.
+        result = convert(zodConversionOptions(io, loosened, false, false));
+        if (std.vendor === 'zod' && !hasHandAuthoredRefValues(result)) stripLegacyIdKeywords(result);
     } else {
         // Wire-truthfulness loosening is guarded by reference-construct detection:
         // first emit STRICTLY (sanitizing overrides only) and inspect the natural
@@ -1025,11 +1055,14 @@ export function standardSchemaToJsonSchema(
         // — stripping would break a working pre-#2464 registration.
         const strict = convert(zodConversionOptions(io, loosened, false, false));
         if (hasHandAuthoredReferenceConstructs(strict)) {
-            // With only fragment-form refs the `id` keys are inert bases — strip
+            // With only zod-registry refs the `id` keys are inert bases — strip
             // them post-hoc so Ajv keeps compiling registry-id documents (its v8
-            // engine hard-rejects the keyword; it rejected URI-form-ref documents
-            // pre-#2464 too, so keeping `id` for those is pre-fix parity).
-            if (!hasNonFragmentRefs(strict)) stripLegacyIdKeywords(strict);
+            // engine hard-rejects the keyword). ANY hand-authored ref keeps the
+            // `id`: URI-form refs resolve through it, and even a fragment pointer
+            // inside an `id` resource resolves relative to that base on the
+            // cfworker engine (Ajv rejected such documents pre-#2464 too, so
+            // keeping `id` is pre-fix parity).
+            if (!hasHandAuthoredRefValues(strict)) stripLegacyIdKeywords(strict);
             result = strict;
         } else {
             // The 2025-era wrap-stamp decision must match main, which read the RAW
@@ -1489,8 +1522,9 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
     // nullable union carrying a user `.meta({allOf: [{type: 'object'}]})`) stayed
     // typeless and 2025-era-wrapped on main, so a later key must not prove what
     // the first cannot. The loosen rewrite's allOf-push does not rely on this
-    // proof seeing its relocated conjunct: it stamps `type: 'object'` itself, and
-    // its internal proof argument carries only `anyOf`.
+    // proof seeing its relocated conjunct: the output epilogue decides the root
+    // stamp from the STRICT pre-loosen snapshot, where the emitted oneOf is
+    // still the first present key.
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
         const members = schema[key];
         if (!Array.isArray(members) || members.length === 0) continue;
