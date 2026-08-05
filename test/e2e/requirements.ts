@@ -235,11 +235,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:timeout:max-total': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
-        behavior: 'A maximum total timeout is enforced even when progress notifications keep arriving.'
+        behavior: 'A maximum total timeout is enforced even when progress notifications keep arriving.',
+        transports: ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'entryStateless', 'entryModern']
     },
     'protocol:timeout:reset-on-progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
-        behavior: "When configured to do so, each progress notification resets the request's read timeout."
+        behavior: "When configured to do so, each progress notification resets the request's read timeout.",
+        transports: ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'entryStateless', 'entryModern']
     },
     'protocol:timeout:sends-cancellation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
