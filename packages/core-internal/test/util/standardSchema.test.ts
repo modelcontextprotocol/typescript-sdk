@@ -675,10 +675,101 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ arr: [3, 5, 4, 6], counted: 1, name: 'n' }).valid).toBe(true);
     });
 
-    test('the object proof consults every composition key (any key may prove)', () => {
+    test('the oneOf rewrite redirects pointers through the renamed segment', () => {
+        // The members moved to anyOf — a pointer still spelling oneOf would DANGLE,
+        // making the whole document uncompilable (callTool fails before sending).
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+            z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+        ]);
+        const schema = z.object({
+            du,
+            alias: z.unknown().meta({ $ref: '#/properties/du/oneOf/0' }),
+            dynAlias: z.unknown().meta({ $dynamicRef: '#/properties/du/oneOf/1' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeUndefined();
+        expect(properties.alias!.$ref).toBe('#/properties/du/anyOf/0');
+        expect(properties.dynAlias!.$dynamicRef).toBe('#/properties/du/anyOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the oneOf rewrite redirects pointers into the allOf-pushed segment', () => {
+        // On the push branch the members land under `allOf/<n>/anyOf`, not `anyOf`.
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }] });
+        const schema = z.object({
+            du,
+            alias: z.unknown().meta({ $ref: '#/properties/du/oneOf/1' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).alias!.$ref).toBe('#/properties/du/allOf/0/anyOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'b' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('pointers through an untouched oneOf stay put (no-loosening control)', () => {
+        const du = z.discriminatedUnion('t', [z.object({ t: z.literal('a') }), z.object({ t: z.literal('b') })]);
+        const schema = z.object({
+            du,
+            alias: z.string().optional().meta({ $ref: '#/properties/du/oneOf/0' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/0');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a degraded member $defs survives the skeleton at its pointer-addressed spot', () => {
+        // `$defs` entries are PATH-addressed (`#/…/$defs/X`) — the catch degrade's
+        // type skeleton must carry them (like the name-resolved anchors) or inbound
+        // pointers dangle and the document stops compiling.
+        const schema = z.object({
+            cfg: z
+                .union([z.object({ v: z.string() }).meta({ $defs: { X: { type: 'string' } } }), z.object({ w: z.number() })])
+                .catch({ v: 'd' }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/anyOf/0/$defs/X' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const cfg = (result.properties as Record<string, Record<string, unknown>>).cfg!;
+        expect((cfg.anyOf as Array<Record<string, unknown>>)[0]!.$defs).toEqual({ X: { type: 'string' } });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { v: 'd' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the constraint wrap leaves $defs at the wrap site', () => {
+        // wrapConstraintsInAnyOf moves constraints into anyOf[0]; `$defs` is
+        // path-addressed, so relocating it (unlike the name-resolved anchors, which
+        // stay resolvable from anywhere) dangles inbound `#/…/$defs/X` pointers.
+        const schema = z.object({
+            f: z.file().meta({ $defs: { X: { type: 'string' } } }),
+            alias: z.unknown().meta({ $ref: '#/properties/f/$defs/X' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const f = (result.properties as Record<string, Record<string, unknown>>).f!;
+        expect(f.$defs).toEqual({ X: { type: 'string' } });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ f: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('relocated members keep their stamp beside a null-membered user anyOf', () => {
         // The loosen rewrite relocates the DU members under allOf beside the user's
-        // .meta({anyOf}) — a first-key-wins proof would read the user's anyOf, see
-        // the null member, and flip the 2025-era legacy wrap.
+        // .meta({anyOf}) and stamps `type: 'object'` itself — the epilogue proof
+        // reads the user's anyOf first (first-present-key-wins), sees the null
+        // member, and could not prove the root on its own.
         const du = z
             .discriminatedUnion('t', [
                 z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
@@ -689,6 +780,19 @@ describe('zod conversion options (#2464)', () => {
 
         expect(result.type).toBe('object');
         expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('untouched multi-key composition roots keep the typeless root (first-present-key-wins)', () => {
+        // No loosening fires here, so the emission reaches the epilogue proof
+        // untouched: its first present composition key (the union's anyOf) has a
+        // null member, so main never stamped — an any-key-may-prove rule reading
+        // the user's allOf instead would flip the 2025-era legacy wrap for a
+        // WORKING pre-#2464 registration.
+        const schema = z.union([z.object({ a: z.string() }), z.null()]).meta({ allOf: [{ type: 'object' }] });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(result.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(true);
     });
 
     test('bigint-valued literal output roots throw across spellings', () => {
@@ -719,6 +823,20 @@ describe('zod conversion options (#2464)', () => {
         const anyConjunct = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.any()), 'output');
         expect(anyConjunct.type).toBeUndefined();
         expect(isNonObjectJsonSchemaRoot(anyConjunct)).toBe(true);
+    });
+
+    test('an all-date union side keeps date intersections loud on output', () => {
+        // `z.union([z.date(), z.date()])` admits only Dates — no value satisfies
+        // both it and the object side, and pre-#2464 the conversion threw on the
+        // date. The union spelling must not slip past the direct-side parity check.
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.date()])), 'output')
+        ).toThrow(/must describe objects/);
+        // A date union ROOT stays quiet — the date override makes those emissions
+        // wire-truthful, so 'timestamp or one of these' style tools keep listing.
+        const root = standardSchemaToJsonSchema(z.union([z.date(), z.date()]), 'output');
+        expect(root.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(root)).toBe(true);
     });
 
     test('piped and undefined-filtered loud literal output roots throw', () => {

@@ -405,29 +405,54 @@ function zodConversionOptions(
 }
 
 /**
+ * A JSON-Pointer prefix relocation performed by {@linkcode rewriteOneOfToAnyOf}:
+ * every same-document pointer that traverses `from` must be redirected to `to`.
+ * `from`'s ancestor segments are spelled in the coordinates that held AFTER the
+ * moves recorded before it, so applying an ordered move list sequentially walks a
+ * pointer from original coordinates to final ones.
+ */
+interface RelocatedPointerPrefix {
+    from: string;
+    to: string;
+}
+
+/** RFC 6901 escaping for a single JSON-Pointer reference token. */
+function escapeJsonPointerSegment(segment: string): string {
+    return segment.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
+/**
  * Recursively moves every `oneOf` in an emitted (already-loosened) JSON Schema tree
  * to `anyOf`. Used when a conversion's catch degrade or required-filter fired: the
  * loosened members of an untouched parent `oneOf` (e.g. a discriminated union whose
  * catch-wrapped discriminators were degraded) may have become mutually satisfiable,
  * inverting exactly-one semantics into reject-everything.
+ *
+ * Each relocation is appended to `moves` (as a JSON-Pointer prefix pair rooted at
+ * `path`) so {@linkcode rewriteRelocatedJsonPointers} can redirect same-document
+ * `$ref`/`$dynamicRef` pointers that traverse the moved segment — a user
+ * `.meta({$ref: '#/properties/du/oneOf/0'})` alias would otherwise dangle and fail
+ * schema compilation outright.
  */
-function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): void {
+function rewriteOneOfToAnyOf(node: unknown, path = '', moves: RelocatedPointerPrefix[] = [], seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {
-        for (const item of node) rewriteOneOfToAnyOf(item, seen);
+        for (const [index, item] of node.entries()) rewriteOneOfToAnyOf(item, `${path}/${index}`, moves, seen);
         return;
     }
     const record = node as Record<string, unknown>;
     if (Array.isArray(record.oneOf)) {
         if (record.anyOf === undefined) {
             record.anyOf = record.oneOf;
+            moves.push({ from: `${path}/oneOf`, to: `${path}/anyOf` });
         } else {
             // A user `.meta({anyOf})` can coexist with the emitted `oneOf` — preserve
             // conjunction semantics without clobbering it: keywords on one node
             // combine with AND, so `{anyOf: members}` under `allOf` is equivalent.
             const allOf = Array.isArray(record.allOf) ? record.allOf : (record.allOf = []);
             allOf.push({ anyOf: record.oneOf });
+            moves.push({ from: `${path}/oneOf`, to: `${path}/allOf/${allOf.length - 1}/anyOf` });
             // The relocated members' objectness becomes invisible to the wrap proof's
             // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
             // [{minProperties: 1}]})) — stamp the sound explicit type here (the value
@@ -452,17 +477,88 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
         // sibling `maxContains` (zod never emits `contains`, so skipping is
         // regression-free).
         if (key === 'not' || key === 'if' || key === 'contains') continue;
+        const childPath = `${path}/${escapeJsonPointerSegment(key)}`;
         // Schema MAPS hold schemas under user-chosen names that may collide with
         // annotation keywords (a property literally named `description` still
         // carries a schema) — recurse into every value unconditionally.
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
+            for (const [name, subschema] of Object.entries(value as Record<string, unknown>)) {
+                rewriteOneOfToAnyOf(subschema, `${childPath}/${escapeJsonPointerSegment(name)}`, moves, seen);
+            }
             continue;
         }
-        rewriteOneOfToAnyOf(value, seen);
+        rewriteOneOfToAnyOf(value, childPath, moves, seen);
     }
+}
+
+/**
+ * Redirects same-document `$ref`/`$dynamicRef` JSON Pointers through the prefix
+ * relocations {@linkcode rewriteOneOfToAnyOf} performed, mirroring the legacy-wrap
+ * envelope's pointer rewrite (`wire/rev2025-11-25/legacyWrap.ts`): a pointer that
+ * traverses a moved `oneOf` segment (`#/…/oneOf/<i>/…`) is rewritten to the
+ * segment's new home (`#/…/anyOf/<i>/…`, or `#/…/allOf/<n>/anyOf/<i>/…` on the
+ * allOf-push branch) so it keeps resolving to the same subschema. Position-aware
+ * like the rename walk itself: only schema-carrying keywords are descended into
+ * (data-valued `const`/`enum`/`default`/`examples` and annotations are opaque),
+ * schema-map VALUES are always descended into while their keys stay names, and —
+ * unlike the rename walk — `not`/`if`/`contains` subtrees ARE descended into
+ * (redirecting a pointer is resolution-preserving, never a polarity-sensitive
+ * loosening). Subtrees establishing a new `$id` base are skipped: their
+ * same-document pointers resolve against the embedded base, not the document root
+ * the move prefixes are rooted at. Cross-document refs (not starting with `#/`)
+ * are left untouched.
+ */
+function rewriteRelocatedJsonPointers(node: unknown, moves: readonly RelocatedPointerPrefix[], seen: Set<unknown> = new Set()): void {
+    if (typeof node !== 'object' || node === null || seen.has(node)) return;
+    seen.add(node);
+    if (Array.isArray(node)) {
+        for (const item of node) rewriteRelocatedJsonPointers(item, moves, seen);
+        return;
+    }
+    const record = node as Record<string, unknown>;
+    // Base-establishing `$id` guards sit at the recursion sites below, not here: a
+    // ROOT `$id` names the document itself, so `#/…` pointers under it still
+    // address these very coordinates and must be rewritten, while NESTED bases own
+    // their subtrees' resolution and are never descended into.
+    for (const refKey of ['$ref', '$dynamicRef'] as const) {
+        const value = record[refKey];
+        if (typeof value !== 'string' || !value.startsWith('#/')) continue;
+        let pointer = value.slice(1);
+        for (const move of moves) {
+            if (pointer === move.from || pointer.startsWith(`${move.from}/`)) {
+                pointer = move.to + pointer.slice(move.from.length);
+            }
+        }
+        record[refKey] = `#${pointer}`;
+    }
+    for (const [key, value] of Object.entries(record)) {
+        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+            if (seen.has(value)) continue;
+            seen.add(value);
+            for (const subschema of Object.values(value as Record<string, unknown>)) {
+                if (subtreeEstablishesNewIdBase(subschema)) continue;
+                rewriteRelocatedJsonPointers(subschema, moves, seen);
+            }
+            continue;
+        }
+        if (subtreeEstablishesNewIdBase(value)) continue;
+        rewriteRelocatedJsonPointers(value, moves, seen);
+    }
+}
+
+/**
+ * Whether a subtree's `$id` establishes a new RFC 3986 resolution base (mirrors
+ * the legacy wrap's guard): same-document pointers inside such a subtree resolve
+ * against the embedded base, so the document-rooted pointer rewrite must not
+ * touch them. Arrays are containers, not schemas — they never carry `$id`.
+ */
+function subtreeEstablishesNewIdBase(node: unknown): boolean {
+    if (typeof node !== 'object' || node === null || Array.isArray(node)) return false;
+    const id = (node as Record<string, unknown>).$id;
+    return id !== undefined && !(typeof id === 'string' && id.startsWith('#'));
 }
 
 /**
@@ -475,6 +571,10 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
 function wrapConstraintsInAnyOf(node: Record<string, unknown>, alternative: Record<string, unknown>): void {
     const constrained: Record<string, unknown> = {};
     for (const key of Object.keys(node)) {
+        // `$defs` constrains nothing and is PATH-addressed: inbound `#/…/$defs/X`
+        // pointers spell out its exact position, so unlike the name-resolved
+        // anchors (which relocate safely inside `anyOf[0]`) it must stay put.
+        if (key === '$defs') continue;
         if (SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key) || ENFORCED_JSON_SCHEMA_KEYWORDS.has(key)) {
             constrained[key] = node[key];
             delete node[key];
@@ -495,8 +595,11 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
     const skeleton: Record<string, unknown> = {};
     // Only `type: 'object'` feeds the proof; any other type is an unenforced constraint.
     if (source.type === 'object') skeleton.type = 'object';
-    // Reference TARGETS constrain nothing — dropping them would dangle inbound $refs.
-    for (const referenceKey of ['$anchor', '$dynamicAnchor', '$id'] as const) {
+    // Reference TARGETS constrain nothing — dropping them would dangle inbound
+    // $refs. `$defs` rides along verbatim: its entries are path-addressed
+    // (`#/…/$defs/X`), so unlike the name-resolved anchors they must stay at the
+    // exact position inbound pointers spell out.
+    for (const referenceKey of ['$anchor', '$dynamicAnchor', '$id', '$defs'] as const) {
         if (source[referenceKey] !== undefined) skeleton[referenceKey] = source[referenceKey];
     }
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
@@ -768,8 +871,13 @@ export function standardSchemaToJsonSchema(
         // satisfiable — e.g. catch-wrapped discriminators — and Ajv would reject
         // every payload with "must match exactly one schema in oneOf". Rewrite to
         // the honest `anyOf` (loosen-only and wrap-neutral:
-        // `isProvablyObjectShapedRoot` treats the composition keywords identically).
-        rewriteOneOfToAnyOf(result);
+        // `isProvablyObjectShapedRoot` treats the composition keywords identically),
+        // then redirect any same-document pointers that traversed a moved segment
+        // so they keep resolving (a dangling `$ref` is uncompilable — worse than
+        // any loosening).
+        const moves: RelocatedPointerPrefix[] = [];
+        rewriteOneOfToAnyOf(result, '', moves);
+        if (moves.length > 0) rewriteRelocatedJsonPointers(result, moves);
     }
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
@@ -961,7 +1069,13 @@ function nonObjectTypelessRootVerdict(
     if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
         const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path));
         if (verdicts.includes(undefined)) return undefined;
-        return { type: 'union', loud: verdicts.some(verdict => verdict?.loud === true) };
+        const loud = verdicts.some(verdict => verdict?.loud === true);
+        // An all-date union IS a date side: `z.union([z.date(), z.date()])` admits
+        // only Dates, so the intersection branch's date-parity rule below must see
+        // it (pre-#2464 the conversion threw on the date either way). A root or
+        // union-member position reads only `loud`, so the type is inert there.
+        if (verdicts.every(verdict => verdict?.type === 'date')) return { type: 'date', loud };
+        return { type: 'union', loud };
     }
     if (def.type === 'intersection' && def.left !== undefined && def.right !== undefined) {
         const left = nonObjectTypelessRootVerdict(def.left, io, path);
@@ -1099,18 +1213,18 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
         member !== null &&
         typeof member === 'object' &&
         ((member as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(member as Record<string, unknown>));
-    // Keywords on one node AND-combine, so ANY present composition key proving
-    // objectness suffices (a first-key-wins rule breaks when the loosen rewrite
-    // relocates all-object members under `allOf` beside a user `.meta({anyOf})`).
-    // Every key uses EVERY-member semantics, preserving the pre-#2464 stamp/wrap
-    // decision for untouched emissions (e.g. `z.intersection(z.object(...), z.any())`
-    // stays typeless and 2025-era-wrapped); the loosen rewrite's relocated
-    // `{anyOf: members}` conjunct is itself provably object-shaped, so its proof
-    // survives the stricter rule.
+    // FIRST-PRESENT-KEY-WINS with EVERY-member semantics, matching the pre-#2464
+    // stamp/wrap decision for untouched emissions: a multi-key root whose first
+    // present composition key has a non-object member (e.g. an anyOf-emitting
+    // nullable union carrying a user `.meta({allOf: [{type: 'object'}]})`) stayed
+    // typeless and 2025-era-wrapped on main, so a later key must not prove what
+    // the first cannot. The loosen rewrite's allOf-push does not rely on this
+    // proof seeing its relocated conjunct: it stamps `type: 'object'` itself, and
+    // its internal proof argument carries only `anyOf`.
     for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
         const members = schema[key];
         if (!Array.isArray(members) || members.length === 0) continue;
-        if (members.every(member => isObjectMember(member))) return true;
+        return members.every(member => isObjectMember(member));
     }
     return false;
 }
