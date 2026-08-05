@@ -675,7 +675,7 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ arr: [3, 5, 4, 6], counted: 1, name: 'n' }).valid).toBe(true);
     });
 
-    test('the object proof consults every composition key (allOf uses some-semantics)', () => {
+    test('the object proof consults every composition key (any key may prove)', () => {
         // The loosen rewrite relocates the DU members under allOf beside the user's
         // .meta({anyOf}) — a first-key-wins proof would read the user's anyOf, see
         // the null member, and flip the 2025-era legacy wrap.
@@ -763,6 +763,63 @@ describe('zod conversion options (#2464)', () => {
         expect((result.properties as Record<string, Record<string, unknown>>).cfg!.$anchor).toBe('cfgAnchor');
         const validate = new AjvJsonSchemaValidator().getValidator(result);
         expect(validate({ cfg: { q: 'x' }, alias: { q: 'y' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('skeletons and the catch degrade keep member anchors and $defs compilable', () => {
+        // (1) compositionTypeSkeleton must carry member reference targets — a
+        // catch-of-union member's $anchor with a sibling $ref alias dangled.
+        const unionSchema = z.object({
+            cfg: z.union([z.object({ q: z.string() }).meta({ $anchor: 'cfgA' }), z.object({ r: z.number() })]).catch({ q: 'd' }),
+            alias: z.unknown().meta({ $ref: '#cfgA' }),
+            name: z.string()
+        });
+        const unionResult = standardSchemaToJsonSchema(unionSchema, 'output');
+        const unionValidate = new AjvJsonSchemaValidator().getValidator(unionResult);
+        expect(unionValidate({ cfg: { q: 'x' }, alias: { q: 'y' }, name: 'n' }).valid).toBe(true);
+
+        // (2) $defs is a pure reference CONTAINER — deleting it from a catch node
+        // dangled cross-subtree $refs into it.
+        const defsSchema = z.object({
+            cfg: z
+                .object({ q: z.string() })
+                .catch({ q: 'd' })
+                .meta({ $defs: { X: { type: 'string' } } }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/$defs/X' }),
+            name: z.string()
+        });
+        const defsResult = standardSchemaToJsonSchema(defsSchema, 'output');
+        const defsValidate = new AjvJsonSchemaValidator().getValidator(defsResult);
+        expect(defsValidate({ cfg: { q: 'x' }, alias: 's', name: 'n' }).valid).toBe(true);
+    });
+
+    test('date-containing intersections stay loud on the output path', () => {
+        // No value satisfies both an object side and a Date, and every
+        // date-containing intersection threw pre-#2464 — the quiet output-path date
+        // verdict must not flow into intersection positions.
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.date()), 'output')).toThrow(
+            /must describe objects/
+        );
+        // Wire-truthful date output shapes keep listing (pinned elsewhere too).
+        expect(Array.isArray(standardSchemaToJsonSchema(z.date().nullable(), 'output').anyOf)).toBe(true);
+    });
+
+    test('the allOf-push stamps the sound type when user conjuncts defeat the proof', () => {
+        // A .meta() carrying BOTH a non-all-object anyOf AND a non-object-provable
+        // allOf conjunct defeats every() on every composition key after the push —
+        // the pushed members still prove the value is an object, so the rewrite
+        // stamps the explicit type itself (pre-#2464 these roots were stamped via
+        // their emitted oneOf).
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }, { type: 'null' }], allOf: [{ minProperties: 1 }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
     });
 
     test('nullable date output roots list and validate their wire forms', () => {

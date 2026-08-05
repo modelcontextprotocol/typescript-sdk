@@ -300,9 +300,10 @@ function zodConversionOptions(
                         ctx.jsonSchema[key === 'oneOf' ? 'anyOf' : key] = skeletons;
                         continue;
                     }
-                    // Reference TARGETS constrain no instance value — deleting them only
-                    // dangles inbound `$ref`s and makes the advertisement uncompilable.
-                    if (key === '$anchor' || key === '$dynamicAnchor' || key === '$id') continue;
+                    // Reference TARGETS and containers constrain no instance value —
+                    // deleting them only dangles inbound `$ref`s and makes the
+                    // advertisement uncompilable.
+                    if (key === '$anchor' || key === '$dynamicAnchor' || key === '$id' || key === '$defs') continue;
                     // Only schema-carrying and enforced keywords constrain validation;
                     // everything else — vocabulary annotations, `x-*` extensions, custom
                     // `.meta()` keys — is annotation-opaque and kept.
@@ -427,6 +428,14 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
             // combine with AND, so `{anyOf: members}` under `allOf` is equivalent.
             const allOf = Array.isArray(record.allOf) ? record.allOf : (record.allOf = []);
             allOf.push({ anyOf: record.oneOf });
+            // The relocated members' objectness becomes invisible to the wrap proof's
+            // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
+            // [{minProperties: 1}]})) — stamp the sound explicit type here (the value
+            // must satisfy the pushed conjunct), preserving the pre-#2464 stamp these
+            // roots got via their emitted oneOf.
+            if (record.type === undefined && isProvablyObjectShapedRoot({ anyOf: record.oneOf })) {
+                record.type = 'object';
+            }
         }
         delete record.oneOf;
     }
@@ -486,6 +495,10 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
     const skeleton: Record<string, unknown> = {};
     // Only `type: 'object'` feeds the proof; any other type is an unenforced constraint.
     if (source.type === 'object') skeleton.type = 'object';
+    // Reference TARGETS constrain nothing — dropping them would dangle inbound $refs.
+    for (const referenceKey of ['$anchor', '$dynamicAnchor', '$id'] as const) {
+        if (source[referenceKey] !== undefined) skeleton[referenceKey] = source[referenceKey];
+    }
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
         if (Array.isArray(source[key])) {
             // Skeletonized `oneOf` members are indistinguishable, so exactly-one
@@ -954,7 +967,12 @@ function nonObjectTypelessRootVerdict(
         const left = nonObjectTypelessRootVerdict(def.left, io, path);
         const right = nonObjectTypelessRootVerdict(def.right, io, path);
         if (left === undefined && right === undefined) return undefined;
-        return { type: 'intersection', loud: left?.loud === true || right?.loud === true };
+        // A date side is quiet on the output path as a root or union member (the
+        // override makes those emissions wire-truthful), but no value can satisfy
+        // BOTH intersection sides when one is a Date — every date-containing
+        // intersection threw pre-#2464, so parity keeps them loud here.
+        const loudDateSide = io === 'output' && (left?.type === 'date' || right?.type === 'date');
+        return { type: 'intersection', loud: left?.loud === true || right?.loud === true || loudDateSide };
     }
     if (def.type === 'literal') {
         const loudness = nonObjectLiteralLoudness(def.values);
