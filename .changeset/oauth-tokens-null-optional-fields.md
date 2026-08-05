@@ -3,6 +3,7 @@
 '@modelcontextprotocol/core-internal': patch
 '@modelcontextprotocol/client': patch
 '@modelcontextprotocol/server-legacy': patch
+'@modelcontextprotocol/codemod': patch
 ---
 
 OAuth token responses with null-valued optional members no longer fail
@@ -25,3 +26,11 @@ stripped null `scope` is thereafter indistinguishable from an omitted `scope`
 — which RFC 6749 §5.1 defines as an assertion that the granted scope is
 identical to the requested scope — so consumers should not infer the granted
 scope from its absence.
+
+`OAuthTokenResponseSchema` is also a public export from
+`@modelcontextprotocol/core`'s root, since the sibling v1 release exports it
+from `@modelcontextprotocol/sdk/shared/auth.js` and migrating code needs a v2
+home for it. The v1-to-v2 codemod's auth schema allowlist now includes the
+name, so `import { OAuthTokenResponseSchema } from
+'@modelcontextprotocol/sdk/shared/auth.js'` rewrites to
+`@modelcontextprotocol/core` alongside the other auth schema constants.
