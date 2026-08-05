@@ -331,7 +331,9 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
 
     try {
         const connectPromise = client.connect(transport);
-        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
+        while (provider.redirectedTo.length === 0) {
+            await new Promise(r => setTimeout(r, 10));
+        }
 
         // Flow ran exactly once: a single 401'd POST, a single redirect to the authorization endpoint.
         expect(mcpPosts).toHaveLength(1);
@@ -343,7 +345,7 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
 
         expect(as.discoveryCalls.some(p => p.includes('/.well-known/oauth-protected-resource'))).toBe(true);
         expect(as.discoveryCalls).toContain('/.well-known/oauth-authorization-server');
-        
+
         await transport.close();
         await expect(connectPromise).rejects.toThrow();
     } finally {
@@ -385,7 +387,9 @@ verifies('client-auth:negotiation:auth-before-era', async (_args: TestArgs) => {
         // Probe -> 401: the auth challenge propagates. The 401 never decides the
         // era -- the auth wall answered before the MCP layer saw server/discover.
         const connectPromise = client.connect(first);
-        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
+        while (provider.redirectedTo.length === 0) {
+            await new Promise(r => setTimeout(r, 10));
+        }
         expect(mcpPosts).toEqual([{ method: 'server/discover', status: 401, hasAuth: false }]);
         expect(provider.redirectedTo).toHaveLength(1);
 
@@ -490,7 +494,9 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
 
     try {
         const connectPromise = interactiveClient.connect(interactiveTransport);
-        while (interactiveProvider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
+        while (interactiveProvider.redirectedTo.length === 0) {
+            await new Promise(r => setTimeout(r, 10));
+        }
 
         expect(interactiveProvider.redirectedTo).toHaveLength(1);
         const upgradeRedirect = defined(interactiveProvider.redirectedTo[0], 'authorization redirect URL');
@@ -570,7 +576,9 @@ verifies('client-auth:stepup:scope-union', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
     try {
         const connectPromise = client.connect(transport);
-        while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
+        while (provider.redirectedTo.length === 0) {
+            await new Promise(r => setTimeout(r, 10));
+        }
         expect(provider.redirectedTo).toHaveLength(1);
         const redirect = defined(provider.redirectedTo[0], 'authorize URL');
         expect(redirect.searchParams.get('scope')).toBe('files:read openid files:write');
@@ -605,7 +613,9 @@ verifies(['client-auth:stepup:retry-cap', 'client-auth:stepup:refresh-bypass-on-
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
         try {
             const connectPromise = client.connect(transport);
-            while (provider.redirectedTo.length === 0) { await new Promise(r => setTimeout(r, 10)); }
+            while (provider.redirectedTo.length === 0) {
+                await new Promise(r => setTimeout(r, 10));
+            }
             // Refresh was bypassed: no token-endpoint POST; the fresh authorize
             // request carries the union scope.
             expect(as.tokenCalls).toHaveLength(0);
@@ -2208,7 +2218,7 @@ verifies(
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(/Server returned 401 after re-authentication/);
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
 
             // onUnauthorized ran once and the transport retried exactly once before giving up.
             expect(unauthorizedCalls).toBe(1);
