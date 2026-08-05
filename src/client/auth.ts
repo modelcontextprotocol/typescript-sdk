@@ -16,7 +16,7 @@ import {
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema
+    OAuthTokenResponseSchema
 } from '../shared/auth.js';
 import { checkResourceAllowed, resourceUrlFromServerUrl } from '../shared/auth-utils.js';
 import {
@@ -1255,7 +1255,7 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse(await response.json());
+    return OAuthTokenResponseSchema.parse(await response.json());
 }
 
 /**
@@ -1349,7 +1349,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
 }
 
 /**

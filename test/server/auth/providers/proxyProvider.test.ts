@@ -225,6 +225,56 @@ describe('Proxy OAuth Server Provider', () => {
             );
             expect(tokens).toEqual(mockTokenResponse);
         });
+
+        describe('null optional fields in upstream response', () => {
+            // Some authorization servers (e.g. AWS Cognito) serialize absent optional
+            // members as JSON null instead of omitting them
+            const nullFieldTokenResponse = {
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                expires_in: null,
+                refresh_token: null,
+                scope: null,
+                id_token: null
+            };
+
+            beforeEach(() => {
+                (global.fetch as Mock).mockImplementation(() =>
+                    Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve(nullFieldTokenResponse)
+                    })
+                );
+            });
+
+            it('exchanges authorization code and treats null fields as absent', async () => {
+                const tokens = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
+
+                expect(tokens).toStrictEqual({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer'
+                });
+                expect('refresh_token' in tokens).toBe(false);
+                expect('expires_in' in tokens).toBe(false);
+                expect('scope' in tokens).toBe(false);
+                expect('id_token' in tokens).toBe(false);
+                expect(tokens.expires_in).toBeUndefined();
+            });
+
+            it('exchanges refresh token and treats null fields as absent', async () => {
+                const tokens = await provider.exchangeRefreshToken(validClient, 'test-refresh-token', ['read', 'write']);
+
+                expect(tokens).toStrictEqual({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer'
+                });
+                expect('refresh_token' in tokens).toBe(false);
+                expect('expires_in' in tokens).toBe(false);
+                expect('scope' in tokens).toBe(false);
+                expect('id_token' in tokens).toBe(false);
+                expect(tokens.expires_in).toBeUndefined();
+            });
+        });
     });
 
     describe('client registration', () => {
