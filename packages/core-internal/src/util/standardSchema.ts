@@ -238,17 +238,28 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   transport. `InMemoryTransport` passes messages by reference with no JSON
  *   round-trip, so the raw `Date` the server must ship reaches a validating client
  *   as a `Date` instance and fails the advertised schema there.
+ * - Hand-authored reference keywords disable the wire-truthfulness loosening
+ *   entirely: when the emission carries any `$ref`/`$dynamicRef` beyond zod's own
+ *   registry shapes (`#`, `#/$defs/<name>`), any `$anchor`/`$dynamicAnchor`, any
+ *   `$id`, or a non-root `$defs`, the conversion ships the strict pre-#2464-shaped
+ *   emission instead (see {@linkcode hasHandAuthoredReferenceConstructs}) — the
+ *   loosen family relocates and deletes document positions, which such constructs
+ *   observe as dangling pointers, stale anchors, or shifted base-relative paths.
+ *   Those conversions keep pre-#2464 strictness (e.g. `additionalProperties: false`
+ *   stays advertised, tolerant fields stay `required`), trading loosening for
+ *   compilability-by-construction.
  * - The loosen rewrite's `oneOf` → `anyOf` rename skips lexical `not`/`if`/`contains`
- *   positions, but a `.meta({not: {$ref: '#/properties/…'}})` aliasing a
- *   positive-position target observes the (legitimately) renamed schema, inverting
- *   polarity — the same node cannot read `anyOf` for its positive consumer and
- *   `oneOf` for a negated alias, so cross-polarity `$ref` aliasing into loosened
- *   subtrees stays untruthful.
+ *   positions, but a `.meta({not: {oneOf: […]}})` cloning a positive-position
+ *   composition observes the (legitimately) renamed sibling while keeping its own
+ *   `oneOf` — the same composition cannot read `anyOf` for its positive consumer
+ *   and `oneOf` for a negated clone, so cross-polarity duplication of loosened
+ *   compositions stays untruthful (reference-keyword aliasing itself disables
+ *   loosening per the previous bullet).
  */
 function zodConversionOptions(
     io: 'input' | 'output',
     loosened: { value: boolean },
-    moves: RelocatedPointerPrefix[]
+    loosen: boolean
 ): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
         unrepresentable: 'any',
@@ -270,7 +281,11 @@ function zodConversionOptions(
                 ctx.jsonSchema.format = 'date-time';
                 return;
             }
-            if (io !== 'output') return;
+            // The loosen family below is gated twice: it rewrites only OUTPUT
+            // advertisements, and only when the caller established (via the
+            // strict detection pass) that no hand-authored reference construct
+            // could observe the rewrites — see standardSchemaToJsonSchema.
+            if (io !== 'output' || !loosen) return;
             if (def.type === 'catch') {
                 // `.catch()` accepts any raw value — invalid input is replaced by the
                 // fallback only in the parsed result, which the server never ships — so
@@ -328,10 +343,7 @@ function zodConversionOptions(
                 // JSON.stringify turns an undefined array ELEMENT into `null` (unlike an
                 // undefined-valued object key, which it drops), so a tolerant element
                 // (`.default()`/`.prefault()`, …) may ship as null — the advertised item
-                // subschema must accept it. The wrap relocates the element subschema to
-                // `items/anyOf/0`, so the move is recorded (via `ctx.path`) for the
-                // epilogue's pointer redirect — an inbound `$ref: '#/…/items/…'` alias
-                // would otherwise dangle.
+                // subschema must accept it.
                 const items = ctx.jsonSchema.items;
                 // Tolerance uses the same predicate as the object required-filter
                 // and record branches — structural walk PLUS the validate(undefined)
@@ -340,12 +352,11 @@ function zodConversionOptions(
                 if (typeof items === 'object' && items !== null && !Array.isArray(items) && fieldAcceptsMissingKey(def.element)) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [items, { type: 'null' }] };
-                    recordNullToleranceWrapMove(moves, ctx.path, 'items');
                 }
                 return;
             }
             if (def.type === 'tuple') {
-                // Same wire mechanism (and same recorded move) per prefix position.
+                // Same wire mechanism per prefix position.
                 const prefixItems = ctx.jsonSchema.prefixItems;
                 if (Array.isArray(def.items) && Array.isArray(prefixItems)) {
                     for (const [index, item] of def.items.entries()) {
@@ -353,7 +364,6 @@ function zodConversionOptions(
                         if (typeof emitted === 'object' && emitted !== null && fieldAcceptsMissingKey(item)) {
                             loosened.value = true;
                             prefixItems[index] = { anyOf: [emitted, { type: 'null' }] };
-                            recordNullToleranceWrapMove(moves, ctx.path, 'prefixItems', index);
                         }
                     }
                 }
@@ -369,7 +379,6 @@ function zodConversionOptions(
                 ) {
                     loosened.value = true;
                     ctx.jsonSchema.items = { anyOf: [restItems, { type: 'null' }] };
-                    recordNullToleranceWrapMove(moves, ctx.path, 'items');
                 }
                 return;
             }
@@ -417,77 +426,35 @@ function zodConversionOptions(
 }
 
 /**
- * Records the pointer move of an override-time null-tolerance wrap: the wrapped
- * element subschema relocated from `<path>/<slot…>` to `<path>/<slot…>/anyOf/0`.
- * `path` is zod's emission path for the node being overridden (`ctx.path`, raw
- * segments — RFC 6901-escaped here). On zod versions that predate `ctx.path` the
- * move is skipped: the wrap itself still ships, and a pointer left dangling by it
- * is neutralized (loosen-only) by the epilogue's last-resort pass instead of
- * redirected. The same fallback covers reused zod instances — the override runs
- * once per instance, so only the first emission position's copy gets a recorded
- * move — and registry-referenced nodes, whose emitted home is `#/$defs/<id>`
- * while `ctx.path` names the referencing position (a prefix that matches no
- * resolvable pointer, so the stray move can redirect nothing wrongly).
- */
-function recordNullToleranceWrapMove(moves: RelocatedPointerPrefix[], path: unknown, ...slot: ReadonlyArray<string | number>): void {
-    if (!Array.isArray(path)) return;
-    const from = [...(path as ReadonlyArray<string | number>), ...slot]
-        .map(segment => `/${escapeJsonPointerSegment(String(segment))}`)
-        .join('');
-    moves.push({ from, to: `${from}/anyOf/0` });
-}
-
-/**
- * A JSON-Pointer prefix relocation performed by {@linkcode rewriteOneOfToAnyOf}:
- * every same-document pointer that traverses `from` must be redirected to `to`.
- * `from`'s ancestor segments are spelled in the coordinates that held AFTER the
- * moves recorded before it, so applying an ordered move list sequentially walks a
- * pointer from original coordinates to final ones.
- */
-interface RelocatedPointerPrefix {
-    from: string;
-    to: string;
-}
-
-/** RFC 6901 escaping for a single JSON-Pointer reference token. */
-function escapeJsonPointerSegment(segment: string): string {
-    return segment.replaceAll('~', '~0').replaceAll('/', '~1');
-}
-
-/**
  * Recursively moves every `oneOf` in an emitted (already-loosened) JSON Schema tree
  * to `anyOf`. Used when a conversion's catch degrade or required-filter fired: the
  * loosened members of an untouched parent `oneOf` (e.g. a discriminated union whose
  * catch-wrapped discriminators were degraded) may have become mutually satisfiable,
  * inverting exactly-one semantics into reject-everything. Also performs the
- * oneOf→anyOf renames the catch degrade deferred: its override hook cannot place
- * the rename in the document, while this walk knows every node's path.
+ * oneOf→anyOf renames the catch degrade deferred to keep the rename in one place.
  *
- * Each relocation is appended to `moves` (as a JSON-Pointer prefix pair rooted at
- * `path`) so {@linkcode rewriteRelocatedJsonPointers} can redirect same-document
- * `$ref`/`$dynamicRef` pointers that traverse the moved segment — a user
- * `.meta({$ref: '#/properties/du/oneOf/0'})` alias would otherwise dangle and fail
- * schema compilation outright.
+ * The rename relocates document positions, but no reference can observe it: the
+ * loosen family runs only when {@linkcode hasHandAuthoredReferenceConstructs} found
+ * none, and zod's own registry refs (`#`, `#/$defs/<name>`) never traverse a
+ * `oneOf` segment.
  */
-function rewriteOneOfToAnyOf(node: unknown, path = '', moves: RelocatedPointerPrefix[] = [], seen: Set<unknown> = new Set()): void {
+function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): void {
     if (typeof node !== 'object' || node === null || seen.has(node)) return;
     seen.add(node);
     if (Array.isArray(node)) {
-        for (const [index, item] of node.entries()) rewriteOneOfToAnyOf(item, `${path}/${index}`, moves, seen);
+        for (const item of node) rewriteOneOfToAnyOf(item, seen);
         return;
     }
     const record = node as Record<string, unknown>;
     if (Array.isArray(record.oneOf)) {
         if (record.anyOf === undefined) {
             record.anyOf = record.oneOf;
-            moves.push({ from: `${path}/oneOf`, to: `${path}/anyOf` });
         } else {
             // A user `.meta({anyOf})` can coexist with the emitted `oneOf` — preserve
             // conjunction semantics without clobbering it: keywords on one node
             // combine with AND, so `{anyOf: members}` under `allOf` is equivalent.
             const allOf = Array.isArray(record.allOf) ? record.allOf : (record.allOf = []);
             allOf.push({ anyOf: record.oneOf });
-            moves.push({ from: `${path}/oneOf`, to: `${path}/allOf/${allOf.length - 1}/anyOf` });
             // The relocated members' objectness becomes invisible to the wrap proof's
             // every()-member rule once user conjuncts coexist (e.g. a .meta({allOf:
             // [{minProperties: 1}]})) — stamp the sound explicit type here (the value
@@ -507,362 +474,83 @@ function rewriteOneOfToAnyOf(node: unknown, path = '', moves: RelocatedPointerPr
         if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
         // oneOf→anyOf is a loosening only in POSITIVE polarity: under `not` it
         // inverts (a payload matching ≥2 members passed `not {oneOf}` but fails
-        // `not {anyOf}`), under `if` it can flip which then/else branch applies,
-        // and under `contains` it raises the contains-count, tightening against a
-        // sibling `maxContains` (zod never emits `contains`, so skipping is
-        // regression-free).
+        // the rewritten `not {anyOf}`), under `if` it can flip which then/else
+        // branch applies, and under `contains` it raises the contains-count,
+        // tightening against a sibling `maxContains` (zod never emits `contains`,
+        // so skipping is regression-free).
         if (key === 'not' || key === 'if' || key === 'contains') continue;
-        const childPath = `${path}/${escapeJsonPointerSegment(key)}`;
         // Schema MAPS hold schemas under user-chosen names that may collide with
         // annotation keywords (a property literally named `description` still
         // carries a schema) — recurse into every value unconditionally.
         if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
             if (seen.has(value)) continue;
             seen.add(value);
-            for (const [name, subschema] of Object.entries(value as Record<string, unknown>)) {
-                rewriteOneOfToAnyOf(subschema, `${childPath}/${escapeJsonPointerSegment(name)}`, moves, seen);
-            }
+            for (const subschema of Object.values(value as Record<string, unknown>)) rewriteOneOfToAnyOf(subschema, seen);
             continue;
         }
-        rewriteOneOfToAnyOf(value, childPath, moves, seen);
+        rewriteOneOfToAnyOf(value, seen);
     }
 }
 
+/** The only `$ref` shape zod's emitter produces besides bare `#`: a top-level `$defs` entry. */
+const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
+
 /**
- * Redirects same-document `$ref`/`$dynamicRef` JSON Pointers through the prefix
- * relocations {@linkcode rewriteOneOfToAnyOf} performed, mirroring the legacy-wrap
- * envelope's pointer rewrite (`wire/rev2025-11-25/legacyWrap.ts`): a pointer that
- * traverses a moved segment — a renamed/pushed `oneOf` (`#/…/oneOf/<i>/…` →
- * `#/…/anyOf/<i>/…` or `#/…/allOf/<n>/anyOf/<i>/…`) or a null-tolerance-wrapped
- * element (`#/…/items/…` → `#/…/items/anyOf/0/…`) — is rewritten to the segment's
- * new home so it keeps resolving to the same subschema. Cross-document refs (not
- * starting with `#/`) are left untouched; see
- * {@linkcode visitLocalRefBearingNodes} for the walk's position/`$id` rules.
+ * Whether the emitted document carries any reference construct beyond what zod's
+ * own emitter produces: a `$ref`/`$dynamicRef` that is not `#` or
+ * `#/$defs/<name>` (the only shapes zod emits, for recursive, deduplicated, and
+ * registered schemas), any `$anchor`/`$dynamicAnchor`, any `$id`, or a `$defs`
+ * container anywhere but the conversion root. All of these can only enter an
+ * emission through `.meta()`/registry metadata — i.e. they are hand-authored.
+ *
+ * The wire-truthfulness loosen family relocates and deletes document positions
+ * (required-filter drops, catch degrades, null-tolerance element wraps, the
+ * oneOf→anyOf rename), which hand-authored references observe as dangling
+ * pointers, stale anchors, or shifted base-relative paths — an uncompilable or
+ * silently tightened advertisement, strictly worse than pre-#2464 strictness.
+ * Rather than repairing every reference form after the fact (pointer redirects,
+ * anchor collection, embedded-`$id` sub-documents, RFC 3986 base resolution,
+ * polarity-aware neutralization, …), a conversion carrying any such construct
+ * SKIPS the loosen family and ships the strict pre-#2464-shaped emission:
+ * compilable and working by construction. Registry refs are stable under every
+ * loosen mutation — `$defs` stays at the conversion root (the catch degrade and
+ * the constraint wrap both keep it), entry names are never touched, and entries
+ * are only mutated in place — so registry-only documents loosen freely.
+ *
+ * Position-aware: only schema-carrying keywords are inspected (data-valued
+ * `const`/`enum`/`default`/`examples` and annotation values may contain these key
+ * names as plain user data), schema-map VALUES are schemas while their keys stay
+ * names, and `not`/`if`/`contains` subtrees ARE inspected — their references
+ * break all the same.
  */
-function rewriteRelocatedJsonPointers(root: unknown, moves: readonly RelocatedPointerPrefix[]): void {
-    visitLocalRefBearingNodes(root, record => {
+function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): boolean {
+    const walk = (node: unknown, isRoot: boolean, seen: Set<unknown>): boolean => {
+        if (typeof node !== 'object' || node === null || seen.has(node)) return false;
+        seen.add(node);
+        if (Array.isArray(node)) return node.some(item => walk(item, false, seen));
+        const record = node as Record<string, unknown>;
         for (const refKey of ['$ref', '$dynamicRef'] as const) {
             const value = record[refKey];
-            if (typeof value !== 'string' || !value.startsWith('#/')) continue;
-            let pointer = value.slice(1);
-            for (const move of moves) {
-                if (pointer === move.from || pointer.startsWith(`${move.from}/`)) {
-                    pointer = move.to + pointer.slice(move.from.length);
-                }
-            }
-            record[refKey] = `#${pointer}`;
+            if (value === undefined) continue;
+            if (typeof value !== 'string' || (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value))) return true;
         }
-    });
-}
-
-/**
- * Last-resort pointer integrity for LOOSENED conversions: any locally-verifiable
- * `$ref`/`$dynamicRef` that no longer resolves is neutralized. Three dangle
- * sources, all produced by the loosen machinery itself:
- * - pointer-form `#/…` targets deleted by the catch degrade's constraint drop or
- *   the skeleton's member reduction (no move target survives to redirect to);
- * - anchor-form `#name` whose `$anchor`/`$dynamicAnchor` rode a deleted subtree —
- *   anchors are name-resolved and immune to RELOCATION, but they dangle by
- *   DELETION;
- * - base-addressed `<uri>#/…` into an embedded-`$id` resource whose insides the
- *   loosen rewrite moved: the recorded moves are document-rooted, so these are
- *   verified against the embedded resource and dropped rather than redirected.
- * Neutralization is loosen-only by construction:
- * - in POSITIVE polarity the reference keyword is deleted (an absent `$ref`
- *   constrains nothing);
- * - inside `not`/`if`/`contains`, deleting the ref would TIGHTEN (`not: {}`
- *   rejects everything; `if: {}` makes a sibling `then` always apply; a looser
- *   `contains` subschema raises the match count against `maxContains`) — the
- *   ENCLOSING boundary keyword is deleted instead, at its outermost occurrence:
- *   top-level keywords AND-combine, so removing the whole conjunct can only
- *   loosen, while any per-ref repair deeper inside is unsound once polarity
- *   re-inverts (`then`/`else` without `if` are ignored per 2020-12, and
- *   `maxContains` without `contains` likewise).
- * Strictly better than shipping the dangling ref, which makes the whole
- * advertisement uncompilable — the tool would list but every `callTool` would
- * fail client-side before the request is sent. Truly cross-document refs (base
- * URI matching no embedded `$id`) cannot be verified locally and are left
- * untouched. Runs after {@linkcode rewriteRelocatedJsonPointers} so pointers
- * redirected to a surviving location are recognized as resolvable and kept.
- */
-function neutralizeDanglingLocalRefs(root: Record<string, unknown>): boolean {
-    // Iterated to a FIXPOINT: a boundary-conjunct deletion is itself a fresh
-    // dangle source — the deleted subtree may have carried an `$anchor` a
-    // surviving `#name` ref was judged against (stale snapshot), or been the
-    // target of a pointer-form ref checked earlier in the same walk (visit-order
-    // dependence). Each round re-derives the target snapshot and re-examines
-    // every ref; per-ref deletions create no new dangles, so only rounds that
-    // deleted a conjunct (here or in an embedded resource) continue. Terminates:
-    // every continuing round deletes at least one of finitely many conjuncts.
-    let mutatedEver = false;
-    let mutated = true;
-    while (mutated) {
-        mutated = neutralizeWalk(root, makeDanglesPredicate(root));
-        mutatedEver ||= mutated;
-    }
-    return mutatedEver;
-}
-
-/**
- * The dangle test for refs whose resolution root is `root` — the document, or an
- * embedded `$id` resource treated as a sub-document.
- */
-function makeDanglesPredicate(root: Record<string, unknown>): (value: unknown) => boolean {
-    const targets = collectLocalReferenceTargets(root);
-    return (value: unknown): boolean => {
-        if (typeof value !== 'string' || value === '' || value === '#') return false;
-        if (value.startsWith('#/')) return !localJsonPointerResolves(root, value.slice(1));
-        // Anchor-form fragment: resolvable iff SOME surviving anchor bears the
-        // name. Root-wide collection is a superset of 2020-12's resource-scoped
-        // lookup, erring toward keeping: a resolvable ref is never neutralized,
-        // while a scope-mismatched dangle the superset hides was already broken
-        // by its author, not by the loosen machinery.
-        if (value.startsWith('#')) return !targets.anchors.has(value.slice(1));
-        const hashIndex = value.indexOf('#');
-        const base = hashIndex === -1 ? value : value.slice(0, hashIndex);
-        const resource = targets.resources.get(base);
-        if (resource === undefined) return false; // truly cross-document — unverifiable
-        const fragment = hashIndex === -1 ? '' : value.slice(hashIndex + 1);
-        if (fragment === '') return false; // the embedded resource root itself
-        if (fragment.startsWith('/')) return !localJsonPointerResolves(resource, fragment);
-        return !targets.anchors.has(fragment);
-    };
-}
-
-/**
- * Keywords whose subschemas invert or conditionalize validation polarity: a
- * loosen-only ref repair inside them must remove the whole enclosing conjunct
- * instead of the reference keyword.
- */
-const POLARITY_BOUNDARY_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set(['not', 'if', 'contains']);
-
-/**
- * The polarity-aware neutralization walk — see
- * {@linkcode neutralizeDanglingLocalRefs}. Returns whether it deleted a boundary
- * conjunct (directly or inside an embedded resource) — the signal that a new
- * fixpoint round is needed. An embedded `$id` subtree is not skipped but treated
- * as a SUB-DOCUMENT: the loosen machinery mutates freely inside such resources,
- * so their base-relative refs are repaired by a nested neutralization whose
- * resolution root is the resource node itself (renames inside a resource are
- * neutralized rather than redirected — the recorded moves are document-rooted).
- */
-function neutralizeWalk(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): boolean {
-    if (typeof node !== 'object' || node === null || seen.has(node)) return false;
-    seen.add(node);
-    let mutated = false;
-    if (Array.isArray(node)) {
-        for (const item of node) mutated = neutralizeWalk(item, dangles, seen) || mutated;
-        return mutated;
-    }
-    const record = node as Record<string, unknown>;
-    for (const refKey of ['$ref', '$dynamicRef'] as const) {
-        if (dangles(record[refKey])) delete record[refKey];
-    }
-    for (const [key, value] of Object.entries(record)) {
-        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
-        if (POLARITY_BOUNDARY_JSON_SCHEMA_KEYWORDS.has(key)) {
-            // Outermost-boundary rule: a dangling ref ANYWHERE inside removes this
-            // whole conjunct — deeper nesting may re-invert polarity, so no per-ref
-            // repair inside is sound in both directions, while conjunct removal at
-            // a positive position only ever loosens.
-            if (subtreeHasDanglingLocalRef(value, dangles)) {
-                delete record[key];
-                deleteDeadAnnotationSiblings(record, key);
-                mutated = true;
-            }
-            continue;
-        }
-        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            if (seen.has(value)) continue;
-            seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) {
-                if (subtreeEstablishesNewIdBase(subschema)) {
-                    mutated = neutralizeDanglingLocalRefs(subschema as Record<string, unknown>) || mutated;
-                    continue;
-                }
-                mutated = neutralizeWalk(subschema, dangles, seen) || mutated;
-            }
-            continue;
-        }
-        if (subtreeEstablishesNewIdBase(value)) {
-            mutated = neutralizeDanglingLocalRefs(value as Record<string, unknown>) || mutated;
-            continue;
-        }
-        mutated = neutralizeWalk(value, dangles, seen) || mutated;
-    }
-    return mutated;
-}
-
-/**
- * Companion to a boundary-conjunct deletion, closing the 2020-12 ANNOTATION
- * channel: `contains` contributes the item-evaluation annotations a sibling
- * `unevaluatedItems: false` consumed, and `if`'s branches contribute property-
- * and item-evaluation annotations for `unevaluatedProperties`/`unevaluatedItems`
- * (while `then`/`else` are dead without `if`) — deleting the conjunct alone
- * would TIGHTEN those siblings against previously-evaluated members. Deleting
- * `unevaluated*` is genuinely loosen-only. `not` needs no companion: only
- * successful subschemas contribute annotations, and `not` requires failure.
- */
-function deleteDeadAnnotationSiblings(record: Record<string, unknown>, deletedKey: string): void {
-    if (deletedKey === 'contains') {
-        delete record.unevaluatedItems;
-    } else if (deletedKey === 'if') {
-        delete record.then;
-        delete record.else;
-        delete record.unevaluatedProperties;
-        delete record.unevaluatedItems;
-    }
-}
-
-/** Whether any `$ref`/`$dynamicRef` in the subtree dangles — the boundary-keyword scan. */
-function subtreeHasDanglingLocalRef(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown> = new Set()): boolean {
-    if (typeof node !== 'object' || node === null || seen.has(node)) return false;
-    seen.add(node);
-    if (Array.isArray(node)) return node.some(item => subtreeHasDanglingLocalRef(item, dangles, seen));
-    const record = node as Record<string, unknown>;
-    if (dangles(record.$ref) || dangles(record.$dynamicRef)) return true;
-    for (const [key, value] of Object.entries(record)) {
-        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
-        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            if (seen.has(value)) continue;
-            seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) {
-                if (subtreeHasDanglingLocalRefScoped(subschema, dangles, seen)) return true;
-            }
-            continue;
-        }
-        if (subtreeHasDanglingLocalRefScoped(value, dangles, seen)) return true;
-    }
-    return false;
-}
-
-/**
- * Scope dispatch for the boundary scan: an embedded `$id` resource is scanned
- * with its OWN dangle predicate (base-relative refs inside it resolve against
- * the resource, not the enclosing root) — a dangle anywhere inside still
- * condemns the enclosing boundary conjunct, since no per-ref repair inside a
- * negative/conditional position is sound.
- */
-function subtreeHasDanglingLocalRefScoped(node: unknown, dangles: (value: unknown) => boolean, seen: Set<unknown>): boolean {
-    if (subtreeEstablishesNewIdBase(node)) {
-        const resource = node as Record<string, unknown>;
-        return subtreeHasDanglingLocalRef(resource, makeDanglesPredicate(resource));
-    }
-    return subtreeHasDanglingLocalRef(node, dangles, seen);
-}
-
-/**
- * Collects the document's locally-resolvable reference targets: every surviving
- * `$anchor`/`$dynamicAnchor` name (plus draft-07's fragment-form `$id: '#name'`
- * anchor spelling) and every embedded non-fragment `$id` resource mapped to its
- * subtree. Position-aware like the other walks, but deliberately descends into
- * embedded `$id` resources — their anchors and nested resources are still in
- * this document.
- */
-function collectLocalReferenceTargets(root: Record<string, unknown>): {
-    anchors: Set<string>;
-    resources: Map<string, Record<string, unknown>>;
-} {
-    const anchors = new Set<string>();
-    const resources = new Map<string, Record<string, unknown>>();
-    const walk = (node: unknown, seen: Set<unknown>): void => {
-        if (typeof node !== 'object' || node === null || seen.has(node)) return;
-        seen.add(node);
-        if (Array.isArray(node)) {
-            for (const item of node) walk(item, seen);
-            return;
-        }
-        const record = node as Record<string, unknown>;
-        if (typeof record.$anchor === 'string') anchors.add(record.$anchor);
-        if (typeof record.$dynamicAnchor === 'string') anchors.add(record.$dynamicAnchor);
-        if (typeof record.$id === 'string' && record.$id !== '') {
-            if (record.$id.startsWith('#')) anchors.add(record.$id.slice(1));
-            else resources.set(record.$id, record);
-        }
+        if (record.$anchor !== undefined || record.$dynamicAnchor !== undefined || record.$id !== undefined) return true;
+        if (!isRoot && record.$defs !== undefined) return true;
         for (const [key, value] of Object.entries(record)) {
             if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
             if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
                 if (seen.has(value)) continue;
                 seen.add(value);
-                for (const subschema of Object.values(value as Record<string, unknown>)) walk(subschema, seen);
+                for (const subschema of Object.values(value as Record<string, unknown>)) {
+                    if (walk(subschema, false, seen)) return true;
+                }
                 continue;
             }
-            walk(value, seen);
+            if (walk(value, false, seen)) return true;
         }
+        return false;
     };
-    walk(root, new Set());
-    return { anchors, resources };
-}
-
-/** Whether an RFC 6901 pointer (leading `/…`, tokens still escaped) resolves in `root`. */
-function localJsonPointerResolves(root: unknown, pointer: string): boolean {
-    let node: unknown = root;
-    for (const token of pointer.split('/').slice(1)) {
-        const segment = token.replaceAll('~1', '/').replaceAll('~0', '~');
-        if (Array.isArray(node)) {
-            const index = Number(segment);
-            if (!Number.isInteger(index) || String(index) !== segment || index < 0 || index >= node.length) return false;
-            node = node[index];
-        } else if (typeof node === 'object' && node !== null && Object.hasOwn(node, segment)) {
-            node = (node as Record<string, unknown>)[segment];
-        } else {
-            return false;
-        }
-    }
-    return true;
-}
-
-/**
- * Position-aware walk over every schema node whose same-document references are
- * resolvable against the DOCUMENT ROOT, invoking `visit` once per node — the
- * REDIRECT pass's walk. Only schema-carrying keywords are descended into
- * (data-valued `const`/`enum`/`default`/`examples` and annotations are opaque);
- * schema-map VALUES are always descended into while their keys stay names; and —
- * unlike the oneOf rename walk — `not`/`if`/`contains` subtrees ARE descended
- * into (REDIRECTING a pointer is resolution-preserving, never a
- * polarity-sensitive loosening; the polarity-sensitive NEUTRALIZE pass uses its
- * own walk, {@linkcode neutralizeWalk}). Subtrees establishing a new `$id` base
- * are skipped: their same-document pointers resolve against the embedded base,
- * not the document root the moves are rooted at — refs inside them broken by the
- * loosen machinery are repaired by the neutralize pass's per-resource recursion
- * instead. A ROOT `$id` names the document itself, so the root node is always
- * visited.
- */
-function visitLocalRefBearingNodes(node: unknown, visit: (record: Record<string, unknown>) => void, seen: Set<unknown> = new Set()): void {
-    if (typeof node !== 'object' || node === null || seen.has(node)) return;
-    seen.add(node);
-    if (Array.isArray(node)) {
-        for (const item of node) visitLocalRefBearingNodes(item, visit, seen);
-        return;
-    }
-    const record = node as Record<string, unknown>;
-    visit(record);
-    for (const [key, value] of Object.entries(record)) {
-        if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
-        if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
-            if (seen.has(value)) continue;
-            seen.add(value);
-            for (const subschema of Object.values(value as Record<string, unknown>)) {
-                if (subtreeEstablishesNewIdBase(subschema)) continue;
-                visitLocalRefBearingNodes(subschema, visit, seen);
-            }
-            continue;
-        }
-        if (subtreeEstablishesNewIdBase(value)) continue;
-        visitLocalRefBearingNodes(value, visit, seen);
-    }
-}
-
-/**
- * Whether a subtree's `$id` establishes a new RFC 3986 resolution base (mirrors
- * the legacy wrap's guard): same-document pointers inside such a subtree resolve
- * against the embedded base, so the document-rooted pointer rewrite must not
- * touch them. Arrays are containers, not schemas — they never carry `$id`.
- */
-function subtreeEstablishesNewIdBase(node: unknown): boolean {
-    if (typeof node !== 'object' || node === null || Array.isArray(node)) return false;
-    const id = (node as Record<string, unknown>).$id;
-    return id !== undefined && !(typeof id === 'string' && id.startsWith('#'));
+    return walk(document, true, new Set());
 }
 
 /**
@@ -1135,47 +823,63 @@ export function standardSchemaToJsonSchema(
 ): Record<string, unknown> {
     const std = schema['~standard'];
     const loosened = { value: false };
-    // Pointer-prefix relocations, in chronological order: the override's
-    // null-tolerance wraps record theirs during emission (via `ctx.path`), the
-    // epilogue's oneOf rewrite appends its renames — sequential application then
-    // walks every inbound pointer from its authored coordinates to the final ones.
-    const moves: RelocatedPointerPrefix[] = [];
-    const zodOptions = options?.unrepresentable === 'throw' ? undefined : zodConversionOptions(io, loosened, moves);
-    let result: Record<string, unknown>;
-    if (std.jsonSchema) {
-        result = std.jsonSchema[io]({
-            target: JSON_SCHEMA_CONVERSION_TARGET,
-            // Non-zod vendors receive no libraryOptions, so their behavior is unchanged.
-            libraryOptions: std.vendor === 'zod' ? zodOptions : undefined
-        });
-    } else if (std.vendor === 'zod') {
-        // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
-        // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
-        // zod 3 schemas (which also report vendor 'zod') have `_def` but not `_zod`; the SDK-bundled
-        // zod 4 `z.toJSONSchema()` cannot introspect them, so throw a clear error instead of crashing.
-        if (!('_zod' in (schema as object))) {
-            throw new Error(
-                'Schema appears to be from zod 3, which the SDK cannot convert to JSON Schema. ' +
-                    'Upgrade to zod >=4.2.0, or wrap your JSON Schema with fromJsonSchema().'
-            );
+    const convert = (zodOptions: Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> | undefined): Record<string, unknown> => {
+        if (std.jsonSchema) {
+            return std.jsonSchema[io]({
+                target: JSON_SCHEMA_CONVERSION_TARGET,
+                // Non-zod vendors receive no libraryOptions, so their behavior is unchanged.
+                libraryOptions: std.vendor === 'zod' ? zodOptions : undefined
+            });
         }
-        if (!warnedZodFallback) {
-            warnedZodFallback = true;
-            console.warn(
-                '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
-                    'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
-            );
+        if (std.vendor === 'zod') {
+            // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
+            // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
+            // zod 3 schemas (which also report vendor 'zod') have `_def` but not `_zod`; the SDK-bundled
+            // zod 4 `z.toJSONSchema()` cannot introspect them, so throw a clear error instead of crashing.
+            if (!('_zod' in (schema as object))) {
+                throw new Error(
+                    'Schema appears to be from zod 3, which the SDK cannot convert to JSON Schema. ' +
+                        'Upgrade to zod >=4.2.0, or wrap your JSON Schema with fromJsonSchema().'
+                );
+            }
+            if (!warnedZodFallback) {
+                warnedZodFallback = true;
+                console.warn(
+                    '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
+                        'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
+                );
+            }
+            return z.toJSONSchema(schema as unknown as z.ZodType, {
+                target: JSON_SCHEMA_CONVERSION_TARGET,
+                io,
+                ...zodOptions
+            }) as Record<string, unknown>;
         }
-        result = z.toJSONSchema(schema as unknown as z.ZodType, {
-            target: JSON_SCHEMA_CONVERSION_TARGET,
-            io,
-            ...zodOptions
-        }) as Record<string, unknown>;
-    } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
                 `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
         );
+    };
+    let result: Record<string, unknown>;
+    if (options?.unrepresentable === 'throw') {
+        result = convert(undefined);
+    } else if (io !== 'output' || std.vendor !== 'zod') {
+        // The loosen family rewrites only zod OUTPUT advertisements — every other
+        // conversion runs once, with the sanitizing overrides (date rewrite,
+        // draft-04 `id` strip) alone for zod inputs.
+        result = convert(zodConversionOptions(io, loosened, false));
+    } else {
+        // Wire-truthfulness loosening is guarded by reference-construct detection:
+        // first emit STRICTLY (sanitizing overrides only) and inspect the natural
+        // document — the authoritative view of everything the user authored,
+        // including constructs a loosen pass would itself delete. Hand-authored
+        // reference keywords ship that strict, pre-#2464-shaped emission
+        // (compilable and working by construction — see
+        // `hasHandAuthoredReferenceConstructs`); reference-free documents (and
+        // zod's own registry refs, stable under every mutation) convert again with
+        // the loosen family active.
+        const strict = convert(zodConversionOptions(io, loosened, false));
+        result = hasHandAuthoredReferenceConstructs(strict) ? strict : convert(zodConversionOptions(io, loosened, true));
     }
     if (io === 'output' && loosened.value) {
         // Exactly-one semantics cannot survive member loosening: once the catch
@@ -1184,19 +888,9 @@ export function standardSchemaToJsonSchema(
         // satisfiable — e.g. catch-wrapped discriminators — and Ajv would reject
         // every payload with "must match exactly one schema in oneOf". Rewrite to
         // the honest `anyOf` (loosen-only and wrap-neutral:
-        // `isProvablyObjectShapedRoot` treats the composition keywords identically),
-        // then redirect any same-document pointers that traversed a moved segment
-        // so they keep resolving (a dangling `$ref` is uncompilable — worse than
-        // any loosening).
-        rewriteOneOfToAnyOf(result, '', moves);
-        if (moves.length > 0) rewriteRelocatedJsonPointers(result, moves);
-        // Targets the degrade DELETED (a catch node's `properties`, a skeleton
-        // member's constraints) have no new home for a move to redirect to —
-        // neutralize any pointer left dangling so the advertisement stays
-        // compilable. Scoped to loosened conversions: an untouched emission's
-        // dangling ref (a user typo) failed compile identically pre-#2464 and is
-        // not this rewrite's to repair.
-        neutralizeDanglingLocalRefs(result);
+        // `isProvablyObjectShapedRoot` treats the composition keywords identically;
+        // no reference can observe the rename — the guard above vouched for it).
+        rewriteOneOfToAnyOf(result);
     }
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
@@ -1342,7 +1036,7 @@ function nonObjectTypelessRootVerdict(
     io: 'input' | 'output',
     ancestors: ReadonlySet<unknown> = new Set(),
     atIntersection = false
-): { type: string; loud: boolean } | undefined {
+): { type: string; loud: boolean; loudInside?: boolean } | undefined {
     if (typeof schema !== 'object' || schema === null || ancestors.has(schema)) return undefined;
     const def = (
         schema as {
@@ -1398,14 +1092,20 @@ function nonObjectTypelessRootVerdict(
     }
     if (def.type === 'union' && Array.isArray(def.options) && def.options.length > 0) {
         const verdicts = def.options.map(option => nonObjectTypelessRootVerdict(option, io, path, atIntersection));
-        // The may-be-object bail: an `undefined` member (z.object, z.any,
-        // z.custom, …) can make the union satisfiable in ANY position — including
-        // against an object conjunct at an intersection, which is exactly when a
-        // loud at-intersection date member must be discarded rather than
-        // propagated (`z.union([z.date(), z.object({…})])` intersections are
-        // satisfiable and keep listing). Representable non-object members return
-        // DEFINED quiet verdicts and do not trigger this bail.
-        if (verdicts.includes(undefined)) return undefined;
+        // A may-be-object member (z.object, z.any, z.custom, … — `undefined`
+        // verdicts — or a nested may-be-object composition) can make the union
+        // satisfiable in ANY position, so the union reports the quiet
+        // 'mayBeObject' verdict — but it CARRIES the members' inner loudness:
+        // an intersection sibling that is provably non-object kills the object
+        // possibility, and only then does the inner loudness surface
+        // (`z.union([z.date(), z.object({…})])` against an OBJECT conjunct keeps
+        // listing; against an ARRAY conjunct it threw pre-#2464 and keeps
+        // throwing). Representable non-object members return DEFINED quiet
+        // verdicts and do not trigger this branch.
+        if (verdicts.includes(undefined) || verdicts.some(verdict => verdict?.type === 'mayBeObject')) {
+            const loudInside = verdicts.some(verdict => verdict !== undefined && (verdict.loud || verdict.loudInside === true));
+            return { type: 'mayBeObject', loud: false, loudInside };
+        }
         const satisfiable = verdicts.some(verdict => verdict?.type === 'representable');
         // Union semantics discharge loudness OUTSIDE intersections: one
         // representable member makes the whole union a working schema
@@ -1427,8 +1127,29 @@ function nonObjectTypelessRootVerdict(
         // output path and reports loud from the date leaf itself.
         const left = nonObjectTypelessRootVerdict(def.left, io, path, true);
         const right = nonObjectTypelessRootVerdict(def.right, io, path, true);
-        if (left === undefined && right === undefined) return undefined;
-        return { type: 'intersection', loud: left?.loud === true || right?.loud === true };
+        const leftMayBeObject = left === undefined || left.type === 'mayBeObject';
+        const rightMayBeObject = right === undefined || right.type === 'mayBeObject';
+        if (leftMayBeObject && rightMayBeObject) {
+            if (left === undefined && right === undefined) return undefined;
+            // Both sides may be object, so the intersection may be satisfiable —
+            // quiet here, but the inner loudness rides along for an OUTER
+            // provably-non-object conjunct to surface.
+            return {
+                type: 'mayBeObject',
+                loud: false,
+                loudInside: left?.loudInside === true || right?.loudInside === true
+            };
+        }
+        if (leftMayBeObject || rightMayBeObject) {
+            // One side is provably non-object: the other side's object possibility
+            // is dead — no value satisfies both — so its carried inner loudness
+            // surfaces (`z.intersection(z.array(…), z.union([z.date(), z.object(…)]))`
+            // threw pre-#2464).
+            const provablyNonObject = leftMayBeObject ? right! : left!;
+            const mayBeObject = leftMayBeObject ? left : right;
+            return { type: 'intersection', loud: provablyNonObject.loud || mayBeObject?.loudInside === true };
+        }
+        return { type: 'intersection', loud: left!.loud || right!.loud };
     }
     if (def.type === 'literal') {
         // The verdict stays DEFINED whatever the values: literal values are

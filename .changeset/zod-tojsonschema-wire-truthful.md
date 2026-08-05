@@ -34,8 +34,12 @@ every JSON payload — use a JSON-representable type such as `z.iso.date()`/
 optional. The same holds for required OUTPUT fields of such types: bigint results fail
 JSON-RPC serialization and Map/Set values serialize as `{}`. And a degraded
 object-`.catch()` node keeps `type: 'object'` for the 2025-era wrap proof even though
-catch-validation does not enforce it on the raw value. A `.meta()`-injected
-`not: {$ref: …}` aliasing a loosened subtree can also observe the `oneOf` → `anyOf`
-rewrite cross-polarity.) Elicitation is unaffected:
+catch-validation does not enforce it on the raw value.
+Hand-authored reference keywords disable the loosening: a `.meta()`/registry-injected
+`$ref`/`$dynamicRef` beyond zod's own registry shapes (`#`, `#/$defs/<name>`), any
+`$anchor`/`$dynamicAnchor` or `$id`, or a non-root `$defs` makes the conversion ship the
+strict pre-fix-shaped emission instead — such constructs would observe the loosening's
+rewrites as dangling pointers or stale anchors, so those schemas keep pre-fix strictness,
+compilable and working by construction.) Elicitation is unaffected:
 `inputRequired.elicit()` keeps throwing on schemas its restricted form grammar cannot
 round-trip, including `z.date()`.

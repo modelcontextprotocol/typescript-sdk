@@ -675,9 +675,11 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ arr: [3, 5, 4, 6], counted: 1, name: 'n' }).valid).toBe(true);
     });
 
-    test('the oneOf rewrite redirects pointers through the renamed segment', () => {
-        // The members moved to anyOf — a pointer still spelling oneOf would DANGLE,
-        // making the whole document uncompilable (callTool fails before sending).
+    test('positional pointer aliases ship the strict emission (reference guard)', () => {
+        // A hand-authored positional $ref could observe the loosen family's
+        // relocations (the oneOf→anyOf rename here) as a dangling pointer — the
+        // guard skips the loosen family instead, shipping the raw pre-#2464
+        // emission: compilable and working by construction, strict.
         const du = z.discriminatedUnion('t', [
             z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
             z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
@@ -685,20 +687,22 @@ describe('zod conversion options (#2464)', () => {
         const schema = z.object({
             du,
             alias: z.unknown().meta({ $ref: '#/properties/du/oneOf/0' }),
-            dynAlias: z.unknown().meta({ $dynamicRef: '#/properties/du/oneOf/1' }),
+            dynAlias: z.unknown().optional().meta({ $dynamicRef: '#/properties/du/oneOf/1' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
+        // Byte-equal to zod's own emission (nothing here for the date/id
+        // sanitizers to touch).
+        expect(result).toEqual(z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output', unrepresentable: 'any' }));
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.du!.oneOf).toBeUndefined();
-        expect(properties.alias!.$ref).toBe('#/properties/du/anyOf/0');
-        expect(properties.dynAlias!.$dynamicRef).toBe('#/properties/du/anyOf/1');
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/0');
+        expect(properties.dynAlias!.$dynamicRef).toBe('#/properties/du/oneOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, alias: { t: 'a' }, name: 'n' }).valid).toBe(true);
     });
 
-    test('the oneOf rewrite redirects pointers into the allOf-pushed segment', () => {
-        // On the push branch the members land under `allOf/<n>/anyOf`, not `anyOf`.
+    test('a pointer alias beside a user anyOf ships strict (reference guard)', () => {
         const du = z
             .discriminatedUnion('t', [
                 z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
@@ -712,8 +716,11 @@ describe('zod conversion options (#2464)', () => {
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
-        expect((result.properties as Record<string, Record<string, unknown>>).alias!.$ref).toBe('#/properties/du/allOf/0/anyOf/1');
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'b' }, name: 'n' }).valid).toBe(true);
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.du!.anyOf).toEqual([{ type: 'object' }]); // the user's, unmoved
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'b' }, alias: { t: 'b' }, name: 'n' }).valid).toBe(true);
     });
 
     test('pointers through an untouched oneOf stay put (no-loosening control)', () => {
@@ -731,242 +738,137 @@ describe('zod conversion options (#2464)', () => {
         expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
     });
 
-    test('pointers through a catch-degraded oneOf follow the deferred rename', () => {
-        // The catch degrade skeletonizes composition members at override time,
-        // where no document path exists — the oneOf→anyOf rename is deferred to
-        // the epilogue so the pointer move is recorded, both for the catch node's
-        // own oneOf and for a skeletonized member's nested one.
+    test('catch nodes with pointer aliases ship strict (reference guard)', () => {
+        // Pre-guard, the catch degrade would have deleted the members' constraints
+        // and renamed the oneOf out from under the alias.
         const schema = z.object({
             cfg: z
                 .discriminatedUnion('t', [z.object({ t: z.literal('a'), x: z.string() }), z.object({ t: z.literal('b'), y: z.string() })])
                 .catch({ t: 'a', x: 'd' }),
-            nested: z
-                .union([
-                    z.discriminatedUnion('t', [z.object({ t: z.literal('a') }), z.object({ t: z.literal('b') })]),
-                    z.object({ w: z.number() })
-                ])
-                .catch({ w: 1 }),
             alias: z.unknown().meta({ $ref: '#/properties/cfg/oneOf/0' }),
-            nestedAlias: z.unknown().meta({ $ref: '#/properties/nested/anyOf/0/oneOf/1' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.cfg!.oneOf).toBeUndefined();
-        expect(properties.alias!.$ref).toBe('#/properties/cfg/anyOf/0');
-        expect(properties.nestedAlias!.$ref).toBe('#/properties/nested/anyOf/0/anyOf/1');
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { t: 'a' }, nested: { w: 1 }, name: 'n' }).valid).toBe(true);
+        expect(properties.cfg!.oneOf).toBeDefined(); // no degrade, no rename
+        expect(properties.alias!.$ref).toBe('#/properties/cfg/oneOf/0');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ cfg: { t: 'a', x: 'v' }, alias: { t: 'a', x: 'w' }, name: 'n' }).valid
+        ).toBe(true);
     });
 
-    test('pointers into wrapped array and tuple element subschemas follow the wrap', () => {
-        // The null-tolerance wrap relocates the element subschema to
-        // `…/items/anyOf/0` (and the prefixItems/rest equivalents) — the move is
-        // recorded via the override's `ctx.path` so inbound aliases keep resolving.
+    test('array and tuple element aliases ship strict — no null wrap (reference guard)', () => {
         const schema = z.object({
             arr: z.array(z.object({ x: z.string() }).optional()),
             t: z.tuple([z.object({ x: z.string() }).optional(), z.string()], z.object({ y: z.number() }).optional()),
             itemsAlias: z.unknown().meta({ $ref: '#/properties/arr/items/properties/x' }),
-            prefixAlias: z.unknown().meta({ $ref: '#/properties/t/prefixItems/0/properties/x' }),
-            restAlias: z.unknown().meta({ $ref: '#/properties/t/items/properties/y' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.itemsAlias!.$ref).toBe('#/properties/arr/items/anyOf/0/properties/x');
-        expect(properties.prefixAlias!.$ref).toBe('#/properties/t/prefixItems/0/anyOf/0/properties/x');
-        expect(properties.restAlias!.$ref).toBe('#/properties/t/items/anyOf/0/properties/y');
+        expect((properties.arr!.items as Record<string, unknown>).anyOf).toBeUndefined(); // strict: no null tolerance advertised
+        expect(properties.itemsAlias!.$ref).toBe('#/properties/arr/items/properties/x');
         const validate = new AjvJsonSchemaValidator().getValidator(result);
-        expect(validate({ arr: [{ x: 'v' }, null], t: [null, 's', null], name: 'n' }).valid).toBe(true);
+        expect(validate({ arr: [{ x: 'v' }], t: [{ x: 'v' }, 's'], itemsAlias: 'w', name: 'n' }).valid).toBe(true);
+        // Pre-#2464 strictness kept: a null element is rejected by the
+        // advertisement even though the raw payload may carry one.
+        expect(validate({ arr: [{ x: 'v' }, null], t: [{ x: 'v' }, 's'], itemsAlias: 'w', name: 'n' }).valid).toBe(false);
     });
 
-    test('pointers into degrade-deleted subtrees are neutralized, resolvable ones kept', () => {
-        // The catch degrade DELETES a catch node's `properties` — no move target
-        // exists, so a pointer into it is neutralized (loosen-only: an absent $ref
-        // constrains nothing) instead of shipping an uncompilable advertisement.
+    test('refs into catch subtrees stay resolvable under the guard', () => {
         const schema = z.object({
             cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
-            deletedAlias: z.unknown().meta({ $ref: '#/properties/cfg/properties/q' }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/properties/q' }),
             keptAlias: z.unknown().meta({ $ref: '#/properties/name' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.deletedAlias!.$ref).toBeUndefined();
-        expect(properties.keptAlias!.$ref).toBe('#/properties/name'); // resolvable — untouched
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, name: 'n' }).valid).toBe(true);
+        expect((properties.cfg!.properties as Record<string, unknown>).q).toEqual({ type: 'string' }); // no degrade
+        expect(properties.alias!.$ref).toBe('#/properties/cfg/properties/q');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { q: 'x' }, alias: 'y', keptAlias: 'k', name: 'n' }).valid).toBe(
+            true
+        );
     });
 
-    test('anchor-form refs whose anchors rode deleted subtrees are neutralized', () => {
-        // Anchors are name-resolved and immune to relocation, but they dangle by
-        // DELETION: the catch degrade drops a catch node's `properties` (and the
-        // skeleton drops member constraints) along with any anchors nested inside.
+    test('anchors and anchor-form refs ship strict (reference guard)', () => {
         const schema = z.object({
             cfg: z.object({ q: z.string().meta({ $anchor: 'innerA' }) }).catch({ q: 'd' }),
             skel: z.union([z.object({ q: z.string().meta({ $anchor: 'deepA' }) }), z.object({ w: z.number() })]).catch({ q: 'd' }),
             live: z.object({ q: z.string() }).meta({ $dynamicAnchor: 'liveD' }),
-            gone: z.unknown().meta({ $ref: '#innerA' }),
-            goneDeep: z.unknown().meta({ $ref: '#deepA' }),
-            kept: z.unknown().meta({ $dynamicRef: '#liveD' }),
+            aliasA: z.unknown().meta({ $ref: '#innerA' }),
+            aliasB: z.unknown().meta({ $ref: '#deepA' }),
+            aliasC: z.unknown().meta({ $dynamicRef: '#liveD' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.gone!.$ref).toBeUndefined();
-        expect(properties.goneDeep!.$ref).toBeUndefined();
-        expect(properties.kept!.$dynamicRef).toBe('#liveD'); // surviving anchor — untouched
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, skel: {}, live: { q: 'x' }, name: 'n' }).valid).toBe(true);
+        expect(properties.aliasA!.$ref).toBe('#innerA'); // the anchors survive — no degrade ran
+        expect(properties.aliasB!.$ref).toBe('#deepA');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({
+                cfg: { q: 'x' },
+                skel: { q: 'y' },
+                live: { q: 'z' },
+                aliasA: 'a',
+                aliasB: 'b',
+                aliasC: { q: 'c' },
+                name: 'n'
+            }).valid
+        ).toBe(true);
     });
 
-    test('base-addressed refs into a mutated embedded-$id resource are neutralized', () => {
-        // The recorded moves are document-rooted, so a `<uri>#/…` ref into an
-        // embedded `$id` resource whose oneOf the loosen rewrite renamed cannot be
-        // redirected — it is verified against the embedded resource and dropped.
+    test('embedded-$id resources ship strict (reference guard)', () => {
+        // Outside-in base-addressed and inside base-relative refs both resolve
+        // against the untouched emission — including inside the resource, where
+        // the rename walk used to fire $id-blind.
         const schema = z.object({
             du: z
-                .discriminatedUnion('t', [z.object({ t: z.literal('a').catch('a') }), z.object({ t: z.literal('b') })])
+                .discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({}).meta({ $ref: '#/oneOf/0' })
+                ])
                 .meta({ $id: 'https://example.com/du' }),
-            cfg: z.object({ q: z.string() }).meta({ $id: 'https://example.com/cfg' }),
-            gone: z.unknown().meta({ $ref: 'https://example.com/du#/oneOf/0' }),
-            kept: z.unknown().meta({ $ref: 'https://example.com/cfg#/properties/q' }),
+            outer: z.unknown().meta({ $ref: 'https://example.com/du#/oneOf/0' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.gone!.$ref).toBeUndefined();
-        // A ref into a SURVIVING part of an embedded resource still resolves — kept.
-        expect(properties.kept!.$ref).toBe('https://example.com/cfg#/properties/q');
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, cfg: { q: 'x' }, name: 'n' }).valid).toBe(true);
+        expect(properties.du!.oneOf).toBeDefined(); // rename skipped inside the resource too
+        expect(properties.outer!.$ref).toBe('https://example.com/du#/oneOf/0');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, outer: { t: 'a' }, name: 'n' }).valid).toBe(true);
     });
 
-    test('dangling refs under negative or conditional keywords remove the enclosing conjunct', () => {
-        // Deleting the ref itself would TIGHTEN: `not: {}` rejects everything and
-        // `if: {}` makes a sibling `then` always apply — the enclosing boundary
-        // keyword is removed instead (then/else without if are ignored).
+    test('refs under negative and conditional keywords ship strict (reference guard)', () => {
         const schema = z.object({
             cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
-            negated: z.number().meta({ not: { $ref: '#/properties/cfg/properties/q' } }),
-            conditional: z.number().meta({ if: { $ref: '#/properties/cfg/properties/q' }, then: { multipleOf: 2 } }),
-            control: z.number().meta({ not: { $ref: '#/properties/name' } }),
-            name: z.string()
-        });
-        const result = standardSchemaToJsonSchema(schema, 'output');
-
-        const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.negated!.not).toBeUndefined();
-        expect(properties.conditional!.if).toBeUndefined();
-        expect(properties.control!.not).toEqual({ $ref: '#/properties/name' }); // resolvable — untouched
-        // Pre-PR both payloads validated: `not` never matched a number, and `if`
-        // never fired its `then`.
-        const validate = new AjvJsonSchemaValidator().getValidator(result);
-        expect(validate({ cfg: {}, negated: 4, conditional: 3, control: 5, name: 'n' }).valid).toBe(true);
-    });
-
-    test('refs inside embedded-$id resources are repaired per resource', () => {
-        // The loosen machinery mutates freely inside embedded `$id` resources, so
-        // their base-relative refs must be repaired with the RESOURCE as the
-        // resolution root — the document-rooted walks skip these subtrees.
-        // Rename source: the member alias pointed at the resource's own oneOf.
-        const renamed = standardSchemaToJsonSchema(
-            z.object({
-                du: z
-                    .discriminatedUnion('t', [
-                        z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
-                        z.object({}).meta({ $ref: '#/oneOf/0' })
-                    ])
-                    .meta({ $id: 'https://example.com/du' })
-            }),
-            'output'
-        );
-        const du = (renamed.properties as Record<string, Record<string, unknown>>).du!;
-        expect((du.anyOf as Array<Record<string, unknown>>)[1]!.$ref).toBeUndefined();
-        expect(new AjvJsonSchemaValidator().getValidator(renamed)({ du: { t: 'a' } }).valid).toBe(true);
-
-        // Wrap and delete sources inside one resource; a ref to a surviving
-        // position stays enforced.
-        const inner = standardSchemaToJsonSchema(
-            z.object({
-                inner: z
-                    .object({
-                        arr: z.array(z.object({ x: z.string() }).optional()),
-                        cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
-                        wrapAlias: z.unknown().meta({ $ref: '#/properties/arr/items/properties/x' }),
-                        delAlias: z.unknown().meta({ $ref: '#/properties/cfg/properties/q' }),
-                        keptAlias: z.unknown().meta({ $ref: '#/properties/arr' })
-                    })
-                    .meta({ $id: 'https://example.com/inner' }),
-                name: z.string()
-            }),
-            'output'
-        );
-        const innerProperties = ((inner.properties as Record<string, Record<string, unknown>>).inner!.properties ?? {}) as Record<
-            string,
-            Record<string, unknown>
-        >;
-        expect(innerProperties.wrapAlias!.$ref).toBeUndefined();
-        expect(innerProperties.delAlias!.$ref).toBeUndefined();
-        expect(innerProperties.keptAlias!.$ref).toBe('#/properties/arr');
-        expect(new AjvJsonSchemaValidator().getValidator(inner)({ inner: { arr: [{ x: 'v' }, null] }, name: 'n' }).valid).toBe(true);
-    });
-
-    test('boundary-conjunct deletions feed back into the neutralization fixpoint', () => {
-        // Deleting `guard.not` removes both the `$anchor` a surviving `#A` ref was
-        // judged against (stale snapshot) and the target of a pointer-form ref
-        // declared EARLIER in the walk (visit-order dependence) — a second round
-        // must re-examine both.
-        const schema = z.object({
-            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
-            early: z.unknown().meta({ $ref: '#/properties/guard/not' }),
-            guard: z.number().meta({ not: { $anchor: 'A', $ref: '#/properties/cfg/properties/q' } }),
-            anchorAlias: z.unknown().meta({ $ref: '#A' }),
-            name: z.string()
-        });
-        const result = standardSchemaToJsonSchema(schema, 'output');
-
-        const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.guard!.not).toBeUndefined();
-        expect(properties.early!.$ref).toBeUndefined();
-        expect(properties.anchorAlias!.$ref).toBeUndefined();
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: {}, guard: 4, name: 'n' }).valid).toBe(true);
-    });
-
-    test('deleting a boundary conjunct also drops its annotation-consuming siblings', () => {
-        // `contains` feeds the item-evaluation annotations `unevaluatedItems:
-        // false` consumes — deleting the conjunct alone would reject the
-        // previously-contains-evaluated 'tail' item (a tightening). Likewise
-        // `if`'s branches feed `unevaluatedProperties`, and `then`/`else` are
-        // dead without `if`.
-        const schema = z.object({
-            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+            negated: z.number().meta({ not: { $anchor: 'A', $ref: '#/properties/cfg/properties/q' } }),
+            early: z.unknown().meta({ $ref: '#/properties/negated/not' }),
             arr: z.unknown().meta({
                 type: 'array',
                 prefixItems: [{ type: 'string' }],
                 contains: { $ref: '#/properties/cfg/properties/q' },
                 unevaluatedItems: false
             }),
-            obj: z.unknown().meta({
-                type: 'object',
-                if: { $ref: '#/properties/cfg/properties/q' },
-                then: { required: ['z'] },
-                unevaluatedProperties: false
-            }),
+            conditional: z.number().meta({ if: { $ref: '#/properties/cfg/properties/q' }, then: { multipleOf: 2 } }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         const properties = result.properties as Record<string, Record<string, unknown>>;
-        expect(properties.arr!.contains).toBeUndefined();
-        expect(properties.arr!.unevaluatedItems).toBeUndefined();
-        expect(properties.obj!.if).toBeUndefined();
-        expect(properties.obj!.then).toBeUndefined();
-        expect(properties.obj!.unevaluatedProperties).toBeUndefined();
-        // Pre-PR this payload validated: 'tail' was evaluated by the contains ref.
+        expect(properties.negated!.not).toBeDefined(); // conjuncts survive — their refs resolve
+        expect(properties.arr!.contains).toBeDefined();
+        expect(properties.arr!.unevaluatedItems).toBe(false);
+        expect(properties.conditional!.if).toBeDefined();
+        // Pre-PR-valid payload: `not` never matches a number, `contains`
+        // evaluates 'tail' for unevaluatedItems, `if` never fires its then-branch.
         const validate = new AjvJsonSchemaValidator().getValidator(result);
-        expect(validate({ cfg: {}, arr: ['head', 'tail'], obj: {}, name: 'n' }).valid).toBe(true);
+        expect(validate({ cfg: { q: 'x' }, negated: 4, early: 'e', arr: ['head', 'tail'], conditional: 3, name: 'n' }).valid).toBe(true);
     });
 
     test('probe-only-tolerant array and tuple elements get the null wrap', () => {
@@ -995,38 +897,60 @@ describe('zod conversion options (#2464)', () => {
         expect((result.properties as Record<string, Record<string, unknown>>).alias!.$ref).toBe('#/nowhere');
     });
 
-    test('a degraded member $defs survives the skeleton at its pointer-addressed spot', () => {
-        // `$defs` entries are PATH-addressed (`#/…/$defs/X`) — the catch degrade's
-        // type skeleton must carry them (like the name-resolved anchors) or inbound
-        // pointers dangle and the document stops compiling.
+    test('non-root $defs ships strict (reference guard)', () => {
         const schema = z.object({
             cfg: z
                 .union([z.object({ v: z.string() }).meta({ $defs: { X: { type: 'string' } } }), z.object({ w: z.number() })])
                 .catch({ v: 'd' }),
+            f: z.file().meta({ $defs: { Y: { type: 'string' } } }),
             alias: z.unknown().meta({ $ref: '#/properties/cfg/anyOf/0/$defs/X' }),
+            wrapAlias: z.unknown().meta({ $ref: '#/properties/f/$defs/Y' }),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
-        const cfg = (result.properties as Record<string, Record<string, unknown>>).cfg!;
-        expect((cfg.anyOf as Array<Record<string, unknown>>)[0]!.$defs).toEqual({ X: { type: 'string' } });
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { v: 'd' }, name: 'n' }).valid).toBe(true);
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect((properties.cfg!.anyOf as Array<Record<string, unknown>>)[0]!.$defs).toEqual({ X: { type: 'string' } });
+        expect(properties.f!.$defs).toEqual({ Y: { type: 'string' } });
+        expect(properties.f!.anyOf).toBeUndefined(); // strict: no file wrap
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ cfg: { v: 'd' }, f: 'bytes', alias: 'a', wrapAlias: 'w', name: 'n' }).valid
+        ).toBe(true);
     });
 
-    test('the constraint wrap leaves $defs at the wrap site', () => {
-        // wrapConstraintsInAnyOf moves constraints into anyOf[0]; `$defs` is
-        // path-addressed, so relocating it (unlike the name-resolved anchors, which
-        // stay resolvable from anywhere) dangles inbound `#/…/$defs/X` pointers.
-        const schema = z.object({
-            f: z.file().meta({ $defs: { X: { type: 'string' } } }),
-            alias: z.unknown().meta({ $ref: '#/properties/f/$defs/X' }),
-            name: z.string()
-        });
+    test('zod registry refs keep the loosening (stable under every mutation)', () => {
+        // Registry emissions — `$defs` at the conversion root, refs of the exact
+        // shape `#/$defs/<name>`, bare `#` — are zod's own output: the guard must
+        // NOT fire, and the loosen family may mutate `$defs` entries freely IN
+        // PLACE without breaking the refs.
+        const reg = z
+            .object({
+                q: z.string(),
+                du: z.discriminatedUnion('t', [z.object({ t: z.literal('a').catch('a') }), z.object({ t: z.literal('b') })]),
+                c: z.number().catch(0)
+            })
+            .meta({ id: 'Reg' });
+        const schema = z.object({ x: reg, y: reg, name: z.string() });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
-        const f = (result.properties as Record<string, Record<string, unknown>>).f!;
-        expect(f.$defs).toEqual({ X: { type: 'string' } });
-        expect(new AjvJsonSchemaValidator().getValidator(result)({ f: {}, name: 'n' }).valid).toBe(true);
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.x!.$ref).toBe('#/$defs/Reg');
+        const entry = (result.$defs as Record<string, Record<string, unknown>>).Reg!;
+        // Loosening fired INSIDE the entry — the tolerant field left `required`
+        // and the DU's oneOf was renamed — while the registry ref still resolves.
+        expect(entry.required).not.toContain('c');
+        expect((entry.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeUndefined();
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ x: { q: 'a', du: { t: 'a' } }, y: { q: 'b', du: { t: 'b' } }, name: 'n' })
+                .valid
+        ).toBe(true);
+
+        // Recursive schemas emit registry-shaped cycle refs — loosening stays on.
+        type Tree = { v: string; kids?: Tree[] };
+        const tree: z.ZodType<Tree> = z.lazy(() => z.object({ v: z.string(), kids: z.array(tree).optional() }));
+        const rec = standardSchemaToJsonSchema(z.object({ tree, c: z.number().catch(0), name: z.string() }), 'output');
+        expect(rec.required).toEqual(['tree', 'name']);
+        expect(new AjvJsonSchemaValidator().getValidator(rec)({ tree: { v: 'r', kids: [{ v: 'k' }] }, name: 'n' }).valid).toBe(true);
     });
 
     test('relocated members keep their stamp beside a null-membered user anyOf', () => {
@@ -1167,6 +1091,41 @@ describe('zod conversion options (#2464)', () => {
         // 'timestamp-or-string' tool on either io path).
         expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'output').type).toBeUndefined();
         expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
+    });
+
+    test('a may-be-object union member cannot launder loudness past a non-object conjunct', () => {
+        // The union's object member makes the union satisfiable against an OBJECT
+        // conjunct — but against a provably non-object conjunct (array/string) the
+        // object possibility is dead, and the loud date/bigint member must
+        // surface: all of these threw pre-#2464.
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.array(z.string()), z.union([z.date(), z.object({ b: z.number() })])), 'output')
+        ).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.string(), z.union([z.date(), z.object({ b: z.number() })])), 'output')
+        ).toThrow(/must describe objects/);
+        for (const io of ['output', 'input'] as const) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.array(z.string()), z.union([z.bigint(), z.object({ b: z.number() })])), io)
+            ).toThrow(/must describe objects/);
+        }
+        // Against an OBJECT conjunct the same union keeps listing (satisfiable) —
+        // the pinned control — and its inner loudness rides through NESTED
+        // intersections until a non-object conjunct kills the object possibility.
+        const satisfiable = standardSchemaToJsonSchema(
+            z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+            'output'
+        );
+        expect(satisfiable.type).toBeUndefined();
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.intersection(
+                    z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+                    z.array(z.string())
+                ),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
     });
 
     test('piped and undefined-filtered loud literal output roots throw', () => {
