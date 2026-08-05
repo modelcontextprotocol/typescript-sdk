@@ -265,19 +265,24 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
 function zodConversionOptions(
     io: 'input' | 'output',
     loosened: { value: boolean },
-    loosen: boolean
+    loosen: boolean,
+    stripLegacyId = true
 ): Pick<z.core.ToJSONSchemaParams, 'unrepresentable' | 'override'> {
     return {
         unrepresentable: 'any',
         override: ctx => {
             const def = ctx.zodSchema._zod.def;
-            if ('id' in ctx.jsonSchema) {
+            if (stripLegacyId && 'id' in ctx.jsonSchema) {
                 // zod copies registry metadata (`.meta({id: 'X'})`) verbatim, emitting a
                 // literal draft-04 `id` keyword that Ajv v8 hard-rejects at COMPILE time
                 // ('NOT SUPPORTED: keyword "id", use "$id"' — strict: false does not
                 // help), so the SDK's own client could never validate the advertisement.
-                // `$ref`s are path-based (#/$defs/Name) and cannot dangle; renaming to
-                // `$id` would change base-URI resolution, so plain removal.
+                // Registry `$ref`s are path-based (#/$defs/Name) and cannot dangle;
+                // renaming to `$id` would change base-URI resolution, so plain removal.
+                // The zod OUTPUT flow defers this strip on its strict pass — a
+                // guard-shipped document with URI-form refs needs the `id` base the
+                // cfworker engine resolves them through (see the guard branch in
+                // standardSchemaToJsonSchema).
                 delete ctx.jsonSchema.id;
             }
             if (def.type === 'date') {
@@ -316,10 +321,10 @@ function zodConversionOptions(
                         // exactly-one `oneOf` of indistinguishable skeletons would
                         // reject every payload, but the rename to the honest `anyOf`
                         // is DEFERRED to the epilogue's `rewriteOneOfToAnyOf` — it
-                        // always runs once the degrade set `loosened`, and unlike
-                        // this override hook it knows the node's document path, so
-                        // the rename records the pointer move that keeps inbound
-                        // `$ref: '#/…/oneOf/<i>'` aliases resolvable.
+                        // always runs once the degrade set `loosened`, keeping the
+                        // rename logic in one place; no reference can observe the
+                        // relocation, since any hand-authored ref disables the
+                        // loosen family entirely (the reference guard vouched).
                         ctx.jsonSchema[key] = (ctx.jsonSchema[key] as unknown[]).map(member => compositionTypeSkeleton(member));
                         continue;
                     }
@@ -517,6 +522,67 @@ function rewriteOneOfToAnyOf(node: unknown, seen: Set<unknown> = new Set()): voi
 const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
 
 /**
+ * Whether any reference keyword in the document carries a non-fragment value — a
+ * ref that may resolve through a base URI (`$id`, or the draft-04 `id` the
+ * cfworker engine also registers) rather than by same-document pointer/anchor.
+ * Position-aware like the guard walk.
+ */
+function hasNonFragmentRefs(document: Record<string, unknown>): boolean {
+    return someSchemaNode(document, record =>
+        ['$ref', '$dynamicRef', '$recursiveRef'].some(refKey => {
+            const value = record[refKey];
+            return typeof value === 'string' && !value.startsWith('#');
+        })
+    );
+}
+
+/**
+ * Deletes every keyword-position draft-04 `id` in the document — the post-hoc
+ * spelling of the override hook's strip, for the guard-strict path where the
+ * override runs with the strip deferred. Only safe when
+ * {@linkcode hasNonFragmentRefs} is false: with fragment-only refs the `id` keys
+ * are inert bases nothing resolves through, while Ajv v8 hard-rejects the
+ * keyword at compile time.
+ */
+function stripLegacyIdKeywords(document: Record<string, unknown>): void {
+    someSchemaNode(document, record => {
+        if ('id' in record) delete record.id;
+        return false;
+    });
+}
+
+/**
+ * Position-aware some() over the document's schema nodes: only schema-carrying
+ * keywords are descended into (data-valued `const`/`enum`/`default`/`examples`
+ * and annotation values stay opaque), and schema-map VALUES are schemas while
+ * their keys stay names — a property literally named `id` or `$ref` is user
+ * data, not a keyword. Stops at the first node where `predicate` returns true.
+ */
+function someSchemaNode(document: Record<string, unknown>, predicate: (record: Record<string, unknown>) => boolean): boolean {
+    const walk = (node: unknown, seen: Set<unknown>): boolean => {
+        if (typeof node !== 'object' || node === null || seen.has(node)) return false;
+        seen.add(node);
+        if (Array.isArray(node)) return node.some(item => walk(item, seen));
+        const record = node as Record<string, unknown>;
+        if (predicate(record)) return true;
+        for (const [key, value] of Object.entries(record)) {
+            if (!SCHEMA_CARRYING_JSON_SCHEMA_KEYWORDS.has(key)) continue;
+            if (SCHEMA_MAP_JSON_SCHEMA_KEYWORDS.has(key) && typeof value === 'object' && value !== null && !Array.isArray(value)) {
+                if (seen.has(value)) continue;
+                seen.add(value);
+                for (const subschema of Object.values(value as Record<string, unknown>)) {
+                    if (walk(subschema, seen)) return true;
+                }
+                continue;
+            }
+            if (walk(value, seen)) return true;
+        }
+        return false;
+    };
+    return walk(document, new Set());
+}
+
+/**
  * Whether the emitted document carries any reference construct beyond what zod's
  * own emitter produces: a `$ref`/`$dynamicRef` that is not `#` or
  * `#/$defs/<name>` (the only shapes zod emits, for recursive, deduplicated, and
@@ -647,8 +713,8 @@ function compositionTypeSkeleton(node: unknown): Record<string, unknown> {
             // members are indistinguishable and would reject every payload under
             // exactly-one semantics. The oneOf→anyOf rename is deferred to the
             // epilogue's `rewriteOneOfToAnyOf` (the degrade that skeletonizes
-            // always sets `loosened`), which performs it at a known document path
-            // WITH pointer-move bookkeeping.
+            // always sets `loosened`), keeping the rename in one place — safe
+            // because the reference guard vouched no ref can observe it.
             skeleton[key] = (source[key] as unknown[]).map(member => compositionTypeSkeleton(member));
         }
     }
@@ -843,6 +909,18 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
         // filling its default) for zod to merge the results.
         return hasStructuralMissingKeyTolerance(def.left, path) && hasStructuralMissingKeyTolerance(def.right, path);
     }
+    if (def.type === 'nonoptional') {
+        // z.nonoptional() RE-FORBIDS undefined, so tolerance by ACCEPTANCE inside
+        // it (an inner optional, any/unknown, undefined-valued literals) does NOT
+        // survive the wrapper — only tolerance by FILLING does (default/prefault/
+        // static catch replace undefined before nonoptional's check runs). The
+        // structural walk cannot tell the two apart, so it claims nothing and the
+        // validate(undefined) probe in fieldAcceptsMissingKey decides: it returns
+        // issues for `.optional().nonoptional()` (stays required) and success for
+        // `.default(1).nonoptional()` (stays droppable). The generic unwind below
+        // would wrongly propagate acceptance-tolerance through the re-forbid.
+        return false;
+    }
     if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) {
         return hasStructuralMissingKeyTolerance(def.innerType, path);
     }
@@ -941,19 +1019,32 @@ export function standardSchemaToJsonSchema(
         // `hasHandAuthoredReferenceConstructs`); reference-free documents (and
         // zod's own registry refs, stable under every mutation) convert again with
         // the loosen family active.
-        const strict = convert(zodConversionOptions(io, loosened, false));
+        // The strict pass defers the draft-04 `id` strip: when the guard fires,
+        // the emission ships verbatim, and a URI-form hand-authored ref (itself a
+        // guard trigger) may resolve through an `id` base on the cfworker engine
+        // — stripping would break a working pre-#2464 registration.
+        const strict = convert(zodConversionOptions(io, loosened, false, false));
         if (hasHandAuthoredReferenceConstructs(strict)) {
+            // With only fragment-form refs the `id` keys are inert bases — strip
+            // them post-hoc so Ajv keeps compiling registry-id documents (its v8
+            // engine hard-rejects the keyword; it rejected URI-form-ref documents
+            // pre-#2464 too, so keeping `id` for those is pre-fix parity).
+            if (!hasNonFragmentRefs(strict)) stripLegacyIdKeywords(strict);
             result = strict;
         } else {
             // The 2025-era wrap-stamp decision must match main, which read the RAW
-            // emission: loosen mutations can destroy proof-relevant keys (the
+            // emission in ITS decision order: an explicit root `type` short-circuited
+            // before the object proof ever ran (`{type: 'number',
+            // properties: …}` stayed a wrapped non-object root — the proof's
+            // keyword-presence rule never saw it), and only typeless roots were
+            // proven. Loosen mutations can destroy proof-relevant keys (the
             // allOf-push relocates a root `oneOf`; the catch degrade deletes
-            // meta-authored `required`/`properties`) or expose ones main's
-            // first-present-key-wins rule never read — flipping the SEP-2106
-            // legacy wrap either direction on an unrelated trigger. Snapshot the
-            // proof on the strict emission; the output epilogue consults it
-            // instead of the post-loosen document.
-            strictRootProven = isProvablyObjectShapedRoot(strict);
+            // meta-authored `required`/`properties` and non-object `type`s) or
+            // expose ones main never read — flipping the SEP-2106 legacy wrap
+            // either direction on an unrelated trigger. Snapshot the decision on
+            // the strict emission; the output epilogue consults it instead of the
+            // post-loosen document.
+            strictRootProven = strict.type === undefined ? isProvablyObjectShapedRoot(strict) : strict.type === 'object';
             result = convert(zodConversionOptions(io, loosened, true));
         }
     }

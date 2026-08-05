@@ -1150,6 +1150,63 @@ describe('zod conversion options (#2464)', () => {
             .catch({ x: 1 })
             .meta({ required: ['x'] });
         expect(standardSchemaToJsonSchema(catchRoot, 'output').type).toBe('object');
+
+        // The snapshot honors main's DECISION ORDER too: an explicit non-object
+        // type on the strict root short-circuits before the proof, so
+        // meta-authored object keywords on a scalar catch root cannot prove it
+        // even though the degrade deletes the type before the epilogue runs.
+        const typedRoot = z
+            .number()
+            .catch(0)
+            .meta({ properties: { a: { type: 'string' } } });
+        const typedResult = standardSchemaToJsonSchema(typedRoot, 'output');
+        expect(typedResult.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(typedResult)).toBe(true); // wrap parity with main
+    });
+
+    test('nonoptional re-forbids undefined: .required() fields stay advertised required', () => {
+        // The structural walk must not propagate acceptance-tolerance through
+        // z.nonoptional() — the validate(undefined) probe decides instead.
+        const out = z.object({ a: z.string().optional(), b: z.number() }).required();
+        const result = standardSchemaToJsonSchema(out, 'output');
+        expect(result.required).toEqual(['a', 'b']); // zod's own truthful emission
+        // FILLING tolerance survives the wrapper: the default replaces undefined
+        // before nonoptional's check runs, so the probe keeps the field droppable.
+        const filled = standardSchemaToJsonSchema(z.object({ c: z.number().default(1).nonoptional(), b: z.number() }), 'output');
+        expect(filled.required).toEqual(['b']);
+    });
+
+    test('guard-shipped documents keep draft-04 id when URI-form refs need its base', () => {
+        // cfworker resolves URI-form refs through `schema.$id || schema.id` base
+        // registration — the strict emission must keep the `id` the ref resolves
+        // through (Ajv rejected these documents pre-#2464 too, so nothing Ajv
+        // regresses).
+        const reg = z.object({ q: z.string() }).meta({ id: 'RegX' });
+        const schema = z.object({
+            x: reg,
+            alias: z.unknown().meta({ $ref: 'RegX' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(result.required).toEqual(['x', 'alias', 'name']); // guard fired: strict
+        expect(((result.$defs as Record<string, Record<string, unknown>>).RegX ?? {}).id).toBe('RegX');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ x: { q: 'a' }, alias: { q: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a' }, alias: { nope: 1 }, name: 'n' }).valid).toBe(false); // ref still enforces
+
+        // Fragment-only guard-fired documents still get the post-hoc strip, so
+        // Ajv keeps compiling registry-id documents with exotic constructs.
+        const fragmentOnly = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.object({ q: z.string().default('d') }).meta({ id: 'Y' }),
+                guarded: z.unknown().meta({ not: { $ref: '#/$defs/Y' } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        expect(((fragmentOnly.$defs as Record<string, Record<string, unknown>>).Y ?? {}).id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(fragmentOnly)({ cfg: { q: 'x' }, guarded: {}, name: 'n' }).valid).toBe(true);
     });
 
     test('a solo additionalProperties drop still fires the oneOf rename', () => {

@@ -18,7 +18,14 @@ Output schemas no longer advertise constraints the server doesn't enforce on the
 undefined-accepting types) are dropped from `required` — on objects and enum-keyed records —
 and `additionalProperties: false` is dropped for plain `z.object()` (kept for
 `z.strictObject()`), so validating clients no longer reject legitimate tool results for
-these schema shapes. (Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still
+these schema shapes. Once any such loosening applies, exactly-one `oneOf` compositions —
+including zod's discriminated-union emissions over plain objects, i.e. most of them — are
+advertised as `anyOf` (the loosened members may overlap; discriminator consts keep them
+distinguishable), and the serialized wire forms of tolerant values are additionally
+accepted: tolerant array/tuple elements also allow `null` (what `JSON.stringify` makes of
+an undefined element), `z.file()` fields also allow `{}` (a `File` has no JSON form), and
+non-finite number literals also allow `null`. (Output schemas containing
+`.transform()`/`.pipe()`/`z.coerce` still
 advertise the post-transform shape while the server ships the raw pre-transform value — a
 pre-existing gap this change does not address. And on zod 4.0–4.2.x, `toJSONSchema` skips
 the sanitization hook on a schema reused both bare and via a `.describe()`/`.meta()` clone
