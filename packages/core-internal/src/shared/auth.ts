@@ -160,11 +160,13 @@ export const OAuthTokensSchema = z
  * Per RFC 6749 §5.1, an absent `scope` member is a positive assertion that
  * the granted scope is identical to the scope the client requested, so
  * stripping `scope: null` converts a response with undefined semantics into
- * that assertion. This has no bearing on enforcement — the SDK never uses
- * `tokens.scope` for authorization decisions, and the resource server remains
- * authoritative — but consumers must not derive granted-scope conclusions
- * from the member's absence. Consumers that need the authoritative grant
- * should use token introspection instead.
+ * that assertion. This has little bearing on enforcement — the resource
+ * server remains authoritative — but the SDK does use `tokens.scope`
+ * conservatively in the 403 `insufficient_scope` step-up path, where an
+ * absent scope is treated as the empty set and forces a fresh authorization
+ * request rather than a refresh. Consumers must not derive granted-scope
+ * conclusions from the member's absence; those that need the authoritative
+ * grant should use token introspection instead.
  */
 export const OAuthTokenResponseSchema = z.preprocess(value => {
     if (value === null || typeof value !== 'object' || Array.isArray(value)) {
