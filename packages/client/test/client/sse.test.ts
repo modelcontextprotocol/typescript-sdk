@@ -1762,6 +1762,59 @@ describe('SSEClientTransport', () => {
             expect(getAttempt).toBe(3);
         });
 
+        it('close() during a pending onUnauthorized does not resurrect the EventSource', async () => {
+            // Regression: the 401-recovery success continuation ran
+            // _startOrAuth() after an arbitrarily long onUnauthorized await
+            // with no closed-state check. A close() landing while the token
+            // refresh was pending let _startOrAuth open a brand-new
+            // EventSource that nothing could ever tear down — the ES wrapper
+            // fetch never carries the transport-lifetime signal, and close()
+            // had already run against the old instance.
+            await resourceServer.close();
+
+            let getAttempts = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    getAttempts++;
+                    res.writeHead(401).end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            let releaseRefresh!: () => void;
+            const refreshPending = new Promise<void>(resolve => {
+                releaseRefresh = resolve;
+            });
+            let refreshStarted!: () => void;
+            const refreshStartedPromise = new Promise<void>(resolve => {
+                refreshStarted = resolve;
+            });
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {
+                    refreshStarted();
+                    await refreshPending;
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+
+            const startPromise = transport.start();
+            const startRejection = expect(startPromise).rejects.toThrow('Transport closed during re-authentication');
+            // Wait until the 401 recovery is mid-refresh, then close the
+            // transport while onUnauthorized is still pending.
+            await refreshStartedPromise;
+            const attemptsAtClose = getAttempts;
+            await transport.close();
+
+            // The refresh resolves AFTER close(): the continuation must bail
+            // instead of opening a new EventSource.
+            releaseRefresh();
+            await startRejection;
+            // Give a resurrected EventSource ample time to hit the server.
+            await new Promise(resolve => setTimeout(resolve, 100));
+            expect(getAttempts).toBe(attemptsAtClose);
+        });
+
         it('retry failure during SSE connect fires onerror exactly once', async () => {
             // Regression: when the retry EventSource rejected, its onerror fired inside, then
             // the outer .then() rejection handler fired onerror AGAIN for the same error.

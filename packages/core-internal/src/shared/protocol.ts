@@ -803,7 +803,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (!info) return false;
 
         const totalElapsed = Date.now() - info.startTime;
-        if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
+        // `!== undefined`, not truthiness: `maxTotalTimeout: 0` is the
+        // STRICTEST budget (rejects on the first check) — a falsy gate would
+        // silently disable it instead.
+        if (info.maxTotalTimeout !== undefined && totalElapsed >= info.maxTotalTimeout) {
             // Disarm the still-armed per-leg timer BEFORE dropping the map
             // entry: once the entry is gone, `_cleanupTimeout` (the funnel's
             // `.finally()` cleanup) can no longer reach the timer, and an

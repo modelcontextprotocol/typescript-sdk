@@ -224,7 +224,21 @@ export class SSEClientTransport implements Transport {
                         this._eventSource?.close();
                         this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
-                            () => this._startOrAuth().then(resolve, reject),
+                            () => {
+                                // Deferred continuation after an arbitrarily
+                                // long refresh await: a close() that landed in
+                                // the meantime must not be undone by opening a
+                                // brand-new EventSource — the ES wrapper fetch
+                                // never carries the transport-lifetime signal,
+                                // and close() already ran against the old
+                                // instance, so nothing could ever tear the
+                                // resurrected stream down.
+                                if (this._abortController?.signal.aborted === true) {
+                                    reject(new UnauthorizedError('Transport closed during re-authentication'));
+                                    return;
+                                }
+                                this._startOrAuth().then(resolve, reject);
+                            },
                             // onUnauthorized failed → not yet reported. Auth-seam
                             // stamp: covers the SDK's OAuth flow and custom
                             // callbacks alike.

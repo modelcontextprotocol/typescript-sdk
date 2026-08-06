@@ -492,6 +492,42 @@ describe('protocol tests', () => {
             expect(onProgressMock).toHaveBeenCalledTimes(1);
         });
 
+        test('maxTotalTimeout: 0 is the strictest budget — rejects on the first progress check, not disabled', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 0,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            });
+
+            // The budget is already exhausted, so the FIRST progress
+            // notification's reset check must reject. Before the fix the
+            // falsy gate (`info.maxTotalTimeout && ...`) silently disabled a
+            // 0 budget entirely, leaving the request indefinitely
+            // progress-extendable — the strictest value was the only one that
+            // never rejected.
+            vi.advanceTimersByTime(10);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+            await expect(requestPromise).rejects.toThrow('Maximum total timeout exceeded');
+            expect(onProgressMock).not.toHaveBeenCalled();
+        });
+
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
