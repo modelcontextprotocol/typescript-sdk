@@ -668,8 +668,11 @@ export class StreamableHTTPClientTransport implements Transport {
                     // stream-end callback so the caller can settle (otherwise
                     // a resumed listen subscription dead-ends silently). The
                     // standalone-GET callers never pass `onRequestStreamEnd`,
-                    // so this is a no-op for them.
-                    options.onRequestStreamEnd?.();
+                    // so this is a no-op for them. Guarded: a throwing
+                    // callback would otherwise land in this function's catch
+                    // (misattributed onerror + rethrow) and be re-invoked by
+                    // the resumptionToken short-circuit's own catch.
+                    this._fireRequestStreamEnd(options.onRequestStreamEnd);
                     return;
                 }
 
@@ -710,6 +713,24 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
+     * Invoke a caller-supplied `onRequestStreamEnd` under a guard. The
+     * callback fires from floating promise chains (the reconnect closure, the
+     * resumptionToken short-circuit's catch) and fire-and-forget stream
+     * processors — contexts where a synchronous throw would either become an
+     * unhandledRejection (process exit by default) or land in an unrelated
+     * catch and corrupt its settlement logic. Failures are routed through
+     * `onerror` instead; the callback is a completion signal, not a caller to
+     * reject.
+     */
+    private _fireRequestStreamEnd(onRequestStreamEnd?: () => void): void {
+        try {
+            onRequestStreamEnd?.();
+        } catch (error) {
+            this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+        }
+    }
+
+    /**
      * Schedule a reconnection attempt using server-provided retry interval or backoff
      *
      * @param lastEventId The ID of the last received event for resumability
@@ -723,7 +744,7 @@ export class StreamableHTTPClientTransport implements Transport {
         if (attemptCount >= maxRetries) {
             this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
             // The per-request stream is now definitively gone.
-            options.onRequestStreamEnd?.();
+            this._fireRequestStreamEnd(options.onRequestStreamEnd);
             return;
         }
 
@@ -767,8 +788,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     // settle the caller, mirroring the maxRetries-exhaustion
                     // branch. No double-fire is possible: that branch returns
                     // before the scheduler runs, so _scheduleReconnection can
-                    // never both fire the callback and throw.
-                    options.onRequestStreamEnd?.();
+                    // never both fire the callback and throw. Guarded: this
+                    // runs inside a floating promise chain, so a throwing
+                    // callback would otherwise become an unhandledRejection.
+                    this._fireRequestStreamEnd(options.onRequestStreamEnd);
                 }
             });
         };
@@ -822,7 +845,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // same terminal non-resumable outcome as a 405 — fire the
             // stream-end callback so the caller can settle. No-op for
             // standalone-GET callers (they never pass `onRequestStreamEnd`).
-            options.onRequestStreamEnd?.();
+            this._fireRequestStreamEnd(options.onRequestStreamEnd);
             return;
         }
         const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd, fetchSignal } = options;
@@ -843,13 +866,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // A throwing caller-supplied stream-end callback must not escape the
         // fire-and-forget processStream() promise as an unhandledRejection —
         // route it through onerror instead.
-        const fireStreamEnd = (): void => {
-            try {
-                onRequestStreamEnd?.();
-            } catch (callbackError) {
-                this.onerror?.(callbackError instanceof Error ? callbackError : new Error(String(callbackError)));
-            }
-        };
+        const fireStreamEnd = (): void => this._fireRequestStreamEnd(onRequestStreamEnd);
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -878,7 +895,18 @@ export class StreamableHTTPClientTransport implements Transport {
                         lastEventId = event.id;
                         // Mark that we've received a priming event - stream is now resumable
                         hasPrimingEvent = true;
-                        onresumptiontoken?.(event.id);
+                        // Guard the caller's persistence hook: a throw (e.g.
+                        // QuotaExceededError from the storage write this
+                        // callback is documented for) must not exit the read
+                        // loop — that would misattribute the failure as "SSE
+                        // stream disconnected", lose this event's payload
+                        // unreplayably (its id was already consumed), and
+                        // re-enter reconnection at attempt 0 on every resume.
+                        try {
+                            onresumptiontoken?.(event.id);
+                        } catch (callbackError) {
+                            this.onerror?.(callbackError instanceof Error ? callbackError : new Error(String(callbackError)));
+                        }
                     }
 
                     // Skip events with no data (priming events, keep-alives)
@@ -1165,7 +1193,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     // maxRetries-exhaustion branch. Not on intentional aborts:
                     // the contract excludes deliberate teardown.
                     if (options?.requestSignal?.aborted !== true && this._abortController?.signal.aborted !== true) {
-                        options?.onRequestStreamEnd?.();
+                        // Guarded: this catch is a floating promise chain, so
+                        // a throwing callback would otherwise become an
+                        // unhandledRejection.
+                        this._fireRequestStreamEnd(options?.onRequestStreamEnd);
                     }
                 });
                 return;

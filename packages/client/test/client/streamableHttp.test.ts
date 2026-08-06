@@ -3451,6 +3451,118 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onerror).toHaveBeenCalledTimes(1);
             expect(onerror).toHaveBeenCalledWith(callbackError);
         });
+
+        it('a throwing onRequestStreamEnd in the reschedule-throw branch routes to onerror, not an unhandledRejection', async () => {
+            // Regression: the reconnect closure's scheduleError branch fires
+            // the caller's stream-end callback inside a floating promise
+            // chain (`_startOrAuthSse(options).catch(...)`) — a throwing
+            // callback rejected that chain with nothing attached,
+            // terminating the process by default.
+            const scheduleError = new Error('platform denied background task');
+            let scheduleCalls = 0;
+            let capturedReconnect: (() => void) | undefined;
+            const scheduler: ReconnectionScheduler = vi.fn(reconnect => {
+                scheduleCalls++;
+                if (scheduleCalls > 1) {
+                    throw scheduleError;
+                }
+                capturedReconnect = reconnect;
+                return () => {};
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // First schedule arms; the leg's fetch then fails, so the catch
+            // reschedules — and the second schedule throws.
+            (globalThis.fetch as Mock).mockRejectedValue(new Error('network down'));
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { onRequestStreamEnd },
+                0
+            );
+            capturedReconnect!();
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            // onerror: the leg's open failure, the scheduler error, and the
+            // contained callback error — nothing escaped the floating chain.
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([scheduleError, callbackError]));
+        });
+
+        it('a throwing onRequestStreamEnd in the resumptionToken short-circuit routes to onerror, not an unhandledRejection', async () => {
+            // Regression: the short-circuit's catch fires the stream-end
+            // callback inside a floating promise chain; a throwing callback
+            // became an unhandledRejection.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // A genuine open failure (not an abort) on the resumed GET fires
+            // the stream-end callback from the short-circuit's catch.
+            (globalThis.fetch as Mock).mockRejectedValue(new Error('network down'));
+            await transport.send({ jsonrpc: '2.0', method: 'ping', id: 'r-1' }, { resumptionToken: 'evt-0', onRequestStreamEnd });
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([callbackError]));
+        });
+
+        it('a throwing onresumptiontoken does not lose the event or misattribute a stream disconnect', async () => {
+            // Regression: the caller's persistence hook was invoked bare in
+            // the read loop. A throw (e.g. QuotaExceededError from the
+            // documented storage write) exited into the generic catch: a
+            // misattributed "SSE stream disconnected" onerror, the
+            // response-bearing event's payload lost unreplayably, and a
+            // reconnect chain re-entered at attempt 0 with the request never
+            // marked complete.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onmessage = vi.fn();
+            transport.onmessage = onmessage;
+            const quotaError = new Error('QuotaExceededError: storage full');
+            const onresumptiontoken = vi.fn(() => {
+                throw quotaError;
+            });
+            await transport.start();
+
+            // One event carrying BOTH the id (hook throws) and the response.
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(encoder.encode('id: evt-1\ndata: {"jsonrpc":"2.0","id":"r-1","result":{}}\n\n'));
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onresumptiontoken }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // The hook's failure is reported once, correctly attributed…
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(quotaError);
+            // …the response still dispatches…
+            expect(onmessage).toHaveBeenCalledTimes(1);
+            // …and no bogus reconnect chain starts (response received).
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+        });
     });
 });
 
