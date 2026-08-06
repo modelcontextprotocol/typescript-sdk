@@ -3343,6 +3343,45 @@ describe('StreamableHTTPClientTransport', () => {
             requestAbort.abort();
             expect(cancel).toHaveBeenCalledTimes(1);
         });
+
+        it('a throwing cancel at request settlement reports through onerror instead of escaping the abort dispatch', async () => {
+            // Regression: the settlement listener invoked the user-supplied
+            // cancel with try/finally but no catch. An exception thrown in an
+            // AbortSignal 'abort' listener is NOT delivered to the abort()
+            // caller — abort() returns normally and Node reports the
+            // exception as an uncaughtException, terminating the process by
+            // default. The protocol funnel aborts requestSignal on EVERY
+            // settlement (success, timeout, caller abort, maxTotalTimeout),
+            // so a throwing custom-scheduler cancel would kill the process on
+            // the common path.
+            const cancelError = new Error('cancel failed at settlement');
+            const scheduler: ReconnectionScheduler = vi.fn(() => () => {
+                throw cancelError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            const requestAbort = new AbortController();
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { requestSignal: requestAbort.signal },
+                0
+            );
+
+            // The request settles: the funnel aborts its request-scoped
+            // signal. The throwing cancel must be routed to onerror, not
+            // escape the EventTarget dispatch.
+            requestAbort.abort();
+
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(cancelError);
+            // The finally disarm still ran: no stale Set entry survives.
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+        });
     });
 });
 

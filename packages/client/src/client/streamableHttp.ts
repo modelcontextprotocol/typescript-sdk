@@ -792,11 +792,21 @@ export class StreamableHTTPClientTransport implements Transport {
             options.requestSignal?.addEventListener(
                 'abort',
                 () => {
-                    // try/finally: a throwing user-supplied cancel must not
-                    // leave a stale Set entry (which close() would re-invoke)
-                    // or an armed settlement listener behind.
+                    // catch: an exception thrown inside an AbortSignal 'abort'
+                    // listener is not delivered to the abort() caller — Node
+                    // reports it as an uncaughtException (process exit by
+                    // default), and the funnel aborts requestSignal on EVERY
+                    // settlement, so a throwing user-supplied cancel would
+                    // kill the process on the common path. Route it through
+                    // onerror instead (close() has a caller to reject, so its
+                    // sibling loop rethrows; this listener does not).
+                    // finally: the throw must not leave a stale Set entry
+                    // (which close() would re-invoke) or an armed settlement
+                    // listener behind.
                     try {
                         cancelPending();
+                    } catch (error) {
+                        this.onerror?.(error instanceof Error ? error : new Error(String(error)));
                     } finally {
                         disarmBookkeeping();
                     }

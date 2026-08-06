@@ -147,7 +147,7 @@ The server matches `f` against the values it accepts for `tone`:
 
 ## Track progress on a long call
 
-Every verb takes request options as a second argument. `onprogress` receives each `notifications/progress` the server emits for this call; `resetTimeoutOnProgress` restarts the request timeout on every update and `maxTotalTimeout` is the absolute cap.
+Every verb takes request options as a second argument. `onprogress` receives each `notifications/progress` the server emits for this call; `resetTimeoutOnProgress` restarts the request timeout on every update and `maxTotalTimeout` caps the total wait across those resets — the budget is checked as each progress update arrives (it takes effect only alongside `resetTimeoutOnProgress` and `onprogress`, as here), so if the server stops sending progress near the boundary the call can overrun the budget by up to one `timeout` leg.
 
 ```ts source="../../examples/guides/clients/calling.examples.ts#callTool_progress"
 const exported = await client.callTool(
