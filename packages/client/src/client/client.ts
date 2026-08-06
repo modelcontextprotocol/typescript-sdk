@@ -1808,12 +1808,12 @@ export class Client extends Protocol<ClientContext> {
         if (hit !== undefined) {
             // A pre-aborted caller signal must reject the same way it would on
             // the wire path (`Protocol.request()` wraps an already-aborted
-            // signal as `SdkError(RequestTimeout, reason)`); without this guard
+            // signal as `SdkError(RequestAborted, reason)`); without this guard
             // a cache hit would resolve successfully and silently swallow the
             // abort.
             if (options?.signal?.aborted) {
                 const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
             }
             return hit.value as R;
         }
@@ -1968,12 +1968,12 @@ export class Client extends Protocol<ClientContext> {
 
         // Honor RequestOptions.signal exactly as request() does: an
         // already-aborted signal rejects synchronously before any setup, and
-        // the rejection is the same `SdkError(RequestTimeout, reason)` wrap
+        // the rejection is the same `SdkError(RequestAborted, reason)` wrap
         // request() / `_serveFromCache` apply (unless `reason` is already an
         // SdkError — preserved verbatim).
         if (options?.signal?.aborted) {
             const reason = options.signal.reason;
-            throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+            throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
         }
 
         const requestAbort = new AbortController();
