@@ -101,6 +101,13 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 export type RequestOptions = {
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
+     *
+     * Does not survive a `resumptionToken` re-issue on the SDK's Streamable
+     * HTTP transport: the resumed send never POSTs the fresh progress token,
+     * and progress notifications replayed on the resumed stream carry the
+     * original request's token, so this callback (and
+     * {@linkcode RequestOptions.resetTimeoutOnProgress | resetTimeoutOnProgress})
+     * will not fire for the resumed request.
      */
     onprogress?: ProgressCallback;
 
@@ -762,6 +769,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const totalElapsed = Date.now() - info.startTime;
         if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
+            // Disarm the still-armed per-leg timer BEFORE dropping the map
+            // entry: once the entry is gone, `_cleanupTimeout` (the funnel's
+            // `.finally()` cleanup) can no longer reach the timer, and an
+            // orphaned leg timer would fire cancel() again after this
+            // settlement.
+            clearTimeout(info.timeoutId);
             this._timeoutInfo.delete(messageId);
             throw new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                 maxTotalTimeout: info.maxTotalTimeout,
@@ -1466,12 +1479,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // built above.
             const outbound = this._envelopeOutbound(jsonrpcRequest);
 
-            let responseReceived = false;
+            // `true` once the request has settled through EITHER channel —
+            // the response handler or cancel(). Guarding cancel() on it (and
+            // having cancel() set it) makes cancellation idempotent: a late
+            // per-leg timer or any future duplicate cancel path becomes a
+            // no-op instead of re-running the body and POSTing a second
+            // `notifications/cancelled` for an already-settled request.
+            let settled = false;
 
             const cancel = (reason: unknown) => {
-                if (responseReceived) {
+                if (settled) {
                     return;
                 }
+                settled = true;
                 this._progressHandlers.delete(messageId);
 
                 if (!streamCloseCancels) {
@@ -1518,7 +1538,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (options?.signal?.aborted) {
                     return;
                 }
-                responseReceived = true;
+                settled = true;
 
                 if (response instanceof Error) {
                     return reject(response);

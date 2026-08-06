@@ -1732,6 +1732,41 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).not.toHaveBeenCalled();
         });
 
+        it('terminateSession: transport.close() while the DELETE is in flight surfaces no spurious onerror', async () => {
+            // The session-termination DELETE runs on the transport-lifetime
+            // signal alone — close() landing mid-flight must read as a clean
+            // shutdown, not a transport error. (A sessionId is required or
+            // terminateSession() no-ops without fetching.)
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { sessionId: 'session-1' });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            let terminateError: unknown;
+            const pending = transport.terminateSession().catch(error => {
+                terminateError = error;
+            });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — deliberate shutdown while the DELETE is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (terminateSession() rejects so the
+            // caller sees the outcome), but no onerror fires.
+            expect(terminateError).toBeInstanceOf(DOMException);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('failed reconnect leg surfaces onerror exactly once (no double-report), then retries', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {

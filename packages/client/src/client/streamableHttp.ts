@@ -71,6 +71,12 @@ export interface StartSSEOptions {
     /**
      * Override Message ID to associate with the replay message
      * so that the response can be associated with the new resumed request.
+     *
+     * Only JSON-RPC RESPONSES are remapped. Notifications replayed on the
+     * resumed stream (e.g. `notifications/progress`) pass through verbatim,
+     * still carrying the original request's identifiers — the transport never
+     * learns the original wire id (callers persist SSE event ids, not message
+     * ids), so it has nothing to remap `params.progressToken` with.
      */
     replayMessageId?: string | number;
 
@@ -966,6 +972,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 // keeps reporting newer event IDs to the caller's persistence
                 // hook and still fires the stream-end callback on a terminal
                 // non-resumable outcome.
+                //
+                // Known limitation: `onprogress` / `resetTimeoutOnProgress` do
+                // NOT survive a resumptionToken re-issue on this transport.
+                // The re-issued request's fresh progressToken never reaches
+                // the wire (this path resumes via GET instead of POSTing),
+                // and replayed `notifications/progress` carry the ORIGINAL
+                // request's token — see the `replayMessageId` JSDoc: only
+                // responses are remapped.
                 this._startOrAuthSse({
                     resumptionToken,
                     onresumptiontoken,
@@ -1262,7 +1276,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._sessionId = undefined;
         } catch (error) {
-            this.onerror?.(error as Error);
+            // Same guard as the POST path: the DELETE runs on the
+            // transport-lifetime signal alone, so close() landing mid-flight
+            // (or terminateSession() called after close()) rejects with an
+            // intentional AbortError — a clean shutdown, not a transport
+            // error. Still rethrow so the caller sees the failure.
+            if (this._abortController?.signal.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }

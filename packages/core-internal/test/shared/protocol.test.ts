@@ -972,7 +972,7 @@ describe('protocol tests', () => {
                 setNegotiatedProtocolVersion(proto, era);
 
                 const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
-                    timeout: 1000,
+                    timeout: 200,
                     maxTotalTimeout: 1,
                     resetTimeoutOnProgress: true,
                     onprogress: () => {}
@@ -1008,6 +1008,16 @@ describe('protocol tests', () => {
                 } else {
                     expect(cancelled).toHaveLength(0);
                 }
+
+                // The settlement must fully disarm the per-leg timer: cross
+                // the leg `timeout` (200ms) and re-assert nothing else went on
+                // the wire. Before the fix the over-budget branch orphaned the
+                // armed leg timer (deleted the map entry without clearTimeout,
+                // and cancel() never marked the request settled), so the late
+                // timer re-ran cancel() and POSTed a SECOND
+                // notifications/cancelled for the same requestId on legacy.
+                await new Promise(resolve => setTimeout(resolve, 250));
+                expect(cancelledSent(tx.sent)).toHaveLength(era === '2025-11-25' ? 1 : 0);
             }
         );
 
