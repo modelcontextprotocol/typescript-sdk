@@ -881,7 +881,7 @@ describe('protocol tests', () => {
             expect(cancelledSent(sent)).toHaveLength(1);
         });
 
-        test('legacy era + per-request-stream transport: behavior unchanged — POSTs notifications/cancelled, no requestSignal', async () => {
+        test('legacy era + per-request-stream transport: POSTs notifications/cancelled AND aborts the requestSignal (#2615)', async () => {
             const tx = new PerRequestStreamTransport();
             const proto = createTestProtocol();
             await proto.connect(tx);
@@ -890,13 +890,64 @@ describe('protocol tests', () => {
             const ac = new AbortController();
             const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
 
-            // Legacy path is byte-identical to before: no requestSignal threaded.
-            expect(tx.lastRequestSignal).toBeUndefined();
+            // The requestSignal is threaded on the legacy era too — it is not
+            // the spec cancel signal there (the POST below is), but the
+            // transport needs it to tear down the request's SSE reconnect
+            // chain (GET + Last-Event-ID resumption) when the request settles.
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+            expect(requestSignal?.aborted).toBe(false);
 
             ac.abort('user cancel');
             await expect(pending).rejects.toThrow();
 
+            // The wire signal is unchanged (spec cancel = notifications/cancelled)…
             expect(cancelledSent(tx.sent)).toHaveLength(1);
+            // …and the request-scoped abort additionally stops any reconnect
+            // chain the transport still owns for this request (#2615).
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era + per-request-stream transport: timeout POSTs notifications/cancelled AND aborts the requestSignal (#2615)', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+
+            await expect(pending).rejects.toThrow('Request timed out');
+
+            expect(cancelledSent(tx.sent)).toHaveLength(1);
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled, no requestSignal', async () => {
+            // stdio / in-memory shape: hasPerRequestStream is undefined.
+            const sent: JSONRPCMessage[] = [];
+            let sawRequestSignal: AbortSignal | undefined;
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage, opts?: TransportSendOptions) => {
+                sent.push(m);
+                if (opts?.requestSignal !== undefined) {
+                    sawRequestSignal = opts.requestSignal;
+                }
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // No per-request stream to tear down — the legacy single-channel
+            // path stays byte-identical: cancelled POST only, no requestSignal.
+            expect(cancelledSent(sent)).toHaveLength(1);
+            expect(sawRequestSignal).toBeUndefined();
         });
 
         test('modern era + per-request-stream transport: timeout aborts the stream, NO notifications/cancelled', async () => {

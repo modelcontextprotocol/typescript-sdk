@@ -1413,9 +1413,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // POSTing `notifications/cancelled`. Every other (era × transport)
             // combination — legacy era on any transport, modern era on stdio /
             // in-memory — keeps today's `notifications/cancelled` POST path
-            // unchanged.
+            // unchanged (the legacy era on a per-request-stream transport
+            // additionally aborts `requestSignal` locally; see below).
             const streamCloseCancels = codec.era === MODERN_WIRE_REVISION && this._transport.hasPerRequestStream === true;
-            const requestAbort = streamCloseCancels ? new AbortController() : undefined;
+            // The per-request AbortController exists on EVERY per-request-stream
+            // transport, not just when stream-close is the spec cancel signal.
+            // On the legacy era the `notifications/cancelled` POST below stays
+            // the wire signal, but the transport still owns a per-request SSE
+            // reconnect chain (GET + Last-Event-ID resumption) that nothing
+            // else tears down: without this signal, a request that settles via
+            // timeout or caller abort leaves orphaned reconnects running until
+            // the late response surfaces as "unknown message ID" (#2615).
+            const requestAbort = this._transport.hasPerRequestStream === true ? new AbortController() : undefined;
 
             const messageId = this._requestMessageId++;
             cleanupMessageId = messageId;
@@ -1450,7 +1459,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
                 this._progressHandlers.delete(messageId);
 
-                if (requestAbort === undefined) {
+                if (!streamCloseCancels) {
                     this._transport
                         ?.send(
                             this._envelopeOutbound({
@@ -1464,14 +1473,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             { relatedRequestId, resumptionToken, onresumptiontoken }
                         )
                         .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
-                } else {
-                    // Modern-era per-request-stream transport: aborting the
-                    // request's underlying stream IS the spec cancel signal.
-                    // The transport already swallows the resulting AbortError
-                    // (no spurious `onerror`); a post-abort send() rejection
-                    // re-hits an already-settled promise below and is a no-op.
-                    requestAbort.abort();
                 }
+                // Aborting the request-scoped signal is either the spec cancel
+                // signal itself (modern era: closing the per-request stream IS
+                // the cancellation, so no `notifications/cancelled` above) or a
+                // purely local teardown alongside the POST (legacy era: it
+                // stops the transport's SSE reconnect chain for this request —
+                // #2615). The transport already swallows the resulting
+                // AbortError (no spurious `onerror`); a post-abort send()
+                // rejection re-hits an already-settled promise below and is a
+                // no-op. The cancelled POST above does not carry this signal,
+                // so aborting here cannot cut off that send.
+                requestAbort?.abort();
 
                 // Wrap the reason in an SdkError if it isn't already
                 const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));

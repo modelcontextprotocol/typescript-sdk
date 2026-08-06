@@ -4,6 +4,7 @@ import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
 import { UnauthorizedError } from '../../src/client/auth';
+import { Client } from '../../src/client/client';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
@@ -1464,6 +1465,57 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
+        it('per-request requestSignal abort while a reconnect is scheduled: the pending reconnect never fires (#2615)', async () => {
+            // ARRANGE — a POST stream that is primed (SSE event id) and then
+            // closes gracefully WITHOUT delivering the response, so the
+            // transport schedules a GET+Last-Event-ID reconnect. The abort
+            // lands in the window between "reconnect scheduled" and "reconnect
+            // fires" — the shape a request timeout produces.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const primedClosingStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                    controller.close();
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedClosingStream
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            // Let the stream close and the reconnect get scheduled (delay 10ms).
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — the request settles (timeout/cancel) before the reconnect fires.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — the scheduled reconnect saw the aborted requestSignal
+            // and bailed: no GET resume, no onerror.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
             // ARRANGE — a POST stream with NO priming event id (so the
             // graceful-close path does NOT schedule a reconnect): the
@@ -2735,5 +2787,162 @@ describe('StreamableHTTPClientTransport', () => {
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
         });
+    });
+});
+
+/**
+ * End-to-end regression for #2615: on a legacy (2025-11-25) session, the
+ * transport's request-scoped SSE reconnect chain (GET + Last-Event-ID
+ * resumption) must stop once the originating request settles via timeout.
+ * Before the fix, the chain kept resuming forever (every successful resume
+ * resets the retry counter), and a late resumed GET carrying the original
+ * JSON-RPC response surfaced as "Received a response for an unknown message
+ * ID".
+ */
+describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain (#2615)', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.spyOn(globalThis, 'fetch');
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    const encoder = new TextEncoder();
+    const sseResponse = (chunks: string[]) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/event-stream' }),
+        body: new ReadableStream<Uint8Array>({
+            start(controller) {
+                for (const chunk of chunks) {
+                    controller.enqueue(encoder.encode(chunk));
+                }
+                controller.close();
+            }
+        })
+    });
+    const jsonResponse = (message: JSONRPCMessage) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => message,
+        text: async () => JSON.stringify(message)
+    });
+    const accepted = () => ({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+    const methodNotAllowed = () => ({
+        ok: false,
+        status: 405,
+        statusText: 'Method Not Allowed',
+        headers: new Headers(),
+        text: async () => ''
+    });
+
+    it('stops resuming once the request times out; the late response never surfaces as an unknown message ID', async () => {
+        let pingId: string | number | undefined;
+        let eventSeq = 0;
+        let settled = false;
+        let resumesAfterSettle = 0;
+        const cancelledPosts: JSONRPCMessage[] = [];
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+            if (init.method === 'GET') {
+                const lastEventId = (init.headers as Headers).get('last-event-id');
+                // Standalone notification stream: not offered by this server.
+                if (lastEventId === null) {
+                    return methodNotAllowed();
+                }
+                // Request-scoped resume. Once the request has settled, hand
+                // back the late original response — before the fix this is
+                // the resumed GET that surfaced "unknown message ID".
+                if (settled) {
+                    resumesAfterSettle++;
+                    return sseResponse([`id: evt-${++eventSeq}\ndata: {"jsonrpc":"2.0","id":${JSON.stringify(pingId)},"result":{}}\n\n`]);
+                }
+                // Keep the chain alive: a priming event id, then a graceful
+                // close without the response (the server expects the client
+                // to resume via GET + Last-Event-ID).
+                return sseResponse([`id: evt-${++eventSeq}\ndata: \n\n`]);
+            }
+            const message = JSON.parse(init.body as string) as JSONRPCMessage;
+            if ('method' in message) {
+                if (message.method === 'initialize' && 'id' in message) {
+                    return jsonResponse({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: '2025-11-25',
+                            capabilities: {},
+                            serverInfo: { name: 'legacy-server', version: '1.0.0' }
+                        }
+                    });
+                }
+                if (message.method === 'notifications/cancelled') {
+                    cancelledPosts.push(message);
+                    return accepted();
+                }
+                if (message.method === 'ping' && 'id' in message) {
+                    pingId = message.id;
+                    // SSE response: retry hint + priming event id, then a
+                    // graceful close without the response.
+                    return sseResponse([`retry: 10\nid: evt-${++eventSeq}\ndata: \n\n`]);
+                }
+            }
+            return accepted();
+        });
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+
+        await client.connect(transport);
+
+        const resumeGetCount = () =>
+            fetchMock.mock.calls.filter(call => call[1]?.method === 'GET' && (call[1].headers as Headers).get('last-event-id') !== null)
+                .length;
+
+        let settledError: unknown;
+        const pending = client.ping({ timeout: 100 }).catch(error => {
+            settled = true;
+            settledError = error;
+        });
+
+        // Let the reconnect chain run a few resume cycles before the timeout.
+        await vi.advanceTimersByTimeAsync(50);
+        expect(resumeGetCount()).toBeGreaterThan(0);
+        expect(settled).toBe(false);
+
+        // Cross the request timeout.
+        await vi.advanceTimersByTimeAsync(100);
+        await pending;
+        expect(settled).toBe(true);
+        expect(String(settledError)).toContain('Request timed out');
+
+        // The legacy wire cancel signal is unchanged: exactly one
+        // notifications/cancelled POST.
+        expect(cancelledPosts).toHaveLength(1);
+
+        // Give an orphaned chain ample time to keep resuming (before the fix
+        // it reconnected forever — each successful resume resets the retry
+        // counter, so maxRetries never binds).
+        await vi.advanceTimersByTimeAsync(2000);
+
+        // THE KEY ASSERTIONS: no resumed GET after the request settled, and
+        // the late response never surfaced as an unknown message ID.
+        expect(resumesAfterSettle).toBe(0);
+        expect(errors.map(e => e.message)).not.toContainEqual(expect.stringContaining('unknown message ID'));
+
+        await client.close();
     });
 });
