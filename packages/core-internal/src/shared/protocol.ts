@@ -738,7 +738,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        // Explicit undefined check: `0` is a legitimate JSON-RPC request id —
+        // it is every peer's FIRST outbound request id (`_requestMessageId`
+        // starts at 0) — and a falsy guard would silently drop its
+        // cancellation.
+        if (notification.params.requestId === undefined) {
             return;
         }
         // Handle request cancellation
@@ -754,7 +758,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resetTimeoutOnProgress: boolean = false
     ) {
         this._timeoutInfo.set(messageId, {
-            timeoutId: setTimeout(onTimeout, timeout),
+            // Wrapped so the timer fires the handler with NO arguments:
+            // Gecko (Firefox) invokes setTimeout callbacks with an extra
+            // "lateness" Number argument, which must not be mistaken for the
+            // handler's optional error parameter.
+            timeoutId: setTimeout(() => onTimeout(), timeout),
             startTime: Date.now(),
             timeout,
             maxTotalTimeout,
@@ -783,7 +791,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         clearTimeout(info.timeoutId);
-        info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+        // Wrapped for the same reason as `_setupTimeout`: Gecko passes a
+        // lateness Number to setTimeout callbacks.
+        info.timeoutId = setTimeout(() => info.onTimeout(), info.timeout);
         return true;
     }
 
@@ -1608,8 +1618,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+            // `instanceof Error` rather than `??`: a timer implementation that
+            // invokes its callback with a non-Error argument (Gecko passes a
+            // lateness Number) must still produce the plain timeout error, not
+            // reject the request with that stray value as its message.
             const timeoutHandler = (error?: Error) =>
-                cancel(error ?? new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+                cancel(error instanceof Error ? error : new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 

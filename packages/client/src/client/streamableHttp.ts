@@ -804,7 +804,13 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     this._scheduleReconnection(
                         {
-                            resumptionToken: lastEventId,
+                            // Fall back to the token this leg was opened with:
+                            // a resume leg that drops before delivering its
+                            // first event has no `lastEventId`, and rebuilding
+                            // without a token would degrade the resume into a
+                            // token-less standalone GET (dead-ends on 405
+                            // servers; loses the replay position otherwise).
+                            resumptionToken: lastEventId ?? options.resumptionToken,
                             onresumptiontoken,
                             replayMessageId,
                             requestSignal,
@@ -837,7 +843,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     try {
                         this._scheduleReconnection(
                             {
-                                resumptionToken: lastEventId,
+                                // Same fallback as the graceful-close path
+                                // above: never rebuild a resume without its
+                                // token.
+                                resumptionToken: lastEventId ?? options.resumptionToken,
                                 onresumptiontoken,
                                 replayMessageId,
                                 requestSignal,

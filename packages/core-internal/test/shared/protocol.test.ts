@@ -819,6 +819,32 @@ describe('protocol tests', () => {
             // Verify the request was aborted
             expect(wasAborted).toBe(true);
         });
+
+        test("aborts the request handler for request id 0 (falsy but legitimate — every peer's FIRST request id)", async () => {
+            // `_requestMessageId` starts at 0, so a peer cancelling its first
+            // outbound request sends `requestId: 0`. A falsy guard in
+            // _oncancel silently dropped exactly that cancellation.
+            await protocol.connect(transport);
+
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            transport.onmessage?.({ jsonrpc: '2.0', id: 0, method: 'ping', params: {} });
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: { requestId: 0, reason: 'User cancelled' }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(wasAborted).toBe(true);
+        });
     });
 
     // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
@@ -1020,6 +1046,34 @@ describe('protocol tests', () => {
                 expect(cancelledSent(tx.sent)).toHaveLength(era === '2025-11-25' ? 1 : 0);
             }
         );
+
+        test('per-leg timeout under a Gecko-style timer (callback invoked with a lateness argument): plain timeout error, not "0.42"', async () => {
+            // Firefox/Gecko invokes setTimeout callbacks with an extra Number
+            // ("lateness") argument. It must never be mistaken for the timeout
+            // handler's optional error parameter — that would reject the
+            // request with the stray number as its message and POST a
+            // notifications/cancelled whose reason is that number.
+            const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+            const setTimeoutSpy = vi
+                .spyOn(globalThis, 'setTimeout')
+                .mockImplementation(((fn: (...args: unknown[]) => void, ms?: number) =>
+                    realSetTimeout(() => fn(0.42), ms)) as unknown as typeof setTimeout);
+            try {
+                const tx = new PerRequestStreamTransport();
+                const proto = createTestProtocol();
+                await proto.connect(tx);
+                setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 1 });
+                await expect(pending).rejects.toThrow('Request timed out');
+
+                const cancelled = cancelledSent(tx.sent);
+                expect(cancelled).toHaveLength(1);
+                expect((cancelled[0] as { params?: { reason?: string } }).params?.reason).toContain('Request timed out');
+            } finally {
+                setTimeoutSpy.mockRestore();
+            }
+        });
 
         test('per-request-stream transport: successful completion releases (aborts) the request-scoped signal', async () => {
             const tx = new PerRequestStreamTransport();

@@ -1585,6 +1585,54 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onStreamEnd).toHaveBeenCalledTimes(1);
         });
 
+        it('resume leg that drops before its first event reschedules with the ORIGINAL resumption token', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // GET#1 (the resume): closes gracefully with ZERO events, so the
+            // leg produces no lastEventId of its own.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.close();
+                    }
+                })
+            });
+            // GET#2 (the rebuilt leg): hangs, keeping the count deterministic.
+            fetchMock.mockImplementation(() => new Promise(() => {}));
+
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42' }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Fire the scheduled rebuild.
+            await vi.advanceTimersByTimeAsync(15);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // The rebuilt GET must still carry the token this resume was
+            // opened with — without the fallback it degrades into a
+            // token-less standalone GET and loses the replay position.
+            const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+            expect((secondInit.headers as Headers).get('last-event-id')).toBe('evt-42');
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('resumptionToken send: forwards onresumptiontoken so the resumed stream reports newer event IDs', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
             const errorSpy = vi.fn();
