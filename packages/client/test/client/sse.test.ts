@@ -287,6 +287,42 @@ describe('SSEClientTransport', () => {
             expect((sendError as Error).name).toBe('AbortError');
             expect(errorSpy).not.toHaveBeenCalled();
         });
+
+        it('close() still fires onclose when the EventSource teardown throws', async () => {
+            // onclose is the ONLY trigger for Protocol._onclose (which settles
+            // every pending request with ConnectionClosed) — a throwing
+            // eventSource.close() must not strand the protocol layer.
+            transport = new SSEClientTransport(resourceBaseUrl);
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+            transport['_eventSource'] = {
+                close: () => {
+                    throw new Error('es close failed');
+                }
+            } as unknown as (typeof transport)['_eventSource'];
+
+            await expect(transport.close()).rejects.toThrow('es close failed');
+            expect(onclose).toHaveBeenCalledTimes(1);
+
+            // Reset the fake so the afterEach close() doesn't throw again.
+            transport['_eventSource'] = undefined;
+        });
+
+        it('keeps a single transport-lifetime AbortController across _startOrAuth invocations', async () => {
+            // _startOrAuth also runs on the mid-session 401 recovery path;
+            // replacing the controller there would orphan the signal captured
+            // by any POST already in flight — close() could no longer cancel
+            // it, and _send's intentional-abort guard would consult the wrong
+            // controller.
+            transport = new SSEClientTransport(resourceBaseUrl);
+            await transport.start();
+            const controller = transport['_abortController'];
+            expect(controller).toBeDefined();
+
+            // Simulate the 401 recovery path re-invoking _startOrAuth.
+            await transport['_startOrAuth']();
+            expect(transport['_abortController']).toBe(controller);
+        });
     });
 
     describe('header handling', () => {

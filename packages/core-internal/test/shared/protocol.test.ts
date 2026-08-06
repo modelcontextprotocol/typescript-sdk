@@ -1127,6 +1127,42 @@ describe('protocol tests', () => {
             expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(0);
         });
 
+        test('cancellation POST aborted by close(): stays silent even after an immediate reconnect', async () => {
+            // The close-then-reconnect recovery pattern re-attaches a
+            // transport before the aborted POST's rejection lands — the guard
+            // must key on the connection the POST was SENT on, not on whether
+            // any transport happens to be attached at rejection time.
+            let rejectCancelSend: ((error: unknown) => void) | undefined;
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    return new Promise<void>((_resolve, reject) => {
+                        rejectCancelSend = reject;
+                    });
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            expect(rejectCancelSend).toBeDefined();
+
+            // Deliberate shutdown, then an IMMEDIATE reconnect on the same
+            // instance — before the aborted POST's rejection lands.
+            await proto.close();
+            await proto.connect(new PerRequestStreamTransport());
+            rejectCancelSend?.(new DOMException('The operation was aborted', 'AbortError'));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(0);
+        });
+
         test('genuine cancellation-send failure on a live connection still reports through onerror', async () => {
             const tx = new PerRequestStreamTransport();
             const baseSend = tx.send.bind(tx);

@@ -1585,6 +1585,62 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onStreamEnd).toHaveBeenCalledTimes(1);
         });
 
+        it('a ReconnectionScheduler that throws on reschedule still settles the caller via onRequestStreamEnd', async () => {
+            let schedulerCalls = 0;
+            const scheduler: ReconnectionScheduler = reconnect => {
+                schedulerCalls++;
+                if (schedulerCalls === 1) {
+                    const handle = setTimeout(reconnect, 1);
+                    return () => clearTimeout(handle);
+                }
+                // The reschedule after a failed leg: platform denies the task.
+                throw new Error('platform denied background task');
+            };
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                },
+                reconnectionScheduler: scheduler
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // POST: primed SSE stream, graceful close without a response.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+            // The reconnect leg fails genuinely, forcing a reschedule.
+            fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(10);
+
+            // The failed leg reported once, the scheduler throw reported once,
+            // and — because no further attempt could be armed — the chain is
+            // terminally dead, so the caller was settled.
+            expect(schedulerCalls).toBe(2);
+            expect(errorSpy).toHaveBeenCalledWith(new TypeError('fetch failed'));
+            expect(errorSpy).toHaveBeenCalledWith(new Error('platform denied background task'));
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
         it('close() disarms EVERY pending scheduled reconnect, not just the last-scheduled chain', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {

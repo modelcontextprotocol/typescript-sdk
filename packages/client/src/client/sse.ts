@@ -209,7 +209,12 @@ export class SSEClientTransport implements Transport {
                     return response;
                 }
             });
-            this._abortController = new AbortController();
+            // One transport-lifetime controller: `_startOrAuth` also runs on
+            // the mid-session 401 recovery path, and REPLACING the controller
+            // there would orphan the signal already captured by any POST in
+            // flight — close() could no longer cancel that POST, and _send's
+            // intentional-abort guard would consult the wrong controller.
+            this._abortController ??= new AbortController();
 
             this._eventSource.onerror = event => {
                 if (event.code === 401 && this._authProvider) {
@@ -338,9 +343,15 @@ export class SSEClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        this._abortController?.abort();
-        this._eventSource?.close();
-        this.onclose?.();
+        try {
+            this._abortController?.abort();
+            this._eventSource?.close();
+        } finally {
+            // onclose is the ONLY trigger for Protocol._onclose (which settles
+            // every pending request with ConnectionClosed) — it must fire even
+            // if the EventSource teardown throws.
+            this.onclose?.();
+        }
     }
 
     async send(message: JSONRPCMessage): Promise<void> {

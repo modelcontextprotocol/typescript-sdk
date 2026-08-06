@@ -729,6 +729,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
                     this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                    // The chain is terminally dead (no timer was armed) —
+                    // settle the caller, mirroring the maxRetries-exhaustion
+                    // branch. No double-fire is possible: that branch returns
+                    // before the scheduler runs, so _scheduleReconnection can
+                    // never both fire the callback and throw.
+                    options.onRequestStreamEnd?.();
                 }
             });
         };

@@ -143,8 +143,23 @@ export type RequestOptions = {
     resetTimeoutOnProgress?: boolean;
 
     /**
-     * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised, regardless of progress notifications.
+     * Maximum total time (in milliseconds) to wait for a response across
+     * progress-driven timeout resets.
+     *
+     * The budget is event-gated, not timer-enforced: it is checked when a
+     * progress notification arrives, and only when the request was issued
+     * with {@linkcode RequestOptions.resetTimeoutOnProgress | resetTimeoutOnProgress}
+     * `: true` and an {@linkcode RequestOptions.onprogress | onprogress}
+     * handler — the combination that makes per-leg timeout resets possible
+     * (without resets, the per-leg {@linkcode RequestOptions.timeout | timeout}
+     * already bounds the request on its own, and this option has no effect).
+     * When a progress notification lands after the budget has elapsed, the
+     * request rejects with an {@linkcode SdkError} with code
+     * {@linkcode SdkErrorCode.RequestTimeout} (`Maximum total timeout
+     * exceeded`). If the remote side stops sending progress near the budget
+     * boundary, settlement falls to the current per-leg timer instead, so the
+     * total wait can exceed the budget by up to `timeout` ms.
+     *
      * If not specified, there is no maximum total timeout.
      *
      * For multi-round-trip requests fulfilled by the auto-fulfilment driver
@@ -1517,7 +1532,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._progressHandlers.delete(messageId);
 
                 if (!streamCloseCancels) {
-                    this._transport
+                    // Capture the transport identity at send time: the catch
+                    // below must key on whether THIS connection is still the
+                    // live one when the rejection lands. A bare
+                    // `this._transport !== undefined` re-arms the report after
+                    // a close-then-reconnect and would resurface the
+                    // deliberately-aborted POST's AbortError on the brand-new
+                    // connection (same idiom as _onrequest's capturedTransport).
+                    const sendTransport = this._transport;
+                    sendTransport
                         ?.send(
                             this._envelopeOutbound({
                                 jsonrpc: '2.0',
@@ -1544,8 +1567,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             // by the time the rejection lands here `_onclose` has
                             // already cleared `_transport`. Re-reporting would
                             // resurface an AbortError for a clean shutdown —
-                            // report only failures on a live connection.
-                            if (this._transport !== undefined) {
+                            // report only failures on the connection the POST
+                            // was actually sent on.
+                            if (this._transport === sendTransport) {
                                 this._onerror(new Error(`Failed to send cancellation: ${error}`));
                             }
                         });
