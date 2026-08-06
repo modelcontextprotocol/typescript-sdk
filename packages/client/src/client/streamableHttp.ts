@@ -687,9 +687,13 @@ export class StreamableHTTPClientTransport implements Transport {
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
             if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-            this._startOrAuthSse(options).catch(error => {
+            this._startOrAuthSse(options).catch(() => {
                 if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-                this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
+                // No onerror here: `_startOrAuthSse`'s own catch already
+                // reported the genuine failure once before rethrowing (and
+                // stayed silent on an intentional abort — caught above).
+                // Reporting again would double-fire onerror for every failed
+                // reconnect leg. Just schedule the next attempt.
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
@@ -976,6 +980,17 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Reporting here would double-fire `onerror` for real
                     // failures and turn a clean per-request teardown into a
                     // spurious `AbortError`.
+                    //
+                    // A genuine open failure IS terminal for the resumed
+                    // stream (an initial-open failure never enters the
+                    // reconnect loop) and this send() already resolved
+                    // fire-and-forget — fire the stream-end callback so the
+                    // caller can settle, mirroring `_scheduleReconnection`'s
+                    // maxRetries-exhaustion branch. Not on intentional aborts:
+                    // the contract excludes deliberate teardown.
+                    if (options?.requestSignal?.aborted !== true && this._abortController?.signal.aborted !== true) {
+                        options?.onRequestStreamEnd?.();
+                    }
                 });
                 return;
             }
@@ -1185,13 +1200,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
-            // Intentional per-request abort BEFORE response headers (the
-            // `subscriptions/listen` driver aborting its `requestSignal`):
-            // fetch rejects with AbortError. Same guard as
-            // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
-            // misleading onerror; still rethrow so `listen()`'s send-catch
-            // settles the per-subscription state machine.
-            if (options?.requestSignal?.aborted !== true) {
+            // Intentional abort BEFORE response headers — a per-request abort
+            // (the `subscriptions/listen` driver aborting its `requestSignal`)
+            // or a transport-wide close() landing mid-POST: fetch rejects with
+            // AbortError. Same guard as `_handleSseStream`'s
+            // `isIntentionalAbort` (BOTH signal halves) — do not surface a
+            // misleading onerror; still rethrow so `listen()`'s send-catch and
+            // the protocol layer settle their state machines.
+            if (options?.requestSignal?.aborted !== true && this._abortController?.signal.aborted !== true) {
                 this.onerror?.(error as Error);
             }
             throw error;

@@ -983,10 +983,10 @@ describe('protocol tests', () => {
 
                 // Cross the total budget, then deliver a progress notification:
                 // the maxTotalTimeout check fires on the timeout-reset path
-                // inside _onprogress and settles the request via the response
-                // handler directly — it never goes through cancel(), so the
-                // request-scoped abort must be covered by the settlement
-                // cleanup, not only by cancel().
+                // inside _onprogress, which routes the settlement through the
+                // request's cancel path — so this settlement emits the same
+                // wire cancel signal as a plain timeout, while the caller
+                // still sees the original maxTotalTimeout error.
                 await new Promise(resolve => setTimeout(resolve, 5));
                 tx.onmessage?.({
                     jsonrpc: '2.0',
@@ -996,6 +996,18 @@ describe('protocol tests', () => {
 
                 await expect(pending).rejects.toThrow('Maximum total timeout exceeded');
                 expect(requestSignal?.aborted).toBe(true);
+
+                // The wire cancel signal matches the era, exactly like a plain
+                // timeout settlement on the same session: legacy POSTs
+                // notifications/cancelled (carrying the request's id); modern
+                // cancels via the stream-close abort alone.
+                const cancelled = cancelledSent(tx.sent);
+                if (era === '2025-11-25') {
+                    expect(cancelled).toHaveLength(1);
+                    expect((cancelled[0] as { params?: { requestId?: unknown } }).params?.requestId).toBe(0);
+                } else {
+                    expect(cancelled).toHaveLength(0);
+                }
             }
         );
 

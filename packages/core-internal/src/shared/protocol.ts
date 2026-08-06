@@ -519,7 +519,14 @@ type TimeoutInfo = {
     timeout: number;
     maxTotalTimeout?: number;
     resetTimeoutOnProgress: boolean;
-    onTimeout: () => void;
+    /**
+     * Settles the request through its cancel path. Called with no argument by
+     * the per-leg `setTimeout` (plain "Request timed out"); called with the
+     * `maxTotalTimeout` error by `_onprogress` so that settlement takes the
+     * same cancel path — emitting the era's wire cancel signal — while the
+     * caller still sees the original maxTotalTimeout error.
+     */
+    onTimeout: (error?: Error) => void;
 };
 
 /*
@@ -736,7 +743,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         messageId: number,
         timeout: number,
         maxTotalTimeout: number | undefined,
-        onTimeout: () => void,
+        onTimeout: (error?: Error) => void,
         resetTimeoutOnProgress: boolean = false
     ) {
         this._timeoutInfo.set(messageId, {
@@ -1176,11 +1183,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             try {
                 this._resetTimeout(messageId);
             } catch (error) {
-                // Clean up if maxTotalTimeout was exceeded
-                this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
-                responseHandler(error as Error);
+                // maxTotalTimeout exceeded. Settle through the request's
+                // cancel path (stored as `onTimeout`) rather than the response
+                // handler directly, so this settlement emits the same wire
+                // cancel signal as a plain timeout on the same session — the
+                // `notifications/cancelled` POST on a legacy (2025-11-25)
+                // connection, the stream-close abort alone on a modern
+                // (2026-07-28) one. cancel() rejects with an SdkError reason
+                // unchanged, so the caller still sees the original
+                // maxTotalTimeout error; handler/timeout cleanup runs in the
+                // request funnel's `.finally()`, exactly as for a plain
+                // timeout settlement.
+                timeoutInfo.onTimeout(error as Error);
                 return;
             }
         }
@@ -1574,7 +1588,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = (error?: Error) =>
+                cancel(error ?? new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
@@ -1597,13 +1612,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._cleanupTimeout(cleanupMessageId);
             }
             // Release the request-scoped signal on EVERY settlement path, not
-            // just cancel(): a maxTotalTimeout hit settles via the response
-            // handler directly (never through cancel()) and would otherwise
-            // leave the transport's per-request SSE reconnect chain orphaned
-            // (#2615), and a successful completion would otherwise pin one
-            // abort listener per request on the transport-lifetime signal via
-            // the Node 20.0–20.2 anySignal fallback. Idempotent after the
-            // cancel() abort above; a no-op for single-channel transports
+            // just cancel(): a successful completion (and a send() failure)
+            // never goes through cancel() and would otherwise pin one abort
+            // listener per request on the transport-lifetime signal via the
+            // Node 20.0–20.2 anySignal fallback — and leave the transport's
+            // per-request SSE reconnect chain orphaned (#2615) on any
+            // settlement cancel() missed. Idempotent after the cancel() abort
+            // above (timeouts, caller aborts, and maxTotalTimeout all route
+            // through cancel()); a no-op for single-channel transports
             // (requestAbort is undefined). Aborting after a completed response
             // is pure local teardown — the transport treats it as intentional
             // (no onerror, no reconnect) and nothing is put on the wire.

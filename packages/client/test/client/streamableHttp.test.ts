@@ -1535,10 +1535,11 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
             await transport.start();
             await transport.send(
                 { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
-                { resumptionToken: 'evt-42', requestSignal: requestAbort.signal }
+                { resumptionToken: 'evt-42', requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
             );
             await vi.advanceTimersByTimeAsync(5);
             expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1548,9 +1549,11 @@ describe('StreamableHTTPClientTransport', () => {
             requestAbort.abort();
             await vi.advanceTimersByTimeAsync(100);
 
-            // ASSERT — a deliberate per-request teardown is a clean shutdown,
-            // not a transport error.
+            // ASSERT — a deliberate per-request teardown is a clean shutdown:
+            // no transport error, and no stream-end callback (the contract
+            // excludes deliberate requestSignal aborts).
             expect(errorSpy).not.toHaveBeenCalled();
+            expect(onStreamEnd).not.toHaveBeenCalled();
         });
 
         it('resumptionToken send: a genuine resume GET failure surfaces onerror exactly once (no double-report)', async () => {
@@ -1562,10 +1565,11 @@ describe('StreamableHTTPClientTransport', () => {
             const fetchMock = globalThis.fetch as Mock;
             fetchMock.mockRejectedValueOnce(failure);
 
+            const onStreamEnd = vi.fn();
             await transport.start();
             await transport.send(
                 { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
-                { resumptionToken: 'evt-42' }
+                { resumptionToken: 'evt-42', onRequestStreamEnd: onStreamEnd }
             );
             await vi.advanceTimersByTimeAsync(5);
 
@@ -1573,6 +1577,12 @@ describe('StreamableHTTPClientTransport', () => {
             // short-circuit must not report it a second time.
             expect(errorSpy).toHaveBeenCalledTimes(1);
             expect(errorSpy).toHaveBeenCalledWith(failure);
+
+            // A genuine open failure is TERMINAL for the resumed stream (no
+            // reconnect is ever scheduled for an initial-open failure) and
+            // send() already resolved fire-and-forget — the stream-end
+            // callback is the caller's only per-request settlement signal.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
         });
 
         it('resumptionToken send: forwards onresumptiontoken so the resumed stream reports newer event IDs', async () => {
@@ -1686,6 +1696,92 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT — a clean shutdown, not a transport error.
             expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('notification POST: transport.close() while the POST is in flight surfaces no spurious onerror', async () => {
+            // Notification sends carry no requestSignal, so the POST's fetch
+            // signal is the transport-lifetime signal alone — close() landing
+            // mid-POST must read as a clean shutdown, not a transport error.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            let sendError: unknown;
+            const pending = transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' }).catch(error => {
+                sendError = error;
+            });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — deliberate shutdown while the POST is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (send() rejects so callers settle),
+            // but no onerror fires for a deliberate shutdown.
+            expect(sendError).toBeInstanceOf(DOMException);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('failed reconnect leg surfaces onerror exactly once (no double-report), then retries', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            // POST stream: primed (SSE event id), then a graceful close
+            // without the response — schedules a GET reconnect at +10ms.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+            // The reconnect GET fails genuinely.
+            fetchMock.mockRejectedValueOnce(failure);
+            // The retried leg after it hangs, so the count stays deterministic.
+            fetchMock.mockImplementation(() => new Promise(() => {}));
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} });
+            // Let the stream close and the reconnect get scheduled...
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            // ...then fire the reconnect leg and let it fail.
+            await vi.advanceTimersByTimeAsync(10);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // _startOrAuthSse's own catch is the single reporting site — the
+            // reconnect scheduler must not report the same failure again.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+
+            // The retry itself still happens (attempt 2 fires the next GET).
+            await vi.advanceTimersByTimeAsync(15);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+            expect(errorSpy).toHaveBeenCalledTimes(1);
         });
 
         it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
