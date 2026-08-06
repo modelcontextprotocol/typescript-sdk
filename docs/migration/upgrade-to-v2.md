@@ -1825,8 +1825,11 @@ where an entry notes its own signature change:
   wrappers, test doubles, decorators) compile and run against v2 with only the import
   path updated. v2 adds **optional** members only — `hasPerRequestStream` and
   `setSupportedProtocolVersions` on the interface, `requestSignal` / `headers` /
-  `onRequestStreamEnd` on `TransportSendOptions` — which matter only for 2026-era
-  per-request-stream cancellation and `Mcp-Param-*` header attachment
+  `onRequestStreamEnd` on `TransportSendOptions` — used for per-request
+  cancellation and teardown at either protocol version on per-request-stream
+  transports (on a 2026-era connection the `requestSignal` abort IS the spec
+  cancel signal; on a 2025-era connection it is local teardown accompanying the
+  `notifications/cancelled` POST) and for `Mcp-Param-*` header attachment
   ([support-2026-07-28.md](./support-2026-07-28.md)).
 - All TypeScript **type** definitions from `types.ts` (except the aliases listed under
   [Removed type aliases](#removed-type-aliases) and the `experimental` capability

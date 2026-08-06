@@ -954,11 +954,26 @@ export class StreamableHTTPClientTransport implements Transport {
                 // same per-request abort as the original POST — modern-era
                 // cancel-via-stream-close routes through `requestSignal`, and
                 // without it a resumed long-running request would not cancel.
+                // `onresumptiontoken` / `onRequestStreamEnd` are forwarded like
+                // every other `_startOrAuthSse` call site, so a resumed request
+                // keeps reporting newer event IDs to the caller's persistence
+                // hook and still fires the stream-end callback on a terminal
+                // non-resumable outcome.
                 this._startOrAuthSse({
                     resumptionToken,
+                    onresumptiontoken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
-                }).catch(error => this.onerror?.(error));
+                    requestSignal: options?.requestSignal,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
+                }).catch(() => {
+                    // Swallow the rethrow: `_startOrAuthSse`'s own catch already
+                    // surfaced genuine failures via `onerror` before rethrowing
+                    // (and deliberately stayed silent on an intentional abort —
+                    // transport close or a settled request's `requestSignal`).
+                    // Reporting here would double-fire `onerror` for real
+                    // failures and turn a clean per-request teardown into a
+                    // spurious `AbortError`.
+                });
                 return;
             }
 

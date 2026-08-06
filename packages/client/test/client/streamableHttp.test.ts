@@ -1516,6 +1516,127 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).not.toHaveBeenCalled();
         });
 
+        it('resumptionToken send: requestSignal abort while the resume GET is in flight surfaces no spurious onerror (#2615)', async () => {
+            // ARRANGE — a request re-issued with options.resumptionToken
+            // short-circuits send() into a GET+Last-Event-ID resume. The
+            // server hangs on that GET (the exact scenario request timeouts
+            // exist for), so the settlement abort lands MID-FETCH — not in
+            // the scheduled-reconnect window the sibling test covers.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', requestSignal: requestAbort.signal }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — the request settles (timeout/cancel) while the resume GET
+            // is still in flight; the fetch rejects with an AbortError.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — a deliberate per-request teardown is a clean shutdown,
+            // not a transport error.
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: a genuine resume GET failure surfaces onerror exactly once (no double-report)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValueOnce(failure);
+
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42' }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // _startOrAuthSse's own catch reports the failure; the send()
+            // short-circuit must not report it a second time.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+        });
+
+        it('resumptionToken send: forwards onresumptiontoken so the resumed stream reports newer event IDs', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // The resumed GET replays a newer event carrying the response.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(
+                            new TextEncoder().encode('id: evt-43\ndata: {"jsonrpc":"2.0","id":"request-1","result":{}}\n\n')
+                        );
+                        controller.close();
+                    }
+                })
+            });
+
+            const tokens: string[] = [];
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', onresumptiontoken: token => tokens.push(token) }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // The caller's persistence hook saw the newer event ID.
+            expect(tokens).toEqual(['evt-43']);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: forwards onRequestStreamEnd so a terminal non-resumable outcome settles the caller', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // 405 on the resume GET: terminal, non-resumable — the stream-end
+            // callback must fire so the caller can settle.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
             // ARRANGE — a POST stream with NO priming event id (so the
             // graceful-close path does NOT schedule a reconnect): the
@@ -3035,6 +3156,11 @@ describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain
         const resumesAtSettle = resumeGetCount();
         await vi.advanceTimersByTimeAsync(2000);
         expect(resumeGetCount()).toBe(resumesAtSettle);
+
+        // The settlement abort landed on a deliberately-resumed request: a
+        // clean teardown, so no error — spurious AbortError included — may
+        // surface through client.onerror.
+        expect(errors).toEqual([]);
 
         await client.close();
     });
