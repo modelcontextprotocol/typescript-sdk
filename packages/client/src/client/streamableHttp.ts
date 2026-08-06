@@ -334,9 +334,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
     /**
      * Streamable HTTP opens one POST (and SSE response stream) per outbound
-     * request and honors `TransportSendOptions.requestSignal`. On a 2026-era
-     * connection the protocol layer aborts that per-request stream as the
-     * spec cancellation signal instead of POSTing `notifications/cancelled`.
+     * request and honors `TransportSendOptions.requestSignal`. The protocol
+     * layer threads `requestSignal` into every outbound request and aborts it
+     * when the request settles — on a 2026-era connection that abort IS the
+     * spec cancellation signal (no `notifications/cancelled` is sent); on a
+     * 2025-era connection it is purely local teardown (it stops the request's
+     * SSE reconnect chain) accompanying the `notifications/cancelled` POST.
      */
     readonly hasPerRequestStream = true;
 
@@ -1126,8 +1129,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    // Start without a lastEventId since this is a fresh connection.
+                    // Swallow the rethrow: `_startOrAuthSse`'s own catch already
+                    // surfaced genuine failures via `onerror` before rethrowing
+                    // (and deliberately stayed silent on an intentional abort —
+                    // transport close). Reporting here would double-fire
+                    // `onerror` for real failures and turn a clean shutdown
+                    // into a spurious `AbortError`.
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(() => {});
                 }
                 return;
             }

@@ -1637,6 +1637,57 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).not.toHaveBeenCalled();
         });
 
+        it('202-initialized standalone GET: a genuine failure surfaces onerror exactly once (no double-report)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            // The notifications/initialized POST is 202-accepted...
+            fetchMock.mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+            // ...and the standalone GET it triggers fails genuinely.
+            fetchMock.mockRejectedValueOnce(failure);
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // _startOrAuthSse's own catch reports the failure; the 202 branch
+            // must not report it a second time.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+        });
+
+        it('202-initialized standalone GET: transport.close() while the GET is in flight surfaces no spurious onerror', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+            // The standalone GET hangs until its signal aborts.
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // ACT — deliberate shutdown while the standalone GET is in flight.
+            await transport.close();
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ASSERT — a clean shutdown, not a transport error.
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
             // ARRANGE — a POST stream with NO priming event id (so the
             // graceful-close path does NOT schedule a reconnect): the
@@ -3147,7 +3198,14 @@ describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain
         expect(settled).toBe(true);
 
         // THE KEY ASSERTION: the cancellation actually reached the wire as a
-        // POST — it was not swallowed into another GET resume.
+        // POST — it was not swallowed into another GET resume. Note this is
+        // best-effort on the SDK's own transport: the POST carries the
+        // re-issued request's fresh JSON-RPC id, which never reached the
+        // server here (the send itself short-circuited into a GET resume), so
+        // the server cannot correlate it and a resumed request can only be
+        // torn down locally (the requestSignal abort). The POST is kept
+        // because custom per-request-stream transports that POST the
+        // re-issued body normally DO give the server a correlatable id.
         expect(cancelledPosts).toHaveLength(1);
 
         // And no fresh (unguarded) reconnect chain was spawned by the
