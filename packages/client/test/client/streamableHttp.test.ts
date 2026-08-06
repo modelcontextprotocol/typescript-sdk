@@ -3420,6 +3420,42 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
         });
 
+        it('a first-schedule scheduler throw on the ERROR path reports the raw error, matching the graceful path', async () => {
+            // Regression: the error-path first-schedule catch wrapped the
+            // scheduler throw as `Failed to reconnect: <message>`, discarding
+            // the original error object, while the graceful-close tail and
+            // the reschedule catch both report the raw error — inconsistent
+            // shape for the same failure class.
+            const scheduleError = new Error('platform denied background task');
+            const scheduler: ReconnectionScheduler = vi.fn(() => {
+                throw scheduleError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onRequestStreamEnd = vi.fn();
+            await transport.start();
+
+            // A reconnectable stream that ERRORS mid-read: the catch path
+            // schedules the first reconnect attempt, and the scheduler throws.
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.error(new Error('network dropped'));
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, true);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            // The stream error reports once ("SSE stream disconnected"), and
+            // the scheduler failure reports RAW — same identity, no wrapper.
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([scheduleError]));
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
         it('a throwing onRequestStreamEnd on graceful close is invoked once and never escapes processStream', async () => {
             // Regression: with the settlement tail inside the read-loop try,
             // a throwing caller-supplied onRequestStreamEnd was caught, the

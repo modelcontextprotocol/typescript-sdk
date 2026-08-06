@@ -962,8 +962,13 @@ export class StreamableHTTPClientTransport implements Transport {
                             },
                             0
                         );
-                    } catch (error) {
-                        this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+                    } catch (scheduleError) {
+                        // Report the raw scheduler error — same shape as the
+                        // graceful-close tail's schedule catch and the
+                        // reschedule catch, so monitors see one consistent
+                        // identity for this failure class regardless of how
+                        // the previous leg ended.
+                        this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
                         fireStreamEnd();
                     }
                 } else {
