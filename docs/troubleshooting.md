@@ -75,6 +75,7 @@ With the global in place the [client OAuth](./clients/oauth.md) flows run unchan
 - `the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)` — a subclass of `StdioClientTransport`, or a custom stdio-shaped transport, probed in place and met a server that exits on any pre-`initialize` request: use the base `StdioClientTransport` (which probes on a disposable sibling), or `mode: 'legacy'`.
 - `the transport was closed during the server/discover probe` — the caller closed the transport while the probe was in flight; the connect aborted deliberately and the session child was never spawned.
 - `Version negotiation probe failed: ...` — the probe hit a transport failure (network outage, HTTP connection drop): fix connectivity and retry.
+- `the server answered with an unusable reply (...)` — the HTTP layer accepted the probe but the answer could not be used (an empty or whitespace 2xx body, a bare `204`, an unaccepted media type — typically an intermediary swallowing the unrecognized POST). With a legacy fallback available this is not an error at all: the client falls back to `initialize`, and you only see this code from a modern-only client or `pin` mode.
 - `the server answered the probe with HTTP 5xx` — the server or a proxy in front of it failed (mid-deploy, crashed backend); not era evidence, so no legacy fallback is attempted: retry once the deployment is healthy.
 
 A `401`/`403` probe rejection is **not** this code — see the next section.
