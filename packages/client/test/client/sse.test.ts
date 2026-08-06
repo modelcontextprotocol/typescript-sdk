@@ -246,6 +246,83 @@ describe('SSEClientTransport', () => {
 
             await expect(transport.send(testMessage)).rejects.toThrow(/500/);
         });
+
+        it('close() while a POST is in flight surfaces no spurious onerror', async () => {
+            // Create a server whose POST endpoint never responds, so the send
+            // stays in flight until the transport-lifetime signal aborts it.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                }
+                // POST: never respond.
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            transport = new SSEClientTransport(resourceBaseUrl);
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            await transport.start();
+
+            let sendError: unknown;
+            const pending = transport.send({ jsonrpc: '2.0', id: 'test-1', method: 'test', params: {} }).catch(error => {
+                sendError = error;
+            });
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // ACT — deliberate shutdown while the POST is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (send() rejects so callers
+            // settle), but no onerror fires for a deliberate shutdown.
+            expect((sendError as Error).name).toBe('AbortError');
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('close() still fires onclose when the EventSource teardown throws', async () => {
+            // onclose is the ONLY trigger for Protocol._onclose (which settles
+            // every pending request with ConnectionClosed) — a throwing
+            // eventSource.close() must not strand the protocol layer.
+            transport = new SSEClientTransport(resourceBaseUrl);
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+            transport['_eventSource'] = {
+                close: () => {
+                    throw new Error('es close failed');
+                }
+            } as unknown as (typeof transport)['_eventSource'];
+
+            await expect(transport.close()).rejects.toThrow('es close failed');
+            expect(onclose).toHaveBeenCalledTimes(1);
+
+            // Reset the fake so the afterEach close() doesn't throw again.
+            transport['_eventSource'] = undefined;
+        });
+
+        it('keeps a single transport-lifetime AbortController across _startOrAuth invocations', async () => {
+            // _startOrAuth also runs on the mid-session 401 recovery path;
+            // replacing the controller there would orphan the signal captured
+            // by any POST already in flight — close() could no longer cancel
+            // it, and _send's intentional-abort guard would consult the wrong
+            // controller.
+            transport = new SSEClientTransport(resourceBaseUrl);
+            await transport.start();
+            const controller = transport['_abortController'];
+            expect(controller).toBeDefined();
+
+            // Simulate the 401 recovery path re-invoking _startOrAuth.
+            await transport['_startOrAuth']();
+            expect(transport['_abortController']).toBe(controller);
+        });
     });
 
     describe('header handling', () => {
@@ -1683,6 +1760,106 @@ describe('SSEClientTransport', () => {
 
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
             expect(getAttempt).toBe(3);
+        });
+
+        it('close() during a pending onUnauthorized does not resurrect the EventSource', async () => {
+            // Regression: the 401-recovery success continuation ran
+            // _startOrAuth() after an arbitrarily long onUnauthorized await
+            // with no closed-state check. A close() landing while the token
+            // refresh was pending let _startOrAuth open a brand-new
+            // EventSource that nothing could ever tear down — the ES wrapper
+            // fetch never carries the transport-lifetime signal, and close()
+            // had already run against the old instance.
+            await resourceServer.close();
+
+            let getAttempts = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    getAttempts++;
+                    res.writeHead(401).end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            let releaseRefresh!: () => void;
+            const refreshPending = new Promise<void>(resolve => {
+                releaseRefresh = resolve;
+            });
+            let refreshStarted!: () => void;
+            const refreshStartedPromise = new Promise<void>(resolve => {
+                refreshStarted = resolve;
+            });
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {
+                    refreshStarted();
+                    await refreshPending;
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+
+            const startPromise = transport.start();
+            const startRejection = expect(startPromise).rejects.toThrow('Transport closed during re-authentication');
+            // Wait until the 401 recovery is mid-refresh, then close the
+            // transport while onUnauthorized is still pending.
+            await refreshStartedPromise;
+            const attemptsAtClose = getAttempts;
+            await transport.close();
+
+            // The refresh resolves AFTER close(): the continuation must bail
+            // instead of opening a new EventSource.
+            releaseRefresh();
+            await startRejection;
+            // Give a resurrected EventSource ample time to hit the server.
+            await new Promise(resolve => setTimeout(resolve, 100));
+            expect(getAttempts).toBe(attemptsAtClose);
+        });
+
+        it('a refresh that rejects after close() does not surface onerror (deliberate teardown)', async () => {
+            // Regression: the FAILURE arm of the 401-recovery continuation
+            // called this.onerror unconditionally, while the success arm got
+            // a closed-state guard — so a token refresh that rejects after a
+            // clean close() (endpoint unreachable at shutdown, abandoned
+            // interactive flow) surfaced a spurious auth error through
+            // onerror arbitrarily long after the transport was torn down.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            let rejectRefresh!: (error: Error) => void;
+            const refreshPending = new Promise<void>((_resolve, reject) => {
+                rejectRefresh = reject;
+            });
+            let refreshStarted!: () => void;
+            const refreshStartedPromise = new Promise<void>(resolve => {
+                refreshStarted = resolve;
+            });
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {
+                    refreshStarted();
+                    await refreshPending;
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            const startPromise = transport.start();
+            const startRejection = expect(startPromise).rejects.toThrow('refresh failed');
+            await refreshStartedPromise;
+            await transport.close();
+
+            // The refresh rejects AFTER close(): still settles start(), but
+            // must not report post-shutdown noise through onerror.
+            rejectRefresh(new Error('refresh failed'));
+            await startRejection;
+            expect(onerror).not.toHaveBeenCalled();
         });
 
         it('retry failure during SSE connect fires onerror exactly once', async () => {

@@ -260,6 +260,17 @@ class ProbeWindow {
         const id = `server-discover-probe-${++this._probeCounter}`;
         return new Promise<RawProbeReply>(resolve => {
             let settled = false;
+            // Request-scoped abort for this probe exchange, mirroring the
+            // signal the protocol layer threads for every real request:
+            // settling the probe — the timeout settle included — must tear
+            // its POST (and, over Streamable HTTP, any primed per-request
+            // SSE reconnect chain) down on the wire, not merely stop
+            // listening. Otherwise a timed-out probe under
+            // `probe.maxRetries >= 1` leaves an unabortable stale exchange
+            // whose late response leaks into the live session — the #2615
+            // failure shape, one layer down. No-op on transports that ignore
+            // `requestSignal` (stdio).
+            const exchangeAbort = new AbortController();
             const settle = (reply: RawProbeReply) => {
                 if (settled) return;
                 settled = true;
@@ -267,11 +278,14 @@ class ProbeWindow {
                 if (this._pending?.id === id) {
                     this._pending = undefined;
                 }
+                exchangeAbort.abort();
                 resolve(reply);
             };
             const timer = setTimeout(() => settle({ kind: 'timeout' }), timeoutMs);
             this._pending = { id, resolve: settle };
-            this._transport.send(buildRequest(id)).catch((error: unknown) => settle({ kind: 'send-error', error }));
+            this._transport
+                .send(buildRequest(id), { requestSignal: exchangeAbort.signal })
+                .catch((error: unknown) => settle({ kind: 'send-error', error }));
         });
     }
 

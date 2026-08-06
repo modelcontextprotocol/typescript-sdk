@@ -1482,7 +1482,12 @@ verifies('client-transport:http:reconnect-failure-onerror', async (_args: TestAr
         await vi.waitFor(() =>
             expect(transportErrors.filter(e => e.message === 'Maximum reconnection attempts (2) exceeded.')).toHaveLength(1)
         );
-        expect(transportErrors.filter(e => e.message.startsWith('Failed to reconnect SSE stream:'))).toHaveLength(2);
+        // Each failed reconnect leg reports exactly once — the SSE open
+        // failure itself, from the transport's single reporting site; the
+        // scheduler no longer wraps the same failure in a duplicate
+        // "Failed to reconnect SSE stream" onerror.
+        expect(transportErrors.filter(e => e.message.startsWith('Failed to open SSE stream:'))).toHaveLength(2);
+        expect(transportErrors.filter(e => e.message.startsWith('Failed to reconnect SSE stream:'))).toHaveLength(0);
         expect(records.filter(r => r.method === 'GET')).toHaveLength(3);
 
         // The reconnection failure stays on onerror: an unrelated request issued afterwards still succeeds

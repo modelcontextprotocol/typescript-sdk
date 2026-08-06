@@ -159,6 +159,59 @@ const requests = (sent: JSONRPCMessage[]): JSONRPCRequest[] => sent.filter(isJSO
  * Probe mechanics (T9) + modern resolution.
  * ------------------------------------------------------------------------- */
 
+describe('probe exchange request-scoped abort (#2615 shape, one layer down)', () => {
+    test('a timed-out probe aborts its requestSignal; the retry sends with a fresh one', async () => {
+        // Regression: the probe was sent with no send options, so a timed-out
+        // exchange's settle() tore down nothing on the wire — over Streamable
+        // HTTP with probe.maxRetries >= 1, the stale probe's POST (and any
+        // primed GET+Last-Event-ID reconnect chain) stayed alive and its late
+        // response leaked into the live session.
+        const sendSignals: Array<AbortSignal | undefined> = [];
+        let probeSeq = 0;
+        class CapturingTransport implements Transport {
+            onclose?: () => void;
+            onerror?: (error: Error) => void;
+            onmessage?: (message: JSONRPCMessage) => void;
+            sessionId?: string;
+            async start(): Promise<void> {}
+            async close(): Promise<void> {
+                this.onclose?.();
+            }
+            setProtocolVersion(): void {}
+            async send(message: JSONRPCMessage, options?: { requestSignal?: AbortSignal }): Promise<void> {
+                if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                    sendSignals.push(options?.requestSignal);
+                    probeSeq++;
+                    if (probeSeq >= 2) {
+                        const id = message.id;
+                        queueMicrotask(() => this.onmessage?.({ jsonrpc: '2.0', id, result: discoverResult([MODERN]) }));
+                    }
+                    // First probe: never answered — times out, then retries.
+                }
+            }
+        }
+
+        const transport = new CapturingTransport();
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 30, maxRetries: 1 } } }
+        );
+        await client.connect(transport);
+
+        expect(sendSignals).toHaveLength(2);
+        const [first, second] = sendSignals;
+        // Every probe exchange carries its own request-scoped signal…
+        expect(first).toBeDefined();
+        expect(second).toBeDefined();
+        expect(second).not.toBe(first);
+        // …and the timeout settle aborted the stale exchange on the wire, so
+        // its transport-level guards (fetch abort, reconnect disarm) engage.
+        expect(first!.aborted).toBe(true);
+
+        await client.close();
+    });
+});
+
 describe('auto mode against a modern server', () => {
     test('probe-first with a string id, no initialize, setProtocolVersion exactly once after era resolution', async () => {
         const transport = new ScriptedTransport(modernServerScript());
