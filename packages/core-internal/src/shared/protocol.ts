@@ -1773,8 +1773,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 // Send the notification, but don't await it here to avoid blocking.
-                // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                // Handle potential errors with a .catch(). Capture the
+                // transport identity at send time (same idiom as cancel()'s
+                // notifications/cancelled POST): a deliberate close() aborts
+                // the in-flight coalesced POST — the transport's own catch
+                // stays silent (intentional-abort guard) and rethrows, and by
+                // the time the rejection lands here `_onclose` has already
+                // cleared `_transport`. Re-reporting would resurface an
+                // AbortError through onerror for a clean shutdown — report
+                // only failures on the connection the POST was sent on.
+                const sendTransport = this._transport;
+                sendTransport.send(jsonrpcNotification, options).catch(error => {
+                    if (this._transport === sendTransport) {
+                        this._onerror(error);
+                    }
+                });
             });
 
             // Return immediately.

@@ -840,6 +840,16 @@ export class StreamableHTTPClientTransport implements Transport {
         // Track whether we've received a response - if so, no need to reconnect
         // Reconnection is for when server disconnects BEFORE sending response
         let receivedResponse = false;
+        // A throwing caller-supplied stream-end callback must not escape the
+        // fire-and-forget processStream() promise as an unhandledRejection —
+        // route it through onerror instead.
+        const fireStreamEnd = (): void => {
+            try {
+                onRequestStreamEnd?.();
+            } catch (callbackError) {
+                this.onerror?.(callbackError instanceof Error ? callbackError : new Error(String(callbackError)));
+            }
+        };
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -893,37 +903,6 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                     }
                 }
-
-                // Handle graceful server-side disconnect
-                // Server may close connection after sending event ID and retry field
-                // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
-                // BUT don't reconnect if we already received a response - the request is complete
-                const canResume = isReconnectable || hasPrimingEvent;
-                const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    this._scheduleReconnection(
-                        {
-                            // Fall back to the token this leg was opened with:
-                            // a resume leg that drops before delivering its
-                            // first event has no `lastEventId`, and rebuilding
-                            // without a token would degrade the resume into a
-                            // token-less standalone GET (dead-ends on 405
-                            // servers; loses the replay position otherwise).
-                            resumptionToken: lastEventId ?? options.resumptionToken,
-                            onresumptiontoken,
-                            replayMessageId,
-                            requestSignal,
-                            onRequestStreamEnd,
-                            fetchSignal
-                        },
-                        0
-                    );
-                } else if (!isIntentionalAbort()) {
-                    // The per-request stream ended without reconnecting (no
-                    // priming event for a POST stream, or response already
-                    // received). Not a deliberate abort — notify the caller.
-                    onRequestStreamEnd?.();
-                }
             } catch (error) {
                 if (isIntentionalAbort()) {
                     // The reader threw because we aborted it. Not an error; do
@@ -944,7 +923,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         this._scheduleReconnection(
                             {
                                 // Same fallback as the graceful-close path
-                                // above: never rebuild a resume without its
+                                // below: never rebuild a resume without its
                                 // token.
                                 resumptionToken: lastEventId ?? options.resumptionToken,
                                 onresumptiontoken,
@@ -957,13 +936,60 @@ export class StreamableHTTPClientTransport implements Transport {
                         );
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
-                        onRequestStreamEnd?.();
+                        fireStreamEnd();
                     }
                 } else {
                     // Non-deliberate stream error without reconnection: the
                     // per-request stream is gone — notify the caller.
-                    onRequestStreamEnd?.();
+                    fireStreamEnd();
                 }
+                return;
+            }
+
+            // Handle graceful server-side disconnect. The settlement tail
+            // runs OUTSIDE the read-loop try: a synchronous throw from a
+            // user-supplied scheduler or stream-end callback must not land in
+            // the catch above, where it would be mislabeled "SSE stream
+            // disconnected" and re-drive this tail a second time (two onerror
+            // reports for one scheduler failure; a throwing callback invoked
+            // twice, with the second throw escaping the fire-and-forget
+            // processStream() as an unhandledRejection).
+            // Server may close connection after sending event ID and retry field
+            // Reconnect if: already reconnectable (GET stream) OR received a priming event (POST stream with event ID)
+            // BUT don't reconnect if we already received a response - the request is complete
+            const canResume = isReconnectable || hasPrimingEvent;
+            const needsReconnect = canResume && !receivedResponse;
+            if (needsReconnect && this._abortController && !isIntentionalAbort()) {
+                try {
+                    this._scheduleReconnection(
+                        {
+                            // Fall back to the token this leg was opened with:
+                            // a resume leg that drops before delivering its
+                            // first event has no `lastEventId`, and rebuilding
+                            // without a token would degrade the resume into a
+                            // token-less standalone GET (dead-ends on 405
+                            // servers; loses the replay position otherwise).
+                            resumptionToken: lastEventId ?? options.resumptionToken,
+                            onresumptiontoken,
+                            replayMessageId,
+                            requestSignal,
+                            onRequestStreamEnd,
+                            fetchSignal
+                        },
+                        0
+                    );
+                } catch (scheduleError) {
+                    // First-schedule scheduler throw: report the raw error
+                    // exactly once, then settle the caller — mirroring the
+                    // reschedule-throw handling inside _scheduleReconnection.
+                    this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                    fireStreamEnd();
+                }
+            } else if (!isIntentionalAbort()) {
+                // The per-request stream ended without reconnecting (no
+                // priming event for a POST stream, or response already
+                // received). Not a deliberate abort — notify the caller.
+                fireStreamEnd();
             }
         };
         processStream();

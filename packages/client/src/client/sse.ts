@@ -244,7 +244,16 @@ export class SSEClientTransport implements Transport {
                             // callbacks alike.
                             (error: unknown) => {
                                 markAuthSeamEscape(error);
-                                this.onerror?.(error as Error);
+                                // Mirror the success arm's closed-state guard:
+                                // a refresh that rejects AFTER close() (token
+                                // endpoint unreachable at shutdown, abandoned
+                                // interactive flow) must not surface a
+                                // spurious auth error through onerror
+                                // post-shutdown. Still reject so a pending
+                                // start() settles.
+                                if (this._abortController?.signal.aborted !== true) {
+                                    this.onerror?.(error as Error);
+                                }
                                 reject(error);
                             }
                         );

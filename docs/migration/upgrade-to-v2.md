@@ -1568,8 +1568,11 @@ rewrite required unless noted.
   so an abort fired in the same tick can land before the frame is ever sent: the call
   rejects with `SdkError(RequestTimeout, reason)` and **no `notifications/cancelled` is
   emitted** (nothing was in flight). v1 sent the frame synchronously from these verbs.
-  Once the frame is on the wire, aborting still sends `notifications/cancelled` before
-  rejecting.
+  Once the frame is on the wire, aborting still emits the era's cancel signal before
+  rejecting: a `notifications/cancelled` POST on legacy-era (2025-11-25) connections and
+  on single-channel transports (stdio / in-memory) at any era; on a 2026-07-28
+  Streamable HTTP connection the per-request stream close is itself the cancellation
+  and no `notifications/cancelled` is sent.
 - **Protocol-version pinning is a first-class option.**
   `ProtocolOptions.supportedProtocolVersions` pins the legacy `initialize` handshake:
   the **first** pre-2026 entry in the list is offered (list order is preference order),

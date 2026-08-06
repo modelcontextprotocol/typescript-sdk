@@ -730,6 +730,67 @@ describe('protocol tests', () => {
             expect(sendSpy).not.toHaveBeenCalled();
         });
 
+        it('debounced send rejection after close() does not surface onerror (deliberate teardown)', async () => {
+            // Regression: the coalesced POST's fire-and-forget catch reported
+            // unconditionally. A close() landing while the POST was in flight
+            // resurfaced the deliberate-teardown AbortError through
+            // Protocol.onerror — the transport-level guards suppress their
+            // own report and rethrow, so the protocol layer must key the
+            // report on whether THIS connection is still the live one (same
+            // capture-and-compare idiom as cancel()'s notifications/cancelled
+            // POST).
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+
+            let rejectSend!: (error: Error) => void;
+            sendSpy.mockImplementation(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectSend = reject;
+                    })
+            );
+
+            protocol.notification({ method: 'test/debounced' });
+            await flushMicrotasks();
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+
+            // close() clears _transport; the aborted POST's rejection lands
+            // afterwards.
+            await protocol.close();
+            rejectSend(new Error('This operation was aborted'));
+            await flushMicrotasks();
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('debounced send rejection on a live connection still reports through onerror', async () => {
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+
+            const sendError = new Error('network down');
+            let rejectSend!: (error: Error) => void;
+            sendSpy.mockImplementation(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectSend = reject;
+                    })
+            );
+
+            protocol.notification({ method: 'test/debounced' });
+            await flushMicrotasks();
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+
+            rejectSend(sendError);
+            await flushMicrotasks();
+
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(sendError);
+        });
+
         it('should debounce multiple synchronous calls when params property is omitted', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });

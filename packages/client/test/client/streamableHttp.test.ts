@@ -3382,6 +3382,75 @@ describe('StreamableHTTPClientTransport', () => {
             // The finally disarm still ran: no stale Set entry survives.
             expect(transport['_pendingReconnectCancels'].size).toBe(0);
         });
+
+        it('a first-schedule scheduler throw on graceful close reports the raw error exactly once', async () => {
+            // Regression: the graceful-close settlement tail ran inside the
+            // same try as the stream read loop. A scheduler that throws on
+            // the FIRST schedule of a gap landed in the generic catch, got
+            // mislabeled "SSE stream disconnected", and the catch re-drove
+            // the tail: two onerror reports for one scheduler failure.
+            const scheduleError = new Error('platform denied background task');
+            const scheduler: ReconnectionScheduler = vi.fn(() => {
+                throw scheduleError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onRequestStreamEnd = vi.fn();
+            await transport.start();
+
+            // A primed POST stream that closes gracefully without a response:
+            // the graceful tail schedules the first reconnect attempt.
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(encoder.encode('id: evt-1\ndata: \n\n'));
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(scheduleError);
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
+        it('a throwing onRequestStreamEnd on graceful close is invoked once and never escapes processStream', async () => {
+            // Regression: with the settlement tail inside the read-loop try,
+            // a throwing caller-supplied onRequestStreamEnd was caught, the
+            // catch re-invoked the SAME callback, and its second throw
+            // escaped the fire-and-forget processStream() promise as an
+            // unhandledRejection.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // A POST stream with no priming event ends gracefully: the tail
+            // takes the no-reconnect branch and fires the stream-end callback.
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(callbackError);
+        });
     });
 });
 

@@ -1815,6 +1815,53 @@ describe('SSEClientTransport', () => {
             expect(getAttempts).toBe(attemptsAtClose);
         });
 
+        it('a refresh that rejects after close() does not surface onerror (deliberate teardown)', async () => {
+            // Regression: the FAILURE arm of the 401-recovery continuation
+            // called this.onerror unconditionally, while the success arm got
+            // a closed-state guard — so a token refresh that rejects after a
+            // clean close() (endpoint unreachable at shutdown, abandoned
+            // interactive flow) surfaced a spurious auth error through
+            // onerror arbitrarily long after the transport was torn down.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            let rejectRefresh!: (error: Error) => void;
+            const refreshPending = new Promise<void>((_resolve, reject) => {
+                rejectRefresh = reject;
+            });
+            let refreshStarted!: () => void;
+            const refreshStartedPromise = new Promise<void>(resolve => {
+                refreshStarted = resolve;
+            });
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {
+                    refreshStarted();
+                    await refreshPending;
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            const startPromise = transport.start();
+            const startRejection = expect(startPromise).rejects.toThrow('refresh failed');
+            await refreshStartedPromise;
+            await transport.close();
+
+            // The refresh rejects AFTER close(): still settles start(), but
+            // must not report post-shutdown noise through onerror.
+            rejectRefresh(new Error('refresh failed'));
+            await startRejection;
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
         it('retry failure during SSE connect fires onerror exactly once', async () => {
             // Regression: when the retry EventSource rejected, its onerror fired inside, then
             // the outer .then() rejection handler fired onerror AGAIN for the same error.
