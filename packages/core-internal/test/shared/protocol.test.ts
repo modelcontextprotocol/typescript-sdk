@@ -656,6 +656,24 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification whose relatedRequestId is 0 (falsy but legitimate first-request id)', async () => {
+            // `_requestMessageId` starts at 0, so a notification related to a
+            // peer's first request carries relatedRequestId 0. A falsy gate
+            // wrongly debounced it — coalescing synchronous sends away and
+            // dropping the request association from the send options.
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — synchronous back-to-back sends, like the coalescing tests.
+            protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await flushMicrotasks();
+
+            // ASSERT — both sends hit the wire, each keeping its association.
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });

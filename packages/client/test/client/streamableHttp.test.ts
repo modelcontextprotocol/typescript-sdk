@@ -1585,6 +1585,92 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onStreamEnd).toHaveBeenCalledTimes(1);
         });
 
+        it('close() disarms EVERY pending scheduled reconnect, not just the last-scheduled chain', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10_000,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 30_000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Every POST returns a primed SSE stream that closes gracefully
+            // without a response — each send spawns its own reconnect chain.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            }));
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} });
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-2', params: {} });
+            await vi.advanceTimersByTimeAsync(5);
+
+            // Two chains, two pending scheduled attempts.
+            expect(vi.getTimerCount()).toBe(2);
+
+            // ACT — close must disarm BOTH, not only the last-written one.
+            await transport.close();
+
+            expect(vi.getTimerCount()).toBe(0);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('a settled request disarms its own pending scheduled reconnect immediately', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10_000,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 30_000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(vi.getTimerCount()).toBe(1);
+
+            // ACT — the request settles during the backoff window: the armed
+            // timer is released immediately, not left to bail at fire time.
+            requestAbort.abort();
+            expect(vi.getTimerCount()).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('resume leg that drops before its first event reschedules with the ORIGINAL resumption token', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
@@ -2900,7 +2986,7 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             // Verify no reconnection was scheduled
-            expect(transport['_cancelReconnection']).toBeUndefined();
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -2922,10 +3008,12 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_cancelReconnection']).toBeDefined();
+            expect(transport['_pendingReconnectCancels'].size).toBe(1);
 
             // Clean up the pending reconnection to avoid test pollution
-            transport['_cancelReconnection']?.();
+            for (const cancel of transport['_pendingReconnectCancels']) {
+                cancel();
+            }
         });
     });
 

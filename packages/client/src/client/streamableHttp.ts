@@ -332,7 +332,16 @@ export class StreamableHTTPClientTransport implements Transport {
     private _maxStepUpRetries: number;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
-    private _cancelReconnection?: () => void;
+    /**
+     * Cancel functions for EVERY pending scheduled reconnection attempt. The
+     * transport can own several concurrent reconnect chains at once — the
+     * standalone notification GET plus one per in-flight request on a legacy
+     * session — so this must be a set, not a single slot: a slot would be
+     * overwritten by each schedule and `close()` could disarm only the
+     * last-written chain, leaving armed timers (or un-cancelled custom
+     * scheduler tasks) behind.
+     */
+    private readonly _pendingReconnectCancels = new Set<() => void>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -687,8 +696,24 @@ export class StreamableHTTPClientTransport implements Transport {
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
+        // Per-chain cancel bookkeeping: each scheduled attempt registers its
+        // own cancel in `_pendingReconnectCancels` and removes it when the
+        // attempt fires or is disarmed. `listenerCleanup` releases the
+        // settlement listener below in the same motion.
+        let entry: (() => void) | undefined;
+        let fired = false;
+        const listenerCleanup = new AbortController();
+        const disarmBookkeeping = (): void => {
+            if (entry !== undefined) {
+                this._pendingReconnectCancels.delete(entry);
+                entry = undefined;
+            }
+            listenerCleanup.abort();
+        };
+
         const reconnect = (): void => {
-            this._cancelReconnection = undefined;
+            fired = true;
+            disarmBookkeeping();
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
@@ -708,12 +733,30 @@ export class StreamableHTTPClientTransport implements Transport {
             });
         };
 
+        let cancelPending: () => void;
         if (this._reconnectionScheduler) {
             const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
-            this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
+            cancelPending = typeof cancel === 'function' ? cancel : () => {};
         } else {
             const handle = setTimeout(reconnect, delay);
-            this._cancelReconnection = () => clearTimeout(handle);
+            cancelPending = () => clearTimeout(handle);
+        }
+        // A custom scheduler may invoke `reconnect` synchronously; do not
+        // register bookkeeping for an attempt that already fired.
+        if (!fired) {
+            entry = cancelPending;
+            this._pendingReconnectCancels.add(entry);
+            // A settled request disarms its own pending attempt immediately
+            // instead of leaving an armed timer to bail at fire time (the
+            // request-scoped signal is aborted on every settlement path).
+            options.requestSignal?.addEventListener(
+                'abort',
+                () => {
+                    cancelPending();
+                    disarmBookkeeping();
+                },
+                { once: true, signal: listenerCleanup.signal }
+            );
         }
     }
 
@@ -932,9 +975,15 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async close(): Promise<void> {
         try {
-            this._cancelReconnection?.();
+            // Disarm EVERY pending scheduled reconnection — the transport can
+            // own several concurrent chains, each with its own pending
+            // attempt. (A throwing cancel still propagates to the caller; the
+            // finally block guarantees the abort and onclose regardless.)
+            for (const cancel of this._pendingReconnectCancels) {
+                cancel();
+            }
         } finally {
-            this._cancelReconnection = undefined;
+            this._pendingReconnectCancels.clear();
             this._abortController?.abort();
             this.onclose?.();
         }

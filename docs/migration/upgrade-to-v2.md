@@ -1503,10 +1503,18 @@ rewrite required unless noted.
 
 - **Unchanged, for re-baselining relief:** timeout rejections still carry
   `data.timeout` / `data.maxTotalTimeout` exactly as v1 `McpError` did — v1 assertions
-  on those survive verbatim. The cancelled-on-timeout signal is unchanged on legacy-era
-  connections and on stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel
-  signal is the per-request stream close instead of a `notifications/cancelled` POST
+  on those survive verbatim. For per-leg timeouts and caller aborts, the
+  cancelled-on-timeout signal is unchanged on legacy-era connections and on
+  stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel signal is the
+  per-request stream close instead of a `notifications/cancelled` POST
   (see [support-2026-07-28.md](./support-2026-07-28.md)).
+- **Changed: `maxTotalTimeout` settlements now emit the cancel signal.** In v1 a
+  request settling because `maxTotalTimeout` was exceeded put nothing on the wire.
+  It now routes through the same cancel path as a plain timeout and emits the
+  connection's cancel signal — `notifications/cancelled` on legacy-era connections
+  and on single-channel transports at any era, the per-request stream close on
+  2026-era Streamable HTTP — while the caller still sees the same
+  `Maximum total timeout exceeded` rejection.
 - **Also unchanged: the SSE reconnection exhaustion message.** When
   `StreamableHTTPClientTransport` runs out of retries, it still emits `onerror` with a
   plain `Error` whose message is `Maximum reconnection attempts (N) exceeded.` — there
