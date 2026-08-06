@@ -1,3 +1,5 @@
+import { getEventListeners } from 'node:events';
+
 import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
@@ -3067,8 +3069,8 @@ describe('StreamableHTTPClientTransport', () => {
             expect(transport['_pendingReconnectCancels'].size).toBe(1);
 
             // Clean up the pending reconnection to avoid test pollution
-            for (const cancel of transport['_pendingReconnectCancels']) {
-                cancel();
+            for (const entry of transport['_pendingReconnectCancels']) {
+                entry.cancel();
             }
         });
     });
@@ -3281,6 +3283,65 @@ describe('StreamableHTTPClientTransport', () => {
             await expect(transport.close()).rejects.toThrow('cancel failed');
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
+        });
+
+        it('a throwing cancel does not skip cancelling sibling chains on close()', async () => {
+            const cancel1 = vi.fn(() => {
+                throw new Error('cancel 1 failed');
+            });
+            const cancel2 = vi.fn();
+            const cancels = [cancel1, cancel2];
+            let scheduleCount = 0;
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancels[scheduleCount++]);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+
+            await transport.start();
+            // Two independent pending chains, each with its own cancel.
+            triggerReconnection(transport);
+            triggerReconnection(transport);
+            const abortController = transport['_abortController'];
+
+            // The FIRST cancel error still propagates, but only after every
+            // sibling chain has been disarmed too.
+            await expect(transport.close()).rejects.toThrow('cancel 1 failed');
+            expect(cancel1).toHaveBeenCalledTimes(1);
+            expect(cancel2).toHaveBeenCalledTimes(1);
+            expect(abortController?.signal.aborted).toBe(true);
+            expect(onclose).toHaveBeenCalledTimes(1);
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+        });
+
+        it("runs a pending chain's cancel at most once across close() and request settlement", async () => {
+            const cancel = vi.fn();
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancel);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            await transport.start();
+            // A per-request chain in its backoff window: the settlement
+            // listener is armed on the request-scoped signal.
+            const requestAbort = new AbortController();
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { requestSignal: requestAbort.signal },
+                0
+            );
+
+            await transport.close();
+            expect(cancel).toHaveBeenCalledTimes(1);
+
+            // close() -> onclose -> Protocol._onclose rejects the pending
+            // request -> its .finally() aborts the request-scoped signal.
+            // The chain's settlement listener must have been released by
+            // close(), so the cancel does NOT run a second time.
+            requestAbort.abort();
+            expect(cancel).toHaveBeenCalledTimes(1);
         });
     });
 });
@@ -3544,5 +3605,84 @@ describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain
         expect(errors).toEqual([]);
 
         await client.close();
+    });
+});
+
+/**
+ * Regression for the Node 20.0-20.2 `anySignal` fallback: it removes its
+ * listener pair only when one of its input signals fires, so composing a
+ * FRESH transport+request signal per SSE reconnect leg strands one closure
+ * pair per gracefully-completed leg on BOTH input signals until the request
+ * settles (MaxListenersExceededWarning after ~11 polling cycles). The
+ * composite must be built once per request chain and reused by every rebuilt
+ * leg.
+ */
+describe('anySignal fallback (Node 20.0-20.2): reconnect legs reuse one composite per request chain', () => {
+    const originalAny = AbortSignal.any;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.spyOn(globalThis, 'fetch');
+        // Simulate Node 20.0-20.2, where `AbortSignal.any` is unavailable and
+        // the manual fallback combinator must be used.
+        (AbortSignal as { any?: typeof AbortSignal.any }).any = undefined;
+    });
+
+    afterEach(() => {
+        (AbortSignal as { any?: typeof AbortSignal.any }).any = originalAny;
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    it('does not accrue abort listeners on the request or transport signal across resume legs', async () => {
+        const encoder = new TextEncoder();
+        let eventSeq = 0;
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async () => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                    // A priming event id, then a graceful close without a
+                    // response: the documented SSE polling pattern — each leg
+                    // completes with NEITHER input signal aborting.
+                    controller.enqueue(encoder.encode(`id: evt-${++eventSeq}\ndata: \n\n`));
+                    controller.close();
+                }
+            })
+        }));
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        await transport.start();
+
+        const requestAbort = new AbortController();
+        await transport['_startOrAuthSse']({ resumptionToken: 'evt-0', requestSignal: requestAbort.signal });
+
+        // Let the chain run several full polling cycles (stream close +
+        // backoff + resume GET).
+        for (let cycle = 0; cycle < 5; cycle++) {
+            await vi.advanceTimersByTimeAsync(20);
+        }
+        expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+        const transportSignal = transport['_abortController']!.signal;
+        // One composite per request chain: exactly one fallback listener pair
+        // total, no matter how many legs have completed. (Between legs the
+        // pending attempt's settlement listener is also disarmed, so the
+        // fallback's listener is the only one left on the request signal.)
+        const requestListeners = getEventListeners(requestAbort.signal, 'abort');
+        const transportListeners = getEventListeners(transportSignal, 'abort');
+        expect(requestListeners.length).toBeLessThanOrEqual(2);
+        expect(transportListeners.length).toBeLessThanOrEqual(2);
+
+        await transport.close();
     });
 });
