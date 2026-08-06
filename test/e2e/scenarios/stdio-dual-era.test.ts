@@ -53,9 +53,10 @@ verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion
         return;
     }
 
-    // Modern leg: the auto-negotiating client reaches 2026-07-28 via
-    // server/discover on the pipe (no initialize is ever written), the entry
-    // pins the connection to a 2026-era instance, and tools/call round-trips
+    // Modern leg: the auto-negotiating client reaches 2026-07-28 via the
+    // disposable sibling probe (the session pipe carries neither initialize
+    // nor server/discover), the entry pins the connection to a 2026-era
+    // instance from the first enveloped request, and tools/call round-trips
     // with the per-request envelope.
     const sentMethods: string[] = [];
     const originalSend = transport.send.bind(transport);
@@ -69,7 +70,7 @@ verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion
         await client.connect(transport);
         expect(client.getNegotiatedProtocolVersion()).toBe(protocolVersion);
         expect(sentMethods).not.toContain('initialize');
-        expect(sentMethods[0]).toBe('server/discover');
+        expect(sentMethods).not.toContain('server/discover');
 
         const result = await client.callTool({ name: 'echo', arguments: { text: 'modern leg' } });
         expect(result.content).toEqual([{ type: 'text', text: 'modern leg' }]);

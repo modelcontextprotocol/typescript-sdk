@@ -19,7 +19,7 @@
  * probe wire shape (string id, `server/discover` first, never a real request).
  */
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -53,6 +53,20 @@ const DEPLOYED_SESSION_REQUIRED_BODY = JSON.stringify({
     error: { code: -32_000, message: 'Bad Request: Server not initialized' }
 });
 
+/**
+ * The exact discover result a go-sdk v1.7.0-pre.3 server answers the probe
+ * with (spec PR #3002 final 2026-07-28 shape): `serverInfo` lives in the
+ * result `_meta`, the body field is gone.
+ */
+const GO_V17_DISCOVER_RESULT = {
+    resultType: 'complete',
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'server', version: 'v0.0.1' } },
+    ttlMs: 0,
+    cacheScope: 'public',
+    supportedVersions: ['2026-07-28', '2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'],
+    capabilities: { logging: {} }
+};
+
 interface CorpusRow {
     name: string;
     outcome: ProbeOutcome;
@@ -75,10 +89,10 @@ const CORPUS: CorpusRow[] = [
     },
     // --- T9 edge 3: probe success but no version overlap → initialize on the SAME connection.
     {
-        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize on the same connection)',
+        name: 'T9: DiscoverResult with no mutual version + fallback available → legacy (initialize fallback)',
         outcome: {
             kind: 'result',
-            result: { supportedVersions: ['2027-01-01'], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+            result: { supportedVersions: ['2027-01-01'], capabilities: {} }
         },
         expected: 'legacy'
     },
@@ -86,7 +100,7 @@ const CORPUS: CorpusRow[] = [
         name: 'T9: DiscoverResult with no mutual version + NO fallback (pin / modern-only) → typed error, never initialize',
         outcome: {
             kind: 'result',
-            result: { supportedVersions: ['2027-01-01'], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+            result: { supportedVersions: ['2027-01-01'], capabilities: {} }
         },
         context: { fallbackAvailable: false },
         expected: 'error'
@@ -147,6 +161,56 @@ const CORPUS: CorpusRow[] = [
         outcome: { kind: 'result', result: { content: [{ type: 'text', text: `supportedVersions: ["${MODERN}"]` }] } },
         expected: 'legacy'
     },
+    // --- Auth statuses are never era evidence (#2561): an auth-protected
+    // server is not a legacy server, whatever the body says — typed failure,
+    // never initialize (fallbackAvailable is true in every row here).
+    {
+        name: 'auth: HTTP 401 challenge (WWW-Authenticate rides the header; body carries the OAuth error JSON) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 401, body: '{"error":"invalid_token","error_description":"Missing bearer token"}' },
+        expected: 'error'
+    },
+    {
+        name: 'auth: bare HTTP 401 (no body) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 401 },
+        expected: 'error'
+    },
+    {
+        name: 'auth: bare HTTP 403 denial (no body) → typed auth failure, never legacy',
+        outcome: { kind: 'http-error', status: 403 },
+        expected: 'error'
+    },
+    {
+        name: 'auth: a 401 whose body parses as a JSON-RPC error is still an auth failure — the auth layer wrote that body, not server/discover',
+        outcome: { kind: 'http-error', status: 401, body: DEPLOYED_SESSION_REQUIRED_BODY },
+        expected: 'error'
+    },
+    // --- Server failures are never era evidence: the spec keys the HTTP
+    // legacy signal to a 4xx rejection, so a 5xx (mid-deploy proxy, crashed
+    // backend) rejects typed instead of demoting a modern server to legacy.
+    {
+        name: '5xx: HTTP 503 with an HTML error page (mid-deploy modern server) → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 503, body: '<html><body>Service Unavailable</body></html>' },
+        expected: 'error'
+    },
+    {
+        name: '5xx: bare HTTP 500 (no body) → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 500 },
+        expected: 'error'
+    },
+    {
+        name: '5xx: HTTP 502 with a JSON (but not JSON-RPC) gateway body → typed error, never legacy',
+        outcome: { kind: 'http-error', status: 502, body: '{"message":"upstream connect error"}' },
+        expected: 'error'
+    },
+    {
+        name: '5xx: HTTP 500 whose body parses as a JSON-RPC error (-32603 from a crashed handler) is still a server failure — 5xx ranks above the body parse',
+        outcome: {
+            kind: 'http-error',
+            status: 500,
+            body: JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32_603, message: 'Internal error' } })
+        },
+        expected: 'error'
+    },
     // --- Q12 transport-aware timeout rows (stdio falls back, HTTP stays a typed error).
     {
         name: 'timeout on stdio → legacy fallback (the stdio backward-compatibility rule)',
@@ -164,6 +228,26 @@ const CORPUS: CorpusRow[] = [
         name: 'wire-real: -32601 method-not-found → legacy fallback',
         outcome: { kind: 'rpc-error', code: -32_601, message: 'Method not found' },
         expected: 'legacy'
+    },
+    // --- Wire-real shape C: the #3002 final-revision DiscoverResult (go v1.7.0-pre.3).
+    // Regression: before the #3002 alignment the wire schema required body
+    // `serverInfo`, so this conforming response failed parse and misclassified
+    // legacy — the client then attempted `initialize` against a modern server.
+    {
+        name: 'wire-real: go v1.7.0-pre.3 DiscoverResult (#3002 shape, serverInfo in _meta) → modern',
+        outcome: { kind: 'result', result: GO_V17_DISCOVER_RESULT },
+        expected: 'modern'
+    },
+    // A malformed _meta serverInfo is display-only material and must not
+    // demote a conforming DiscoverResult to legacy (receiver leniency: the
+    // wire schema drops the bad value instead of failing the parse).
+    {
+        name: 'recognizer: DiscoverResult with a malformed _meta serverInfo → still modern',
+        outcome: {
+            kind: 'result',
+            result: { ...GO_V17_DISCOVER_RESULT, _meta: { 'io.modelcontextprotocol/serverInfo': 'bogus' } }
+        },
+        expected: 'modern'
     }
 ];
 
@@ -175,11 +259,45 @@ describe('T9/T11 merged probe fixture corpus (probe classifier)', () => {
         });
     }
 
+    it('the 401/403 typed failures carry the auth codes (never EraNegotiationFailed — auth walls must not enter era-recovery flows) plus status, reason phrase, and response text', () => {
+        for (const [status, code, statusText, body] of [
+            [401, SdkErrorCode.ClientHttpAuthentication, 'Unauthorized', '{"error":"invalid_token"}'],
+            [403, SdkErrorCode.ClientHttpForbidden, 'Forbidden', 'nope']
+        ] as const) {
+            const verdict = classifyProbeOutcome({ kind: 'http-error', status, statusText, body }, baseContext);
+            expect(verdict.kind).toBe('error');
+            if (verdict.kind === 'error') {
+                expect(verdict.error).toBeInstanceOf(SdkHttpError);
+                const error = verdict.error as SdkHttpError;
+                expect(error.code).toBe(code);
+                expect(error.status).toBe(status);
+                expect(error.statusText).toBe(statusText);
+                expect(error.data.text).toBe(body);
+                expect(error.message).toContain(String(status));
+            }
+        }
+    });
+
+    it('the 5xx typed failure is EraNegotiationFailed (a genuine negotiation failure) carrying the status', () => {
+        const verdict = classifyProbeOutcome(
+            { kind: 'http-error', status: 503, statusText: 'Service Unavailable', body: 'down' },
+            baseContext
+        );
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkHttpError);
+            const error = verdict.error as SdkHttpError;
+            expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(error.status).toBe(503);
+            expect(error.message).toContain('503');
+        }
+    });
+
     it('a DiscoverResult with a mutual version is the only result shape that yields a modern verdict', () => {
         const verdict = classifyProbeOutcome(
             {
                 kind: 'result',
-                result: { supportedVersions: [MODERN], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                result: { supportedVersions: [MODERN], capabilities: {} }
             },
             baseContext
         );

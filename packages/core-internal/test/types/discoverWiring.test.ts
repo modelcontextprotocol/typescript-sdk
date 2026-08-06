@@ -23,7 +23,7 @@ describe('server/discover typed-funnel wiring (LC-02)', () => {
         const parsed = ServerResultSchema.safeParse({
             supportedVersions: ['2026-07-28'],
             capabilities: {},
-            serverInfo: { name: 's', version: '1' }
+            _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
         });
         expect(parsed.success).toBe(true);
     });
@@ -45,7 +45,7 @@ describe('server/discover typed-funnel wiring (LC-02)', () => {
         const result = DiscoverResultSchema.parse({
             supportedVersions: ['2026-07-28'],
             capabilities: { tools: {} },
-            serverInfo: { name: 'modern-server', version: '2.0.0' },
+            _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-server', version: '2.0.0' } },
             instructions: 'use the tools'
         });
         expect(result.supportedVersions).toEqual(['2026-07-28']);

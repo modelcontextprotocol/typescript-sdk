@@ -29,7 +29,7 @@ try {
 When the server requires authorization and the provider has no token, the SDK runs discovery against the server, registers (or looks up) your OAuth client, calls the provider's `redirectToAuthorization(url)`, and `connect()` throws `UnauthorizedError`. The end user finishes signing in out of band; your callback endpoint picks the flow back up below.
 
 ::: info
-With protocol-version negotiation in play, the connect-time 401 can also surface as an `SdkError` carrying the `UnauthorizedError` at `error.data.cause` — see [Protocol versions](../protocol-versions.md).
+With protocol-version negotiation in play (`versionNegotiation: { mode: 'auto' }` or a pin), the connect-time `UnauthorizedError` propagates unchanged from `connect()` — the same `instanceof` check works in every mode (older releases wrapped it as an `SdkError` with the error at `error.data.cause`). See [Protocol versions](../protocol-versions.md).
 :::
 
 ## Implement OAuthClientProvider

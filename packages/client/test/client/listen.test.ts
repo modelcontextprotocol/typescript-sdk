@@ -36,7 +36,7 @@ async function scriptedModern(onListen?: (id: number | string, filter: unknown, 
                     resultType: 'complete',
                     supportedVersions: [MODERN],
                     capabilities: { tools: { listChanged: true }, prompts: { listChanged: true } },
-                    serverInfo: { name: 'scripted', version: '1' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1' } }
                 }
             });
         }
@@ -73,7 +73,7 @@ async function scriptedModernNoAck() {
                     resultType: 'complete',
                     supportedVersions: [MODERN],
                     capabilities: { tools: { listChanged: true }, prompts: { listChanged: true } },
-                    serverInfo: { name: 'scripted', version: '1' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1' } }
                 }
             });
         }
@@ -249,7 +249,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: {},
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }
@@ -278,7 +278,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: {},
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }
@@ -340,7 +340,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: {},
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }
@@ -419,7 +419,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: {},
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }
@@ -554,7 +554,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: { tools: { listChanged: true } },
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }
@@ -679,7 +679,7 @@ describe('Client.listen()', () => {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
                         capabilities: { tools: { listChanged: true } },
-                        serverInfo: { name: 's', version: '1' }
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1' } }
                     }
                 });
             }

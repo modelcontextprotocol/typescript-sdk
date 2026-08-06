@@ -30,6 +30,7 @@ import {
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
+    SERVER_INFO_META_KEY,
     setNegotiatedProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
@@ -99,8 +100,35 @@ describe('server/discover handler gating', () => {
         if (isJSONRPCResultResponse(response)) {
             const result = DiscoverResultSchema.parse(response.result);
             expect(result.supportedVersions).toEqual([MODERN]);
-            expect(result.serverInfo).toEqual({ name: 'modern-server', version: '2.0.0' });
+            // #3002: identity travels in the result `_meta`, never the body.
+            expect(result._meta?.[SERVER_INFO_META_KEY]).toEqual({ name: 'modern-server', version: '2.0.0' });
+            expect('serverInfo' in (response.result as Record<string, unknown>)).toBe(false);
             expect(result.instructions).toBe('hello');
+        }
+        await server.close();
+    });
+
+    it('serves discover for a client that omits clientInfo (SHOULD since spec PR #3002)', async () => {
+        const server = new Server(
+            { name: 'modern-server', version: '2.0.0' },
+            { capabilities: { tools: {} }, supportedProtocolVersions: DUAL_ERA_VERSIONS }
+        );
+        const withoutClientInfo: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'server/discover',
+            params: {
+                _meta: {
+                    [PROTOCOL_VERSION_META_KEY]: MODERN,
+                    [CLIENT_CAPABILITIES_META_KEY]: {}
+                }
+            }
+        };
+        const response = await sendRaw(server, withoutClientInfo, { markModern: true });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        if (isJSONRPCResultResponse(response)) {
+            const result = DiscoverResultSchema.parse(response.result);
+            expect(result.supportedVersions).toEqual([MODERN]);
         }
         await server.close();
     });

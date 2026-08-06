@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 
 import type { StdioServerParameters } from '../../src/client/stdio';
@@ -118,3 +121,32 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
     await closed;
 });
+
+test('_dispose releases the parent-side pipe handles even when a helper process holds the child stdio', async () => {
+    // The rmcp-holding anatomy: the child exits, but a helper it spawned with
+    // stdio: 'inherit' keeps the pipe write ends open. Awaiting 'exit' settles
+    // disposal promptly — but without destroying the PARENT-side handles, the
+    // flowing stdout read handle stays ref'd until the helper exits, pinning
+    // the host's event loop (indefinitely for a daemon helper).
+    const readyFile = `${tmpdir()}/mcp-dispose-ready-${process.pid}-${Date.now()}`;
+    const HOLDING_SCRIPT = String.raw`
+        const { spawn } = require('child_process');
+        spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { stdio: 'inherit' });
+        require('fs').writeFileSync(${JSON.stringify(readyFile)}, 'ready');
+        process.stdin.on('end', () => process.exit(0));
+        process.stdin.resume();
+    `;
+    const transport = new StdioClientTransport({ command: process.execPath, args: ['-e', HOLDING_SCRIPT] });
+    await transport.start();
+    // Wait until the grandchild actually exists and holds the inherited pipes
+    // — disposing earlier would kill the child before its script even runs.
+    while (!existsSync(readyFile)) await new Promise(resolve => setTimeout(resolve, 25));
+    const proc = (transport as unknown as { _process: import('node:child_process').ChildProcess })._process;
+
+    await (transport as unknown as { _dispose: () => Promise<void> })._dispose();
+
+    // The child is confirmed gone AND the parent-side handles are released —
+    // destroyed flags are the deterministic proxy for "nothing pins the loop".
+    expect(proc.stdout?.destroyed).toBe(true);
+    expect(proc.stdin?.destroyed).toBe(true);
+}, 10_000);

@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { Project } from 'ts-morph';
 
+import { IMPORT_MAP } from '../../../src/migrations/v1-to-v2/mappings/importMap';
 import { mockPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/mockPaths';
 import type { TransformContext } from '../../../src/types';
 
@@ -578,19 +579,49 @@ describe('removed symbols in mocks and dynamic imports', () => {
         return { text: sourceFile.getFullText(), result };
     }
 
-    it('leaves a mock factory providing Protocol unrewritten and flags it', () => {
-        const input = `vi.mock('@modelcontextprotocol/sdk/shared/protocol.js', () => ({ Protocol: class {} }));\n`;
+    const SYNTHETIC = '@modelcontextprotocol/sdk/shared/synthetic.js';
+
+    beforeAll(() => {
+        IMPORT_MAP[SYNTHETIC] = {
+            target: 'RESOLVE_BY_CONTEXT',
+            status: 'moved',
+            removedSymbols: {
+                GoneClass: 'The GoneClass base class is not exported by the v2 packages.'
+            }
+        };
+    });
+
+    afterAll(() => {
+        delete IMPORT_MAP[SYNTHETIC];
+    });
+
+    it('rewrites a mock factory providing Protocol like other surviving symbols', () => {
+        const input = `vi.mock('@modelcontextprotocol/sdk/shared/protocol.js', () => ({ Protocol: class {} }));\nimport '@modelcontextprotocol/sdk/server/mcp.js';\n`;
         const { text, result } = applyWithDiagnostics(input);
-        expect(text).toContain('@modelcontextprotocol/sdk/shared/protocol.js');
+        expect(text).toContain(`vi.mock('@modelcontextprotocol/server'`);
+        expect(result.diagnostics.filter(d => d.insertComment)).toEqual([]);
+    });
+
+    it('rewrites a dynamic import destructuring Protocol', () => {
+        const input = `const { Protocol } = await import('@modelcontextprotocol/sdk/shared/protocol.js');\nexport { Protocol };\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain(`await import('@modelcontextprotocol/server')`);
+        expect(result.diagnostics.filter(d => d.insertComment)).toEqual([]);
+    });
+
+    it('leaves a mock factory providing a removed symbol unrewritten and flags it', () => {
+        const input = `vi.mock('${SYNTHETIC}', () => ({ GoneClass: class {} }));\n`;
+        const { text, result } = applyWithDiagnostics(input);
+        expect(text).toContain(SYNTHETIC);
         const diag = result.diagnostics.find(d => d.insertComment);
-        expect(diag?.message).toContain('Protocol');
+        expect(diag?.message).toContain('GoneClass');
         expect(diag?.message).toContain('no v2 package exports');
     });
 
-    it('leaves a dynamic import destructuring Protocol unrewritten and flags it', () => {
-        const input = `const { Protocol } = await import('@modelcontextprotocol/sdk/shared/protocol.js');\nexport { Protocol };\n`;
+    it('leaves a dynamic import destructuring a removed symbol unrewritten and flags it', () => {
+        const input = `const { GoneClass } = await import('${SYNTHETIC}');\nexport { GoneClass };\n`;
         const { text, result } = applyWithDiagnostics(input);
-        expect(text).toContain('@modelcontextprotocol/sdk/shared/protocol.js');
+        expect(text).toContain(SYNTHETIC);
         const diag = result.diagnostics.find(d => d.insertComment);
         expect(diag?.message).toContain('undefined at runtime');
     });
