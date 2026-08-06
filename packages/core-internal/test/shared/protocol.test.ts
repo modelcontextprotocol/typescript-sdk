@@ -962,6 +962,99 @@ describe('protocol tests', () => {
             expect(tx.lastRequestSignal?.aborted).toBe(true);
             expect(cancelledSent(tx.sent)).toHaveLength(0);
         });
+
+        test.each(['2025-11-25', '2026-07-28'])(
+            '%s era + per-request-stream transport: maxTotalTimeout settlement aborts the requestSignal (#2615)',
+            async era => {
+                const tx = new PerRequestStreamTransport();
+                const proto = createTestProtocol();
+                await proto.connect(tx);
+                setNegotiatedProtocolVersion(proto, era);
+
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
+                    timeout: 1000,
+                    maxTotalTimeout: 1,
+                    resetTimeoutOnProgress: true,
+                    onprogress: () => {}
+                });
+                const requestSignal = tx.lastRequestSignal;
+                expect(requestSignal).toBeInstanceOf(AbortSignal);
+                expect(requestSignal?.aborted).toBe(false);
+
+                // Cross the total budget, then deliver a progress notification:
+                // the maxTotalTimeout check fires on the timeout-reset path
+                // inside _onprogress and settles the request via the response
+                // handler directly — it never goes through cancel(), so the
+                // request-scoped abort must be covered by the settlement
+                // cleanup, not only by cancel().
+                await new Promise(resolve => setTimeout(resolve, 5));
+                tx.onmessage?.({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progressToken: 0, progress: 1 }
+                });
+
+                await expect(pending).rejects.toThrow('Maximum total timeout exceeded');
+                expect(requestSignal?.aborted).toBe(true);
+            }
+        );
+
+        test('per-request-stream transport: successful completion releases (aborts) the request-scoped signal', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}));
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+            expect(requestSignal?.aborted).toBe(false);
+
+            tx.onmessage?.({ jsonrpc: '2.0', id: 0, result: {} });
+            await expect(pending).resolves.toEqual({});
+
+            // A completed request sends no wire cancel of any kind…
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+            // …but the request-scoped signal is released (aborted) so the
+            // transport can drop its per-request state — otherwise every
+            // successful request leaks an abort listener on the transport-
+            // lifetime signal via the Node 20.0–20.2 anySignal fallback.
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era: cancellation POST does not inherit the original request resumptionToken', async () => {
+            // On Streamable HTTP, transport.send() with a resumptionToken
+            // short-circuits into a GET+Last-Event-ID resume WITHOUT posting
+            // the message. A notification is not a resumable request, so the
+            // cancellation send must never carry the original request's
+            // resumption options — forwarding them silently swallows the
+            // cancellation and spawns a fresh, unguarded SSE reconnect chain.
+            class RecordingTransport extends MockTransport {
+                readonly hasPerRequestStream = true;
+                calls: { message: JSONRPCMessage; options?: TransportSendOptions }[] = [];
+                override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+                    this.calls.push({ message, options });
+                }
+            }
+            const tx = new RecordingTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
+                signal: ac.signal,
+                resumptionToken: 'evt-42',
+                onresumptiontoken: () => {}
+            });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            const cancelled = tx.calls.find(c => 'method' in c.message && c.message.method === 'notifications/cancelled');
+            expect(cancelled).toBeDefined();
+            expect(cancelled?.options?.resumptionToken).toBeUndefined();
+            expect(cancelled?.options?.onresumptiontoken).toBeUndefined();
+        });
     });
 });
 

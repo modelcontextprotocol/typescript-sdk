@@ -130,11 +130,15 @@ export interface Transport {
      * `true` when this transport opens one underlying request per outbound
      * JSON-RPC request (the Streamable HTTP POST-per-request model) and
      * therefore honors {@linkcode TransportSendOptions.requestSignal}. The
-     * 2026-07-28 spec makes closing that per-request stream the cancellation
-     * signal — the protocol layer aborts `requestSignal` instead of POSTing
-     * `notifications/cancelled` when this flag is set on a 2026-era
-     * connection. Transports that share a single channel (stdio, in-memory)
-     * leave it `undefined`.
+     * protocol layer threads a request-scoped `requestSignal` into every
+     * outbound request on such transports and aborts it when the request
+     * settles (response, error, timeout, or caller abort). On a 2026-07-28
+     * connection that abort IS the spec cancellation signal — the 2026-07-28
+     * spec makes closing the per-request stream the cancellation, so no
+     * `notifications/cancelled` is sent. On a 2025-era connection it is
+     * purely local teardown (it stops the request's SSE reconnect chain)
+     * accompanying the `notifications/cancelled` POST. Transports that share
+     * a single channel (stdio, in-memory) leave it `undefined`.
      */
     readonly hasPerRequestStream?: boolean;
 

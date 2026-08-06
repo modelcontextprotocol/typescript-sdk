@@ -2945,4 +2945,97 @@ describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain
 
         await client.close();
     });
+
+    it('cancellation POST still hits the wire when the original request was issued with a resumptionToken', async () => {
+        // Regression for the cancel-path resumption leak: transport.send()
+        // with a resumptionToken short-circuits into a GET+Last-Event-ID
+        // resume WITHOUT posting the message. If the request's own
+        // resumptionToken were forwarded into the notifications/cancelled
+        // send, the cancellation would be silently swallowed (no POST) and a
+        // fresh SSE reconnect chain — without the request-scoped abort signal
+        // — would be spawned in its place.
+        let eventSeq = 0;
+        const cancelledPosts: JSONRPCMessage[] = [];
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+            if (init.method === 'GET') {
+                const lastEventId = (init.headers as Headers).get('last-event-id');
+                // Standalone notification stream: not offered by this server.
+                if (lastEventId === null) {
+                    return methodNotAllowed();
+                }
+                // Request-scoped resume: a priming event id, then a graceful
+                // close without the response, so the chain keeps resuming
+                // until the client tears it down.
+                return sseResponse([`retry: 10\nid: evt-${++eventSeq}\ndata: \n\n`]);
+            }
+            const message = JSON.parse(init.body as string) as JSONRPCMessage;
+            if ('method' in message) {
+                if (message.method === 'initialize' && 'id' in message) {
+                    return jsonResponse({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: '2025-11-25',
+                            capabilities: {},
+                            serverInfo: { name: 'legacy-server', version: '1.0.0' }
+                        }
+                    });
+                }
+                if (message.method === 'notifications/cancelled') {
+                    cancelledPosts.push(message);
+                    return accepted();
+                }
+            }
+            return accepted();
+        });
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+
+        await client.connect(transport);
+
+        const resumeGetCount = () =>
+            fetchMock.mock.calls.filter(call => call[1]?.method === 'GET' && (call[1].headers as Headers).get('last-event-id') !== null)
+                .length;
+
+        // Issue the request WITH a resumption token: the transport resumes the
+        // request's stream via GET + Last-Event-ID instead of POSTing it.
+        let settled = false;
+        const pending = client.ping({ timeout: 100, resumptionToken: 'evt-0' }).catch(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        expect(resumeGetCount()).toBeGreaterThan(0);
+        expect(settled).toBe(false);
+
+        // Cross the request timeout.
+        await vi.advanceTimersByTimeAsync(100);
+        await pending;
+        expect(settled).toBe(true);
+
+        // THE KEY ASSERTION: the cancellation actually reached the wire as a
+        // POST — it was not swallowed into another GET resume.
+        expect(cancelledPosts).toHaveLength(1);
+
+        // And no fresh (unguarded) reconnect chain was spawned by the
+        // cancellation send: once the request settled, the resume GET count
+        // stays flat.
+        const resumesAtSettle = resumeGetCount();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(resumeGetCount()).toBe(resumesAtSettle);
+
+        await client.close();
+    });
 });

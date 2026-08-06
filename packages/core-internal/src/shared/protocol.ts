@@ -1372,6 +1372,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         let onAbort: (() => void) | undefined;
         let cleanupMessageId: number | undefined;
+        let requestAbort: AbortController | undefined;
 
         // Send the request
         return new Promise<StandardSchemaV1.InferOutput<T>>((resolve, reject) => {
@@ -1424,7 +1425,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // else tears down: without this signal, a request that settles via
             // timeout or caller abort leaves orphaned reconnects running until
             // the late response surfaces as "unknown message ID" (#2615).
-            const requestAbort = this._transport.hasPerRequestStream === true ? new AbortController() : undefined;
+            requestAbort = this._transport.hasPerRequestStream === true ? new AbortController() : undefined;
 
             const messageId = this._requestMessageId++;
             cleanupMessageId = messageId;
@@ -1470,7 +1471,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                     reason: String(reason)
                                 }
                             }),
-                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                            // Deliberately NOT forwarding the original request's
+                            // resumptionToken/onresumptiontoken: a notification is
+                            // not a resumable request, and on Streamable HTTP a
+                            // resumption token short-circuits send() into a
+                            // GET+Last-Event-ID resume WITHOUT posting the message
+                            // — the cancellation would be silently swallowed and a
+                            // fresh, unguarded SSE reconnect chain spawned in its
+                            // place.
+                            { relatedRequestId }
                         )
                         .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
                 }
@@ -1587,6 +1596,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._responseHandlers.delete(cleanupMessageId);
                 this._cleanupTimeout(cleanupMessageId);
             }
+            // Release the request-scoped signal on EVERY settlement path, not
+            // just cancel(): a maxTotalTimeout hit settles via the response
+            // handler directly (never through cancel()) and would otherwise
+            // leave the transport's per-request SSE reconnect chain orphaned
+            // (#2615), and a successful completion would otherwise pin one
+            // abort listener per request on the transport-lifetime signal via
+            // the Node 20.0–20.2 anySignal fallback. Idempotent after the
+            // cancel() abort above; a no-op for single-channel transports
+            // (requestAbort is undefined). Aborting after a completed response
+            // is pure local teardown — the transport treats it as intentional
+            // (no onerror, no reconnect) and nothing is put on the wire.
+            requestAbort?.abort();
         });
     }
 
