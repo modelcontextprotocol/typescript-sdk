@@ -407,7 +407,13 @@ export class SSEClientTransport implements Transport {
             // Release connection - POST responses don't have content we need
             await response.text?.().catch(() => {});
         } catch (error) {
-            this.onerror?.(error as Error);
+            // The POST runs on the transport-lifetime signal alone, so a
+            // close() landing mid-flight rejects with an intentional
+            // AbortError — a clean shutdown, not a transport error. Still
+            // rethrow so callers see the failure.
+            if (this._abortController?.signal.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }

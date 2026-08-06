@@ -246,6 +246,47 @@ describe('SSEClientTransport', () => {
 
             await expect(transport.send(testMessage)).rejects.toThrow(/500/);
         });
+
+        it('close() while a POST is in flight surfaces no spurious onerror', async () => {
+            // Create a server whose POST endpoint never responds, so the send
+            // stays in flight until the transport-lifetime signal aborts it.
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                }
+                // POST: never respond.
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            transport = new SSEClientTransport(resourceBaseUrl);
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            await transport.start();
+
+            let sendError: unknown;
+            const pending = transport.send({ jsonrpc: '2.0', id: 'test-1', method: 'test', params: {} }).catch(error => {
+                sendError = error;
+            });
+            await new Promise(resolve => setTimeout(resolve, 50));
+
+            // ACT — deliberate shutdown while the POST is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (send() rejects so callers
+            // settle), but no onerror fires for a deliberate shutdown.
+            expect((sendError as Error).name).toBe('AbortError');
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
     });
 
     describe('header handling', () => {

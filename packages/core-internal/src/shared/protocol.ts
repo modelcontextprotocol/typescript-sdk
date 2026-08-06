@@ -97,6 +97,18 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 
 /**
  * Options that can be given per request.
+ *
+ * The {@linkcode TransportSendOptions} members this type absorbs are not all
+ * caller-controllable on the `request()` path — the protocol layer owns the
+ * per-request stream lifecycle there:
+ *
+ * - `requestSignal` is OVERWRITTEN with the protocol layer's request-scoped
+ *   signal (aborted when the request settles); a caller-supplied value is
+ *   ignored. Cancel via {@linkcode RequestOptions.signal | signal} instead.
+ * - `onRequestStreamEnd` is NOT forwarded to the transport. To observe the
+ *   per-request stream's lifecycle directly, call `transport.send()` yourself.
+ * - `resumptionToken` / `onresumptiontoken` / `relatedRequestId` / `headers`
+ *   are forwarded as documented.
  */
 export type RequestOptions = {
     /**
@@ -1525,7 +1537,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             // place.
                             { relatedRequestId }
                         )
-                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                        .catch(error => {
+                            // A deliberate transport close aborts an in-flight
+                            // cancellation POST: the transport's own catch stays
+                            // silent (intentional-abort guard) and rethrows, and
+                            // by the time the rejection lands here `_onclose` has
+                            // already cleared `_transport`. Re-reporting would
+                            // resurface an AbortError for a clean shutdown —
+                            // report only failures on a live connection.
+                            if (this._transport !== undefined) {
+                                this._onerror(new Error(`Failed to send cancellation: ${error}`));
+                            }
+                        });
                 }
                 // Aborting the request-scoped signal is either the spec cancel
                 // signal itself (modern era: closing the per-request stream IS

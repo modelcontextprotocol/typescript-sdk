@@ -1075,6 +1075,62 @@ describe('protocol tests', () => {
             }
         });
 
+        test('close() landing while the cancellation POST is in flight: no spurious "Failed to send cancellation" onerror', async () => {
+            let rejectCancelSend: ((error: unknown) => void) | undefined;
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    // The cancellation POST stays in flight until close()
+                    // aborts it (the transport rethrows the AbortError after
+                    // its own intentional-abort guard stays silent).
+                    return new Promise<void>((_resolve, reject) => {
+                        rejectCancelSend = reject;
+                    });
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            expect(rejectCancelSend).toBeDefined();
+
+            // Deliberate shutdown; the aborted POST's rejection lands after
+            // _onclose has already cleared the transport.
+            await proto.close();
+            rejectCancelSend?.(new DOMException('The operation was aborted', 'AbortError'));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(0);
+        });
+
+        test('genuine cancellation-send failure on a live connection still reports through onerror', async () => {
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    throw new TypeError('fetch failed');
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(1);
+        });
+
         test('per-request-stream transport: successful completion releases (aborts) the request-scoped signal', async () => {
             const tx = new PerRequestStreamTransport();
             const proto = createTestProtocol();

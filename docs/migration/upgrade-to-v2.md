@@ -1507,11 +1507,18 @@ rewrite required unless noted.
   connections and on stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel
   signal is the per-request stream close instead of a `notifications/cancelled` POST
   (see [support-2026-07-28.md](./support-2026-07-28.md)).
-- **Also unchanged: SSE reconnection exhaustion.** `StreamableHTTPClientTransport`'s
-  standalone GET-stream reconnection behavior and its exhaustion signal carry over from
-  v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
-  message is `Maximum reconnection attempts (N) exceeded.` — there is no typed error
-  class for this condition, so monitors that match the message text keep working.
+- **Also unchanged: the SSE reconnection exhaustion message.** When
+  `StreamableHTTPClientTransport` runs out of retries, it still emits `onerror` with a
+  plain `Error` whose message is `Maximum reconnection attempts (N) exceeded.` — there
+  is no typed error class for this condition, so monitors that match that message text
+  keep working.
+- **Changed: per-leg reconnect failures and intentional aborts.** Each failed
+  reconnect leg now reports through `onerror` exactly once with the underlying error
+  (e.g. `Failed to open SSE stream: …`) — the v1 `Failed to reconnect SSE stream:`
+  wrapper message is gone, so monitors matching that prefix need re-baselining — and
+  deliberate teardown (transport `close()` landing mid-POST/mid-GET/mid-DELETE, or a
+  settled request's teardown aborting its resume) no longer surfaces an `AbortError`
+  through `onerror`.
 - **Also unchanged: elicitation response validation.** `elicitInput`'s local validation
   of elicitation responses against `requestedSchema`, the resulting `-32602` error
   message wording (`Elicitation response content does not match requested schema: …`),
