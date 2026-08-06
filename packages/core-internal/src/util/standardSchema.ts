@@ -233,8 +233,13 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  *   tolerant `.default(5).pipe(z.number().min(1).refine(async () => true))` stays
  *   advertised as required — the probe goes async, and claiming IN-side tolerance
  *   structurally would wrongly drop `.default(0).pipe(z.number().min(1).refine(
- *   async …))`. Neither structural direction is sound there, so the conservative
- *   stay-required posture (byte-parity with the pre-#2464 emission) wins.
+ *   async …))`. The same trade applies to async CHECKS attached to the
+ *   tolerance-granting node itself (`.default(0).refine(async () => true)`,
+ *   `z.any().refine(async …)`): the check re-validates the fill, so no
+ *   structural claim is sound and the async probe cannot decide. In both shapes
+ *   the conservative stay-required posture (byte-parity with the pre-#2464
+ *   emission) wins; async stages DOWNSTREAM of a check-free tolerant node
+ *   (`.default(0).transform(async …)`) keep the structural drop.
  * - Output schemas containing `.transform()`/`.pipe()`/`z.coerce` still advertise the
  *   post-transform shape (`io: 'output'`) even though the server validates and ships
  *   the raw pre-transform value — rewriting pipe nodes to their input side per-node
@@ -538,14 +543,16 @@ const ZOD_REGISTRY_REF_PATTERN = /^#\/\$defs\/[^/]+$/;
 /**
  * Whether any reference keyword in the document carries a hand-authored value.
  * Hand-authored-ness is decided by value SHAPE and lexical CONTEXT together:
- * outside `id` resources, anything but zod's own registry shapes (`#`,
- * `#/$defs/<name>` — root-base JSON Pointers that never resolve through a
- * draft-04 `id` base) is hand-authored; INSIDE a draft-04 `id`-carrying
- * resource, EVERY ref counts — resolution there is base-relative on the
- * cfworker engine (`schema.$id || schema.id` registration), so even a
- * registry-shaped `$ref: '#'` addresses the resource, a spelling zod's emitter
- * never produces at that position. `$recursiveRef` counts regardless of value
- * or position — zod never emits the keyword at all.
+ * `#/$defs/<name>` root-base JSON Pointers are always zod-exempt — zod's own
+ * emitter places them INSIDE draft-04 `id`-carrying entries too (recursive
+ * z.lazy self-refs, cross-registered schemas), they resolve through the
+ * document root rather than the `id` base, and stripping the `id` around them
+ * is strictly safe on both engines (Ajv compiles; on cfworker the kept `id`
+ * would make them dangle base-relatively). Bare `#` is exempt only OUTSIDE
+ * `id` resources: inside one it addresses the resource base-relatively on the
+ * cfworker engine, and zod never emits that spelling there — it is
+ * hand-authored and observes the strip. `$recursiveRef` counts regardless of
+ * value or position — zod never emits the keyword at all.
  */
 function hasHandAuthoredRefValues(document: Record<string, unknown>): boolean {
     return someSchemaNode(document, (record, insideIdResource) =>
@@ -553,8 +560,9 @@ function hasHandAuthoredRefValues(document: Record<string, unknown>): boolean {
             const value = record[refKey];
             if (value === undefined) return false;
             if (refKey === '$recursiveRef') return true;
-            if (typeof value !== 'string' || insideIdResource) return true;
-            return value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value);
+            if (typeof value !== 'string') return true;
+            if (value === '#') return insideIdResource;
+            return !ZOD_REGISTRY_REF_PATTERN.test(value);
         })
     );
 }
@@ -669,12 +677,18 @@ function hasHandAuthoredReferenceConstructs(document: Record<string, unknown>): 
             // loosening as a tightening the rename walk's lexical polarity skip
             // cannot see through the ref indirection.
             if (underPolarityBoundary) return true;
-            // And they are loosen-safe only OUTSIDE draft-04 `id` resources: the
-            // cfworker engine resolves refs base-relatively there, and zod never
-            // emits a bare `#` inside an id-carrying entry — such refs are
-            // hand-authored and observe the strip/loosening.
-            if (inIdResource) return true;
-            if (value !== '#' && !ZOD_REGISTRY_REF_PATTERN.test(value)) return true;
+            // Bare `#` is zod-exempt only OUTSIDE draft-04 `id` resources: the
+            // cfworker engine resolves it base-relatively there, and zod never
+            // emits that spelling inside an id-carrying entry — it is
+            // hand-authored and observes the strip/loosening. `#/$defs/<name>`
+            // pointers stay exempt everywhere: zod itself emits them inside id
+            // entries (recursive/cross-registered schemas), and they resolve
+            // through the document root.
+            if (value === '#') {
+                if (inIdResource) return true;
+                continue;
+            }
+            if (!ZOD_REGISTRY_REF_PATTERN.test(value)) return true;
         }
         if (record.$anchor !== undefined || record.$dynamicAnchor !== undefined || record.$id !== undefined) return true;
         // 2019-09 recursion keywords: zod never emits them, and the SDK's
@@ -852,22 +866,24 @@ const ENFORCED_JSON_SCHEMA_KEYWORDS: ReadonlySet<string> = new Set([
 
 /**
  * Whether a raw payload that omits this field still passes validation (zod treats a
- * missing key as `undefined` — true for `.default()`/`.prefault()`, `z.any()`,
- * `z.unknown()`, `z.undefined()`, and unions with them), so the wire schema must not
- * advertise the field as `required`. A probe that throws, rejects, or goes async (a
- * `.transform()` choking on `undefined` does all three depending on the zod version)
- * cannot demonstrate tolerance, so such fields conservatively stay required.
+ * missing key as `undefined` — true for a check-free `.default()`, `z.any()`,
+ * `z.unknown()`, `z.undefined()`, and unions with them; `.prefault()` and any
+ * checks-carrying node re-validate the filled value, so the probe decides those),
+ * so the wire schema must not advertise the field as `required`. A probe that
+ * throws, rejects, or goes async (a `.transform()` choking on `undefined` does all
+ * three depending on the zod version) cannot demonstrate tolerance, so such fields
+ * conservatively stay required.
  */
 function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
     if (field === undefined) return false;
-    // Defaulted fields accept a missing key by construction (zod fills the default
-    // before any refinement or transform runs) — decide structurally, since an async
-    // stage (`.refine(async ...)`, `.transform(async ...)`) would push the probe
-    // below to a Promise and wrongly keep the field required. The walk also covers
-    // static `.catch()`, undefined-accepting leaves (`z.any()`/`z.unknown()`),
-    // Symbol-/function-typed fields (JSON.stringify drops such keys entirely), union
-    // members, and defaults hidden inside a pipe (`.default(7).transform(...)`,
-    // `z.preprocess(fn, z.number().default(7))`).
+    // CHECK-FREE defaulted fields accept a missing key by construction (zod fills
+    // the default; nothing re-validates it) — decide those structurally, since an
+    // async DOWNSTREAM stage (`.transform(async ...)` after the default node)
+    // would push the probe below to a Promise and wrongly keep the field
+    // required. The walk also covers check-free static `.catch()` and
+    // undefined-accepting leaves, Symbol-/function-typed fields (JSON.stringify
+    // drops such keys entirely, checks or not), union members, and defaults
+    // hidden inside a bare-transform pipe.
     if (hasStructuralMissingKeyTolerance(field)) return true;
     try {
         const result = field['~standard'].validate(undefined);
@@ -884,14 +900,17 @@ function fieldAcceptsMissingKey(field: z.core.$ZodType | undefined): boolean {
 
 /**
  * Whether the field's def chain carries a node that makes a missing key tolerable by
- * construction — `default`/`prefault` (the default fills), a static `catch` (any
- * input, including `undefined`, is replaced by the fallback), `optional`, an
- * undefined-accepting leaf (`z.any()`/`z.unknown()`/`z.undefined()`/`z.void()`, or a
- * literal whose values include `undefined`), or a Symbol-/function-typed leaf
- * (JSON.stringify drops such keys from the payload entirely) — unwinding pipe sides,
- * lazies, transparent wrappers, union members (ANY tolerant member suffices: zod
- * tries members and the tolerant one succeeds), and intersections with EVERY-side
- * semantics (`undefined` must parse through both sides). Deciding structurally matters
+ * construction — a CHECK-FREE `default` (the default fills; `.prefault()`
+ * re-validates the fill and defers to the probe), a check-free static `catch` (any
+ * input, including `undefined`, is replaced by the fallback), `optional`, a
+ * check-free undefined-accepting leaf (`z.any()`/`z.unknown()`/`z.undefined()`/
+ * `z.void()`, or a literal whose values include `undefined`), or a
+ * Symbol-/function-typed leaf (JSON.stringify drops such keys from the payload
+ * entirely, checks or not) — unwinding bare-transform pipe sides, lazies,
+ * transparent wrappers, and union members (ANY tolerant member suffices: zod
+ * tries members and the tolerant one succeeds). Intersections claim tolerance
+ * only for the provably-mergeable disjoint-key plain-object-defaults shape —
+ * everything else defers to the probe. Deciding structurally matters
  * because an async stage (`.refine(async ...)`, `.transform(async ...)`) pushes the
  * validate-probe to a Promise. All checks err loosen-only: a false positive merely
  * drops a field from the advertised `required`, which can never make a validating
@@ -913,11 +932,24 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
                     left?: unknown;
                     right?: unknown;
                     values?: unknown;
+                    checks?: unknown;
                 };
             };
         }
     )._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
+    // Serialization-based tolerance first, checks or not: a symbol/function value
+    // that PASSES its checks still never reaches the wire (JSON.stringify drops
+    // the key).
+    if (def.type === 'symbol' || def.type === 'function') return true;
+    // A `.refine()`/`.check()` attaches to the SAME node (`def.checks`) and
+    // re-validates the filled/accepted/passed-through value —
+    // `.default(0).refine(v => v >= 1)` rejects a missing key — so NO
+    // acceptance-based structural claim below is sound on a checks-carrying node:
+    // defer to the validate(undefined) probe (sync verdicts are correct both
+    // ways; async checks conservatively keep the field required, the documented
+    // posture — see the async bullets in the Known residual gaps list).
+    if (Array.isArray(def.checks) && def.checks.length > 0) return false;
     // `catch` and `optional` must be recognized BEFORE the wrapper unwind below
     // would step past the very node granting tolerance (bare `.optional()` fields
     // are already excluded from `required` by zod's emitter, but one inside a pipe
@@ -932,7 +964,6 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
         return false;
     }
     if (def.type === 'any' || def.type === 'unknown' || def.type === 'undefined' || def.type === 'void') return true;
-    if (def.type === 'symbol' || def.type === 'function') return true;
     if (def.type === 'literal' && Array.isArray(def.values) && def.values.includes(undefined)) return true;
     const path = new Set(ancestors);
     path.add(field);
@@ -1013,12 +1044,27 @@ function hasStructuralMissingKeyTolerance(field: unknown, ancestors: ReadonlySet
  * Used where VALIDATION-based tolerance must not propagate but
  * SERIALIZATION-based tolerance still applies (the `nonoptional` re-forbid).
  */
-function hasSerializationDroppedLeaf(field: unknown): boolean {
-    if (typeof field !== 'object' || field === null) return false;
-    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown } } })._zod?.def;
+function hasSerializationDroppedLeaf(field: unknown, ancestors: ReadonlySet<unknown> = new Set()): boolean {
+    if (typeof field !== 'object' || field === null || ancestors.has(field)) return false;
+    const def = (field as { _zod?: { def?: { type?: string; innerType?: unknown; getter?: unknown; options?: unknown } } })._zod?.def;
     if (def === undefined || typeof def.type !== 'string') return false;
     if (def.type === 'symbol' || def.type === 'function') return true;
-    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) return hasSerializationDroppedLeaf(def.innerType);
+    const path = new Set(ancestors);
+    path.add(field);
+    // Mirror the main walk's coverage: ANY-member union semantics (whenever the
+    // symbol member is the matched one, the key vanishes from the wire) and
+    // lazy-getter following with the same cycle bound.
+    if (def.type === 'union' && Array.isArray(def.options)) {
+        return def.options.some(option => hasSerializationDroppedLeaf(option, path));
+    }
+    if (def.type === 'lazy' && typeof def.getter === 'function') {
+        try {
+            return hasSerializationDroppedLeaf((def.getter as () => unknown)(), path);
+        } catch {
+            return false;
+        }
+    }
+    if (WRAPPER_ZOD_DEF_TYPES.has(def.type) && def.innerType !== undefined) return hasSerializationDroppedLeaf(def.innerType, path);
     return false;
 }
 
@@ -1043,6 +1089,13 @@ function plainObjectDefaultFill(side: unknown): Record<string, unknown> | undefi
     if (def?.type !== 'default') return undefined;
     const fill = def.defaultValue;
     if (typeof fill !== 'object' || fill === null || Array.isArray(fill)) return undefined;
+    // Mirror zod's own isPlainObject gate in mergeValues: Dates, Maps, and class
+    // instances have zero own enumerable keys (vacuously "disjoint") yet zod
+    // throws 'Unmergable intersection' on them unless the values are equal —
+    // undecidable structurally, so the probe decides (correct both directions:
+    // distinct-timestamp Date fills stay required, same-timestamp ones drop).
+    const proto: unknown = Object.getPrototypeOf(fill);
+    if (proto !== Object.prototype && proto !== null) return undefined;
     return fill as Record<string, unknown>;
 }
 

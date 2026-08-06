@@ -140,19 +140,29 @@ describe('zod conversion options (#2464)', () => {
         expect(result.required).toEqual(['likes', 'shares']);
     });
 
-    test('a defaulted field with an async stage is still dropped from output required', () => {
-        const schema = z.object({
+    test('async stages downstream of a default stay dropped; checks ON the default node stay required', () => {
+        // `.refine(async …)` attaches a CHECK to the default node itself, which
+        // re-validates the fill — undecidable structurally, and the probe goes
+        // async, so the field conservatively stays required (the documented
+        // posture; pre-#2464 emissions kept it required too).
+        const checkedDefault = z.object({
             d: z
                 .number()
                 .default(0)
                 .refine(async () => true),
             name: z.string()
         });
-        const result = standardSchemaToJsonSchema(schema, 'output');
-
-        // The async refine pushes the validate(undefined) probe to a Promise, but a
-        // defaulted field accepts a missing key by construction — decided structurally.
-        expect(result.required).toEqual(['name']);
+        expect(standardSchemaToJsonSchema(checkedDefault, 'output').required).toEqual(['d', 'name']);
+        // An async stage DOWNSTREAM of the default (a bare-transform pipe) leaves
+        // the default node check-free — droppable, decided structurally.
+        const downstream = z.object({
+            d: z
+                .number()
+                .default(0)
+                .transform(async value => value),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(downstream, 'output').required).toEqual(['name']);
     });
 
     test('a defaulted field piped through a transform is still dropped from output required', () => {
@@ -1228,6 +1238,75 @@ describe('zod conversion options (#2464)', () => {
         expect(standardSchemaToJsonSchema(acceptance, 'output').required).toEqual(['a', 'name']);
     });
 
+    test('checks on tolerance-granting nodes defer to the probe (sync verdicts)', () => {
+        // .refine() attaches to the SAME node and re-validates the filled/accepted
+        // value — the rejected fills stay required, the satisfied ones drop.
+        const rejected = z.object({
+            d: z
+                .number()
+                .default(0)
+                .refine(v => v >= 1),
+            c: z
+                .number()
+                .catch(0)
+                .refine(v => v >= 1),
+            a: z.any().refine(v => v !== undefined),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(rejected, 'output').required).toEqual(['d', 'c', 'a', 'name']);
+        const satisfied = z.object({
+            d: z
+                .number()
+                .default(5)
+                .refine(v => v >= 1),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(satisfied, 'output').required).toEqual(['name']);
+    });
+
+    test('non-plain intersection default fills defer to the probe', () => {
+        // Date fills have zero own enumerable keys (vacuously "disjoint") yet zod
+        // merges them only when the timestamps are EQUAL — undecidable
+        // structurally, correct both directions via the probe.
+        const unmergeable = z.object({
+            m: z.intersection(z.date().default(new Date(0)), z.date().default(new Date(86_400_000))),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(unmergeable, 'output').required).toEqual(['m', 'name']);
+        const sameTimestamp = z.object({
+            m: z.intersection(z.date().default(new Date(0)), z.date().default(new Date(0))),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(sameTimestamp, 'output').required).toEqual(['name']);
+    });
+
+    test('recursive and cross-registered schemas strip the id and keep the loosening', () => {
+        // zod ITSELF emits #/$defs/<name> refs inside id-carrying entries for
+        // z.lazy self-refs and cross-registered schemas — root-base pointers that
+        // never resolve through the id base, so the strip is strictly safe and
+        // the loosen family must stay on.
+        type Cat = { name: string; friend?: Cat };
+        const Category: z.ZodType<Cat> = z.object({ name: z.string(), friend: z.lazy(() => Category).optional() }).meta({ id: 'Category' });
+        const schema = z.object({ cat: Category, counted: z.number().default(0), name: z.string() });
+        for (const io of ['output', 'input'] as const) {
+            const result = standardSchemaToJsonSchema(schema, io);
+            expect(((result.$defs as Record<string, Record<string, unknown>>).Category ?? {}).id).toBeUndefined();
+            expect(
+                new AjvJsonSchemaValidator().getValidator(result)({ cat: { name: 'c', friend: { name: 'f' } }, counted: 1, name: 'n' })
+                    .valid
+            ).toBe(true);
+        }
+        // The loosening applied on output: the defaulted field left required.
+        expect(standardSchemaToJsonSchema(schema, 'output').required).toEqual(['cat', 'name']);
+    });
+
+    test('union- and lazy-nested symbols keep their wire-drop tolerance through nonoptional', () => {
+        const unioned = z.object({ s: z.union([z.symbol(), z.string()]).nonoptional(), name: z.string() });
+        expect(standardSchemaToJsonSchema(unioned, 'output').required).toEqual(['name']);
+        const lazied = z.object({ s: z.lazy(() => z.symbol()).nonoptional(), name: z.string() });
+        expect(standardSchemaToJsonSchema(lazied, 'output').required).toEqual(['name']);
+    });
+
     test('registry-shaped refs inside an id resource keep the id (context-aware gate)', () => {
         // cfworker resolves a `$ref: '#'` inside a draft-04 id resource
         // base-relatively to THAT resource — zod never emits that spelling there,
@@ -1696,7 +1775,7 @@ describe('zod conversion options (#2464)', () => {
             c: z
                 .number()
                 .catch(0)
-                .refine(async () => true),
+                .transform(async v => v),
             u: z.union([
                 z
                     .number()
@@ -1708,26 +1787,33 @@ describe('zod conversion options (#2464)', () => {
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
-        // A static .catch() tolerates a missing key by construction (like a default),
-        // and a union accepts one whenever ANY member does — both must be recognized
-        // structurally, since the async stages push the validate probe to a Promise.
+        // A check-free static .catch() tolerates a missing key by construction
+        // (like a default; async stages live DOWNSTREAM in bare-transform pipes),
+        // and a union accepts one whenever ANY member does — both must be
+        // recognized structurally, since the async stages push the validate probe
+        // to a Promise.
         expect(result.required).toEqual(['name']);
     });
 
     test('union-wrapped symbols, async any/unknown, and preprocess defaults are dropped from output required', () => {
         const schema = z.object({
             s: z.union([z.symbol(), z.string()]),
-            a: z.any().refine(async () => true),
+            a: z.any().transform(async v => v),
             u: z.unknown().transform(async v => v),
-            p: z.preprocess(v => v, z.number().default(7)).refine(async () => true),
+            p: z.preprocess(v => v, z.number().default(7)),
+            checked: z.any().refine(async () => true),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         // JSON.stringify drops Symbol-valued keys whichever union member matched;
-        // any/unknown accept undefined outright; and z.preprocess builds the
-        // opposite pipe (transform at def.in, the default at def.out).
-        expect(result.required).toEqual(['name']);
+        // check-free any/unknown accept undefined outright (async stages live
+        // downstream); and z.preprocess builds the opposite pipe (transform at
+        // def.in, the default at def.out). A CHECK on the tolerant node itself
+        // (`z.any().refine(async …)`) re-validates undefined — undecidable
+        // structurally, async for the probe — so it conservatively stays
+        // required.
+        expect(result.required).toEqual(['checked', 'name']);
 
         // Same predicate at the record call site.
         const record = standardSchemaToJsonSchema(z.record(z.enum(['a', 'b']), z.union([z.symbol(), z.string()])), 'output');
@@ -1740,20 +1826,22 @@ describe('zod conversion options (#2464)', () => {
                 .string()
                 .optional()
                 .transform(async v => v ?? 'x'),
-            w: z.void().refine(async () => true),
-            l: z.literal(undefined).refine(async () => true),
+            w: z.void().transform(async v => v),
+            l: z.literal(undefined).transform(async v => v),
             m: z
                 .intersection(z.object({ a: z.string() }).default({ a: 'x' }), z.object({ b: z.string() }).default({ b: 'y' }))
-                .refine(async () => true),
+                .transform(async v => v),
             name: z.string()
         });
         const result = standardSchemaToJsonSchema(schema, 'output');
 
         // `optional` grants tolerance itself and must be recognized before the
         // wrapper unwind steps past it; void/undefined-literals accept a missing key
-        // outright; an intersection tolerates one when BOTH sides do (each default
-        // fills and zod merges the results). Async stages defeat the probe, so all
-        // must be decided structurally.
+        // outright; an intersection tolerates one for the provably-mergeable
+        // disjoint-key object-defaults shape (each default fills and the fills
+        // merge). Async stages live DOWNSTREAM in bare-transform pipes — they
+        // defeat the probe, so all must be decided structurally on the check-free
+        // IN sides.
         expect(result.required).toEqual(['name']);
 
         // Same predicate at the record call site.
