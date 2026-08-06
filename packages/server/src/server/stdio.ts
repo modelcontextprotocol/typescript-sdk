@@ -1,8 +1,23 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCMessage, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import {
+    INVALID_REQUEST,
+    InvalidJsonRpcFrameError,
+    JSONRPC_VERSION,
+    ReadBuffer,
+    serializeMessage
+} from '@modelcontextprotocol/core-internal';
 import { process } from '@modelcontextprotocol/server/_shims';
+
+interface InvalidRequestResponse {
+    jsonrpc: typeof JSONRPC_VERSION;
+    id: RequestId | null;
+    error: {
+        code: typeof INVALID_REQUEST;
+        message: 'Invalid Request';
+    };
+}
 
 /**
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' `stdin` and writing to `stdout`.
@@ -42,10 +57,10 @@ export class StdioServerTransport implements Transport {
     onmessage?: (message: JSONRPCMessage) => void;
 
     // Arrow functions to bind `this` properly, while maintaining function identity.
-    _ondata = (chunk: Buffer) => {
+    _ondata = async (chunk: Buffer) => {
         try {
             this._readBuffer.append(chunk);
-            this.processReadBuffer();
+            await this.processReadBuffer();
         } catch (error) {
             this.onerror?.(error as Error);
             this.close().catch(() => {});
@@ -77,7 +92,7 @@ export class StdioServerTransport implements Transport {
         this._stdout.on('error', this._onstdouterror);
     }
 
-    private processReadBuffer() {
+    private async processReadBuffer(): Promise<void> {
         while (true) {
             try {
                 const message = this._readBuffer.readMessage();
@@ -87,9 +102,27 @@ export class StdioServerTransport implements Transport {
 
                 this.onmessage?.(message);
             } catch (error) {
+                if (error instanceof InvalidJsonRpcFrameError) {
+                    this.onerror?.(error);
+                    await this.sendInvalidRequestResponse(error);
+                    continue;
+                }
                 this.onerror?.(error as Error);
             }
         }
+    }
+
+    private async sendInvalidRequestResponse(error: InvalidJsonRpcFrameError): Promise<void> {
+        const response: InvalidRequestResponse = {
+            jsonrpc: JSONRPC_VERSION,
+            id: recoverRequestId(error.rawFrame),
+            error: {
+                code: INVALID_REQUEST,
+                message: 'Invalid Request'
+            }
+        };
+
+        await this.writeSerializedMessage(JSON.stringify(response) + '\n');
     }
 
     async close(): Promise<void> {
@@ -120,9 +153,11 @@ export class StdioServerTransport implements Transport {
         if (this._closed) {
             return Promise.reject(new Error('StdioServerTransport is closed'));
         }
-        return new Promise((resolve, reject) => {
-            const json = serializeMessage(message);
+        return this.writeSerializedMessage(serializeMessage(message));
+    }
 
+    private writeSerializedMessage(json: string): Promise<void> {
+        return new Promise((resolve, reject) => {
             let settled = false;
             const onError = (error: Error) => {
                 if (settled) return;
@@ -151,4 +186,17 @@ export class StdioServerTransport implements Transport {
             }
         });
     }
+}
+
+function recoverRequestId(rawFrame: unknown): RequestId | null {
+    if (typeof rawFrame !== 'object' || rawFrame === null || Array.isArray(rawFrame)) {
+        return null;
+    }
+
+    const id = (rawFrame as { id?: unknown }).id;
+    if (typeof id === 'string' || (typeof id === 'number' && Number.isInteger(id))) {
+        return id;
+    }
+
+    return null;
 }
