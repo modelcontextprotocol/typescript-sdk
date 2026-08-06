@@ -182,3 +182,97 @@ describe('legacyStatelessFallback', () => {
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
     });
 });
+
+describe('legacyStatelessFallback — responseMode', () => {
+    function gatedToolHandler(): { factory: () => McpServer; release: () => void } {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const factory = (): McpServer => {
+            const mcpServer = new McpServer({ name: 'fallback-response-mode', version: '1.0.0' });
+            mcpServer.registerTool('gated', { inputSchema: z.object({}) }, async () => {
+                await gate;
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+            return mcpServer;
+        };
+        return { factory, release };
+    }
+
+    it.each([
+        ['is left at its default', undefined],
+        ["is 'auto'", 'auto'],
+        ["is 'sse'", 'sse']
+    ] as const)('answers over SSE before the gated tool call resolves when responseMode %s', async (_label, responseMode) => {
+        const { factory, release } = gatedToolHandler();
+        const handler = legacyStatelessFallback(factory, undefined, responseMode);
+
+        let resolved = false;
+        const pending = handler(
+            postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'gated', arguments: {} } })
+        ).then(response => {
+            resolved = true;
+            return response;
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(resolved).toBe(true);
+
+        const response = await pending;
+        expect(response.headers.get('content-type')).toContain('text/event-stream');
+
+        release();
+        expect(await response.text()).toContain('done');
+    });
+
+    it("responseMode: 'json' does not answer until the gated tool call resolves, and buffers a single JSON body", async () => {
+        const { factory, release } = gatedToolHandler();
+        const handler = legacyStatelessFallback(factory, undefined, 'json');
+
+        let resolved = false;
+        const pending = handler(
+            postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'gated', arguments: {} } })
+        ).then(response => {
+            resolved = true;
+            return response;
+        });
+
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(resolved).toBe(false);
+
+        release();
+        const response = await pending;
+        expect(resolved).toBe(true);
+        expect(response.headers.get('content-type')).toContain('application/json');
+        expect(await response.text()).toContain('done');
+    });
+
+    it("responseMode: 'json' drops mid-call notifications, delivering only the terminal result", async () => {
+        const handler = legacyStatelessFallback(
+            () => {
+                const mcpServer = new McpServer({ name: 'fallback-response-mode-notify', version: '1.0.0' });
+                mcpServer.registerTool('progress-then-echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }, ctx) => {
+                    await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'p', progress: 1 } });
+                    return { content: [{ type: 'text', text }] };
+                });
+                return mcpServer;
+            },
+            undefined,
+            'json'
+        );
+
+        const response = await handler(
+            postRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name: 'progress-then-echo', arguments: { text: 'json only' } }
+            })
+        );
+        expect(response.headers.get('content-type')).toContain('application/json');
+        const text = await response.text();
+        expect(text).not.toContain('notifications/progress');
+        expect(text).toContain('json only');
+    });
+});
