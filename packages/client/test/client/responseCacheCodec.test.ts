@@ -27,7 +27,7 @@ async function connectedPair() {
                     resultType: 'complete',
                     supportedVersions: ['2026-07-28'],
                     capabilities: { tools: {} },
-                    serverInfo: { name: 's', version: '1.0.0' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 's', version: '1.0.0' } }
                 }
             });
         } else if (r.method === 'tools/list') {

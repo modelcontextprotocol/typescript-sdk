@@ -203,13 +203,20 @@ describe('RequestMetaEnvelopeSchema', () => {
         'io.modelcontextprotocol/clientCapabilities': {}
     };
 
-    test('requires protocolVersion, clientInfo, and clientCapabilities', () => {
+    test('requires protocolVersion and clientCapabilities; clientInfo is optional (SHOULD since spec PR #3002)', () => {
         expect(RequestMetaEnvelopeSchema.safeParse(validEnvelope).success).toBe(true);
-        for (const key of Object.keys(validEnvelope)) {
+        for (const key of ['io.modelcontextprotocol/protocolVersion', 'io.modelcontextprotocol/clientCapabilities']) {
             const incomplete: Record<string, unknown> = { ...validEnvelope };
             delete incomplete[key];
             expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
         }
+        const withoutClientInfo: Record<string, unknown> = { ...validEnvelope };
+        delete withoutClientInfo['io.modelcontextprotocol/clientInfo'];
+        expect(RequestMetaEnvelopeSchema.safeParse(withoutClientInfo).success).toBe(true);
+        // Present-but-malformed clientInfo still fails the typed key.
+        expect(
+            RequestMetaEnvelopeSchema.safeParse({ ...validEnvelope, 'io.modelcontextprotocol/clientInfo': 'not-an-object' }).success
+        ).toBe(false);
     });
 
     test('is loose: foreign _meta keys pass through', () => {

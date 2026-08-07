@@ -146,6 +146,7 @@ const SPEC_SCHEMA_KEYS = [
     'ResourceTemplateReferenceSchema',
     'ResourceUpdatedNotificationSchema',
     'ResourceUpdatedNotificationParamsSchema',
+    'ResultMetaObjectSchema',
     'ResultSchema',
     'RoleSchema',
     'RootSchema',

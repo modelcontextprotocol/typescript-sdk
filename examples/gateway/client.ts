@@ -38,7 +38,9 @@ check.equal(bootstrap.getNegotiatedProtocolVersion(), '2026-07-28');
 
 const discovered = bootstrap.getDiscoverResult();
 check.ok(discovered, 'bootstrap connect populated getDiscoverResult()');
-check.deepEqual(discovered?.serverInfo, { name: 'gateway-target', version: '1.0.0' });
+// Server identity: getServerVersion() resolves it from the discover result's
+// `_meta['io.modelcontextprotocol/serverInfo']` (spec PR #3002).
+check.deepEqual(bootstrap.getServerVersion(), { name: 'gateway-target', version: '1.0.0' });
 
 // The probe was the only request so far; the request_count call is the
 // second. (createMcpHandler builds one server instance per request.)

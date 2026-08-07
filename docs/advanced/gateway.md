@@ -44,7 +44,7 @@ The recorded value is the server's whole advertisement — supported versions, c
   cacheScope: 'private',
   supportedVersions: [ '2026-07-28' ],
   capabilities: { tools: { listChanged: true } },
-  serverInfo: { name: 'gateway-target', version: '1.0.0' },
+  _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'gateway-target', version: '1.0.0' } },
   resultType: 'complete'
 }
 ```
@@ -150,6 +150,8 @@ re-probed: 2026-07-28
 ```
 
 Replace the persisted blob with the fresh `getDiscoverResult()` and the rest of the fleet recovers on its next read.
+
+The `EraNegotiationFailed` filter above is deliberate and safe against auth walls: a `401`/`403` rejecting the probe carries `ClientHttpAuthentication`/`ClientHttpForbidden` instead, so an unauthorized exchange re-throws out of this recovery path and can never be persisted as an era verdict.
 
 ## Skip the probe for a known-legacy server
 

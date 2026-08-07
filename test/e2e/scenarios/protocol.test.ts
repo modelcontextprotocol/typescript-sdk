@@ -35,7 +35,7 @@ import {
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index';
+import { modernEnvelopeMeta, tapWire, wire } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
@@ -1128,8 +1128,71 @@ verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
     const result = await client.callTool({ name: 'metered_call', arguments: {} });
 
     expect(result.content).toEqual([{ type: 'text', text: 'metered' }]);
-    // The _meta the handler attached to its result reaches the requesting client unchanged.
-    expect(result._meta).toEqual(resultMeta);
+    // The _meta the handler attached to its result reaches the requesting
+    // client unchanged. On a 2026-era connection (the entryModern arm) the
+    // encode seam additionally stamps the server's identity (spec PR #3002:
+    // `_meta` serverInfo SHOULD on every response); on 2025-era connections
+    // nothing is ever added (never-stamp).
+    const expectedMeta =
+        client.getNegotiatedProtocolVersion() === '2026-07-28'
+            ? { ...resultMeta, 'io.modelcontextprotocol/serverInfo': { name: 's', version: '0' } }
+            : resultMeta;
+    expect(result._meta).toEqual(expectedMeta);
+});
+
+verifies('protocol:meta:server-identity', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new Server({ name: 'identity-server', version: '4.2.0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        return s;
+    };
+    const client = newClient();
+    await using wired = await wire(transport, makeServer, client);
+
+    // Client-side resolution: getServerVersion() reads the discover _meta.
+    expect(client.getServerVersion()).toEqual({ name: 'identity-server', version: '4.2.0' });
+
+    // Wire-side: a raw discover response carries the _meta stamp.
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'server/discover'
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: modernEnvelopeMeta() } })
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result: { _meta?: Record<string, unknown> } };
+    expect(body.result._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'identity-server', version: '4.2.0' });
+});
+
+verifies('protocol:envelope:client-info-optional', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        return s;
+    };
+    const client = newClient();
+    await using wired = await wire(transport, makeServer, client);
+
+    const meta = modernEnvelopeMeta();
+    delete meta['io.modelcontextprotocol/clientInfo'];
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'tools/list'
+        },
+        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: meta } })
+    });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { result?: { tools?: unknown[] }; error?: unknown };
+    expect(body.error).toBeUndefined();
+    expect(body.result?.tools).toEqual([]);
 });
 
 verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
@@ -1611,7 +1674,7 @@ class LoopbackTransport implements Transport {
                 this.respond(message.id, {
                     supportedVersions: [this.serverProtocolVersion],
                     capabilities: { tools: {} },
-                    serverInfo: { name: 'loopback-server', version: '3.1.4' }
+                    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'loopback-server', version: '3.1.4' } }
                 });
                 break;
             }

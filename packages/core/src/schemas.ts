@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-import { JSONRPC_VERSION, RELATED_TASK_META_KEY, SUBSCRIPTION_ID_META_KEY } from './constants';
+import { JSONRPC_VERSION, RELATED_TASK_META_KEY, SERVER_INFO_META_KEY, SUBSCRIPTION_ID_META_KEY } from './constants';
 import type { JSONArray, JSONObject, JSONValue } from './types';
 
 export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
@@ -49,7 +49,7 @@ export const RequestMetaSchema = z.looseObject({
  */
 export const BaseRequestParamsSchema = z.object({
     /**
-     * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
+     * See [General fields: `_meta`](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#meta) for notes on `_meta` usage.
      */
     _meta: RequestMetaSchema.optional()
 });
@@ -78,7 +78,7 @@ export const RequestSchema = z.object({
 
 export const NotificationsParamsSchema = z.object({
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: RequestMetaSchema.optional()
@@ -89,12 +89,34 @@ export const NotificationSchema = z.object({
     params: NotificationsParamsSchema.loose().optional()
 });
 
+/**
+ * The contents of a result's `_meta` field (the 2026-07-28 `ResultMetaObject`).
+ * Loose — implementation-specific keys pass through.
+ *
+ * The serverInfo key identifies the server software producing the response
+ * (servers SHOULD include it on every response; the value is self-reported
+ * and intended for display, logging, and debugging). The getter defers the
+ * `ImplementationSchema` reference, which is declared later in this file.
+ */
+export const ResultMetaObjectSchema = z.looseObject({
+    get [SERVER_INFO_META_KEY]() {
+        // Malformed drops to absent, matching the wire layer: the value "is
+        // not verified by the protocol" and clients "SHOULD NOT use it to
+        // change their behavior". Load-bearing beyond leniency — this schema
+        // sits inside JSONRPCResultResponseSchema, whose guard classifies
+        // every inbound message, so a strict key here would drop whole
+        // responses over a bad display-only stamp.
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+        return ImplementationSchema.optional().catch(undefined);
+    }
+});
+
 export const ResultSchema = z.looseObject({
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional()
+    _meta: ResultMetaObjectSchema.optional()
     // `resultType` is wire-only vocabulary (protocol revision 2026-07-28) and
     // is deliberately NOT modeled here: the neutral result schemas carry no
     // slot for it. It exists only inside the 2026-era wire codec, which
@@ -585,13 +607,12 @@ export const DiscoverResultSchema = ResultSchema.extend({
      */
     capabilities: ServerCapabilitiesSchema,
     /**
-     * Information about the server software implementation.
-     */
-    serverInfo: ImplementationSchema,
-    /**
      * Instructions describing how to use the server and its features.
      *
      * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
+     *
+     * Server identity is not a body field: it travels in
+     * `_meta['io.modelcontextprotocol/serverInfo']` (spec PR #3002).
      */
     instructions: z.string().optional()
 });
@@ -674,7 +695,7 @@ export const ResourceContentsSchema = z.object({
      */
     mimeType: z.optional(z.string()),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -774,7 +795,7 @@ export const ResourceSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
@@ -809,7 +830,7 @@ export const ResourceTemplateSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
@@ -962,9 +983,11 @@ export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.ex
 /**
  * `_meta` for a {@linkcode SubscriptionsListenResult}: the listen request's
  * JSON-RPC ID under the canonical subscription-id key (mirroring the same key
- * on every notification delivered on the stream).
+ * on every notification delivered on the stream). Extends
+ * {@linkcode ResultMetaObjectSchema}, so the optional serverInfo key is typed
+ * here too.
  */
-export const SubscriptionsListenResultMetaSchema = z.looseObject({
+export const SubscriptionsListenResultMetaSchema = ResultMetaObjectSchema.extend({
     [SUBSCRIPTION_ID_META_KEY]: RequestIdSchema
 });
 
@@ -1031,7 +1054,7 @@ export const PromptSchema = z.object({
      */
     arguments: z.optional(z.array(PromptArgumentSchema)),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.optional(z.looseObject({}))
@@ -1088,7 +1111,7 @@ export const TextContentSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1114,7 +1137,7 @@ export const ImageContentSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1140,7 +1163,7 @@ export const AudioContentSchema = z.object({
     annotations: AnnotationsSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1172,7 +1195,7 @@ export const ToolUseContentSchema = z.object({
      */
     input: z.record(z.string(), z.unknown()),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1189,7 +1212,7 @@ export const EmbeddedResourceSchema = z.object({
      */
     annotations: AnnotationsSchema.optional(),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1352,7 +1375,7 @@ export const ToolSchema = z.object({
     execution: ToolExecutionSchema.optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1626,7 +1649,7 @@ export const ToolResultContentSchema = z.object({
     isError: z.boolean().optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -1669,7 +1692,7 @@ export const SamplingMessageSchema = z.object({
     role: RoleSchema,
     content: z.union([SamplingMessageContentBlockSchema, z.array(SamplingMessageContentBlockSchema)]),
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
@@ -2156,7 +2179,7 @@ export const RootSchema = z.object({
     name: z.string().optional(),
 
     /**
-     * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
+     * See [MCP specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/index#general-fields)
      * for notes on `_meta` usage.
      */
     _meta: z.record(z.string(), z.unknown()).optional()
