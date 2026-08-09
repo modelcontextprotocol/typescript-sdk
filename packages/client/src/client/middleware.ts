@@ -1,7 +1,9 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
 
-import type { OAuthClientProvider } from './auth';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
+import type { AuthRequestContext, OAuthClientProvider } from './auth';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
+import type { DpopSession } from './dpop';
+import { isDpopNonceChallenge } from './dpop';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.
@@ -13,7 +15,9 @@ export type Middleware = (next: FetchLike) => FetchLike;
  * Creates a fetch wrapper that handles OAuth authentication automatically.
  *
  * This wrapper will:
- * - Add `Authorization` headers with access tokens
+ * - Add `Authorization` headers with access tokens — `DPoP` scheme plus a per-request proof
+ *   (RFC 9449 / SEP-1932) when {@linkcode OAuthClientProvider.dpop | provider.dpop()} resolves to
+ *   a session, `Bearer` otherwise
  * - Handle 401 responses by attempting re-authentication
  * - Retry the original request after successful auth
  * - Handle OAuth errors appropriately ({@linkcode index.OAuthErrorCode.InvalidClient | OAuthErrorCode.InvalidClient}, etc.)
@@ -38,14 +42,22 @@ export type Middleware = (next: FetchLike) => FetchLike;
 export const withOAuth =
     (provider: OAuthClientProvider, baseUrl?: string | URL): Middleware =>
     next => {
+        // Delegates request-signing to the exact same authorizeRequest/consumeChallenge logic
+        // transports use, so a provider with a `dpop()` session gets identical DPoP behavior here.
+        const authProvider = adaptOAuthProvider(provider);
+
         return async (input, init) => {
+            const ctx: AuthRequestContext = {
+                method: (init?.method ?? 'GET').toUpperCase(),
+                url: new URL(input.toString())
+            };
+
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
 
-                // Add authorization header if tokens are available
-                const tokens = await provider.tokens();
-                if (tokens) {
-                    headers.set('Authorization', `Bearer ${tokens.access_token}`);
+                const authHeaders = await authProvider.authorizeRequest?.(ctx);
+                for (const [name, value] of Object.entries(authHeaders ?? {})) {
+                    headers.set(name, value);
                 }
 
                 return await next(input, { ...init, headers });
@@ -53,13 +65,33 @@ export const withOAuth =
 
             let response = await makeRequest();
 
-            // Handle 401 responses by attempting re-authentication
-            if (response.status === 401) {
+            // Two independent, single-shot retry budgets — a DPoP nonce retry and a credential
+            // re-authorization — tried in *whichever order the server actually challenges them*.
+            // Both orders are real: a not-yet-authenticated request gets the credential retry
+            // first and only discovers the RS's nonce requirement once it presents a valid token
+            // (auth/dpop-nonce's shape); a request that already holds a valid token but stale
+            // nonce state gets the nonce retry first. Neither retry is spent more than once, so
+            // this loop runs at most twice before falling through to the final 401 check below —
+            // it cannot loop indefinitely even against a server that never stops challenging.
+            let usedNonceRetry = false;
+            let usedCredentialRetry = false;
+            while (response.status === 401 && (!usedNonceRetry || !usedCredentialRetry)) {
+                // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential failure — the
+                // token and proof key are still valid, only the proof needs re-signing with the
+                // nonce just captured. Handled before re-authorization below, which would
+                // otherwise misdiagnose it as an expired/invalid token.
+                if (!usedNonceRetry && (await authProvider.consumeChallenge?.(response, ctx))) {
+                    usedNonceRetry = true;
+                    response = await makeRequest();
+                    continue;
+                }
+                if (usedCredentialRetry) break;
+                usedCredentialRetry = true;
                 try {
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                     // Use provided baseUrl or extract from request URL
-                    const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
+                    const serverUrl = baseUrl || ctx.url.origin;
 
                     const result = await auth(provider, {
                         serverUrl,
@@ -86,10 +118,62 @@ export const withOAuth =
                 }
             }
 
-            // If we still have a 401 after re-auth attempt, throw an error
+            // If we still have a 401 after both retry budgets are spent, throw an error
             if (response.status === 401) {
-                const url = typeof input === 'string' ? input : input.toString();
-                throw new UnauthorizedError(`Authentication failed for ${url}`);
+                throw new UnauthorizedError(`Authentication failed for ${ctx.url}`);
+            }
+
+            return response;
+        };
+    };
+
+/**
+ * A function returning the current access token, or `undefined` if none is available yet. See
+ * {@linkcode withDpop}.
+ */
+export type DpopTokenSource = () => string | undefined | Promise<string | undefined>;
+
+/**
+ * Creates a fetch wrapper that presents an access token using the `DPoP` Authorization scheme
+ * (RFC 9449 / SEP-1932) instead of `Bearer`: every request carries `Authorization: DPoP <token>`
+ * plus a fresh `DPoP` proof bound to that request's method and URL, and a resource-server
+ * `use_dpop_nonce` challenge (RFC 9449 §9) is retried once, inline, with the server-supplied nonce.
+ *
+ * Use this when you already manage the access token yourself (a non-OAuth token source, or
+ * credentials obtained out-of-band) and only need DPoP's request-signing behavior. For the full
+ * OAuth flow with DPoP — discovery, token exchange, refresh, all DPoP-bound — implement
+ * {@linkcode OAuthClientProvider.dpop} on your provider and pass it to {@linkcode withOAuth}
+ * instead; that composes the same signing logic with token acquisition.
+ *
+ * @param session - The DPoP signing session (key pair + nonce state). Reuse the same session
+ *   across requests to the same server so its nonce state persists.
+ * @param getToken - Returns the current access token, or `undefined` if none is available yet
+ *   (the request proceeds unauthenticated, matching {@linkcode withOAuth}'s no-token behavior).
+ * @returns A fetch middleware function
+ */
+export const withDpop =
+    (session: DpopSession, getToken: DpopTokenSource): Middleware =>
+    next => {
+        return async (input, init) => {
+            const method = (init?.method ?? 'GET').toUpperCase();
+            const url = new URL(input.toString());
+
+            const makeRequest = async (): Promise<Response> => {
+                const headers = new Headers(init?.headers);
+                const accessToken = await getToken();
+                if (accessToken) {
+                    const proof = await session.buildProof({ htm: method, htu: url, accessToken });
+                    headers.set('Authorization', `DPoP ${accessToken}`);
+                    headers.set('DPoP', proof);
+                }
+                return await next(input, { ...init, headers });
+            };
+
+            let response = await makeRequest();
+
+            if (response.status === 401 && isDpopNonceChallenge(response)) {
+                session.observeNonce(response, url);
+                response = await makeRequest();
             }
 
             return response;
