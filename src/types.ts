@@ -629,6 +629,9 @@ export const InitializedNotificationSchema = NotificationSchema.extend({
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
 
+export const isCancelledNotification = (value: unknown): value is CancelledNotification =>
+    CancelledNotificationSchema.safeParse(value).success;
+
 /* Ping */
 /**
  * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.

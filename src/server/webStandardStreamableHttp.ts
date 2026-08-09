@@ -14,6 +14,7 @@ import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive.js';
 import {
     MessageExtraInfo,
     RequestInfo,
+    isCancelledNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -807,6 +808,38 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // will ever write to.
             if (this._closed) {
                 return this.createJsonErrorResponse(404, -32001, 'Session not found');
+            }
+
+            // A cancelled request never produces a response (the protocol layer
+            // suppresses responses for aborted handlers), so retire its transport
+            // bookkeeping here. Otherwise its _requestToStreamMapping entry would
+            // pin the request ID as in-flight forever and the duplicate-ID guard
+            // below would reject any later reuse of that ID.
+            for (const message of messages) {
+                if (isCancelledNotification(message) && message.params.requestId !== undefined) {
+                    this._requestToStreamMapping.delete(message.params.requestId);
+                    this._requestResponseMap.delete(message.params.requestId);
+                }
+            }
+
+            // Request IDs MUST be unique within a session. Registering a duplicate
+            // would overwrite the in-flight entry in _requestToStreamMapping and
+            // cross-wire the original request's response onto this POST's stream,
+            // leaving the original POST hanging - so reject the duplicate while the
+            // first request is still in flight. Sequential reuse stays allowed:
+            // entries are retired when the response is delivered or the request is
+            // cancelled.
+            const incomingRequestIds = new Set<RequestId>();
+            for (const message of messages) {
+                if (!isJSONRPCRequest(message)) {
+                    continue;
+                }
+                if (this._requestToStreamMapping.has(message.id) || incomingRequestIds.has(message.id)) {
+                    const error = `Invalid Request: Request ID ${String(message.id)} is already in flight`;
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(400, -32600, error);
+                }
+                incomingRequestIds.add(message.id);
             }
 
             // check if it contains requests
