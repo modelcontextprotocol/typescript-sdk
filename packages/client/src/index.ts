@@ -10,6 +10,7 @@ export type {
     AddClientAuthentication,
     AuthOptions,
     AuthProvider,
+    AuthRequestContext,
     AuthResult,
     ClientAuthMethod,
     OAuthClientInformationContext,
@@ -18,6 +19,7 @@ export type {
     OAuthServerInfo
 } from './client/auth';
 export {
+    adaptOAuthProvider,
     assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
@@ -72,8 +74,13 @@ export { Client } from './client/client';
 export { getSupportedElicitationModes } from './client/client';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess';
-export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware';
-export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware';
+// DPoP (RFC 9449 / SEP-1932) sender-constrained tokens: the signing session plus key-pair
+// primitives. Wire a DpopSession into OAuthClientProvider.dpop() for full OAuth+DPoP via `auth`/
+// the transports' authProvider option, or use `withDpop` directly when you manage tokens yourself.
+export type { DpopAlg, DpopKeyPair, DpopProofRequest, GenerateDpopKeyPairOptions } from './client/dpop';
+export { accessTokenHash, DPOP_SUPPORTED_ALGS, DpopSession, generateDpopKeyPair, isDpopNonceChallenge } from './client/dpop';
+export type { DpopTokenSource, LoggingOptions, Middleware, RequestLogger } from './client/middleware';
+export { applyMiddlewares, createMiddleware, withDpop, withLogging, withOAuth } from './client/middleware';
 export type { PriorDiscovery } from './client/probeClassifier';
 export type {
     CacheEntry,

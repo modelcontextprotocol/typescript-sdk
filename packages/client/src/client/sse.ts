@@ -24,6 +24,7 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
+import { MAX_DPOP_NONCE_RETRIES } from './dpop';
 
 export class SseError extends Error {
     static {
@@ -159,18 +160,26 @@ export class SSEClientTransport implements Transport {
 
     private _last401Response?: Response;
 
-    private async _commonHeaders(): Promise<Headers> {
+    /**
+     * @param method HTTP method of the outgoing request — passed to
+     *   {@linkcode AuthProvider.authorizeRequest} so a proof-of-possession scheme (DPoP) can bind
+     *   its proof to this exact request (RFC 9449 §4.2 `htm`).
+     * @param url Target URL of the outgoing request — same purpose, RFC 9449 §4.2 `htu`.
+     */
+    private async _commonHeaders(method: string, url: URL): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        let token: string | undefined;
         try {
-            token = await this._authProvider?.token();
+            if (this._authProvider?.authorizeRequest) {
+                const authHeaders = await this._authProvider.authorizeRequest({ method, url });
+                if (authHeaders) Object.assign(headers, authHeaders);
+            } else {
+                const token = await this._authProvider?.token();
+                if (token) headers['Authorization'] = `Bearer ${token}`;
+            }
         } catch (error) {
-            // Auth-seam stamp: a throwing token() is an auth failure, never a
+            // Auth-seam stamp: a throwing token()/authorizeRequest() is an auth failure, never a
             // network failure.
             throw markAuthSeamEscape(error);
-        }
-        if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
         }
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
@@ -184,18 +193,32 @@ export class SSEClientTransport implements Transport {
         });
     }
 
+    /** {@linkcode _commonHeaders} for the `GET`/EventSource stream, with `Accept` set. */
+    private async _sseStreamHeaders(): Promise<Headers> {
+        const headers = await this._commonHeaders('GET', this._url);
+        headers.set('Accept', 'text/event-stream');
+        return headers;
+    }
+
     private _startOrAuth(): Promise<void> {
         const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
                 fetch: async (url, init) => {
-                    const headers = await this._commonHeaders();
-                    headers.set('Accept', 'text/event-stream');
-                    const response = await fetchImpl(url, {
-                        ...init,
-                        headers
-                    });
+                    let response = await fetchImpl(url, { ...init, headers: await this._sseStreamHeaders() });
+
+                    // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential failure
+                    // — retry inline, once, with a fresh proof carrying the nonce the provider
+                    // just captured, before this response ever reaches the EventSource library's
+                    // own 401/onerror handling below.
+                    if (response.status === 401 && this._authProvider) {
+                        const shouldRetry = await this._authProvider.consumeChallenge?.(response, { method: 'GET', url: this._url });
+                        if (shouldRetry) {
+                            await response.text?.().catch(() => {});
+                            response = await fetchImpl(url, { ...init, headers: await this._sseStreamHeaders() });
+                        }
+                    }
 
                     if (response.status === 401) {
                         this._last401Response = response;
@@ -347,13 +370,13 @@ export class SSEClientTransport implements Transport {
         return this._send(message, false);
     }
 
-    private async _send(message: JSONRPCMessage, isAuthRetry: boolean): Promise<void> {
+    private async _send(message: JSONRPCMessage, isAuthRetry: boolean, dpopNonceRetries = 0): Promise<void> {
         if (!this._endpoint) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
         }
 
         try {
-            const headers = await this._commonHeaders();
+            const headers = await this._commonHeaders('POST', this._url);
             headers.set('content-type', 'application/json');
             const init = {
                 ...this._requestInit,
@@ -366,6 +389,15 @@ export class SSEClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
+                    // RFC 9449 §9: see the matching comment in StreamableHTTPClientTransport._send.
+                    if (
+                        dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
+                        (await this._authProvider.consumeChallenge?.(response, { method: 'POST', url: this._url }))
+                    ) {
+                        await response.text?.().catch(() => {});
+                        return this._send(message, isAuthRetry, dpopNonceRetries + 1);
+                    }
+
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
@@ -386,7 +418,7 @@ export class SSEClientTransport implements Transport {
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, true);
+                        return this._send(message, true, dpopNonceRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
