@@ -48,7 +48,7 @@ import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
 import type { ServerOptions } from './server';
-import { Server } from './server';
+import { disableLowLevelToolInputValidation, Server } from './server';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -116,6 +116,7 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+        disableLowLevelToolInputValidation(this.server);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
