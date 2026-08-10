@@ -659,6 +659,14 @@ are still **accepted via `@deprecated` overloads** on `registerTool`/`registerPr
 (auto-wrapped with `z.object()`), and `completable()` accepts any `StandardSchemaV1`;
 prefer wrapping explicitly. Zod v4, ArkType, and Valibot all implement the spec.
 
+The v1 positional `server.tool()` API has a different contract: its schema argument is a
+raw shape. Passing `z.object({ name: z.string() })` there can publish an empty
+`inputSchema` to clients on older v1 releases or fail during registration on newer ones.
+On v1.12.0 through v1.21.0, passing the complete schema to `registerTool()` can instead
+make `tools/list` fail with `Cannot read properties of null (reading '_def')`.
+When the codemod rewrites that call to `registerTool()`, it wraps the raw shape for the v2
+`inputSchema` slot; keep the generated `z.object(...)` wrapper in the v2 code.
+
 For **optional completable arguments**, apply `.optional()` to the _result_ of
 `completable()` — `completable(z.string(), cb).optional()`, not
 `completable(z.string().optional(), cb)`. v2 resolves completion metadata on the schema

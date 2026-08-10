@@ -49,6 +49,27 @@ Align everything on one Zod 4 version. When a transitive dependency pins another
 
 `npm ls zod` reporting a single version means the duplicate is gone and the error with it.
 
+## `tools/list` returns an empty `inputSchema`
+
+The v1 positional `server.tool()` API expects a raw Zod shape. Passing a complete
+`z.object()` into that slot can publish `{"type":"object"}` without any properties, so
+clients omit the arguments when they call the tool. With `server.tool()`, v1.12.0
+through v1.26.0 can show the empty schema; v1.28.0 through v1.30.0 reject the shape at
+registration. If you pass the same complete schema to v1 `registerTool()`, v1.12.0
+through v1.21.0 can instead fail `tools/list` with
+`Cannot read properties of null (reading '_def')`; v1.22.0 and later normalize it.
+
+Use a raw shape with the v1 positional API:
+
+```diff
+- server.tool('greet', 'Greet a user', z.object({ name: z.string() }), handler);
++ server.tool('greet', 'Greet a user', { name: z.string() }, handler);
+```
+
+When you move to v2, use `registerTool()` and pass a Standard Schema object such as
+`z.object({ name: z.string() })` as `inputSchema`. The [v1 to v2 migration guide](./migration/upgrade-to-v2.md#server-registration-api)
+covers the complete call-shape change.
+
 ## `ReferenceError: crypto is not defined`
 
 The OAuth client helpers sign and verify through the Web Crypto API at `globalThis.crypto`. Every `@modelcontextprotocol/*` package requires Node.js 20, where that global is always defined — this error means the process is running on an older runtime (Node.js 18 and earlier).
@@ -172,6 +193,7 @@ HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so cli
 - Every heading on this page is the exact message you searched for.
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
+- v1 positional `server.tool()` takes a raw shape; v2 `registerTool()` takes a Standard Schema object.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
