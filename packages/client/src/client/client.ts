@@ -2078,6 +2078,11 @@ export class Client extends Protocol<ClientContext> {
             // stays in flight, and the state machine settled above regardless.
             await new Promise<void>(resolve => {
                 const timer = setTimeout(resolve, LISTEN_CLOSE_TEARDOWN_WAIT_MSEC);
+                // In the parked-send case clearTimeout below is unreachable,
+                // and the armed timer would hold an idle Node process open
+                // for the full bound. Guarded: this module is runtime-neutral
+                // and browser timers have no unref.
+                (timer as { unref?: () => void }).unref?.();
                 void wireTeardown().finally(() => {
                     clearTimeout(timer);
                     resolve();
