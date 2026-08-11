@@ -856,9 +856,11 @@ describe('protocol tests', () => {
         class PerRequestStreamTransport extends MockTransport {
             readonly hasPerRequestStream = true;
             sent: JSONRPCMessage[] = [];
+            sentCalls: { message: JSONRPCMessage; options?: TransportSendOptions }[] = [];
             lastRequestSignal: AbortSignal | undefined;
             override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
                 this.sent.push(message);
+                this.sentCalls.push({ message, options });
                 this.lastRequestSignal = options?.requestSignal;
             }
         }
@@ -932,6 +934,29 @@ describe('protocol tests', () => {
             await expect(pending).rejects.toThrow();
 
             expect(cancelledSent(tx.sent)).toHaveLength(1);
+        });
+
+        test('legacy era: cancellation does not inherit request resumption options', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
+                signal: ac.signal,
+                relatedRequestId: 'parent-request',
+                resumptionToken: 'resume-token',
+                onresumptiontoken: vi.fn()
+            });
+
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            const cancellationCall = tx.sentCalls.find(
+                ({ message }) => 'method' in message && message.method === 'notifications/cancelled'
+            );
+            expect(cancellationCall?.options).toEqual({ relatedRequestId: 'parent-request' });
         });
 
         test('modern era + per-request-stream transport: timeout aborts the stream, NO notifications/cancelled', async () => {
