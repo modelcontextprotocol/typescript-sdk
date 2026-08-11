@@ -1091,7 +1091,8 @@ The transport `authProvider` option is widened to `AuthProvider | OAuthClientPro
 **`AuthProvider`** is a new minimal interface — `{ token(): Promise<string | undefined>;
 onUnauthorized?(ctx): Promise<void> }` — for static-token / non-OAuth bearer auth.
 Transports call `token()` before every request and `onUnauthorized()` on 401 (then retry
-once). Existing `OAuthClientProvider` implementations need no changes — transports adapt
+once); `ctx.signal` (when present) aborts once the caller or transport gives up — forward
+it to your own fetches. Existing `OAuthClientProvider` implementations need no changes — transports adapt
 them internally via the new `adaptOAuthProvider()` export. Also exported:
 `isOAuthClientProvider()` (type guard) and `handleOAuthUnauthorized()` (the standard
 OAuth `onUnauthorized` behavior, for composing your own adapter).
