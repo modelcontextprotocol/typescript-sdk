@@ -1512,7 +1512,12 @@ rewrite required unless noted.
   standalone GET-stream reconnection behavior and its exhaustion signal carry over from
   v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
   message is `Maximum reconnection attempts (N) exceeded.` — there is no typed error
-  class for this condition, so monitors that match the message text keep working.
+  class for this condition, so monitors that match the message text keep working. The
+  message-text guarantee is scoped to that exhaustion message: each failed attempt
+  before exhaustion now reaches `onerror` exactly once, as the underlying error itself —
+  the `Failed to reconnect SSE stream: …` wrapper that previously accompanied every
+  per-attempt report is gone, so monitors matching that wrapper text should match the
+  underlying error (or the exhaustion message) instead.
 - **Also unchanged: elicitation response validation.** `elicitInput`'s local validation
   of elicitation responses against `requestedSchema`, the resulting `-32602` error
   message wording (`Elicitation response content does not match requested schema: …`),

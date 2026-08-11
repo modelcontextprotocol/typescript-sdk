@@ -1246,6 +1246,46 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
         });
 
+        it('a resumed stream dropping before its first ID-bearing event keeps the prior resumption token', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            // The resumed GET's stream errors before delivering any event…
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.error(new Error('dropped before first event'));
+                    }
+                })
+            });
+            // …and the retry GET succeeds.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ resumptionToken: 'tok-1' });
+            await vi.advanceTimersByTimeAsync(20);
+
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            // The retry must NOT lose Last-Event-ID: no event arrived to
+            // supersede the token the dropped stream was resumed from.
+            const retryHeaders = (fetchMock.mock.calls[1]![1] as { headers: Headers }).headers;
+            expect(retryHeaders.get('last-event-id')).toBe('tok-1');
+        });
+
         it('reports a failed reconnect attempt via onerror exactly once', async () => {
             // _startOrAuthSse's own catch routes the failure to onerror before
             // rethrowing; the reconnect scheduling must not report it again.

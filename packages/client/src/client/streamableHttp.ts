@@ -926,7 +926,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     this._scheduleReconnection(
                         {
-                            resumptionToken: lastEventId,
+                            // Fall back to the token this stream was RESUMED
+                            // from: a resumed stream that drops before its
+                            // first ID-bearing event must not lose its
+                            // Last-Event-ID (a token-less GET starts a fresh
+                            // stream and the pending response never replays).
+                            resumptionToken: lastEventId ?? options.resumptionToken,
                             onresumptiontoken,
                             replayMessageId,
                             requestSignal,
@@ -959,7 +964,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     try {
                         this._scheduleReconnection(
                             {
-                                resumptionToken: lastEventId,
+                                // Same fallback as the graceful-close path
+                                // above: keep the token this stream was
+                                // resumed from when it dies pre-first-event.
+                                resumptionToken: lastEventId ?? options.resumptionToken,
                                 onresumptiontoken,
                                 replayMessageId,
                                 requestSignal,
