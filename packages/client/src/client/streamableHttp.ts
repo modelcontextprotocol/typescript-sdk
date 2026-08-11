@@ -826,6 +826,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
                     this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                    // A scheduler that throws while re-arming ends the retry
+                    // chain — that is TERMINAL for an observed per-request
+                    // stream, exactly like retry-budget exhaustion above, so
+                    // the caller must be told or a listen() observer waits
+                    // forever.
+                    options.onRequestStreamEnd?.();
                 }
             });
         };

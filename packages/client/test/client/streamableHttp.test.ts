@@ -2699,6 +2699,37 @@ describe('StreamableHTTPClientTransport', () => {
             vi.useRealTimers();
         });
 
+        it('a scheduler that throws while re-arming fires onRequestStreamEnd (terminal for observed streams)', async () => {
+            let armed: (() => void) | undefined;
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: (cb, _delay, attemptCount) => {
+                    if (attemptCount > 0) throw new Error('scheduler exploded');
+                    armed = cb;
+                    return () => {};
+                }
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onRequestStreamEnd = vi.fn();
+            (globalThis.fetch as Mock).mockRejectedValue(new Error('connection refused'));
+            await transport.start();
+
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { onRequestStreamEnd },
+                0
+            );
+            expect(armed).toBeDefined();
+            // Attempt 0 runs, its GET fails, and re-arming attempt 1 throws.
+            armed!();
+            await vi.advanceTimersByTimeAsync(0);
+
+            // The retry chain is dead — that is terminal for an observed
+            // per-request stream, same as budget exhaustion.
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls.some(([e]) => (e as Error).message.includes('scheduler exploded'))).toBe(true);
+        });
+
         it('invokes the custom scheduler with reconnect, delay, and attemptCount', () => {
             const scheduler = vi.fn<ReconnectionScheduler>();
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
