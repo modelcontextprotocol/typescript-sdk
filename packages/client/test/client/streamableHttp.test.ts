@@ -2736,4 +2736,104 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('abortable auth awaits (requestSignal reaches the auth chain)', () => {
+        const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+        const request: JSONRPCMessage = { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 1 };
+
+        const settledOrHung = async (p: Promise<unknown>): Promise<unknown> => {
+            const settled = p.then(
+                () => 'resolved',
+                e => e
+            );
+            return Promise.race([settled, sleep(500).then(() => 'send() hung')]);
+        };
+
+        it('requestSignal abort settles a send parked in a hung token()', async () => {
+            const hungTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: { token: () => new Promise<string>(() => {}) }
+            });
+            const onerror = vi.fn();
+            hungTransport.onerror = onerror;
+            await hungTransport.start();
+
+            const ac = new AbortController();
+            const pending = hungTransport.send(request, { requestSignal: ac.signal });
+            setTimeout(() => ac.abort(new Error('caller abort')), 20);
+
+            const outcome = await settledOrHung(pending);
+            expect(outcome).toBeInstanceOf(Error);
+            expect((outcome as Error).message).toContain('caller abort');
+            // A per-request abort is intentional — no misleading onerror.
+            expect(onerror).not.toHaveBeenCalled();
+            // The token() fetch never ran.
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+            await hungTransport.close();
+        });
+
+        it('transport close() settles a send parked in a hung token()', async () => {
+            const hungTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: { token: () => new Promise<string>(() => {}) }
+            });
+            await hungTransport.start();
+
+            const pending = hungTransport.send(request);
+            setTimeout(() => void hungTransport.close(), 20);
+
+            const outcome = await settledOrHung(pending);
+            expect(outcome).toBeInstanceOf(Error);
+            expect(outcome).not.toBe('send() hung');
+        });
+
+        it('requestSignal abort settles a send parked in a hung onUnauthorized(); the signal is offered to the provider', async () => {
+            let seenSignal: AbortSignal | undefined;
+            const hungTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: {
+                    token: async () => 'stale-token',
+                    onUnauthorized: ctx => {
+                        seenSignal = ctx.signal;
+                        return new Promise<void>(() => {});
+                    }
+                }
+            });
+            const onerror = vi.fn();
+            hungTransport.onerror = onerror;
+            await hungTransport.start();
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            const ac = new AbortController();
+            const pending = hungTransport.send(request, { requestSignal: ac.signal });
+            setTimeout(() => ac.abort(new Error('caller abort')), 20);
+
+            const outcome = await settledOrHung(pending);
+            expect(outcome).toBeInstanceOf(Error);
+            expect((outcome as Error).message).toContain('caller abort');
+            expect(onerror).not.toHaveBeenCalled();
+            // The provider was handed the combined signal so cooperative
+            // implementations can cancel their own recovery work.
+            expect(seenSignal).toBeDefined();
+            expect(seenSignal?.aborted).toBe(true);
+            await hungTransport.close();
+        });
+
+        it('a token() rejection (without an abort) is still surfaced as an auth failure, not swallowed by the race', async () => {
+            const failingTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: {
+                    token: async () => {
+                        throw new UnauthorizedError('no credentials');
+                    }
+                }
+            });
+            await failingTransport.start();
+            await expect(failingTransport.send(request)).rejects.toThrow('no credentials');
+            await failingTransport.close();
+        });
+    });
 });
