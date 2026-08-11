@@ -11,6 +11,58 @@ describe('standardSchemaToJsonSchema', () => {
         expect(result.properties).toBeDefined();
     });
 
+    test('closes plain object input schemas', () => {
+        const schema = z.object({ name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'input', { closeZodInputObjects: true });
+
+        expect(result.additionalProperties).toBe(false);
+    });
+
+    test('preserves default object conversion semantics', () => {
+        const schema = z.object({ name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(result.additionalProperties).toBeUndefined();
+    });
+
+    test('preserves explicit open object schemas', () => {
+        const schema = z.looseObject({ value: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'input');
+
+        expect(result.additionalProperties).toEqual({});
+    });
+
+    test('preserves union compositions without adding a root default', () => {
+        const schema = z.discriminatedUnion('action', [
+            z.object({ action: z.literal('create'), name: z.string() }),
+            z.object({ action: z.literal('delete'), id: z.string() })
+        ]);
+        const result = standardSchemaToJsonSchema(schema, 'input');
+        const members = result.oneOf as Array<Record<string, unknown>>;
+
+        expect(result.additionalProperties).toBeUndefined();
+        expect(members.every(member => member.additionalProperties === undefined)).toBe(true);
+    });
+
+    test('leaves non-Zod and output object schemas unchanged', () => {
+        const schema = {
+            '~standard': {
+                version: 1,
+                vendor: 'test',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: {
+                    input: () => ({ type: 'object' }),
+                    output: () => ({ type: 'object' })
+                }
+            }
+        } as never;
+        const inputResult = standardSchemaToJsonSchema(schema, 'input');
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(inputResult.additionalProperties).toBeUndefined();
+        expect(result.additionalProperties).toBeUndefined();
+    });
+
     test('emits type:object for discriminated unions', () => {
         const schema = z.discriminatedUnion('action', [
             z.object({ action: z.literal('create'), name: z.string() }),

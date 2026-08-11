@@ -178,9 +178,18 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  * so for `io: 'input'` this function defaults `type` to `"object"` when absent
  * and throws on an explicit non-object `type` (e.g. `z.string()`). For
  * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
- * applied only when the root is provably object-shaped.
+ * applied only when the root is provably object-shaped. Zod input object roots can be
+ * closed for MCP tool compatibility by passing `closeZodInputObjects: true`.
  */
-export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
+export interface StandardSchemaToJsonSchemaOptions {
+    closeZodInputObjects?: boolean;
+}
+
+export function standardSchemaToJsonSchema(
+    schema: StandardJSONSchemaV1,
+    io: 'input' | 'output' = 'input',
+    options: StandardSchemaToJsonSchemaOptions = {}
+): Record<string, unknown> {
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
@@ -230,6 +239,15 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
             `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
+    }
+    if (
+        options.closeZodInputObjects === true &&
+        io === 'input' &&
+        std.vendor === 'zod' &&
+        result.type === 'object' &&
+        !Object.hasOwn(result, 'additionalProperties')
+    ) {
+        return { type: 'object', ...result, additionalProperties: false };
     }
     return { type: 'object', ...result };
 }

@@ -46,6 +46,38 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         expect(isStandardSchema(tools['c']?.inputSchema)).toBe(true);
     });
 
+    it('advertises closed Zod input schemas in tools/list', async () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        server.registerTool('echo', { inputSchema: { text: z.string() } }, async () => ({ content: [] }));
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        await server.connect(srv);
+        await client.start();
+
+        const responses: JSONRPCMessage[] = [];
+        client.onmessage = message => responses.push(message);
+        await client.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'c', version: '1.0.0' }
+            }
+        } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } as JSONRPCMessage);
+
+        await vi.waitFor(() => expect(responses.some(message => 'id' in message && message.id === 2)).toBe(true));
+        const response = responses.find(message => 'id' in message && message.id === 2) as {
+            result?: { tools?: Array<{ inputSchema?: Record<string, unknown> }> };
+        };
+        expect(response.result?.tools?.[0]?.inputSchema).toMatchObject({ type: 'object', additionalProperties: false });
+
+        await server.close();
+    });
+
     it('registerPrompt accepts a raw shape for argsSchema', () => {
         const server = new McpServer({ name: 't', version: '1.0.0' });
 

@@ -106,7 +106,7 @@ export class McpServer {
         // A successful re-derive is memoized so the per-request-factory
         // `createMcpHandler` model does not re-convert on every call.
         try {
-            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input', { closeZodInputObjects: true });
             this._toolInputSchemaJson[name] = json;
             return json;
         } catch {
@@ -186,7 +186,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input', { closeZodInputObjects: true }) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -828,7 +828,7 @@ export class McpServer {
         // the "warn, never throw" contract.
         if (inputSchema !== undefined) {
             try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
+                const json = standardSchemaToJsonSchema(inputSchema, 'input', { closeZodInputObjects: true });
                 this._toolInputSchemaJson[name] = json;
                 const scan = scanXMcpHeaderDeclarations(json);
                 if (!scan.valid) {
