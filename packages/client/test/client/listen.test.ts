@@ -953,6 +953,74 @@ describe('_resetConnectionState() clears connection-scoped debounce timers (fake
     });
 });
 
+describe('McpSubscription.close() — bounded teardown wait (fake timers)', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('close() resolves within the bound when the cancelled-notification send never settles', async () => {
+        const { clientTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const connecting = client.connect(clientTx);
+        await vi.runAllTimersAsync();
+        await connecting;
+
+        const subPromise = client.listen({ toolsListChanged: true });
+        await vi.advanceTimersByTimeAsync(0);
+        const sub = await subPromise;
+
+        // Every subsequent send parks forever — models a stdio pipe backed up
+        // on 'drain' (stdio send() ignores requestSignal, so the teardown's
+        // requestAbort cannot reach it).
+        clientTx.send = () => new Promise<void>(() => {});
+
+        let closeSettled = false;
+        const closing = sub.close().then(() => {
+            closeSettled = true;
+        });
+        // The state machine settles immediately even though the wire teardown
+        // is parked.
+        await expect(sub.closed).resolves.toBe('local');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(closeSettled).toBe(false); // still waiting on the parked send
+        // …but the wait is bounded: close() resolves once the bound elapses.
+        await vi.advanceTimersByTimeAsync(5000);
+        await closing;
+        expect(closeSettled).toBe(true);
+
+        vi.useRealTimers();
+        await client.close();
+    });
+
+    it('a healthy close() still resolves with the cancelled notification already on the wire (no added latency)', async () => {
+        const { clientTx, written } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const connecting = client.connect(clientTx);
+        await vi.runAllTimersAsync();
+        await connecting;
+
+        const subPromise = client.listen({ toolsListChanged: true });
+        await vi.advanceTimersByTimeAsync(0);
+        const sub = await subPromise;
+        written.length = 0;
+
+        let closeSettled = false;
+        const closing = sub.close().then(() => {
+            closeSettled = true;
+        });
+        // No timer advance beyond microtask draining: a settling send must
+        // resolve close() without waiting out any part of the bound.
+        await vi.advanceTimersByTimeAsync(0);
+        await closing;
+        expect(closeSettled).toBe(true);
+        expect(written.some(m => (m as { method?: string }).method === 'notifications/cancelled')).toBe(true);
+        // The bound's timer was cleared — nothing left armed.
+        expect(vi.getTimerCount()).toBe(0);
+
+        vi.useRealTimers();
+        await client.close();
+    });
+});
+
 describe('Client.listen() — ack timeout (fake timers)', () => {
     beforeEach(() => vi.useFakeTimers());
     afterEach(() => vi.useRealTimers());
