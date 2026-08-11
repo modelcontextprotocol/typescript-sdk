@@ -76,7 +76,7 @@ The response is a single SSE `message` event carrying the `tools/list` result:
 
 ```
 event: message
-data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inputSchema":{"type":"object","$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"]}}]},"jsonrpc":"2.0","id":1}
+data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inputSchema":{"type":"object","$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}}]},"jsonrpc":"2.0","id":1}
 ```
 
 ## Recap

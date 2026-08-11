@@ -186,7 +186,9 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input', { closeZodInputObjects: true }) as Tool['inputSchema'])
+                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input', {
+                                      closeZodInputObjects: true
+                                  }) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,

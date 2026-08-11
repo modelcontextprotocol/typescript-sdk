@@ -83,7 +83,7 @@ console.log(text);
 const quotedOnPage =
     'event: message\n' +
     'data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inputSchema":{"type":"object",' +
-    '"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"]}}]},"jsonrpc":"2.0","id":1}';
+    '"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}}]},"jsonrpc":"2.0","id":1}';
 if (response.status !== 200 || text.trimEnd() !== quotedOnPage) {
     throw new Error(`web-standard.md "Run it and verify" output drifted from the SDK: ${JSON.stringify(text)}`);
 }

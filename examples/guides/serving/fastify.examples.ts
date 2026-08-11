@@ -80,7 +80,7 @@ console.log(injected.payload);
 const quotedOnPage =
     'event: message\n' +
     'data: {"result":{"tools":[{"name":"add-note","description":"Append a note","inputSchema":{"type":"object",' +
-    '"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"]}}]},"jsonrpc":"2.0","id":1}';
+    '"$schema":"https://json-schema.org/draft/2020-12/schema","properties":{"text":{"type":"string"}},"required":["text"],"additionalProperties":false}}]},"jsonrpc":"2.0","id":1}';
 if (injected.statusCode !== 200 || injected.payload.trimEnd() !== quotedOnPage) {
     throw new Error(`fastify.md "Run it and verify" output drifted from the SDK: ${JSON.stringify(injected.payload)}`);
 }
