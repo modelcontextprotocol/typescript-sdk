@@ -2790,6 +2790,46 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onerror).not.toHaveBeenCalled();
         });
 
+        it('transport close() settles terminateSession() parked in a hung token(), without onerror', async () => {
+            const hungTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: { token: () => new Promise<string>(() => {}) }
+            });
+            const onerror = vi.fn();
+            hungTransport.onerror = onerror;
+            await hungTransport.start();
+            // terminateSession early-returns without a session id.
+            hungTransport['_sessionId'] = 'session-1';
+
+            const pending = hungTransport.terminateSession();
+            setTimeout(() => void hungTransport.close(), 20);
+
+            const outcome = await settledOrHung(pending);
+            expect(outcome).toBeInstanceOf(Error);
+            expect(outcome).not.toBe('send() hung');
+            // Transport-lifetime abort is intentional teardown — no onerror.
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('a plain-JS provider returning a bare (non-thenable) token still works through the race', async () => {
+            const bareTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                // What a plain-JS caller can hand over despite the types: a
+                // synchronous return. The pre-race `await` tolerated it.
+                authProvider: { token: (() => 'bare-token') as unknown as () => Promise<string> }
+            });
+            await bareTransport.start();
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+            await bareTransport.send({ jsonrpc: '2.0', method: 'notifications/x', params: {} });
+            const [, init] = (globalThis.fetch as Mock).mock.calls[0] as [unknown, { headers: Headers }];
+            expect(init.headers.get('authorization')).toBe('Bearer bare-token');
+            await bareTransport.close();
+        });
+
         it('a non-Error rejection from the raced auth await passes through identity-preserved (auth-seam stamp intact)', async () => {
             // The auth-seam stamp is a property set on the thrown VALUE
             // (Error or not); a rewrap inside the race would strip it on

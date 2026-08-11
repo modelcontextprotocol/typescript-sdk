@@ -332,7 +332,14 @@ function abortReasonError(signal: AbortSignal): Error {
  * promises. The abort listener is removed as soon as the promise settles so
  * a long-lived transport signal does not accumulate closures per request.
  */
-function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+function raceWithSignal<T>(value: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    // Normalize first: a plain-JS provider may return a bare value (or a
+    // foreign thenable) where the types say Promise — the plain `await` these
+    // call sites used before the race tolerated that, so the race must too
+    // (`.then` on a bare string would TypeError and get misstamped as an
+    // auth failure). Identity-preserving for native promises, and it keeps
+    // the executor below throw-free so the abort listener cannot leak.
+    const promise = Promise.resolve(value);
     if (signal === undefined) {
         return promise;
     }
@@ -1058,7 +1065,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 this._startOrAuthSse({
                     resumptionToken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
+                    requestSignal: options?.requestSignal,
+                    // Keep the caller's stream observers across the resume,
+                    // matching the fresh-POST path below: without them a
+                    // resume-via-send() dropped later resumption tokens (the
+                    // persistence chain) and never reported the resumed
+                    // stream's terminal end.
+                    onresumptiontoken,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
                 }).catch(error => {
                     // Same guard as `_scheduleReconnection`'s reconnect(): an
                     // abort of either signal during the resume (now reachable
@@ -1242,7 +1256,16 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
                     // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => {
+                        // A transport-lifetime abort during the GET (now
+                        // reachable mid-auth-chain too) is intentional
+                        // teardown, not an error. No per-request signal on
+                        // this standalone-GET path.
+                        if (this._abortController?.signal.aborted === true) {
+                            return;
+                        }
+                        this.onerror?.(error);
+                    });
                 }
                 return;
             }
@@ -1353,7 +1376,13 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._sessionId = undefined;
         } catch (error) {
-            this.onerror?.(error as Error);
+            // A transport-lifetime abort (close() during a DELETE parked in
+            // the auth chain or the fetch) is intentional teardown — same
+            // discipline as `_send`'s catch. No per-request signal on this
+            // path. Still rethrow so the caller observes the failure.
+            if (this._abortController?.signal.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }
