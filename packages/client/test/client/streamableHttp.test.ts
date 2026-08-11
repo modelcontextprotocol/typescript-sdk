@@ -1246,6 +1246,44 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
         });
 
+        it('reports a failed reconnect attempt via onerror exactly once', async () => {
+            // _startOrAuthSse's own catch routes the failure to onerror before
+            // rethrowing; the reconnect scheduling must not report it again.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failingStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('Network failure'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            // Initial GET stream drops, scheduling a reconnect…
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+            // …whose GET then fails outright.
+            fetchMock.mockRejectedValueOnce(new Error('connection refused'));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(20);
+
+            const refusedReports = errorSpy.mock.calls.filter(([e]) => String((e as Error).message).includes('connection refused'));
+            expect(refusedReports).toHaveLength(1);
+        });
+
         it('should NOT reconnect a POST-initiated stream that fails', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
@@ -2808,6 +2846,23 @@ describe('StreamableHTTPClientTransport', () => {
             expect(outcome).not.toBe('send() hung');
             // Transport-lifetime abort is intentional teardown — no onerror.
             expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('an already-aborted requestSignal rejects send() before the provider is invoked', async () => {
+            // The aborted fast-path must run BEFORE the producer: a dead
+            // request must not start side-effectful auth work.
+            const token = vi.fn(() => Promise.resolve('t'));
+            const gatedTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: { token }
+            });
+            await gatedTransport.start();
+
+            const ac = new AbortController();
+            ac.abort(new Error('already dead'));
+            await expect(gatedTransport.send(request, { requestSignal: ac.signal })).rejects.toThrow('already dead');
+            expect(token).not.toHaveBeenCalled();
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+            await gatedTransport.close();
         });
 
         it('a plain-JS provider returning a bare (non-thenable) token still works through the race', async () => {
