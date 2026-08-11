@@ -459,7 +459,10 @@ export interface McpSubscription {
      * Tears the subscription down. Idempotent. Aborts the listen request's
      * stream (where the transport supports it) AND sends
      * `notifications/cancelled` referencing the listen request id — both,
-     * always, so close works on any transport.
+     * always, so close works on any transport. The wait for the
+     * cancelled-notification send is capped (~5s); on a transport whose send
+     * never settles, `close()` resolves with the notification still in
+     * flight.
      */
     close(): Promise<void>;
     /**
