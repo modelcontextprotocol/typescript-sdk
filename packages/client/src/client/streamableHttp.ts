@@ -304,6 +304,15 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
 }
 
 /**
+ * `signal?.aborted === true` behind a function boundary: `aborted` flips
+ * asynchronously (across awaits), so an inline check after an earlier guard
+ * gets unsoundly narrowed to `false` by the type checker.
+ */
+function isAborted(signal: AbortSignal | undefined): boolean {
+    return signal?.aborted === true;
+}
+
+/**
  * Normalize an aborted signal's `reason` to an `Error` (matching how the
  * listen driver and `fetch` surface aborts) so a raced auth await rejects
  * with something callers can inspect.
@@ -346,7 +355,12 @@ function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined)
             },
             (error: unknown) => {
                 signal.removeEventListener('abort', onAbort);
-                reject(error instanceof Error ? error : new Error(String(error)));
+                // Verbatim: the loser's rejection must flow through
+                // identity-preserved — the auth-seam stamp is a property on
+                // the thrown object (Error or not), and rewrapping would strip
+                // it (and any `.cause` chain) on paths with no re-stamping
+                // catch, e.g. the step-up awaits.
+                reject(error);
             }
         );
     });
@@ -482,6 +496,13 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _commonHeaders(signal?: AbortSignal): Promise<Headers> {
+        // Already-aborted fast path BEFORE the provider is invoked: an
+        // aborted request must not start new auth work just to discard it
+        // (raceWithSignal's own fast-path runs after `token()` has been
+        // called, which is too late).
+        if (signal !== undefined && isAborted(signal)) {
+            throw abortReasonError(signal);
+        }
         const headers: RequestInit['headers'] & Record<string, string> = {};
         let token: string | undefined;
         try {
@@ -493,7 +514,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // An abort is an intentional teardown, never an auth failure —
             // leave it unstamped so the send-catch and the negotiation
             // probe's classifier treat it as a plain abort.
-            if (signal?.aborted === true) {
+            if (isAborted(signal)) {
                 throw error;
             }
             // Auth-seam stamp: a throwing token() is an auth failure, never a
@@ -1038,7 +1059,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     resumptionToken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
                     requestSignal: options?.requestSignal
-                }).catch(error => this.onerror?.(error));
+                }).catch(error => {
+                    // Same guard as `_scheduleReconnection`'s reconnect(): an
+                    // abort of either signal during the resume (now reachable
+                    // mid-auth-chain too) is intentional teardown, not an error.
+                    if (this._abortController?.signal.aborted === true || options?.requestSignal?.aborted === true) {
+                        return;
+                    }
+                    this.onerror?.(error);
+                });
                 return;
             }
 
@@ -1262,13 +1291,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
-            // Intentional per-request abort BEFORE response headers (the
-            // `subscriptions/listen` driver aborting its `requestSignal`):
-            // fetch rejects with AbortError. Same guard as
+            // Intentional abort BEFORE response headers — the
+            // `subscriptions/listen` driver aborting its `requestSignal`, or
+            // `close()` aborting the transport signal while the send is in
+            // the auth chain or the fetch. Same guard as
             // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
             // misleading onerror; still rethrow so `listen()`'s send-catch
             // settles the per-subscription state machine.
-            if (options?.requestSignal?.aborted !== true) {
+            if (options?.requestSignal?.aborted !== true && this._abortController?.signal.aborted !== true) {
                 this.onerror?.(error as Error);
             }
             throw error;

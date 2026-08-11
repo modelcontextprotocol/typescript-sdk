@@ -2775,6 +2775,8 @@ describe('StreamableHTTPClientTransport', () => {
             const hungTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 authProvider: { token: () => new Promise<string>(() => {}) }
             });
+            const onerror = vi.fn();
+            hungTransport.onerror = onerror;
             await hungTransport.start();
 
             const pending = hungTransport.send(request);
@@ -2783,6 +2785,29 @@ describe('StreamableHTTPClientTransport', () => {
             const outcome = await settledOrHung(pending);
             expect(outcome).toBeInstanceOf(Error);
             expect(outcome).not.toBe('send() hung');
+            // A transport-lifetime abort is intentional teardown — same
+            // isIntentionalAbort discipline as the per-request abort.
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('a non-Error rejection from the raced auth await passes through identity-preserved (auth-seam stamp intact)', async () => {
+            // The auth-seam stamp is a property set on the thrown VALUE
+            // (Error or not); a rewrap inside the race would strip it on
+            // paths with no re-stamping catch (the step-up awaits).
+            const sentinel = { code: 'custom-auth-failure' };
+            const failingTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: { token: () => Promise.reject(sentinel) }
+            });
+            await failingTransport.start();
+            // The transport-lifetime signal engages the race; the rejection
+            // must surface as the very same object (markAuthSeamEscape stamps
+            // in place, preserving identity).
+            const outcome = await failingTransport.send(request).then(
+                () => 'resolved (unexpected)',
+                (e: unknown) => e
+            );
+            expect(outcome).toBe(sentinel);
+            await failingTransport.close();
         });
 
         it('requestSignal abort settles a send parked in a hung onUnauthorized(); the signal is offered to the provider', async () => {
