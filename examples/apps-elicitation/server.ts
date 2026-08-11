@@ -5,6 +5,8 @@
  * `io.modelcontextprotocol/ui` extension. The tool returns an embedded
  * `elicitation/create` request with a complete native schema and an optional
  * `_meta.ui.resourceUri`; no second extension or result type is introduced.
+ * The HTTP entry uses a per-request server factory, so its MRTR retry is
+ * stateless and carries the answer only through `inputResponses`.
  */
 import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
@@ -114,6 +116,8 @@ if (transport === 'stdio') {
     void serveStdio(buildServer);
     console.error('[server] serving over stdio');
 } else {
+    // The modern HTTP path creates a fresh server for every request; the
+    // elicitation result survives the MRTR boundary only in inputResponses.
     const handler = createMcpHandler(buildServer);
     const app = createMcpHonoApp();
     app.all('/mcp', c => handler.fetch(c.req.raw));
