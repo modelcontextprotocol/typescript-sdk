@@ -5,7 +5,8 @@
  * the unchanged `elicitation/create` request over its App bridge. This
  * deterministic example exercises the surrounding SDK contract: two-sided
  * extension negotiation, same-connection resource loading, and the automatic
- * MRTR retry with `inputResponses`.
+ * MRTR retry with `inputResponses`. On the HTTP leg, that retry reaches a fresh
+ * per-request server instance, demonstrating that the flow is stateless.
  */
 import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
 import type { ElicitRequest } from '@modelcontextprotocol/client';

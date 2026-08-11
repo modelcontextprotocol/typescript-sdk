@@ -17,12 +17,23 @@ returns a standard `ElicitResult`. The SDK then retries the original
 graphical host replaces the deterministic selection with an MCP Apps bridge;
 the MRTR wire flow is unchanged.
 
+The HTTP/modern leg is stateless: `createMcpHandler(buildServer)` constructs a
+fresh server for each request, so the elicitation response reaches the retried
+`tools/call` entirely through the MRTR `inputResponses` envelope rather than
+in-memory session state. The examples runner exercises both this HTTP leg and
+the stdio leg.
+
 No app-elicitation extension, custom method, or custom result type is used.
 MCP Apps continues to negotiate its View↔Host protocol independently of core
 MCP's `2026-07-28` revision.
 
 ```bash
+# stdio
 pnpm tsx examples/apps-elicitation/client.ts
+
+# HTTP (two terminals)
+pnpm tsx examples/apps-elicitation/server.ts --http --port 3000
+pnpm tsx examples/apps-elicitation/client.ts --http http://127.0.0.1:3000/mcp
 ```
 
 Related proposals:
