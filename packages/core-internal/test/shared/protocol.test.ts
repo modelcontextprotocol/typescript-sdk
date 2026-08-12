@@ -775,7 +775,7 @@ describe('protocol tests', () => {
     });
 
     describe('notifications/cancelled behavior', () => {
-        test('should abort request handler when notifications/cancelled is received', async () => {
+        test('should abort request handler when notifications/cancelled contains requestId 0', async () => {
             await protocol.connect(transport);
 
             // Set up a request handler that checks if it was aborted
@@ -788,7 +788,7 @@ describe('protocol tests', () => {
             });
 
             // Simulate an incoming request
-            const requestId = 123;
+            const requestId = 0;
             if (transport.onmessage) {
                 transport.onmessage({
                     jsonrpc: '2.0',
