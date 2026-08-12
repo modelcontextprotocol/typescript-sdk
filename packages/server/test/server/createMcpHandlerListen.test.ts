@@ -261,6 +261,57 @@ describe('createMcpHandler — subscriptions/listen', () => {
         });
     });
 
+    it('acks and closes when capabilities honor nothing, instead of holding the stream', async () => {
+        // A server declaring no listChanged and no resources.subscribe honors
+        // nothing, so the stream can never carry a notification: every
+        // listenFilterAccepts({}, event) is false. It should end, not idle.
+        const bareFactory = () => new McpServer({ name: 'listen-test-server', version: '1.0.0' }, { capabilities: {} });
+        const handler = createMcpHandler(bareFactory, { keepAliveMs: 0 });
+        const response = await handler.fetch(
+            listenRequest(7, { toolsListChanged: true, resourcesListChanged: true, resourceSubscriptions: ['file:///a'] })
+        );
+
+        // The stream ends on its own: draining it terminates without anything
+        // cancelling the reader.
+        const messages = await readMessages(response, 2);
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: { notifications: {}, _meta: { [SUBSCRIPTION_ID_META_KEY]: 7 } }
+            },
+            {
+                jsonrpc: '2.0',
+                id: 7,
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: 7,
+                        'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
+                    }
+                }
+            }
+        ]);
+    });
+
+    it('still holds the stream when at least one type is honored', async () => {
+        // The narrowing must not close a stream that can still deliver: tools
+        // is honored here, resources is not.
+        const partialFactory = () =>
+            new McpServer({ name: 'listen-test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+        const handler = createMcpHandler(partialFactory, { keepAliveMs: 0 });
+        const response = await handler.fetch(listenRequest(8, { toolsListChanged: true, resourcesListChanged: true }));
+
+        const [ack] = await readMessages(response, 1);
+        expect(ack).toEqual({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { notifications: { toolsListChanged: true }, _meta: { [SUBSCRIPTION_ID_META_KEY]: 8 } }
+        });
+        await handler.close();
+    });
+
     it('legacy-classified listen never reaches the entry listen router (no ack delivered)', async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
         // No envelope claim → classified legacy → dispatched through the
