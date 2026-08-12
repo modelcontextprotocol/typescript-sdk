@@ -69,8 +69,8 @@ function checkIssuerUrl(issuer: URL, allowInsecure: boolean | undefined): void {
 
 /**
  * Derive the RFC 9728 Protected Resource Metadata document from
- * {@link AuthMetadataOptions}, validating the Authorization Server issuer URL
- * (HTTPS required outside localhost) in the process.
+ * {@link OAuthProtectedResourceMetadataOptions}, validating the Authorization
+ * Server issuer URL (HTTPS required outside localhost) in the process.
  *
  * `oauthMetadataResponse` and the Express `mcpAuthMetadataRouter` both build
  * on this; use it directly when serving the document through your own
