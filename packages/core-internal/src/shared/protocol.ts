@@ -1611,7 +1611,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        // relatedRequestId is checked for presence, not truthiness, since 0 is a valid request id.
+        const hasRelatedRequestId = options?.relatedRequestId !== undefined;
+        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !hasRelatedRequestId;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
