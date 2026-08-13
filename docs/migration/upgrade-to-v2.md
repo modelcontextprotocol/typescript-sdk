@@ -879,6 +879,17 @@ class to match per scenario:
 | 403 `insufficient_scope` after step-up retry cap | `StreamableHTTPError`                     | `SdkHttpError` + `SdkErrorCode.ClientHttpForbidden`                |
 | Unexpected content type                          | `StreamableHTTPError`                     | `SdkError` + `SdkErrorCode.ClientHttpUnexpectedContent`            |
 | Session termination failed                       | `StreamableHTTPError`                     | `SdkHttpError` + `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| 404 to a session-bound request (session expired server-side) | `StreamableHTTPError` (no distinct classification) | `SdkHttpError` + `SdkErrorCode.ClientHttpSessionExpired`  |
+
+**`ClientHttpSessionExpired` is new behavior, not just a reclassification.** In v1, a 404
+to a session-bound request fell into the same generic `StreamableHTTPError` bucket as
+any other HTTP failure, and the transport kept the stale session ID. In v2, per the MCP
+spec's Session Management requirements, `StreamableHTTPClientTransport` clears its
+session ID itself before throwing `ClientHttpSessionExpired`, so a subsequent
+`client.connect()` starts a fresh session automatically instead of continuing to send a
+session ID the server has already forgotten. This only applies to the POST request path;
+a 404 on the optional standalone GET SSE stream does not clear the session, since that
+channel's failure doesn't indicate the session itself is gone.
 
 ```typescript
 // v1
