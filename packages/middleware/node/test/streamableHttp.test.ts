@@ -1511,8 +1511,8 @@ describe('Zod v4', () => {
             // Send a server notification through the MCP server
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
-            // Read the notification from the SSE stream (the priming event and
-            // the notification may arrive in separate chunks)
+            // Read the notification from the SSE stream (it may arrive split
+            // across multiple chunks)
             const text = await readSSEUntil(sseResponse, t => t.includes('First notification from MCP server'));
 
             // Verify the notification was sent with an event ID
