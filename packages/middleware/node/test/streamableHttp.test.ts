@@ -95,8 +95,8 @@ const TEST_MESSAGES = {
 
 /**
  * Helper to extract text from SSE response
- * Note: Can only be called once per response stream. For multiple reads,
- * get the reader manually and read multiple times.
+ * Note: Can only be called once per response stream. For multiple reads or
+ * when events may arrive across chunks, use readSSEUntil below.
  */
 async function readSSEEvent(response: Response): Promise<string> {
     const reader = response.body?.getReader();
@@ -1345,9 +1345,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(200);
 
-            const reader = response.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            const text = await readSSEUntil(response, t => t.includes('"id":"batch-1"'));
 
             expect(text).toContain('"id":"batch-1"');
             expect(text).toContain('"tools"');
@@ -1599,24 +1597,8 @@ describe('Zod v4', () => {
 
             expect(reconnectResponse.status).toBe(200);
 
-            // Read replayed notifications with a timeout
-            const reconnectReader = reconnectResponse.body?.getReader();
-            let allText = '';
-
             // Read chunks until we have all 3 notifications or timeout
-            const readWithTimeout = async () => {
-                const timeout = setTimeout(() => reconnectReader!.cancel(), 2000);
-                try {
-                    while (!allText.includes('Missed notification 3')) {
-                        const { value, done } = await reconnectReader!.read();
-                        if (done) break;
-                        allText += new TextDecoder().decode(value);
-                    }
-                } finally {
-                    clearTimeout(timeout);
-                }
-            };
-            await readWithTimeout();
+            const allText = await readSSEUntil(reconnectResponse, t => t.includes('Missed notification 3'));
 
             // Verify we received ALL notifications that were sent while disconnected
             expect(allText).toContain('Missed notification 1');
@@ -2398,21 +2380,7 @@ describe('Zod v4', () => {
             expect(reconnectResponse.status).toBe(200);
 
             // Read the replayed notification
-            const reconnectReader = reconnectResponse.body?.getReader();
-            let allText = '';
-            const readWithTimeout = async () => {
-                const timeout = setTimeout(() => reconnectReader!.cancel(), 5000);
-                try {
-                    while (!allText.includes('Missed while disconnected')) {
-                        const { value, done } = await reconnectReader!.read();
-                        if (done) break;
-                        allText += new TextDecoder().decode(value);
-                    }
-                } finally {
-                    clearTimeout(timeout);
-                }
-            };
-            await readWithTimeout();
+            const allText = await readSSEUntil(reconnectResponse, t => t.includes('Missed while disconnected'), 5000);
 
             // Verify we received the notification that was sent while disconnected
             expect(allText).toContain('Missed while disconnected');
