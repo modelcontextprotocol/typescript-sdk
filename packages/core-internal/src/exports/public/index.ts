@@ -39,17 +39,6 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils';
 
-// i18n: SEP-2792 per-request language negotiation constants and helpers
-export {
-    ACCEPT_LANGUAGE_META,
-    CONTENT_LANGUAGE_META,
-    getAcceptLanguage,
-    getContentLanguage,
-    negotiateLanguage,
-    setAcceptLanguage,
-    setContentLanguage
-} from '../../shared/i18n';
-
 // Media-type utilities (for transport and framework-adapter authors)
 export { isJsonContentType } from '../../shared/mediaType';
 

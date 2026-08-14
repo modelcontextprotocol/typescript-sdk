@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { removedApisTransform } from '../../../src/migrations/v1-to-v2/transforms/removedApis.js';
-import type { TransformContext } from '../../../src/types.js';
-import { DiagnosticLevel } from '../../../src/types.js';
+import { removedApisTransform } from '../../../src/migrations/v1-to-v2/transforms/removedApis';
+import type { TransformContext } from '../../../src/types';
+import { DiagnosticLevel } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
@@ -163,37 +163,37 @@ describe('removed-apis transform', () => {
         });
     });
 
-    describe('StreamableHTTPError → SdkError', () => {
-        it('renames StreamableHTTPError to SdkError in references', () => {
+    describe('StreamableHTTPError → SdkHttpError', () => {
+        it('renames StreamableHTTPError to SdkHttpError in references', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) { throw error; }`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('instanceof SdkError');
+            expect(text).toContain('instanceof SdkHttpError');
             expect(text).not.toContain('StreamableHTTPError');
         });
 
-        it('adds SdkError import without SdkErrorCode when no constructor calls', () => {
+        it('adds SdkHttpError import without SdkErrorCode when no constructor calls', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) {}`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('SdkError');
+            expect(text).toContain('SdkHttpError');
             expect(text).not.toContain('SdkErrorCode');
         });
 
-        it('adds SdkError and SdkErrorCode imports when constructor calls exist', () => {
+        it('adds SdkHttpError and SdkErrorCode imports when constructor calls exist', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `throw new StreamableHTTPError(404, 'Not Found');`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('SdkError');
+            expect(text).toContain('SdkHttpError');
             expect(text).toContain('SdkErrorCode');
         });
 
@@ -208,14 +208,14 @@ describe('removed-apis transform', () => {
             expect(constructorWarning).toBeDefined();
         });
 
-        it('emits general migration warning', () => {
+        it('emits general migration warning pointing at the typed status accessor', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) {}`,
                 ''
             ].join('\n');
             const { result } = applyTransform(input);
-            const migrationWarning = result.diagnostics.find(d => d.message.includes('error.data?.status'));
+            const migrationWarning = result.diagnostics.find(d => d.message.includes('error.status'));
             expect(migrationWarning).toBeDefined();
         });
 
@@ -227,7 +227,7 @@ describe('removed-apis transform', () => {
             ].join('\n');
             const { text } = applyTransform(input);
             expect(text).not.toContain('import { StreamableHTTPError }');
-            expect(text).toMatch(/import.*SdkError/);
+            expect(text).toMatch(/import.*SdkHttpError/);
         });
 
         it('is idempotent', () => {
@@ -249,9 +249,9 @@ describe('removed-apis transform', () => {
                 ''
             ].join('\n');
             const { text, result } = applyTransform(input);
-            expect(text).toContain('instanceof SdkError');
+            expect(text).toContain('instanceof SdkHttpError');
             expect(text).not.toMatch(/\bSHE\b/);
-            expect(text).toMatch(/import.*SdkError/);
+            expect(text).toMatch(/import.*SdkHttpError/);
             const constructorWarning = result.diagnostics.find(d => d.message.includes('Constructor arguments differ'));
             expect(constructorWarning).toBeDefined();
         });
@@ -266,5 +266,127 @@ describe('removed-apis transform', () => {
             expect(text).toContain('const h: Headers = new Headers()');
             expect(text).not.toMatch(/\bIH\b/);
         });
+    });
+});
+
+describe('finishAuth advisory (B2)', () => {
+    function applyWithDiagnostics(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        return removedApisTransform.apply(sourceFile, { projectType: 'client' });
+    }
+
+    it('notes a single-argument finishAuth call without a marker', () => {
+        const code = [`import { Client } from '@modelcontextprotocol/client';`, `await transport.finishAuth(code);`, ''].join('\n');
+        const result = applyWithDiagnostics(code);
+        const diag = result.diagnostics.find(d => d.message.includes('finishAuth'));
+        expect(diag).toBeDefined();
+        // A run-log note, not a marker — the 1-arg URLSearchParams form is valid v2.
+        expect(diag?.insertComment).toBeUndefined();
+        expect(diag?.message).toContain('iss');
+    });
+
+    it('leaves a two-argument finishAuth call alone', () => {
+        const code = [`import { Client } from '@modelcontextprotocol/client';`, `await transport.finishAuth(code, iss);`, ''].join('\n');
+        const result = applyWithDiagnostics(code);
+        expect(result.diagnostics.some(d => d.message.includes('finishAuth'))).toBe(false);
+    });
+
+    it('ignores finishAuth in files with no MCP imports', () => {
+        const result = applyWithDiagnostics(`await other.finishAuth(code);\n`);
+        expect(result.diagnostics.some(d => d.message.includes('finishAuth'))).toBe(false);
+    });
+});
+
+describe('SdkHttpError constructor marker (B2)', () => {
+    it('emits an insertComment diagnostic at each constructor site', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+                `throw new StreamableHTTPError(404, 'not found');`,
+                ''
+            ].join('\n')
+        );
+        const result = removedApisTransform.apply(sourceFile, { projectType: 'client' });
+        const ctorDiag = result.diagnostics.find(d => d.message.includes('Constructor arguments differ'));
+        expect(ctorDiag?.insertComment).toBe(true);
+    });
+});
+
+describe('finishAuth advisory flag', () => {
+    it('marks the one-argument finishAuth note advisory-only so re-runs stay quiet', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [`import { Client } from '@modelcontextprotocol/client';`, `await provider.finishAuth(params);`, ''].join('\n')
+        );
+        const result = removedApisTransform.apply(sourceFile, { projectType: 'client' });
+        const note = result.diagnostics.find(d => d.message.includes('finishAuth with one argument'));
+        expect(note).toBeDefined();
+        expect(note?.advisoryOnly).toBe(true);
+    });
+});
+
+describe('guarded .code to .status rewrites (B5, #155)', () => {
+    function apply(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = removedApisTransform.apply(sourceFile, { projectType: 'client' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMPORT = `import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';\n`;
+
+    it('rewrites .code in the same boolean expression as the instanceof check', () => {
+        const { text } = apply(IMPORT + `if (failure instanceof StreamableHTTPError && failure.code === 404) { retry(); }\n`);
+        expect(text).toContain('instanceof SdkHttpError && failure.status === 404');
+        expect(text).not.toContain('failure.code');
+    });
+
+    it('rewrites .code reads inside the guarded then-block', () => {
+        const code =
+            IMPORT +
+            [`if (err instanceof StreamableHTTPError) {`, `    if (err.code >= 500) backoff();`, `    log(err.code);`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('err.status >= 500');
+        expect(text).toContain('log(err.status)');
+    });
+
+    it('leaves unguarded .code reads alone', () => {
+        const { text } = apply(IMPORT + `classify(error.code);\n`);
+        expect(text).toContain('classify(error.code)');
+    });
+
+    it('does not rewrite under negated guards', () => {
+        const { text } = apply(IMPORT + `if (!(err instanceof StreamableHTTPError)) { classify(err.code); }\n`);
+        expect(text).toContain('classify(err.code)');
+    });
+
+    it('does not rewrite the other operand of a disjunction', () => {
+        const { text } = apply(IMPORT + `const retriable = err instanceof StreamableHTTPError || err.code === 'ECONNRESET';\n`);
+        expect(text).toContain(`err.code === 'ECONNRESET'`);
+    });
+
+    it('does not rewrite then-blocks reached through a disjunction', () => {
+        const { text } = apply(IMPORT + `if (err instanceof StreamableHTTPError || isTimeout(err)) { log(err.code); }\n`);
+        expect(text).toContain('log(err.code)');
+    });
+
+    it('does not rewrite shadowed same-name variables in the guarded block', () => {
+        const code = IMPORT + [`if (err instanceof StreamableHTTPError) {`, `    items.forEach(err => log(err.code));`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('log(err.code)');
+    });
+
+    it('skips the whole then-block when the subject is reassigned inside it', () => {
+        const code = IMPORT + [`if (e instanceof StreamableHTTPError) {`, `    e = unwrap(e);`, `    use(e.code);`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('use(e.code)');
+    });
+
+    it('does not touch other subjects in the same expression', () => {
+        const { text } = apply(IMPORT + `if (a instanceof StreamableHTTPError && b.code === 404) handle();\n`);
+        expect(text).toContain('b.code === 404');
     });
 });

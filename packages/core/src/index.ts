@@ -1,57 +1,205 @@
-export * from './auth/errors.js';
-export * from './errors/sdkErrors.js';
-export * from './shared/auth.js';
-export * from './shared/authUtils.js';
-export * from './shared/i18n.js';
-export * from './shared/metadataUtils.js';
-export * from './shared/protocol.js';
-export * from './shared/responseMessage.js';
-export * from './shared/stdio.js';
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from './shared/taskManager.js';
-export { extractTaskManagerOptions, NullTaskManager, TaskManager } from './shared/taskManager.js';
-export * from './shared/toolNameValidation.js';
-export * from './shared/transport.js';
-export * from './shared/uriTemplate.js';
-export * from './types/index.js';
-export * from './util/inMemory.js';
-export * from './util/schema.js';
-export * from './util/standardSchema.js';
-export * from './util/zodCompat.js';
+// @modelcontextprotocol/core
+//
+// Canonical public home for the Model Context Protocol specification + OAuth/OpenID Zod schemas.
+//
+// These are the exact schema constants the SDK validates against internally — the schema source
+// modules live in THIS package (src/schemas.ts, src/auth.ts) and the private
+// @modelcontextprotocol/core-internal package re-exports them. This root entry re-exports ONLY the
+// `*Schema` Zod values, so consumers can validate protocol/OAuth payloads directly — e.g.
+// `CallToolResultSchema.parse(value)` / `.safeParse(value)` — without depending on core-internal's
+// barrel.
+//
+// Scope: Zod schemas ONLY. The corresponding spec TypeScript types, error classes, enums, and
+// type guards are part of the public API of @modelcontextprotocol/server and /client.
+//
+// Two groups, kept separate to mirror the SDK's own spec-vs-auth split:
+//   - SPEC schemas, from ./schemas (src/schemas.ts): every `export const *Schema` EXCEPT internal
+//     helpers with no public spec type (e.g. BaseRequestParamsSchema). Mirrors core-internal's
+//     SPEC_SCHEMA_KEYS allowlist.
+//   - OAUTH/OPENID schemas, from ./auth (src/auth.ts).
+// The coreSchemas test asserts both groups stay in sync with their source modules.
+export {
+    AnnotationsSchema,
+    AudioContentSchema,
+    BaseMetadataSchema,
+    BlobResourceContentsSchema,
+    BooleanSchemaSchema,
+    CallToolRequestParamsSchema,
+    CallToolRequestSchema,
+    CallToolResultSchema,
+    CancelledNotificationParamsSchema,
+    CancelledNotificationSchema,
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
+    ClientCapabilitiesSchema,
+    ClientNotificationSchema,
+    ClientRequestSchema,
+    ClientResultSchema,
+    CompatibilityCallToolResultSchema,
+    CompleteRequestParamsSchema,
+    CompleteRequestSchema,
+    CompleteResultSchema,
+    ContentBlockSchema,
+    CreateMessageRequestParamsSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
+    CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
+    ElicitationCompleteNotificationParamsSchema,
+    ElicitationCompleteNotificationSchema,
+    ElicitRequestFormParamsSchema,
+    ElicitRequestParamsSchema,
+    ElicitRequestSchema,
+    ElicitRequestURLParamsSchema,
+    ElicitResultSchema,
+    EmbeddedResourceSchema,
+    EmptyResultSchema,
+    EnumSchemaSchema,
+    GetPromptRequestParamsSchema,
+    GetPromptRequestSchema,
+    GetPromptResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskPayloadResultSchema,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
+    IconSchema,
+    IconsSchema,
+    ImageContentSchema,
+    ImplementationSchema,
+    InitializedNotificationSchema,
+    InitializeRequestParamsSchema,
+    InitializeRequestSchema,
+    InitializeResultSchema,
+    JSONArraySchema,
+    JSONObjectSchema,
+    JSONRPCErrorResponseSchema,
+    JSONRPCMessageSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCRequestSchema,
+    JSONRPCResponseSchema,
+    JSONRPCResultResponseSchema,
+    JSONValueSchema,
+    LegacyTitledEnumSchemaSchema,
+    ListPromptsRequestSchema,
+    ListPromptsResultSchema,
+    ListResourcesRequestSchema,
+    ListResourcesResultSchema,
+    ListResourceTemplatesRequestSchema,
+    ListResourceTemplatesResultSchema,
+    ListRootsRequestSchema,
+    ListRootsResultSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
+    ListToolsRequestSchema,
+    ListToolsResultSchema,
+    LoggingLevelSchema,
+    LoggingMessageNotificationParamsSchema,
+    LoggingMessageNotificationSchema,
+    ModelHintSchema,
+    ModelPreferencesSchema,
+    MultiSelectEnumSchemaSchema,
+    NotificationSchema,
+    NumberSchemaSchema,
+    PaginatedRequestParamsSchema,
+    PaginatedRequestSchema,
+    PaginatedResultSchema,
+    PingRequestSchema,
+    PrimitiveSchemaDefinitionSchema,
+    ProgressNotificationParamsSchema,
+    ProgressNotificationSchema,
+    ProgressSchema,
+    ProgressTokenSchema,
+    PromptArgumentSchema,
+    PromptListChangedNotificationSchema,
+    PromptMessageSchema,
+    PromptReferenceSchema,
+    PromptSchema,
+    ReadResourceRequestParamsSchema,
+    ReadResourceRequestSchema,
+    ReadResourceResultSchema,
+    RelatedTaskMetadataSchema,
+    RequestIdSchema,
+    RequestMetaSchema,
+    RequestSchema,
+    ResourceContentsSchema,
+    ResourceLinkSchema,
+    ResourceListChangedNotificationSchema,
+    ResourceRequestParamsSchema,
+    ResourceSchema,
+    ResourceTemplateReferenceSchema,
+    ResourceTemplateSchema,
+    ResourceUpdatedNotificationParamsSchema,
+    ResourceUpdatedNotificationSchema,
+    ResultMetaObjectSchema,
+    ResultSchema,
+    RoleSchema,
+    RootSchema,
+    RootsListChangedNotificationSchema,
+    SamplingContentSchema,
+    SamplingMessageContentBlockSchema,
+    SamplingMessageSchema,
+    ServerCapabilitiesSchema,
+    ServerNotificationSchema,
+    ServerRequestSchema,
+    ServerResultSchema,
+    SetLevelRequestParamsSchema,
+    SetLevelRequestSchema,
+    SingleSelectEnumSchemaSchema,
+    StringSchemaSchema,
+    SubscribeRequestParamsSchema,
+    SubscribeRequestSchema,
+    SubscriptionFilterSchema,
+    SubscriptionsAcknowledgedNotificationParamsSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
+    SubscriptionsListenRequestParamsSchema,
+    SubscriptionsListenRequestSchema,
+    SubscriptionsListenResultMetaSchema,
+    SubscriptionsListenResultSchema,
+    TaskAugmentedRequestParamsSchema,
+    TaskCreationParamsSchema,
+    TaskMetadataSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    TaskStatusNotificationSchema,
+    TaskStatusSchema,
+    TextContentSchema,
+    TextResourceContentsSchema,
+    TitledMultiSelectEnumSchemaSchema,
+    TitledSingleSelectEnumSchemaSchema,
+    ToolAnnotationsSchema,
+    ToolChoiceSchema,
+    ToolExecutionSchema,
+    ToolListChangedNotificationSchema,
+    ToolResultContentSchema,
+    ToolSchema,
+    ToolUseContentSchema,
+    UnsubscribeRequestParamsSchema,
+    UnsubscribeRequestSchema,
+    UntitledMultiSelectEnumSchemaSchema,
+    UntitledSingleSelectEnumSchemaSchema
+} from './schemas';
 
-// experimental exports
-export * from './experimental/index.js';
-export * from './validators/ajvProvider.js';
-// cfWorkerProvider is intentionally NOT re-exported here: it statically imports
-// `@cfworker/json-schema` (an optional peer), and bundling it into the main barrel
-// would force that import on all Node consumers. Import via `@modelcontextprotocol/core/validators/cfWorker`
-// (used by the workerd/browser `_shims` and the public `/validators/cf-worker` subpaths).
-export type { CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
-export * from './validators/fromJsonSchema.js';
-/**
- * JSON Schema validation
- *
- * This module provides configurable JSON Schema validation for the MCP SDK.
- * Choose a validator based on your runtime environment:
- *
- * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
- *   Bundled — no additional dependencies required.
- *
- * - `CfWorkerJsonSchemaValidator`: Best for edge runtimes
- *   Import from: `@modelcontextprotocol/server/validators/cf-worker` or `@modelcontextprotocol/client/validators/cf-worker`
- *   Bundled — no additional dependencies required.
- *
- * @example For Node.js with AJV
- * ```ts source="./index.examples.ts#validation_ajv"
- * const validator = new AjvJsonSchemaValidator();
- * ```
- *
- * @example For Cloudflare Workers
- * ```ts source="./index.examples.ts#validation_cfWorker"
- * const validator = new CfWorkerJsonSchemaValidator();
- * ```
- *
- * @module validation
- */
-
-// Core types only - implementations are exported via separate entry points
-export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
+// Auth schemas (OAuth / OpenID / IdJag) — kept as a SEPARATE group from the MCP spec schemas above,
+// mirroring the SDK's own spec-vs-auth split (these live in src/auth.ts, not src/schemas.ts,
+// and are registered as `authSchemas` in core-internal's specTypeSchema.ts). This group is EXACTLY core-internal's
+// `authSchemas` set — every auth schema that has a public spec type (so `isSpecType.OAuthTokens`,
+// `isSpecType.IdJagTokenExchangeResponse`, etc. exist). The typeless internal URL field-validators
+// (SafeUrlSchema, OptionalSafeUrlSchema) are not auth schemas and stay out. The coreSchemas test
+// asserts this group stays in sync with core-internal's `authSchemas`.
+export {
+    IdJagTokenExchangeResponseSchema,
+    OAuthClientInformationFullSchema,
+    OAuthClientInformationSchema,
+    OAuthClientMetadataSchema,
+    OAuthClientRegistrationErrorSchema,
+    OAuthErrorResponseSchema,
+    OAuthMetadataSchema,
+    OAuthProtectedResourceMetadataSchema,
+    OAuthTokenRevocationRequestSchema,
+    OAuthTokensSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
+    OpenIdProviderMetadataSchema
+} from './auth';

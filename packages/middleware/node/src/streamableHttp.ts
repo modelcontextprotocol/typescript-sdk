@@ -10,8 +10,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    RequestId,
+    Transport,
+    WebStandardStreamableHTTPServerTransportOptions
+} from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**
@@ -150,6 +156,17 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      */
     async send(message: JSONRPCMessage, options?: { relatedRequestId?: RequestId }): Promise<void> {
         return this._webStandardTransport.send(message, options);
+    }
+
+    /**
+     * Forwards the supported protocol versions to the wrapped Web Standard
+     * transport for `MCP-Protocol-Version` header validation. Called by the
+     * protocol layer during connect; without this delegation a server's
+     * `supportedProtocolVersions` option never reached the Node adapter's
+     * header validation.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._webStandardTransport.setSupportedProtocolVersions(versions);
     }
 
     /**

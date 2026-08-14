@@ -1,0 +1,6 @@
+{
+    "method": "logging/setLevel",
+    "params": {
+        "level": "info"
+    }
+}

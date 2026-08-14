@@ -1,5 +1,9 @@
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/server';
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import type {
+    AuthMetadataOptions as NeutralAuthMetadataOptions,
+    OAuthMetadata,
+    OAuthProtectedResourceMetadata
+} from '@modelcontextprotocol/server';
+import { buildOAuthProtectedResourceMetadata, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { RequestHandler, Router } from 'express';
 import express from 'express';
@@ -10,19 +14,6 @@ const allowInsecureIssuerUrl =
 if (allowInsecureIssuerUrl) {
     // eslint-disable-next-line no-console
     console.warn('MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL is enabled - HTTP issuer URLs are allowed. Do not use in production.');
-}
-
-function checkIssuerUrl(issuer: URL): void {
-    // RFC 8414 technically does not permit a localhost HTTPS exemption, but it is necessary for local testing.
-    if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1' && !allowInsecureIssuerUrl) {
-        throw new Error('Issuer URL must be HTTPS');
-    }
-    if (issuer.hash) {
-        throw new Error(`Issuer URL must not have a fragment: ${issuer}`);
-    }
-    if (issuer.search) {
-        throw new Error(`Issuer URL must not have a query string: ${issuer}`);
-    }
 }
 
 /**
@@ -60,39 +51,12 @@ export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResource
 }
 
 /**
- * Options for {@link mcpAuthMetadataRouter}.
+ * Options for {@link mcpAuthMetadataRouter}: the runtime-neutral
+ * `AuthMetadataOptions` from `@modelcontextprotocol/server`. The
+ * insecure-issuer escape hatch can also be enabled here by the
+ * `MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL` environment variable.
  */
-export interface AuthMetadataOptions {
-    /**
-     * Authorization Server metadata (RFC 8414) for the AS this MCP server
-     * relies on. Served at `/.well-known/oauth-authorization-server` so
-     * legacy clients that probe the resource origin still discover the AS.
-     */
-    oauthMetadata: OAuthMetadata;
-
-    /**
-     * The public URL of this MCP server, used as the `resource` value in the
-     * Protected Resource Metadata document. Any path component is reflected
-     * in the well-known route per RFC 9728.
-     */
-    resourceServerUrl: URL;
-
-    /**
-     * Optional documentation URL advertised as `resource_documentation`.
-     */
-    serviceDocumentationUrl?: URL;
-
-    /**
-     * Optional list of scopes this MCP server understands, advertised as
-     * `scopes_supported`.
-     */
-    scopesSupported?: string[];
-
-    /**
-     * Optional human-readable name advertised as `resource_name`.
-     */
-    resourceName?: string;
-}
+export type { AuthMetadataOptions } from '@modelcontextprotocol/server';
 
 /**
  * Builds an Express router that serves the two OAuth discovery documents an
@@ -101,7 +65,7 @@ export interface AuthMetadataOptions {
  *  - `/.well-known/oauth-protected-resource[/<path>]` — RFC 9728 Protected
  *    Resource Metadata, derived from the supplied options.
  *  - `/.well-known/oauth-authorization-server` — RFC 8414 Authorization
- *    Server Metadata, passed through verbatim from {@link AuthMetadataOptions.oauthMetadata}.
+ *    Server Metadata, passed through verbatim from the supplied `oauthMetadata`.
  *
  * Mount this router at the application root:
  *
@@ -113,18 +77,20 @@ export interface AuthMetadataOptions {
  * `getOAuthProtectedResourceMetadataUrl` as its `resourceMetadataUrl`
  * so unauthenticated clients can discover the AS from the 401 challenge.
  */
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router {
-    checkIssuerUrl(new URL(options.oauthMetadata.issuer));
+export function mcpAuthMetadataRouter(options: NeutralAuthMetadataOptions): Router {
+    if (options.dangerouslyAllowInsecureIssuerUrl && !allowInsecureIssuerUrl) {
+        // The env-var path warns at module load; enabling via the option is
+        // equally loud so an insecure issuer can never be allowed silently.
+        // eslint-disable-next-line no-console
+        console.warn('dangerouslyAllowInsecureIssuerUrl is enabled - HTTP issuer URLs are allowed. Do not use in production.');
+    }
+    const protectedResourceMetadata = buildOAuthProtectedResourceMetadata({
+        ...options,
+        // The env var and the option are both honored; either enables it.
+        dangerouslyAllowInsecureIssuerUrl: allowInsecureIssuerUrl || options.dangerouslyAllowInsecureIssuerUrl
+    });
 
     const router = express.Router();
-
-    const protectedResourceMetadata: OAuthProtectedResourceMetadata = {
-        resource: options.resourceServerUrl.href,
-        authorization_servers: [options.oauthMetadata.issuer],
-        scopes_supported: options.scopesSupported,
-        resource_name: options.resourceName,
-        resource_documentation: options.serviceDocumentationUrl?.href
-    };
 
     // Serve PRM at the path-aware URL per RFC 9728 §3.1.
     const rsPath = new URL(options.resourceServerUrl.href).pathname;
@@ -136,18 +102,5 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router {
     return router;
 }
 
-/**
- * Builds the RFC 9728 Protected Resource Metadata URL for a given MCP server
- * URL by inserting `/.well-known/oauth-protected-resource` ahead of the path.
- *
- * @example
- * ```ts
- * getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp'))
- * // → 'https://api.example.com/.well-known/oauth-protected-resource/mcp'
- * ```
- */
-export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
-    const u = new URL(serverUrl.href);
-    const rsPath = u.pathname && u.pathname !== '/' ? u.pathname : '';
-    return new URL(`/.well-known/oauth-protected-resource${rsPath}`, u).href;
-}
+// Re-exported from the runtime-neutral home in @modelcontextprotocol/server.
+export { getOAuthProtectedResourceMetadataUrl } from '@modelcontextprotocol/server';

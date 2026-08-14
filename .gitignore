@@ -50,6 +50,14 @@ dist/
 # Git worktrees for local doc generation
 .worktrees/
 
+# Generated docs-site artifacts
+docs/api/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+docs/v1/content/
+docs/v1/.vitepress/cache/
+docs/v1/.vitepress/dist/
+
 # Conformance test results
 results/
 

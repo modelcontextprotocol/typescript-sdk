@@ -37,11 +37,9 @@ import type {
     RequestId
 } from '@modelcontextprotocol/core-internal';
 import {
-    ACCEPT_LANGUAGE_META,
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    CONTENT_LANGUAGE_META,
     httpStatusForErrorCode,
     isJsonContentType,
     mediaTypeEssence,
@@ -56,19 +54,19 @@ import {
     setNegotiatedProtocolVersion,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     UnsupportedProtocolVersionError,
-    validateAcceptLanguageHeader,
     validateMcpParamHeaders,
     validateStandardRequestHeaders
 } from '@modelcontextprotocol/core-internal';
 
 import { invoke } from './invoke';
-import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
+import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
+import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
 
 /* ------------------------------------------------------------------------ *
@@ -197,8 +195,8 @@ export interface CreateMcpHandlerOptions {
      */
     maxSubscriptions?: number;
     /**
-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
-     * in milliseconds. Set to `0` to disable.
+     * SSE comment-frame keepalive interval for every SSE stream this handler
+     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
@@ -263,69 +261,6 @@ function echoableRequestId(body: unknown): RequestId | null {
     return typeof id === 'string' || typeof id === 'number' ? id : null;
 }
 
-/**
- * SEP-2792: On a JSON response, inspect the body for
- * `result._meta['io.modelcontextprotocol/contentLanguage']` (or
- * `error.data._meta['io.modelcontextprotocol/contentLanguage']`). When
- * present, mirror the value byte-identically to the `Content-Language`
- * response header and add `Vary: Accept-Language`. When the request carried
- * `_meta[acceptLanguage]` but no `Accept-Language` header (CDN-strip case),
- * also set `Cache-Control: private` to prevent shared caching without a
- * visible cache key.
- *
- * For SSE responses (text/event-stream), Content-Language MAY be omitted
- * and per-event _meta remains authoritative; this function is a no-op.
- */
-async function applyI18nResponseHeaders(
-    response: Response,
-    metaAcceptLanguage: string | undefined,
-    acceptLanguageHeader: string | undefined
-): Promise<Response> {
-    const ct = mediaTypeEssence(response.headers.get('content-type'));
-    if (ct !== 'application/json') {
-        return response;
-    }
-
-    // Read the JSON body to extract contentLanguage from _meta.
-    const body = await response.text();
-    let contentLanguage: string | undefined;
-    try {
-        const parsed = JSON.parse(body);
-        // Success response: result._meta
-        if (parsed?.result?._meta?.[CONTENT_LANGUAGE_META] !== undefined) {
-            const val = parsed.result._meta[CONTENT_LANGUAGE_META];
-            if (typeof val === 'string') contentLanguage = val;
-        }
-        // Error response: error.data._meta
-        if (contentLanguage === undefined && parsed?.error?.data?._meta?.[CONTENT_LANGUAGE_META] !== undefined) {
-            const val = parsed.error.data._meta[CONTENT_LANGUAGE_META];
-            if (typeof val === 'string') contentLanguage = val;
-        }
-    } catch {
-        // Not valid JSON; return as-is.
-        return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-    }
-
-    if (contentLanguage === undefined) {
-        // No localization; return unchanged body.
-        return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
-    }
-
-    // Build new headers with Content-Language and Vary.
-    const headers = new Headers(response.headers);
-    headers.set('content-language', contentLanguage);
-    headers.append('vary', 'Accept-Language');
-
-    // If the selection came from _meta but no Accept-Language header was on
-    // the request, the response has no visible cache key — prevent shared
-    // caching.
-    if (metaAcceptLanguage !== undefined && acceptLanguageHeader === undefined) {
-        headers.set('cache-control', 'private');
-    }
-
-    return new Response(body, { status: response.status, statusText: response.statusText, headers });
-}
-
 function jsonRpcErrorResponse(httpStatus: number, code: number, message: string, data?: unknown, id: RequestId | null = null): Response {
     return Response.json(
         {
@@ -372,7 +307,11 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
  * The entry passes its own `onerror` here when expanding the default, so
  * legacy-leg failures are never silently swallowed.
  */
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+function createLegacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    keepAliveMs?: number
+): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
@@ -383,7 +322,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 requestInfo: request
             });
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                ...(keepAliveMs !== undefined && { keepAliveMs })
+            });
             await product.connect(transport);
 
             const teardown = () => {
@@ -454,6 +396,10 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
             return internalServerErrorResponse(echoableRequestId(options?.parsedBody));
         }
     };
+}
+
+export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+    return createLegacyStatelessFallback(factory, onerror);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -685,7 +631,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
-        keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
+        keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
         onerror: reportError
     });
     if (responseMode === 'json') {
@@ -698,7 +644,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
+    const legacyHandler: LegacyHttpHandler | undefined =
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -739,19 +686,6 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
 
         const meta = route.messageKind === 'request' ? requestMetaOf(route.message.params) : undefined;
-
-        // SEP-2792: Accept-Language ↔ _meta byte-equality validation.
-        const acceptLanguageHeader = request.headers.get('accept-language') ?? undefined;
-        const metaAcceptLanguage = meta?.[ACCEPT_LANGUAGE_META];
-        const langRejection = validateAcceptLanguageHeader(
-            acceptLanguageHeader,
-            typeof metaAcceptLanguage === 'string' ? metaAcceptLanguage : undefined
-        );
-        if (langRejection !== undefined) {
-            reportError(new Error(`Rejected inbound request (${langRejection.cell}): ${langRejection.message}`));
-            return rejectionResponse(langRejection, echoableRequestId(route.message));
-        }
-
         const declaredClientCapabilities = meta?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
 
         // Pre-dispatch capability gate: a request to a method whose processing
@@ -857,16 +791,15 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(responseMode !== undefined && { responseMode })
+                ...(responseMode !== undefined && { responseMode }),
+                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
                 // transport's auto-close, so release the per-request instance here.
                 queueMicrotask(() => void server.close().catch(() => {}));
             }
-            // SEP-2792: mirror Content-Language and set Vary/Cache-Control on
-            // JSON responses carrying contentLanguage in _meta.
-            return applyI18nResponseHeaders(response, metaAcceptLanguage as string | undefined, acceptLanguageHeader);
+            return response;
         } catch (error) {
             if (error instanceof SdkError && error.code === SdkErrorCode.ConnectionClosed) {
                 // The client went away before a response existed; there is

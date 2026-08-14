@@ -1,0 +1,22 @@
+{
+  "resultType": "complete",
+  "resources": [
+    {
+      "uri": "file:///project/src/main.rs",
+      "name": "main.rs",
+      "title": "Rust Software Application Main File",
+      "description": "Primary application entry point",
+      "mimeType": "text/x-rust",
+      "icons": [
+        {
+          "src": "https://example.com/rust-file-icon.png",
+          "mimeType": "image/png",
+          "sizes": ["48x48"]
+        }
+      ]
+    }
+  ],
+  "nextCursor": "eyJwYWdlIjogM30=",
+  "ttlMs": 600000,
+  "cacheScope": "private"
+}

@@ -5,7 +5,6 @@ export * from './shared/auth';
 export * from './shared/authUtils';
 export * from './shared/clientCapabilityRequirements';
 export * from './shared/envelope';
-export * from './shared/i18n';
 export * from './shared/inboundClassification';
 export * from './shared/inputRequired';
 export * from './shared/inputRequiredDriver';

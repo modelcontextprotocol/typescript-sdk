@@ -3,7 +3,8 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
     failOnWarn: 'ci-only',
     entry: ['src/index.ts'],
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true,
     sourcemap: true,
@@ -12,11 +13,11 @@ export default defineConfig({
     shims: true,
     dts: {
         resolver: 'tsc',
+        // Keep workspace deps as external imports in the bundled .d.ts instead of
+        // inlining their type graph — see ../node/tsdown.config.ts for the rationale.
         compilerOptions: {
-            baseUrl: '.',
-            paths: {
-                '@modelcontextprotocol/server': ['../server/src/index.ts']
-            }
+            paths: {},
+            preserveSymlinks: true
         }
     }
 });

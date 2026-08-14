@@ -1,0 +1,19 @@
+{
+    "tools": [
+        {
+            "name": "get_weather",
+            "title": "Weather Provider",
+            "description": "Get current weather for a location",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string"
+                    }
+                },
+                "required": ["location"]
+            }
+        }
+    ],
+    "nextCursor": "eyJwYWdlIjogNH0="
+}

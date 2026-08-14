@@ -1,5 +1,5 @@
-export { getMigration, listMigrations } from './migrations/index.js';
-export { run } from './runner.js';
+export { getMigration, listMigrations } from './migrations/index';
+export { run } from './runner';
 export type {
     Diagnostic,
     FileResult,
@@ -10,5 +10,5 @@ export type {
     Transform,
     TransformContext,
     TransformResult
-} from './types.js';
-export { DiagnosticLevel } from './types.js';
+} from './types';
+export { DiagnosticLevel } from './types';

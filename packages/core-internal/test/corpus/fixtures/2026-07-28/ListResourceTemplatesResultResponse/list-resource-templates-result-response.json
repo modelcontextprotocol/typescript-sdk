@@ -1,0 +1,25 @@
+{
+  "jsonrpc": "2.0",
+  "id": "list-resource-templates-example",
+  "result": {
+    "resultType": "complete",
+    "resourceTemplates": [
+      {
+        "uriTemplate": "file:///{path}",
+        "name": "Project Files",
+        "title": "Project Files",
+        "description": "Access files in the project directory",
+        "mimeType": "application/octet-stream",
+        "icons": [
+          {
+            "src": "https://example.com/folder-icon.png",
+            "mimeType": "image/png",
+            "sizes": ["48x48"]
+          }
+        ]
+      }
+    ],
+    "ttlMs": 3600000,
+    "cacheScope": "public"
+  }
+}

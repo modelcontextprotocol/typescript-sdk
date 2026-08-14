@@ -13,10 +13,7 @@ export const CONTEXT_PROPERTY_MAP: ContextMapping[] = [
     { from: '.sessionId', to: '.sessionId' },
     { from: '.requestInfo', to: '.http?.req' },
     { from: '.closeSSEStream', to: '.http?.closeSSE' },
-    { from: '.closeStandaloneSSEStream', to: '.http?.closeStandaloneSSE' },
-    { from: '.taskStore', to: '.task?.store' },
-    { from: '.taskId', to: '.task?.id' },
-    { from: '.taskRequestedTtl', to: '.task?.requestedTtl' }
+    { from: '.closeStandaloneSSEStream', to: '.http?.closeStandaloneSSE' }
 ];
 
 export const EXTRA_PARAM_NAME = 'extra';

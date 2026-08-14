@@ -1,5 +1,5 @@
-import type { Migration } from '../types.js';
-import { v1ToV2Migration } from './v1-to-v2/index.js';
+import type { Migration } from '../types';
+import { v1ToV2Migration } from './v1-to-v2/index';
 
 const migrations = new Map<string, Migration>([['v1-to-v2', v1ToV2Migration]]);
 

@@ -1,0 +1,8 @@
+{
+  "action": "accept",
+  "content": {
+    "name": "Monalisa Octocat",
+    "email": "octocat@github.com",
+    "age": 30
+  }
+}

@@ -2,8 +2,8 @@ import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { vi } from 'vitest';
 
-import { createMcpHonoApp } from '../src/hono.js';
-import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation.js';
+import { createMcpHonoApp } from '../src/hono';
+import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation';
 
 describe('@modelcontextprotocol/hono', () => {
     test('hostHeaderValidation blocks invalid Host and allows valid Host', async () => {
@@ -88,6 +88,34 @@ describe('@modelcontextprotocol/hono', () => {
         });
         expect(res.status).toBe(400);
         expect(await res.text()).toBe('Invalid JSON');
+    });
+
+    test('createMcpHonoApp does not parse a non-JSON media type whose parameters contain application/json', async () => {
+        const app = createMcpHonoApp();
+        app.post('/echo', (c: Context) => c.json({ parsed: c.get('parsedBody') ?? null }));
+
+        // `text/plain; a=application/json` contains the substring but its media
+        // type is text/plain — it must never be treated as a JSON body.
+        const res = await app.request('http://localhost/echo', {
+            method: 'POST',
+            headers: { Host: 'localhost:3000', 'content-type': 'text/plain; a=application/json' },
+            body: JSON.stringify({ a: 1 })
+        });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ parsed: null });
+    });
+
+    test('createMcpHonoApp parses application/json with parameters', async () => {
+        const app = createMcpHonoApp();
+        app.post('/echo', (c: Context) => c.json(c.get('parsedBody')));
+
+        const res = await app.request('http://localhost/echo', {
+            method: 'POST',
+            headers: { Host: 'localhost:3000', 'content-type': 'application/json; charset=utf-8' },
+            body: JSON.stringify({ a: 1 })
+        });
+        expect(res.status).toBe(200);
+        expect(await res.json()).toEqual({ a: 1 });
     });
 
     test('createMcpHonoApp does not override parsedBody if upstream middleware set it', async () => {

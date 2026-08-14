@@ -577,46 +577,6 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
     return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// SEP-2792: Accept-Language ↔ _meta byte-equality validation
-// ---------------------------------------------------------------------------
-
-/**
- * Validate the `Accept-Language` request header against
- * `_meta['io.modelcontextprotocol/acceptLanguage']` per SEP-2792:
- *
- * - Both present and byte-identical → accept (return `undefined`).
- * - Both present and byte-mismatch → reject with HTTP 400 / `-32020`.
- * - `_meta` present, header absent → accept (CDN-strip tolerance).
- * - Header present, `_meta` absent → accept but ignore header (bare-header
- *   is NOT treated as an MCP language preference).
- * - Both absent → no preference.
- *
- * Comparison is character-for-character with NO parsing, trimming, case
- * folding, reordering, whitespace or q-value normalization.
- */
-export function validateAcceptLanguageHeader(
-    acceptLanguageHeader: string | undefined,
-    metaAcceptLanguage: string | undefined
-): InboundLadderRejection | undefined {
-    if (metaAcceptLanguage === undefined || acceptLanguageHeader === undefined) {
-        // No conflict possible: either _meta is absent (bare header ignored)
-        // or header is absent (CDN-strip tolerance).
-        return undefined;
-    }
-    // Both present — byte-equality comparison.
-    if (acceptLanguageHeader !== metaAcceptLanguage) {
-        return crossCheckMismatch(
-            'accept-language-header-mismatch',
-            acceptLanguageHeader,
-            `Accept-Language header does not match _meta['io.modelcontextprotocol/acceptLanguage']: ` +
-                `header="${acceptLanguageHeader}" vs _meta="${metaAcceptLanguage}"`,
-            'standard-header-validation'
-        );
-    }
-    return undefined;
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }

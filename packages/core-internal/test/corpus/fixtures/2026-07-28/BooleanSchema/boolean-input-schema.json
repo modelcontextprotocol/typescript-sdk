@@ -1,0 +1,6 @@
+{
+  "type": "boolean",
+  "title": "Display Name",
+  "description": "Description text",
+  "default": false
+}

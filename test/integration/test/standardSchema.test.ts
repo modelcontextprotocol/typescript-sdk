@@ -4,9 +4,9 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { TextContent } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator, fromJsonSchema, InMemoryTransport } from '@modelcontextprotocol/core';
-import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
+import type { TextContent } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { completable, fromJsonSchema as serverFromJsonSchema, inputRequired, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
 import * as v from 'valibot';
@@ -382,13 +382,12 @@ describe('Standard Schema Support', () => {
     });
 
     describe('Raw JSON Schema via fromJsonSchema', () => {
-        const validator = new AjvJsonSchemaValidator();
-
         test('should register tool with raw JSON Schema input', async () => {
-            const inputSchema = fromJsonSchema<{ name: string }>(
-                { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
-                validator
-            );
+            const inputSchema = serverFromJsonSchema<{ name: string }>({
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: ['name']
+            });
 
             mcpServer.registerTool('greet', { inputSchema }, async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -407,11 +406,12 @@ describe('Standard Schema Support', () => {
             expect((result.content[0] as TextContent).text).toBe('Hello, World!');
         });
 
-        test('should reject invalid input via AJV validation', async () => {
-            const inputSchema = fromJsonSchema(
-                { type: 'object', properties: { count: { type: 'number' } }, required: ['count'] },
-                validator
-            );
+        test('should reject invalid input via default validation', async () => {
+            const inputSchema = serverFromJsonSchema({
+                type: 'object',
+                properties: { count: { type: 'number' } },
+                required: ['count']
+            });
 
             mcpServer.registerTool('double', { inputSchema }, async args => {
                 const { count } = args as { count: number };
@@ -422,44 +422,6 @@ describe('Standard Schema Support', () => {
 
             const result = await client.request({ method: 'tools/call', params: { name: 'double', arguments: { count: 'not a number' } } });
 
-            expect(result.isError).toBe(true);
-            const errorText = (result.content[0] as TextContent).text;
-            expect(errorText).toContain('Input validation error');
-        });
-    });
-
-    describe('fromJsonSchema with default validator (server wrapper)', () => {
-        test('should use runtime-appropriate default validator when none is provided', async () => {
-            const inputSchema = serverFromJsonSchema<{ name: string }>({
-                type: 'object',
-                properties: { name: { type: 'string' } },
-                required: ['name']
-            });
-
-            mcpServer.registerTool('greet-default', { inputSchema }, async ({ name }) => ({
-                content: [{ type: 'text', text: `Hello, ${name}!` }]
-            }));
-
-            await connectClientAndServer();
-
-            const result = await client.request({ method: 'tools/call', params: { name: 'greet-default', arguments: { name: 'World' } } });
-            expect((result.content[0] as TextContent).text).toBe('Hello, World!');
-        });
-
-        test('should reject invalid input with default validator', async () => {
-            const inputSchema = serverFromJsonSchema({ type: 'object', properties: { count: { type: 'number' } }, required: ['count'] });
-
-            mcpServer.registerTool('double-default', { inputSchema }, async args => {
-                const { count } = args as { count: number };
-                return { content: [{ type: 'text', text: `${count * 2}` }] };
-            });
-
-            await connectClientAndServer();
-
-            const result = await client.request({
-                method: 'tools/call',
-                params: { name: 'double-default', arguments: { count: 'not a number' } }
-            });
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
             expect(errorText).toContain('Input validation error');
@@ -750,5 +712,42 @@ describe('Standard Schema Support', () => {
 
             expect((result.content[0] as TextContent).text).toBe('test: 42, enabled: true');
         });
+    });
+});
+
+describe('Standard Schema elicitation conversion', () => {
+    test('converts ArkType format schemas, dropping the library format-companion pattern', () => {
+        const schema = type({ email: 'string.email' });
+
+        const request = inputRequired.elicit({ message: 'Email?', requestedSchema: schema });
+
+        const emailSchema = (request.params as { requestedSchema: { properties: Record<string, Record<string, unknown>> } }).requestedSchema
+            .properties.email!;
+        expect(emailSchema.type).toBe('string');
+        expect(emailSchema.format).toBe('email');
+        expect(emailSchema.pattern).toBeUndefined();
+    });
+
+    test('converts Valibot schemas via toStandardJsonSchema', () => {
+        const schema = toStandardJsonSchema(
+            v.object({
+                email: v.pipe(v.string(), v.email()),
+                count: v.number()
+            })
+        );
+
+        const request = inputRequired.elicit({ message: 'Details?', requestedSchema: schema });
+
+        const requestedSchema = (request.params as { requestedSchema: { properties: Record<string, Record<string, unknown>> } })
+            .requestedSchema;
+        expect(requestedSchema.properties.email!.format).toBe('email');
+        expect(requestedSchema.properties.email!.pattern).toBeUndefined();
+        expect(requestedSchema.properties.count!.type).toBe('number');
+    });
+
+    test('rejects ArkType schemas the restricted wire schema cannot express', () => {
+        const nested = type({ address: { city: 'string' } });
+
+        expect(() => inputRequired.elicit({ message: 'Address?', requestedSchema: nested })).toThrow(TypeError);
     });
 });

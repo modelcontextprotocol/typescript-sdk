@@ -1,7 +1,9 @@
+import { isJsonContentType } from '@modelcontextprotocol/server';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation';
+import { localhostOriginValidation, originValidation } from './middleware/originValidation';
 
 /**
  * Options for creating an MCP Hono application.
@@ -22,6 +24,18 @@ export interface CreateMcpHonoAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * List of allowed origin hostnames for Origin header validation.
+     * If provided, Origin validation will be applied using this list (port-agnostic,
+     * hostnames only — the same convention as `allowedHosts`).
+     *
+     * When omitted, Origin validation is automatically enabled for localhost-class
+     * binds (the same condition as host validation): requests without an `Origin`
+     * header pass, while a present `Origin` whose hostname is not localhost-class
+     * is rejected with `403`.
+     */
+    allowedOrigins?: string[];
 }
 
 /**
@@ -32,14 +46,14 @@ export interface CreateMcpHonoAppOptions {
  * DNS rebinding attacks on localhost servers.
  *
  * This also installs a small JSON body parsing middleware (similar to `express.json()`)
- * that stashes the parsed body into `c.set('parsedBody', ...)` when `Content-Type` includes
- * `application/json`.
+ * that stashes the parsed body into `c.set('parsedBody', ...)` when the `Content-Type`
+ * media type is `application/json`.
  *
  * @param options - Configuration options
  * @returns A configured Hono application
  */
 export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
-    const { host = '127.0.0.1', allowedHosts } = options;
+    const { host = '127.0.0.1', allowedHosts, allowedOrigins } = options;
 
     const app = new Hono();
 
@@ -50,8 +64,10 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
             return await next();
         }
 
-        const ct = c.req.header('content-type') ?? '';
-        if (!ct.includes('application/json')) {
+        // Parsed media type, never a substring match — see isJsonContentType.
+        // A body left unparsed here is answered 415 by the transport's own
+        // Content-Type check downstream.
+        if (!isJsonContentType(c.req.header('content-type'))) {
             return await next();
         }
 
@@ -84,6 +100,15 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
                     'or use authentication to protect your server.'
             );
         }
+    }
+
+    // Origin validation follows the same arming ladder as host validation:
+    // an explicit allowlist wins; otherwise localhost-class binds are protected
+    // by default. Requests without an Origin header always pass.
+    if (allowedOrigins) {
+        app.use('*', originValidation(allowedOrigins));
+    } else if (['127.0.0.1', 'localhost', '::1'].includes(host)) {
+        app.use('*', localhostOriginValidation());
     }
 
     return app;

@@ -1,0 +1,13 @@
+{
+    "description": "A spec request with params that fail the method schema is answered with an error response (current dispatch surfaces the parse failure as -32603 Internal error).",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": 123
+        }
+    },
+    "expect": "error-response",
+    "errorCode": -32603
+}

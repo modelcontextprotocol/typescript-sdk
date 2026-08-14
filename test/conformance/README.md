@@ -2,6 +2,8 @@
 
 This directory contains conformance test implementations for the TypeScript MCP SDK.
 
+> `@modelcontextprotocol/conformance` is pinned to an exact version (no `^` range) in `package.json`. New conformance releases are adopted by deliberately bumping the pin and updating `expected-failures.yaml` for any new scenarios/checks in the same change.
+
 ## Client Conformance Tests
 
 Tests the SDK's client implementation against a conformance test server.
@@ -57,6 +59,8 @@ npx @modelcontextprotocol/conformance server \
   --url http://localhost:3000/mcp \
   --scenario server-initialize
 ```
+
+Note: `pnpm run test:conformance:server` always starts (and tests) its own server, and refuses to run while anything is still listening on its port. Stop the manually started server first, or keep using the direct `--url` invocation above against it.
 
 ## Files
 
