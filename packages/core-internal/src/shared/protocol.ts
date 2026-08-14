@@ -724,7 +724,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (notification.params.requestId === undefined) {
+        // `requestId` is optional on the wire, and `params` itself is optional
+        // on a JSON-RPC notification — inbound notifications are not validated
+        // against the cancelled-specific schema before dispatch. Absent is the
+        // only thing that means "no id": `0` and `''` are legal request ids.
+        if (notification.params?.requestId === undefined) {
             return;
         }
         // Handle request cancellation

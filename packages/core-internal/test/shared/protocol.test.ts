@@ -775,50 +775,55 @@ describe('protocol tests', () => {
     });
 
     describe('notifications/cancelled behavior', () => {
-        test('should abort request handler when notifications/cancelled contains requestId 0', async () => {
-            await protocol.connect(transport);
+        // Every legal JSON-RPC request id must cancel, including the ones a
+        // truthiness guard swallows: `0` (the first id every peer assigns,
+        // since the counter is zero-based) and the empty string.
+        test.each([0, 123, '', 'req-1'])(
+            'should abort request handler when notifications/cancelled carries requestId %j',
+            async requestId => {
+                await protocol.connect(transport);
 
-            // Set up a request handler that checks if it was aborted
-            let wasAborted = false;
-            protocol.setRequestHandler('ping', async (_request, ctx) => {
-                // Simulate a long-running operation
-                await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = ctx.mcpReq.signal.aborted;
-                return {};
-            });
-
-            // Simulate an incoming request
-            const requestId = 0;
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    id: requestId,
-                    method: 'ping',
-                    params: {}
+                // Set up a request handler that checks if it was aborted
+                let wasAborted = false;
+                protocol.setRequestHandler('ping', async (_request, ctx) => {
+                    // Simulate a long-running operation
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    wasAborted = ctx.mcpReq.signal.aborted;
+                    return {};
                 });
+
+                // Simulate an incoming request
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        method: 'ping',
+                        params: {}
+                    });
+                }
+
+                // Wait a bit for the handler to start
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // Send cancellation notification
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        method: 'notifications/cancelled',
+                        params: {
+                            requestId: requestId,
+                            reason: 'User cancelled'
+                        }
+                    });
+                }
+
+                // Wait for the handler to complete
+                await new Promise(resolve => setTimeout(resolve, 150));
+
+                // Verify the request was aborted
+                expect(wasAborted).toBe(true);
             }
-
-            // Wait a bit for the handler to start
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            // Send cancellation notification
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    method: 'notifications/cancelled',
-                    params: {
-                        requestId: requestId,
-                        reason: 'User cancelled'
-                    }
-                });
-            }
-
-            // Wait for the handler to complete
-            await new Promise(resolve => setTimeout(resolve, 150));
-
-            // Verify the request was aborted
-            expect(wasAborted).toBe(true);
-        });
+        );
     });
 
     // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
