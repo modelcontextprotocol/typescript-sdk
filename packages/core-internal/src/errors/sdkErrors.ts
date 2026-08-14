@@ -147,9 +147,10 @@ export class SdkError extends Error {
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
-        public readonly data?: unknown
+        public readonly data?: unknown,
+        options?: ErrorOptions
     ) {
-        super(message);
+        super(message, options);
         this.name = 'SdkError';
         stampErrorBrands(this, new.target);
     }
@@ -187,8 +188,8 @@ export class SdkHttpError extends SdkError {
 
     declare readonly data: SdkHttpErrorData;
 
-    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {
-        super(code, message, data);
+    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData, options?: ErrorOptions) {
+        super(code, message, data, options);
         this.name = 'SdkHttpError';
     }
 
