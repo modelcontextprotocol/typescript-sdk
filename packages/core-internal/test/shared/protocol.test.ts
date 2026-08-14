@@ -656,6 +656,27 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        // Same-tick coverage for every legal request id: the pending set is keyed
+        // by method alone, so a related notification that wrongly passes the
+        // debounce gate is coalesced away entirely. Awaiting between the two
+        // sends would flush the microtask and hide that, so they are fired in one
+        // tick. `0` and `''` are the ids a truthiness guard swallows.
+        test.each([0, 123, '', 'req-1'])('should NOT coalesce same-tick notifications related to requestId %j', async relatedRequestId => {
+            // ARRANGE
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — two related notifications in the same tick, no await between
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            await flushMicrotasks();
+
+            // ASSERT — both go out, each still carrying its related request id
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenNthCalledWith(1, expect.any(Object), { relatedRequestId });
+            expect(sendSpy).toHaveBeenNthCalledWith(2, expect.any(Object), { relatedRequestId });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
