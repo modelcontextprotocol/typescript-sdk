@@ -28,6 +28,7 @@ import type {
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
+    RequestId,
     RequestMethod,
     RequestOptions,
     ResourceUpdatedNotification,
@@ -61,7 +62,7 @@ import {
     SdkErrorCode,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import { AsyncLocalStorage, DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
 
@@ -289,6 +290,24 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
+    /** Tracks the request id a handler is currently running for — see `_runHandlerInContext`. */
+    private _inflightRequest = new AsyncLocalStorage<{ requestId: RequestId }>();
+
+    /**
+     * Overrides {@linkcode Protocol._runHandlerInContext}: runs the handler
+     * inside an `AsyncLocalStorage` context carrying `requestId`, so a
+     * notification sent from within it (e.g. `sendToolListChanged()`, which
+     * passes no `relatedRequestId` of its own) can still be tagged with the
+     * request that triggered it — see `_currentInflightRequestId` below.
+     */
+    protected override _runHandlerInContext<T>(requestId: RequestId, fn: () => T | Promise<T>): T | Promise<T> {
+        return this._inflightRequest.run({ requestId }, fn);
+    }
+
+    /** Overrides {@linkcode Protocol._currentInflightRequestId}. */
+    protected override _currentInflightRequestId(): RequestId | undefined {
+        return this._inflightRequest.getStore()?.requestId;
+    }
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {

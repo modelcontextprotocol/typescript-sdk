@@ -25,3 +25,24 @@ export const process = {
         return notSupported();
     }
 };
+
+/**
+ * Single-slot fallback — browsers have no `node:async_hooks`. See the
+ * identical implementation in `shimsWorkerd.ts` for the scope/limitations of
+ * this fallback (synchronous-scope only, unlike the real `AsyncLocalStorage`).
+ */
+export class AsyncLocalStorage<T> {
+    private _store: T | undefined;
+    getStore(): T | undefined {
+        return this._store;
+    }
+    run<A extends unknown[], R>(store: T, cb: (...args: A) => R, ...args: A): R {
+        const prev = this._store;
+        this._store = store;
+        try {
+            return cb(...args);
+        } finally {
+            this._store = prev;
+        }
+    }
+}

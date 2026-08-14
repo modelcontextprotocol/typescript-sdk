@@ -4,4 +4,5 @@
  * This file is selected via package.json export conditions when running in Node.js.
  */
 export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
+export { AsyncLocalStorage } from 'node:async_hooks';
 export { default as process } from 'node:process';
