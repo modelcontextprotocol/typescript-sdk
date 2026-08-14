@@ -1,9 +1,12 @@
+import { getEventListeners } from 'node:events';
+
 import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
 import { UnauthorizedError } from '../../src/client/auth';
+import { Client } from '../../src/client/client';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
@@ -1464,6 +1467,550 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
+        it('per-request requestSignal abort while a reconnect is scheduled: the pending reconnect never fires (#2615)', async () => {
+            // ARRANGE — a POST stream that is primed (SSE event id) and then
+            // closes gracefully WITHOUT delivering the response, so the
+            // transport schedules a GET+Last-Event-ID reconnect. The abort
+            // lands in the window between "reconnect scheduled" and "reconnect
+            // fires" — the shape a request timeout produces.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const primedClosingStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                    controller.close();
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedClosingStream
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            // Let the stream close and the reconnect get scheduled (delay 10ms).
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — the request settles (timeout/cancel) before the reconnect fires.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — the scheduled reconnect saw the aborted requestSignal
+            // and bailed: no GET resume, no onerror.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: requestSignal abort while the resume GET is in flight surfaces no spurious onerror (#2615)', async () => {
+            // ARRANGE — a request re-issued with options.resumptionToken
+            // short-circuits send() into a GET+Last-Event-ID resume. The
+            // server hangs on that GET (the exact scenario request timeouts
+            // exist for), so the settlement abort lands MID-FETCH — not in
+            // the scheduled-reconnect window the sibling test covers.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — the request settles (timeout/cancel) while the resume GET
+            // is still in flight; the fetch rejects with an AbortError.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — a deliberate per-request teardown is a clean shutdown:
+            // no transport error, and no stream-end callback (the contract
+            // excludes deliberate requestSignal aborts).
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(onStreamEnd).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: a genuine resume GET failure surfaces onerror exactly once (no double-report)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValueOnce(failure);
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // _startOrAuthSse's own catch reports the failure; the send()
+            // short-circuit must not report it a second time.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+
+            // A genuine open failure is TERMINAL for the resumed stream (no
+            // reconnect is ever scheduled for an initial-open failure) and
+            // send() already resolved fire-and-forget — the stream-end
+            // callback is the caller's only per-request settlement signal.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
+        it('a ReconnectionScheduler that throws on reschedule still settles the caller via onRequestStreamEnd', async () => {
+            let schedulerCalls = 0;
+            const scheduler: ReconnectionScheduler = reconnect => {
+                schedulerCalls++;
+                if (schedulerCalls === 1) {
+                    const handle = setTimeout(reconnect, 1);
+                    return () => clearTimeout(handle);
+                }
+                // The reschedule after a failed leg: platform denies the task.
+                throw new Error('platform denied background task');
+            };
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                },
+                reconnectionScheduler: scheduler
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // POST: primed SSE stream, graceful close without a response.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+            // The reconnect leg fails genuinely, forcing a reschedule.
+            fetchMock.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(10);
+
+            // The failed leg reported once, the scheduler throw reported once,
+            // and — because no further attempt could be armed — the chain is
+            // terminally dead, so the caller was settled.
+            expect(schedulerCalls).toBe(2);
+            expect(errorSpy).toHaveBeenCalledWith(new TypeError('fetch failed'));
+            expect(errorSpy).toHaveBeenCalledWith(new Error('platform denied background task'));
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
+        it('close() disarms EVERY pending scheduled reconnect, not just the last-scheduled chain', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10_000,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 30_000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Every POST returns a primed SSE stream that closes gracefully
+            // without a response — each send spawns its own reconnect chain.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            }));
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} });
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-2', params: {} });
+            await vi.advanceTimersByTimeAsync(5);
+
+            // Two chains, two pending scheduled attempts.
+            expect(vi.getTimerCount()).toBe(2);
+
+            // ACT — close must disarm BOTH, not only the last-written one.
+            await transport.close();
+
+            expect(vi.getTimerCount()).toBe(0);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('a settled request disarms its own pending scheduled reconnect immediately', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10_000,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 30_000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(vi.getTimerCount()).toBe(1);
+
+            // ACT — the request settles during the backoff window: the armed
+            // timer is released immediately, not left to bail at fire time.
+            requestAbort.abort();
+            expect(vi.getTimerCount()).toBe(0);
+
+            await vi.advanceTimersByTimeAsync(60_000);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resume leg that drops before its first event reschedules with the ORIGINAL resumption token', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 2,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // GET#1 (the resume): closes gracefully with ZERO events, so the
+            // leg produces no lastEventId of its own.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.close();
+                    }
+                })
+            });
+            // GET#2 (the rebuilt leg): hangs, keeping the count deterministic.
+            fetchMock.mockImplementation(() => new Promise(() => {}));
+
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42' }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // Fire the scheduled rebuild.
+            await vi.advanceTimersByTimeAsync(15);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // The rebuilt GET must still carry the token this resume was
+            // opened with — without the fallback it degrades into a
+            // token-less standalone GET and loses the replay position.
+            const secondInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+            expect((secondInit.headers as Headers).get('last-event-id')).toBe('evt-42');
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: forwards onresumptiontoken so the resumed stream reports newer event IDs', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // The resumed GET replays a newer event carrying the response.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(
+                            new TextEncoder().encode('id: evt-43\ndata: {"jsonrpc":"2.0","id":"request-1","result":{}}\n\n')
+                        );
+                        controller.close();
+                    }
+                })
+            });
+
+            const tokens: string[] = [];
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', onresumptiontoken: token => tokens.push(token) }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // The caller's persistence hook saw the newer event ID.
+            expect(tokens).toEqual(['evt-43']);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resumptionToken send: forwards onRequestStreamEnd so a terminal non-resumable outcome settles the caller', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // 405 on the resume GET: terminal, non-resumable — the stream-end
+            // callback must fire so the caller can settle.
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} },
+                { resumptionToken: 'evt-42', onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('202-initialized standalone GET: a genuine failure surfaces onerror exactly once (no double-report)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            // The notifications/initialized POST is 202-accepted...
+            fetchMock.mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+            // ...and the standalone GET it triggers fails genuinely.
+            fetchMock.mockRejectedValueOnce(failure);
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // _startOrAuthSse's own catch reports the failure; the 202 branch
+            // must not report it a second time.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+        });
+
+        it('202-initialized standalone GET: transport.close() while the GET is in flight surfaces no spurious onerror', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+            // The standalone GET hangs until its signal aborts.
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // ACT — deliberate shutdown while the standalone GET is in flight.
+            await transport.close();
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ASSERT — a clean shutdown, not a transport error.
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('notification POST: transport.close() while the POST is in flight surfaces no spurious onerror', async () => {
+            // Notification sends carry no requestSignal, so the POST's fetch
+            // signal is the transport-lifetime signal alone — close() landing
+            // mid-POST must read as a clean shutdown, not a transport error.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            let sendError: unknown;
+            const pending = transport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' }).catch(error => {
+                sendError = error;
+            });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — deliberate shutdown while the POST is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (send() rejects so callers settle),
+            // but no onerror fires for a deliberate shutdown.
+            expect(sendError).toBeInstanceOf(DOMException);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('terminateSession: transport.close() while the DELETE is in flight surfaces no spurious onerror', async () => {
+            // The session-termination DELETE runs on the transport-lifetime
+            // signal alone — close() landing mid-flight must read as a clean
+            // shutdown, not a transport error. (A sessionId is required or
+            // terminateSession() no-ops without fetching.)
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { sessionId: 'session-1' });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted', 'AbortError')));
+                    })
+            );
+
+            await transport.start();
+            let terminateError: unknown;
+            const pending = transport.terminateSession().catch(error => {
+                terminateError = error;
+            });
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — deliberate shutdown while the DELETE is in flight.
+            await transport.close();
+            await pending;
+
+            // ASSERT — the rethrow is kept (terminateSession() rejects so the
+            // caller sees the outcome), but no onerror fires.
+            expect(terminateError).toBeInstanceOf(DOMException);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('failed reconnect leg surfaces onerror exactly once (no double-report), then retries', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 5,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const failure = new TypeError('fetch failed');
+            const fetchMock = globalThis.fetch as Mock;
+            // POST stream: primed (SSE event id), then a graceful close
+            // without the response — schedules a GET reconnect at +10ms.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                        controller.close();
+                    }
+                })
+            });
+            // The reconnect GET fails genuinely.
+            fetchMock.mockRejectedValueOnce(failure);
+            // The retried leg after it hangs, so the count stays deterministic.
+            fetchMock.mockImplementation(() => new Promise(() => {}));
+
+            await transport.start();
+            await transport.send({ jsonrpc: '2.0', method: 'long_running_tool', id: 'request-1', params: {} });
+            // Let the stream close and the reconnect get scheduled...
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            // ...then fire the reconnect leg and let it fail.
+            await vi.advanceTimersByTimeAsync(10);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+
+            // _startOrAuthSse's own catch is the single reporting site — the
+            // reconnect scheduler must not report the same failure again.
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(failure);
+
+            // The retry itself still happens (attempt 2 fires the next GET).
+            await vi.advanceTimersByTimeAsync(15);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+        });
+
         it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
             // ARRANGE — a POST stream with NO priming event id (so the
             // graceful-close path does NOT schedule a reconnect): the
@@ -2497,7 +3044,7 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             // Verify no reconnection was scheduled
-            expect(transport['_cancelReconnection']).toBeUndefined();
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -2519,10 +3066,12 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_cancelReconnection']).toBeDefined();
+            expect(transport['_pendingReconnectCancels'].size).toBe(1);
 
             // Clean up the pending reconnection to avoid test pollution
-            transport['_cancelReconnection']?.();
+            for (const entry of transport['_pendingReconnectCancels']) {
+                entry.cancel();
+            }
         });
     });
 
@@ -2735,5 +3284,661 @@ describe('StreamableHTTPClientTransport', () => {
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
         });
+
+        it('a throwing cancel does not skip cancelling sibling chains on close()', async () => {
+            const cancel1 = vi.fn(() => {
+                throw new Error('cancel 1 failed');
+            });
+            const cancel2 = vi.fn();
+            const cancels = [cancel1, cancel2];
+            let scheduleCount = 0;
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancels[scheduleCount++]);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onclose = vi.fn();
+            transport.onclose = onclose;
+
+            await transport.start();
+            // Two independent pending chains, each with its own cancel.
+            triggerReconnection(transport);
+            triggerReconnection(transport);
+            const abortController = transport['_abortController'];
+
+            // The FIRST cancel error still propagates, but only after every
+            // sibling chain has been disarmed too.
+            await expect(transport.close()).rejects.toThrow('cancel 1 failed');
+            expect(cancel1).toHaveBeenCalledTimes(1);
+            expect(cancel2).toHaveBeenCalledTimes(1);
+            expect(abortController?.signal.aborted).toBe(true);
+            expect(onclose).toHaveBeenCalledTimes(1);
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+        });
+
+        it("runs a pending chain's cancel at most once across close() and request settlement", async () => {
+            const cancel = vi.fn();
+            const scheduler: ReconnectionScheduler = vi.fn(() => cancel);
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+
+            await transport.start();
+            // A per-request chain in its backoff window: the settlement
+            // listener is armed on the request-scoped signal.
+            const requestAbort = new AbortController();
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { requestSignal: requestAbort.signal },
+                0
+            );
+
+            await transport.close();
+            expect(cancel).toHaveBeenCalledTimes(1);
+
+            // close() -> onclose -> Protocol._onclose rejects the pending
+            // request -> its .finally() aborts the request-scoped signal.
+            // The chain's settlement listener must have been released by
+            // close(), so the cancel does NOT run a second time.
+            requestAbort.abort();
+            expect(cancel).toHaveBeenCalledTimes(1);
+        });
+
+        it('a throwing cancel at request settlement reports through onerror instead of escaping the abort dispatch', async () => {
+            // Regression: the settlement listener invoked the user-supplied
+            // cancel with try/finally but no catch. An exception thrown in an
+            // AbortSignal 'abort' listener is NOT delivered to the abort()
+            // caller — abort() returns normally and Node reports the
+            // exception as an uncaughtException, terminating the process by
+            // default. The protocol funnel aborts requestSignal on EVERY
+            // settlement (success, timeout, caller abort, maxTotalTimeout),
+            // so a throwing custom-scheduler cancel would kill the process on
+            // the common path.
+            const cancelError = new Error('cancel failed at settlement');
+            const scheduler: ReconnectionScheduler = vi.fn(() => () => {
+                throw cancelError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await transport.start();
+            const requestAbort = new AbortController();
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { requestSignal: requestAbort.signal },
+                0
+            );
+
+            // The request settles: the funnel aborts its request-scoped
+            // signal. The throwing cancel must be routed to onerror, not
+            // escape the EventTarget dispatch.
+            requestAbort.abort();
+
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(cancelError);
+            // The finally disarm still ran: no stale Set entry survives.
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+        });
+
+        it('a first-schedule scheduler throw on graceful close reports the raw error exactly once', async () => {
+            // Regression: the graceful-close settlement tail ran inside the
+            // same try as the stream read loop. A scheduler that throws on
+            // the FIRST schedule of a gap landed in the generic catch, got
+            // mislabeled "SSE stream disconnected", and the catch re-drove
+            // the tail: two onerror reports for one scheduler failure.
+            const scheduleError = new Error('platform denied background task');
+            const scheduler: ReconnectionScheduler = vi.fn(() => {
+                throw scheduleError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onRequestStreamEnd = vi.fn();
+            await transport.start();
+
+            // A primed POST stream that closes gracefully without a response:
+            // the graceful tail schedules the first reconnect attempt.
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(encoder.encode('id: evt-1\ndata: \n\n'));
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(scheduleError);
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
+        it('a first-schedule scheduler throw on the ERROR path reports the raw error, matching the graceful path', async () => {
+            // Regression: the error-path first-schedule catch wrapped the
+            // scheduler throw as `Failed to reconnect: <message>`, discarding
+            // the original error object, while the graceful-close tail and
+            // the reschedule catch both report the raw error — inconsistent
+            // shape for the same failure class.
+            const scheduleError = new Error('platform denied background task');
+            const scheduler: ReconnectionScheduler = vi.fn(() => {
+                throw scheduleError;
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onRequestStreamEnd = vi.fn();
+            await transport.start();
+
+            // A reconnectable stream that ERRORS mid-read: the catch path
+            // schedules the first reconnect attempt, and the scheduler throws.
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.error(new Error('network dropped'));
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, true);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(scheduler).toHaveBeenCalledTimes(1);
+            // The stream error reports once ("SSE stream disconnected"), and
+            // the scheduler failure reports RAW — same identity, no wrapper.
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([scheduleError]));
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
+        it('a throwing onRequestStreamEnd on graceful close is invoked once and never escapes processStream', async () => {
+            // Regression: with the settlement tail inside the read-loop try,
+            // a throwing caller-supplied onRequestStreamEnd was caught, the
+            // catch re-invoked the SAME callback, and its second throw
+            // escaped the fire-and-forget processStream() promise as an
+            // unhandledRejection.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // A POST stream with no priming event ends gracefully: the tail
+            // takes the no-reconnect branch and fires the stream-end callback.
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onRequestStreamEnd }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(callbackError);
+        });
+
+        it('a throwing onRequestStreamEnd in the reschedule-throw branch routes to onerror, not an unhandledRejection', async () => {
+            // Regression: the reconnect closure's scheduleError branch fires
+            // the caller's stream-end callback inside a floating promise
+            // chain (`_startOrAuthSse(options).catch(...)`) — a throwing
+            // callback rejected that chain with nothing attached,
+            // terminating the process by default.
+            const scheduleError = new Error('platform denied background task');
+            let scheduleCalls = 0;
+            let capturedReconnect: (() => void) | undefined;
+            const scheduler: ReconnectionScheduler = vi.fn(reconnect => {
+                scheduleCalls++;
+                if (scheduleCalls > 1) {
+                    throw scheduleError;
+                }
+                capturedReconnect = reconnect;
+                return () => {};
+            });
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions,
+                reconnectionScheduler: scheduler
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // First schedule arms; the leg's fetch then fails, so the catch
+            // reschedules — and the second schedule throws.
+            (globalThis.fetch as Mock).mockRejectedValue(new Error('network down'));
+            (transport as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection(
+                { onRequestStreamEnd },
+                0
+            );
+            capturedReconnect!();
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            // onerror: the leg's open failure, the scheduler error, and the
+            // contained callback error — nothing escaped the floating chain.
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([scheduleError, callbackError]));
+        });
+
+        it('a throwing onRequestStreamEnd in the resumptionToken short-circuit routes to onerror, not an unhandledRejection', async () => {
+            // Regression: the short-circuit's catch fires the stream-end
+            // callback inside a floating promise chain; a throwing callback
+            // became an unhandledRejection.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const callbackError = new Error('stream end failed');
+            const onRequestStreamEnd = vi.fn(() => {
+                throw callbackError;
+            });
+            await transport.start();
+
+            // A genuine open failure (not an abort) on the resumed GET fires
+            // the stream-end callback from the short-circuit's catch.
+            (globalThis.fetch as Mock).mockRejectedValue(new Error('network down'));
+            await transport.send({ jsonrpc: '2.0', method: 'ping', id: 'r-1' }, { resumptionToken: 'evt-0', onRequestStreamEnd });
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls.map(call => call[0])).toEqual(expect.arrayContaining([callbackError]));
+        });
+
+        it('a throwing onresumptiontoken does not lose the event or misattribute a stream disconnect', async () => {
+            // Regression: the caller's persistence hook was invoked bare in
+            // the read loop. A throw (e.g. QuotaExceededError from the
+            // documented storage write) exited into the generic catch: a
+            // misattributed "SSE stream disconnected" onerror, the
+            // response-bearing event's payload lost unreplayably, and a
+            // reconnect chain re-entered at attempt 0 with the request never
+            // marked complete.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions
+            });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+            const onmessage = vi.fn();
+            transport.onmessage = onmessage;
+            const quotaError = new Error('QuotaExceededError: storage full');
+            const onresumptiontoken = vi.fn(() => {
+                throw quotaError;
+            });
+            await transport.start();
+
+            // One event carrying BOTH the id (hook throws) and the response.
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(encoder.encode('id: evt-1\ndata: {"jsonrpc":"2.0","id":"r-1","result":{}}\n\n'));
+                    controller.close();
+                }
+            });
+            transport['_handleSseStream'](stream, { onresumptiontoken }, false);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // The hook's failure is reported once, correctly attributed…
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(quotaError);
+            // …the response still dispatches…
+            expect(onmessage).toHaveBeenCalledTimes(1);
+            // …and no bogus reconnect chain starts (response received).
+            expect(transport['_pendingReconnectCancels'].size).toBe(0);
+            expect(globalThis.fetch).not.toHaveBeenCalled();
+        });
+    });
+});
+
+/**
+ * End-to-end regression for #2615: on a legacy (2025-11-25) session, the
+ * transport's request-scoped SSE reconnect chain (GET + Last-Event-ID
+ * resumption) must stop once the originating request settles via timeout.
+ * Before the fix, the chain kept resuming forever (every successful resume
+ * resets the retry counter), and a late resumed GET carrying the original
+ * JSON-RPC response surfaced as "Received a response for an unknown message
+ * ID".
+ */
+describe('legacy era (2025-11-25): request timeout stops the SSE reconnect chain (#2615)', () => {
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.spyOn(globalThis, 'fetch');
+    });
+
+    afterEach(() => {
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    const encoder = new TextEncoder();
+    const sseResponse = (chunks: string[]) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'text/event-stream' }),
+        body: new ReadableStream<Uint8Array>({
+            start(controller) {
+                for (const chunk of chunks) {
+                    controller.enqueue(encoder.encode(chunk));
+                }
+                controller.close();
+            }
+        })
+    });
+    const jsonResponse = (message: JSONRPCMessage) => ({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: async () => message,
+        text: async () => JSON.stringify(message)
+    });
+    const accepted = () => ({ ok: true, status: 202, headers: new Headers(), text: async () => '' });
+    const methodNotAllowed = () => ({
+        ok: false,
+        status: 405,
+        statusText: 'Method Not Allowed',
+        headers: new Headers(),
+        text: async () => ''
+    });
+
+    it('stops resuming once the request times out; the late response never surfaces as an unknown message ID', async () => {
+        let pingId: string | number | undefined;
+        let eventSeq = 0;
+        let settled = false;
+        let resumesAfterSettle = 0;
+        const cancelledPosts: JSONRPCMessage[] = [];
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+            if (init.method === 'GET') {
+                const lastEventId = (init.headers as Headers).get('last-event-id');
+                // Standalone notification stream: not offered by this server.
+                if (lastEventId === null) {
+                    return methodNotAllowed();
+                }
+                // Request-scoped resume. Once the request has settled, hand
+                // back the late original response — before the fix this is
+                // the resumed GET that surfaced "unknown message ID".
+                if (settled) {
+                    resumesAfterSettle++;
+                    return sseResponse([`id: evt-${++eventSeq}\ndata: {"jsonrpc":"2.0","id":${JSON.stringify(pingId)},"result":{}}\n\n`]);
+                }
+                // Keep the chain alive: a priming event id, then a graceful
+                // close without the response (the server expects the client
+                // to resume via GET + Last-Event-ID).
+                return sseResponse([`id: evt-${++eventSeq}\ndata: \n\n`]);
+            }
+            const message = JSON.parse(init.body as string) as JSONRPCMessage;
+            if ('method' in message) {
+                if (message.method === 'initialize' && 'id' in message) {
+                    return jsonResponse({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: '2025-11-25',
+                            capabilities: {},
+                            serverInfo: { name: 'legacy-server', version: '1.0.0' }
+                        }
+                    });
+                }
+                if (message.method === 'notifications/cancelled') {
+                    cancelledPosts.push(message);
+                    return accepted();
+                }
+                if (message.method === 'ping' && 'id' in message) {
+                    pingId = message.id;
+                    // SSE response: retry hint + priming event id, then a
+                    // graceful close without the response.
+                    return sseResponse([`retry: 10\nid: evt-${++eventSeq}\ndata: \n\n`]);
+                }
+            }
+            return accepted();
+        });
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+
+        await client.connect(transport);
+
+        const resumeGetCount = () =>
+            fetchMock.mock.calls.filter(call => call[1]?.method === 'GET' && (call[1].headers as Headers).get('last-event-id') !== null)
+                .length;
+
+        let settledError: unknown;
+        const pending = client.ping({ timeout: 100 }).catch(error => {
+            settled = true;
+            settledError = error;
+        });
+
+        // Let the reconnect chain run a few resume cycles before the timeout.
+        await vi.advanceTimersByTimeAsync(50);
+        expect(resumeGetCount()).toBeGreaterThan(0);
+        expect(settled).toBe(false);
+
+        // Cross the request timeout.
+        await vi.advanceTimersByTimeAsync(100);
+        await pending;
+        expect(settled).toBe(true);
+        expect(String(settledError)).toContain('Request timed out');
+
+        // The legacy wire cancel signal is unchanged: exactly one
+        // notifications/cancelled POST.
+        expect(cancelledPosts).toHaveLength(1);
+
+        // Give an orphaned chain ample time to keep resuming (before the fix
+        // it reconnected forever — each successful resume resets the retry
+        // counter, so maxRetries never binds).
+        await vi.advanceTimersByTimeAsync(2000);
+
+        // THE KEY ASSERTIONS: no resumed GET after the request settled, and
+        // the late response never surfaced as an unknown message ID.
+        expect(resumesAfterSettle).toBe(0);
+        expect(errors.map(e => e.message)).not.toContainEqual(expect.stringContaining('unknown message ID'));
+
+        await client.close();
+    });
+
+    it('cancellation POST still hits the wire when the original request was issued with a resumptionToken', async () => {
+        // Regression for the cancel-path resumption leak: transport.send()
+        // with a resumptionToken short-circuits into a GET+Last-Event-ID
+        // resume WITHOUT posting the message. If the request's own
+        // resumptionToken were forwarded into the notifications/cancelled
+        // send, the cancellation would be silently swallowed (no POST) and a
+        // fresh SSE reconnect chain — without the request-scoped abort signal
+        // — would be spawned in its place.
+        let eventSeq = 0;
+        const cancelledPosts: JSONRPCMessage[] = [];
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async (_url, init: RequestInit) => {
+            if (init.method === 'GET') {
+                const lastEventId = (init.headers as Headers).get('last-event-id');
+                // Standalone notification stream: not offered by this server.
+                if (lastEventId === null) {
+                    return methodNotAllowed();
+                }
+                // Request-scoped resume: a priming event id, then a graceful
+                // close without the response, so the chain keeps resuming
+                // until the client tears it down.
+                return sseResponse([`retry: 10\nid: evt-${++eventSeq}\ndata: \n\n`]);
+            }
+            const message = JSON.parse(init.body as string) as JSONRPCMessage;
+            if ('method' in message) {
+                if (message.method === 'initialize' && 'id' in message) {
+                    return jsonResponse({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: '2025-11-25',
+                            capabilities: {},
+                            serverInfo: { name: 'legacy-server', version: '1.0.0' }
+                        }
+                    });
+                }
+                if (message.method === 'notifications/cancelled') {
+                    cancelledPosts.push(message);
+                    return accepted();
+                }
+            }
+            return accepted();
+        });
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const errors: Error[] = [];
+        client.onerror = error => errors.push(error);
+
+        await client.connect(transport);
+
+        const resumeGetCount = () =>
+            fetchMock.mock.calls.filter(call => call[1]?.method === 'GET' && (call[1].headers as Headers).get('last-event-id') !== null)
+                .length;
+
+        // Issue the request WITH a resumption token: the transport resumes the
+        // request's stream via GET + Last-Event-ID instead of POSTing it.
+        let settled = false;
+        const pending = client.ping({ timeout: 100, resumptionToken: 'evt-0' }).catch(() => {
+            settled = true;
+        });
+
+        await vi.advanceTimersByTimeAsync(50);
+        expect(resumeGetCount()).toBeGreaterThan(0);
+        expect(settled).toBe(false);
+
+        // Cross the request timeout.
+        await vi.advanceTimersByTimeAsync(100);
+        await pending;
+        expect(settled).toBe(true);
+
+        // THE KEY ASSERTION: the cancellation actually reached the wire as a
+        // POST — it was not swallowed into another GET resume. Note this is
+        // best-effort on the SDK's own transport: the POST carries the
+        // re-issued request's fresh JSON-RPC id, which never reached the
+        // server here (the send itself short-circuited into a GET resume), so
+        // the server cannot correlate it and a resumed request can only be
+        // torn down locally (the requestSignal abort). The POST is kept
+        // because custom per-request-stream transports that POST the
+        // re-issued body normally DO give the server a correlatable id.
+        expect(cancelledPosts).toHaveLength(1);
+
+        // And no fresh (unguarded) reconnect chain was spawned by the
+        // cancellation send: once the request settled, the resume GET count
+        // stays flat.
+        const resumesAtSettle = resumeGetCount();
+        await vi.advanceTimersByTimeAsync(2000);
+        expect(resumeGetCount()).toBe(resumesAtSettle);
+
+        // The settlement abort landed on a deliberately-resumed request: a
+        // clean teardown, so no error — spurious AbortError included — may
+        // surface through client.onerror.
+        expect(errors).toEqual([]);
+
+        await client.close();
+    });
+});
+
+/**
+ * Regression for the Node 20.0-20.2 `anySignal` fallback: it removes its
+ * listener pair only when one of its input signals fires, so composing a
+ * FRESH transport+request signal per SSE reconnect leg strands one closure
+ * pair per gracefully-completed leg on BOTH input signals until the request
+ * settles (MaxListenersExceededWarning after ~11 polling cycles). The
+ * composite must be built once per request chain and reused by every rebuilt
+ * leg.
+ */
+describe('anySignal fallback (Node 20.0-20.2): reconnect legs reuse one composite per request chain', () => {
+    const originalAny = AbortSignal.any;
+
+    beforeEach(() => {
+        vi.useFakeTimers();
+        vi.spyOn(globalThis, 'fetch');
+        // Simulate Node 20.0-20.2, where `AbortSignal.any` is unavailable and
+        // the manual fallback combinator must be used.
+        (AbortSignal as { any?: typeof AbortSignal.any }).any = undefined;
+    });
+
+    afterEach(() => {
+        (AbortSignal as { any?: typeof AbortSignal.any }).any = originalAny;
+        vi.useRealTimers();
+        vi.clearAllMocks();
+    });
+
+    it('does not accrue abort listeners on the request or transport signal across resume legs', async () => {
+        const encoder = new TextEncoder();
+        let eventSeq = 0;
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async () => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream<Uint8Array>({
+                start(controller) {
+                    // A priming event id, then a graceful close without a
+                    // response: the documented SSE polling pattern — each leg
+                    // completes with NEITHER input signal aborting.
+                    controller.enqueue(encoder.encode(`id: evt-${++eventSeq}\ndata: \n\n`));
+                    controller.close();
+                }
+            })
+        }));
+
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxRetries: 2,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 1
+            }
+        });
+        await transport.start();
+
+        const requestAbort = new AbortController();
+        await transport['_startOrAuthSse']({ resumptionToken: 'evt-0', requestSignal: requestAbort.signal });
+
+        // Let the chain run several full polling cycles (stream close +
+        // backoff + resume GET).
+        for (let cycle = 0; cycle < 5; cycle++) {
+            await vi.advanceTimersByTimeAsync(20);
+        }
+        expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(4);
+
+        const transportSignal = transport['_abortController']!.signal;
+        // One composite per request chain: exactly one fallback listener pair
+        // total, no matter how many legs have completed. (Between legs the
+        // pending attempt's settlement listener is also disarmed, so the
+        // fallback's listener is the only one left on the request signal.)
+        const requestListeners = getEventListeners(requestAbort.signal, 'abort');
+        const transportListeners = getEventListeners(transportSignal, 'abort');
+        expect(requestListeners.length).toBeLessThanOrEqual(2);
+        expect(transportListeners.length).toBeLessThanOrEqual(2);
+
+        await transport.close();
     });
 });

@@ -209,7 +209,12 @@ export class SSEClientTransport implements Transport {
                     return response;
                 }
             });
-            this._abortController = new AbortController();
+            // One transport-lifetime controller: `_startOrAuth` also runs on
+            // the mid-session 401 recovery path, and REPLACING the controller
+            // there would orphan the signal already captured by any POST in
+            // flight — close() could no longer cancel that POST, and _send's
+            // intentional-abort guard would consult the wrong controller.
+            this._abortController ??= new AbortController();
 
             this._eventSource.onerror = event => {
                 if (event.code === 401 && this._authProvider) {
@@ -219,13 +224,36 @@ export class SSEClientTransport implements Transport {
                         this._eventSource?.close();
                         this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
-                            () => this._startOrAuth().then(resolve, reject),
+                            () => {
+                                // Deferred continuation after an arbitrarily
+                                // long refresh await: a close() that landed in
+                                // the meantime must not be undone by opening a
+                                // brand-new EventSource — the ES wrapper fetch
+                                // never carries the transport-lifetime signal,
+                                // and close() already ran against the old
+                                // instance, so nothing could ever tear the
+                                // resurrected stream down.
+                                if (this._abortController?.signal.aborted === true) {
+                                    reject(new UnauthorizedError('Transport closed during re-authentication'));
+                                    return;
+                                }
+                                this._startOrAuth().then(resolve, reject);
+                            },
                             // onUnauthorized failed → not yet reported. Auth-seam
                             // stamp: covers the SDK's OAuth flow and custom
                             // callbacks alike.
                             (error: unknown) => {
                                 markAuthSeamEscape(error);
-                                this.onerror?.(error as Error);
+                                // Mirror the success arm's closed-state guard:
+                                // a refresh that rejects AFTER close() (token
+                                // endpoint unreachable at shutdown, abandoned
+                                // interactive flow) must not surface a
+                                // spurious auth error through onerror
+                                // post-shutdown. Still reject so a pending
+                                // start() settles.
+                                if (this._abortController?.signal.aborted !== true) {
+                                    this.onerror?.(error as Error);
+                                }
                                 reject(error);
                             }
                         );
@@ -338,9 +366,15 @@ export class SSEClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
-        this._abortController?.abort();
-        this._eventSource?.close();
-        this.onclose?.();
+        try {
+            this._abortController?.abort();
+            this._eventSource?.close();
+        } finally {
+            // onclose is the ONLY trigger for Protocol._onclose (which settles
+            // every pending request with ConnectionClosed) — it must fire even
+            // if the EventSource teardown throws.
+            this.onclose?.();
+        }
     }
 
     async send(message: JSONRPCMessage): Promise<void> {
@@ -407,7 +441,13 @@ export class SSEClientTransport implements Transport {
             // Release connection - POST responses don't have content we need
             await response.text?.().catch(() => {});
         } catch (error) {
-            this.onerror?.(error as Error);
+            // The POST runs on the transport-lifetime signal alone, so a
+            // close() landing mid-flight rejects with an intentional
+            // AbortError — a clean shutdown, not a transport error. Still
+            // rethrow so callers see the failure.
+            if (this._abortController?.signal.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }

@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # Custom transports
 
 A **transport** moves `JSONRPCMessage` values in both directions over a channel the SDK knows nothing about. Implement the `Transport` interface and `connect()` accepts it like a built-in one.
@@ -180,7 +181,7 @@ async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<voi
 }
 ```
 
-On a 2026-07-28 connection the protocol layer cancels an in-flight request by aborting that request's `requestSignal` instead of sending `notifications/cancelled` — see [Protocol versions](../protocol-versions.md). Single-channel transports — stdio, the loopback above — leave the flag undefined and ignore `requestSignal`; cancellation stays a notification for them.
+The protocol layer threads `requestSignal` into every outbound request on a per-request-stream transport and aborts it when the request settles (response, error, timeout, or caller abort). On a 2026-07-28 connection that abort IS the spec cancellation — no `notifications/cancelled` is sent — while on a 2025-era connection it is local teardown (stop the request's stream and any reconnect state) accompanying the `notifications/cancelled` POST; see [Protocol versions](../protocol-versions.md). Because the abort is always intentional, a transport that forwards `requestSignal` into `fetch` (as above) should treat the resulting `AbortError` as a clean shutdown — swallow it rather than surfacing it through `onerror` or scheduling a reconnect. Single-channel transports — stdio, the loopback above — leave the flag undefined and ignore `requestSignal`; cancellation stays a notification for them.
 
 ## Test it against the in-memory pair
 

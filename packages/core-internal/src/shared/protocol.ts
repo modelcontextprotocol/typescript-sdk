@@ -97,10 +97,29 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
 
 /**
  * Options that can be given per request.
+ *
+ * The {@linkcode TransportSendOptions} members this type absorbs are not all
+ * caller-controllable on the `request()` path — the protocol layer owns the
+ * per-request stream lifecycle there:
+ *
+ * - `requestSignal` is OVERWRITTEN with the protocol layer's request-scoped
+ *   signal (aborted when the request settles); a caller-supplied value is
+ *   ignored. Cancel via {@linkcode RequestOptions.signal | signal} instead.
+ * - `onRequestStreamEnd` is NOT forwarded to the transport. To observe the
+ *   per-request stream's lifecycle directly, call `transport.send()` yourself.
+ * - `resumptionToken` / `onresumptiontoken` / `relatedRequestId` / `headers`
+ *   are forwarded as documented.
  */
 export type RequestOptions = {
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
+     *
+     * Does not survive a `resumptionToken` re-issue on the SDK's Streamable
+     * HTTP transport: the resumed send never POSTs the fresh progress token,
+     * and progress notifications replayed on the resumed stream carry the
+     * original request's token, so this callback (and
+     * {@linkcode RequestOptions.resetTimeoutOnProgress | resetTimeoutOnProgress})
+     * will not fire for the resumed request.
      */
     onprogress?: ProgressCallback;
 
@@ -124,8 +143,23 @@ export type RequestOptions = {
     resetTimeoutOnProgress?: boolean;
 
     /**
-     * Maximum total time (in milliseconds) to wait for a response.
-     * If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised, regardless of progress notifications.
+     * Maximum total time (in milliseconds) to wait for a response across
+     * progress-driven timeout resets.
+     *
+     * The budget is event-gated, not timer-enforced: it is checked when a
+     * progress notification arrives, and only when the request was issued
+     * with {@linkcode RequestOptions.resetTimeoutOnProgress | resetTimeoutOnProgress}
+     * `: true` and an {@linkcode RequestOptions.onprogress | onprogress}
+     * handler — the combination that makes per-leg timeout resets possible
+     * (without resets, the per-leg {@linkcode RequestOptions.timeout | timeout}
+     * already bounds the request on its own, and this option has no effect).
+     * When a progress notification lands after the budget has elapsed, the
+     * request rejects with an {@linkcode SdkError} with code
+     * {@linkcode SdkErrorCode.RequestTimeout} (`Maximum total timeout
+     * exceeded`). If the remote side stops sending progress near the budget
+     * boundary, settlement falls to the current per-leg timer instead, so the
+     * total wait can exceed the budget by up to `timeout` ms.
+     *
      * If not specified, there is no maximum total timeout.
      *
      * For multi-round-trip requests fulfilled by the auto-fulfilment driver
@@ -519,7 +553,14 @@ type TimeoutInfo = {
     timeout: number;
     maxTotalTimeout?: number;
     resetTimeoutOnProgress: boolean;
-    onTimeout: () => void;
+    /**
+     * Settles the request through its cancel path. Called with no argument by
+     * the per-leg `setTimeout` (plain "Request timed out"); called with the
+     * `maxTotalTimeout` error by `_onprogress` so that settlement takes the
+     * same cancel path — emitting the era's wire cancel signal — while the
+     * caller still sees the original maxTotalTimeout error.
+     */
+    onTimeout: (error?: Error) => void;
 };
 
 /*
@@ -724,7 +765,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        // Explicit undefined check: `0` is a legitimate JSON-RPC request id —
+        // it is every peer's FIRST outbound request id (`_requestMessageId`
+        // starts at 0) — and a falsy guard would silently drop its
+        // cancellation.
+        if (notification.params.requestId === undefined) {
             return;
         }
         // Handle request cancellation
@@ -736,11 +781,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
         messageId: number,
         timeout: number,
         maxTotalTimeout: number | undefined,
-        onTimeout: () => void,
+        onTimeout: (error?: Error) => void,
         resetTimeoutOnProgress: boolean = false
     ) {
         this._timeoutInfo.set(messageId, {
-            timeoutId: setTimeout(onTimeout, timeout),
+            // Wrapped so the timer fires the handler with NO arguments:
+            // Gecko (Firefox) invokes setTimeout callbacks with an extra
+            // "lateness" Number argument, which must not be mistaken for the
+            // handler's optional error parameter.
+            timeoutId: setTimeout(() => onTimeout(), timeout),
             startTime: Date.now(),
             timeout,
             maxTotalTimeout,
@@ -754,7 +803,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (!info) return false;
 
         const totalElapsed = Date.now() - info.startTime;
-        if (info.maxTotalTimeout && totalElapsed >= info.maxTotalTimeout) {
+        // `!== undefined`, not truthiness: `maxTotalTimeout: 0` is the
+        // STRICTEST budget (rejects on the first check) — a falsy gate would
+        // silently disable it instead.
+        if (info.maxTotalTimeout !== undefined && totalElapsed >= info.maxTotalTimeout) {
+            // Disarm the still-armed per-leg timer BEFORE dropping the map
+            // entry: once the entry is gone, `_cleanupTimeout` (the funnel's
+            // `.finally()` cleanup) can no longer reach the timer, and an
+            // orphaned leg timer would fire cancel() again after this
+            // settlement.
+            clearTimeout(info.timeoutId);
             this._timeoutInfo.delete(messageId);
             throw new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
                 maxTotalTimeout: info.maxTotalTimeout,
@@ -763,7 +821,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         clearTimeout(info.timeoutId);
-        info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+        // Wrapped for the same reason as `_setupTimeout`: Gecko passes a
+        // lateness Number to setTimeout callbacks.
+        info.timeoutId = setTimeout(() => info.onTimeout(), info.timeout);
         return true;
     }
 
@@ -1176,11 +1236,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             try {
                 this._resetTimeout(messageId);
             } catch (error) {
-                // Clean up if maxTotalTimeout was exceeded
-                this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
-                this._cleanupTimeout(messageId);
-                responseHandler(error as Error);
+                // maxTotalTimeout exceeded. Settle through the request's
+                // cancel path (stored as `onTimeout`) rather than the response
+                // handler directly, so this settlement emits the same wire
+                // cancel signal as a plain timeout on the same session — the
+                // `notifications/cancelled` POST on a legacy (2025-11-25)
+                // connection, the stream-close abort alone on a modern
+                // (2026-07-28) one. cancel() rejects with an SdkError reason
+                // unchanged, so the caller still sees the original
+                // maxTotalTimeout error; handler/timeout cleanup runs in the
+                // request funnel's `.finally()`, exactly as for a plain
+                // timeout settlement.
+                timeoutInfo.onTimeout(error as Error);
                 return;
             }
         }
@@ -1372,6 +1439,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         let onAbort: (() => void) | undefined;
         let cleanupMessageId: number | undefined;
+        let requestAbort: AbortController | undefined;
 
         // Send the request
         return new Promise<StandardSchemaV1.InferOutput<T>>((resolve, reject) => {
@@ -1413,9 +1481,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // POSTing `notifications/cancelled`. Every other (era × transport)
             // combination — legacy era on any transport, modern era on stdio /
             // in-memory — keeps today's `notifications/cancelled` POST path
-            // unchanged.
+            // unchanged (the legacy era on a per-request-stream transport
+            // additionally aborts `requestSignal` locally; see below).
             const streamCloseCancels = codec.era === MODERN_WIRE_REVISION && this._transport.hasPerRequestStream === true;
-            const requestAbort = streamCloseCancels ? new AbortController() : undefined;
+            // The per-request AbortController exists on EVERY per-request-stream
+            // transport, not just when stream-close is the spec cancel signal.
+            // On the legacy era the `notifications/cancelled` POST below stays
+            // the wire signal, but the transport still owns a per-request SSE
+            // reconnect chain (GET + Last-Event-ID resumption) that nothing
+            // else tears down: without this signal, a request that settles via
+            // timeout or caller abort leaves orphaned reconnects running until
+            // the late response surfaces as "unknown message ID" (#2615).
+            requestAbort = this._transport.hasPerRequestStream === true ? new AbortController() : undefined;
 
             const messageId = this._requestMessageId++;
             cleanupMessageId = messageId;
@@ -1442,16 +1519,31 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // built above.
             const outbound = this._envelopeOutbound(jsonrpcRequest);
 
-            let responseReceived = false;
+            // `true` once the request has settled through EITHER channel —
+            // the response handler or cancel(). Guarding cancel() on it (and
+            // having cancel() set it) makes cancellation idempotent: a late
+            // per-leg timer or any future duplicate cancel path becomes a
+            // no-op instead of re-running the body and POSTing a second
+            // `notifications/cancelled` for an already-settled request.
+            let settled = false;
 
             const cancel = (reason: unknown) => {
-                if (responseReceived) {
+                if (settled) {
                     return;
                 }
+                settled = true;
                 this._progressHandlers.delete(messageId);
 
-                if (requestAbort === undefined) {
-                    this._transport
+                if (!streamCloseCancels) {
+                    // Capture the transport identity at send time: the catch
+                    // below must key on whether THIS connection is still the
+                    // live one when the rejection lands. A bare
+                    // `this._transport !== undefined` re-arms the report after
+                    // a close-then-reconnect and would resurface the
+                    // deliberately-aborted POST's AbortError on the brand-new
+                    // connection (same idiom as _onrequest's capturedTransport).
+                    const sendTransport = this._transport;
+                    sendTransport
                         ?.send(
                             this._envelopeOutbound({
                                 jsonrpc: '2.0',
@@ -1461,17 +1553,41 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                     reason: String(reason)
                                 }
                             }),
-                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                            // Deliberately NOT forwarding the original request's
+                            // resumptionToken/onresumptiontoken: a notification is
+                            // not a resumable request, and on Streamable HTTP a
+                            // resumption token short-circuits send() into a
+                            // GET+Last-Event-ID resume WITHOUT posting the message
+                            // — the cancellation would be silently swallowed and a
+                            // fresh, unguarded SSE reconnect chain spawned in its
+                            // place.
+                            { relatedRequestId }
                         )
-                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
-                } else {
-                    // Modern-era per-request-stream transport: aborting the
-                    // request's underlying stream IS the spec cancel signal.
-                    // The transport already swallows the resulting AbortError
-                    // (no spurious `onerror`); a post-abort send() rejection
-                    // re-hits an already-settled promise below and is a no-op.
-                    requestAbort.abort();
+                        .catch(error => {
+                            // A deliberate transport close aborts an in-flight
+                            // cancellation POST: the transport's own catch stays
+                            // silent (intentional-abort guard) and rethrows, and
+                            // by the time the rejection lands here `_onclose` has
+                            // already cleared `_transport`. Re-reporting would
+                            // resurface an AbortError for a clean shutdown —
+                            // report only failures on the connection the POST
+                            // was actually sent on.
+                            if (this._transport === sendTransport) {
+                                this._onerror(new Error(`Failed to send cancellation: ${error}`));
+                            }
+                        });
                 }
+                // Aborting the request-scoped signal is either the spec cancel
+                // signal itself (modern era: closing the per-request stream IS
+                // the cancellation, so no `notifications/cancelled` above) or a
+                // purely local teardown alongside the POST (legacy era: it
+                // stops the transport's SSE reconnect chain for this request —
+                // #2615). The transport already swallows the resulting
+                // AbortError (no spurious `onerror`); a post-abort send()
+                // rejection re-hits an already-settled promise below and is a
+                // no-op. The cancelled POST above does not carry this signal,
+                // so aborting here cannot cut off that send.
+                requestAbort?.abort();
 
                 // Wrap the reason in an SdkError if it isn't already
                 const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
@@ -1482,7 +1598,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (options?.signal?.aborted) {
                     return;
                 }
-                responseReceived = true;
+                settled = true;
 
                 if (response instanceof Error) {
                     return reject(response);
@@ -1552,7 +1668,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            // `instanceof Error` rather than `??`: a timer implementation that
+            // invokes its callback with a non-Error argument (Gecko passes a
+            // lateness Number) must still produce the plain timeout error, not
+            // reject the request with that stray value as its message.
+            const timeoutHandler = (error?: Error) =>
+                cancel(error instanceof Error ? error : new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
@@ -1574,6 +1695,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._responseHandlers.delete(cleanupMessageId);
                 this._cleanupTimeout(cleanupMessageId);
             }
+            // Release the request-scoped signal on EVERY settlement path, not
+            // just cancel(): a successful completion (and a send() failure)
+            // never goes through cancel() and would otherwise pin one abort
+            // listener per request on the transport-lifetime signal via the
+            // Node 20.0–20.2 anySignal fallback — and leave the transport's
+            // per-request SSE reconnect chain orphaned (#2615) on any
+            // settlement cancel() missed. Idempotent after the cancel() abort
+            // above (timeouts, caller aborts, and maxTotalTimeout all route
+            // through cancel()); a no-op for single-channel transports
+            // (requestAbort is undefined). Aborting after a completed response
+            // is pure local teardown — the transport treats it as intentional
+            // (no onerror, no reconnect) and nothing is put on the wire.
+            requestAbort?.abort();
         });
     }
 
@@ -1611,7 +1745,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        // `=== undefined` rather than falsiness on the id: `0` is a
+        // legitimate relatedRequestId (every peer's FIRST outbound request
+        // id), and a related notification must never be debounced/coalesced
+        // away from its request association.
+        const canDebounce =
+            debouncedMethods.includes(notification.method) && !notification.params && options?.relatedRequestId === undefined;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
@@ -1634,8 +1773,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 // Send the notification, but don't await it here to avoid blocking.
-                // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                // Handle potential errors with a .catch(). Capture the
+                // transport identity at send time (same idiom as cancel()'s
+                // notifications/cancelled POST): a deliberate close() aborts
+                // the in-flight coalesced POST — the transport's own catch
+                // stays silent (intentional-abort guard) and rethrows, and by
+                // the time the rejection lands here `_onclose` has already
+                // cleared `_transport`. Re-reporting would resurface an
+                // AbortError through onerror for a clean shutdown — report
+                // only failures on the connection the POST was sent on.
+                const sendTransport = this._transport;
+                sendTransport.send(jsonrpcNotification, options).catch(error => {
+                    if (this._transport === sendTransport) {
+                        this._onerror(error);
+                    }
+                });
             });
 
             // Return immediately.

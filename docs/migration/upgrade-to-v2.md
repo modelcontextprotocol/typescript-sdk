@@ -1503,15 +1503,30 @@ rewrite required unless noted.
 
 - **Unchanged, for re-baselining relief:** timeout rejections still carry
   `data.timeout` / `data.maxTotalTimeout` exactly as v1 `McpError` did — v1 assertions
-  on those survive verbatim. The cancelled-on-timeout signal is unchanged on legacy-era
-  connections and on stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel
-  signal is the per-request stream close instead of a `notifications/cancelled` POST
+  on those survive verbatim. For per-leg timeouts and caller aborts, the
+  cancelled-on-timeout signal is unchanged on legacy-era connections and on
+  stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel signal is the
+  per-request stream close instead of a `notifications/cancelled` POST
   (see [support-2026-07-28.md](./support-2026-07-28.md)).
-- **Also unchanged: SSE reconnection exhaustion.** `StreamableHTTPClientTransport`'s
-  standalone GET-stream reconnection behavior and its exhaustion signal carry over from
-  v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
-  message is `Maximum reconnection attempts (N) exceeded.` — there is no typed error
-  class for this condition, so monitors that match the message text keep working.
+- **Changed: `maxTotalTimeout` settlements now emit the cancel signal.** In v1 a
+  request settling because `maxTotalTimeout` was exceeded put nothing on the wire.
+  It now routes through the same cancel path as a plain timeout and emits the
+  connection's cancel signal — `notifications/cancelled` on legacy-era connections
+  and on single-channel transports at any era, the per-request stream close on
+  2026-era Streamable HTTP — while the caller still sees the same
+  `Maximum total timeout exceeded` rejection.
+- **Also unchanged: the SSE reconnection exhaustion message.** When
+  `StreamableHTTPClientTransport` runs out of retries, it still emits `onerror` with a
+  plain `Error` whose message is `Maximum reconnection attempts (N) exceeded.` — there
+  is no typed error class for this condition, so monitors that match that message text
+  keep working.
+- **Changed: per-leg reconnect failures and intentional aborts.** Each failed
+  reconnect leg now reports through `onerror` exactly once with the underlying error
+  (e.g. `Failed to open SSE stream: …`) — the v1 `Failed to reconnect SSE stream:`
+  wrapper message is gone, so monitors matching that prefix need re-baselining — and
+  deliberate teardown (transport `close()` landing mid-POST/mid-GET/mid-DELETE, or a
+  settled request's teardown aborting its resume) no longer surfaces an `AbortError`
+  through `onerror`.
 - **Also unchanged: elicitation response validation.** `elicitInput`'s local validation
   of elicitation responses against `requestedSchema`, the resulting `-32602` error
   message wording (`Elicitation response content does not match requested schema: …`),
@@ -1553,8 +1568,11 @@ rewrite required unless noted.
   so an abort fired in the same tick can land before the frame is ever sent: the call
   rejects with `SdkError(RequestTimeout, reason)` and **no `notifications/cancelled` is
   emitted** (nothing was in flight). v1 sent the frame synchronously from these verbs.
-  Once the frame is on the wire, aborting still sends `notifications/cancelled` before
-  rejecting.
+  Once the frame is on the wire, aborting still emits the era's cancel signal before
+  rejecting: a `notifications/cancelled` POST on legacy-era (2025-11-25) connections and
+  on single-channel transports (stdio / in-memory) at any era; on a 2026-07-28
+  Streamable HTTP connection the per-request stream close is itself the cancellation
+  and no `notifications/cancelled` is sent.
 - **Protocol-version pinning is a first-class option.**
   `ProtocolOptions.supportedProtocolVersions` pins the legacy `initialize` handshake:
   the **first** pre-2026 entry in the list is offered (list order is preference order),
@@ -1825,8 +1843,11 @@ where an entry notes its own signature change:
   wrappers, test doubles, decorators) compile and run against v2 with only the import
   path updated. v2 adds **optional** members only — `hasPerRequestStream` and
   `setSupportedProtocolVersions` on the interface, `requestSignal` / `headers` /
-  `onRequestStreamEnd` on `TransportSendOptions` — which matter only for 2026-era
-  per-request-stream cancellation and `Mcp-Param-*` header attachment
+  `onRequestStreamEnd` on `TransportSendOptions` — used for per-request
+  cancellation and teardown at either protocol version on per-request-stream
+  transports (on a 2026-era connection the `requestSignal` abort IS the spec
+  cancel signal; on a 2025-era connection it is local teardown accompanying the
+  `notifications/cancelled` POST) and for `Mcp-Param-*` header attachment
   ([support-2026-07-28.md](./support-2026-07-28.md)).
 - All TypeScript **type** definitions from `types.ts` (except the aliases listed under
   [Removed type aliases](#removed-type-aliases) and the `experimental` capability

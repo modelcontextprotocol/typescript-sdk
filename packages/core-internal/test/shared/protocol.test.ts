@@ -492,6 +492,42 @@ describe('protocol tests', () => {
             expect(onProgressMock).toHaveBeenCalledTimes(1);
         });
 
+        test('maxTotalTimeout: 0 is the strictest budget — rejects on the first progress check, not disabled', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 0,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            });
+
+            // The budget is already exhausted, so the FIRST progress
+            // notification's reset check must reject. Before the fix the
+            // falsy gate (`info.maxTotalTimeout && ...`) silently disabled a
+            // 0 budget entirely, leaving the request indefinitely
+            // progress-extendable — the strictest value was the only one that
+            // never rejected.
+            vi.advanceTimersByTime(10);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+            await expect(requestPromise).rejects.toThrow('Maximum total timeout exceeded');
+            expect(onProgressMock).not.toHaveBeenCalled();
+        });
+
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
@@ -656,6 +692,24 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification whose relatedRequestId is 0 (falsy but legitimate first-request id)', async () => {
+            // `_requestMessageId` starts at 0, so a notification related to a
+            // peer's first request carries relatedRequestId 0. A falsy gate
+            // wrongly debounced it — coalescing synchronous sends away and
+            // dropping the request association from the send options.
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — synchronous back-to-back sends, like the coalescing tests.
+            protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await flushMicrotasks();
+
+            // ASSERT — both sends hit the wire, each keeping its association.
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
@@ -674,6 +728,67 @@ describe('protocol tests', () => {
             // ASSERT
             // The send should never have happened because the transport was cleared.
             expect(sendSpy).not.toHaveBeenCalled();
+        });
+
+        it('debounced send rejection after close() does not surface onerror (deliberate teardown)', async () => {
+            // Regression: the coalesced POST's fire-and-forget catch reported
+            // unconditionally. A close() landing while the POST was in flight
+            // resurfaced the deliberate-teardown AbortError through
+            // Protocol.onerror — the transport-level guards suppress their
+            // own report and rethrow, so the protocol layer must key the
+            // report on whether THIS connection is still the live one (same
+            // capture-and-compare idiom as cancel()'s notifications/cancelled
+            // POST).
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+
+            let rejectSend!: (error: Error) => void;
+            sendSpy.mockImplementation(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectSend = reject;
+                    })
+            );
+
+            protocol.notification({ method: 'test/debounced' });
+            await flushMicrotasks();
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+
+            // close() clears _transport; the aborted POST's rejection lands
+            // afterwards.
+            await protocol.close();
+            rejectSend(new Error('This operation was aborted'));
+            await flushMicrotasks();
+
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        it('debounced send rejection on a live connection still reports through onerror', async () => {
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+
+            const sendError = new Error('network down');
+            let rejectSend!: (error: Error) => void;
+            sendSpy.mockImplementation(
+                () =>
+                    new Promise<void>((_resolve, reject) => {
+                        rejectSend = reject;
+                    })
+            );
+
+            protocol.notification({ method: 'test/debounced' });
+            await flushMicrotasks();
+            expect(sendSpy).toHaveBeenCalledTimes(1);
+
+            rejectSend(sendError);
+            await flushMicrotasks();
+
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(sendError);
         });
 
         it('should debounce multiple synchronous calls when params property is omitted', async () => {
@@ -819,6 +934,32 @@ describe('protocol tests', () => {
             // Verify the request was aborted
             expect(wasAborted).toBe(true);
         });
+
+        test("aborts the request handler for request id 0 (falsy but legitimate — every peer's FIRST request id)", async () => {
+            // `_requestMessageId` starts at 0, so a peer cancelling its first
+            // outbound request sends `requestId: 0`. A falsy guard in
+            // _oncancel silently dropped exactly that cancellation.
+            await protocol.connect(transport);
+
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            transport.onmessage?.({ jsonrpc: '2.0', id: 0, method: 'ping', params: {} });
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: { requestId: 0, reason: 'User cancelled' }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(wasAborted).toBe(true);
+        });
     });
 
     // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
@@ -881,7 +1022,7 @@ describe('protocol tests', () => {
             expect(cancelledSent(sent)).toHaveLength(1);
         });
 
-        test('legacy era + per-request-stream transport: behavior unchanged — POSTs notifications/cancelled, no requestSignal', async () => {
+        test('legacy era + per-request-stream transport: POSTs notifications/cancelled AND aborts the requestSignal (#2615)', async () => {
             const tx = new PerRequestStreamTransport();
             const proto = createTestProtocol();
             await proto.connect(tx);
@@ -890,13 +1031,64 @@ describe('protocol tests', () => {
             const ac = new AbortController();
             const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
 
-            // Legacy path is byte-identical to before: no requestSignal threaded.
-            expect(tx.lastRequestSignal).toBeUndefined();
+            // The requestSignal is threaded on the legacy era too — it is not
+            // the spec cancel signal there (the POST below is), but the
+            // transport needs it to tear down the request's SSE reconnect
+            // chain (GET + Last-Event-ID resumption) when the request settles.
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+            expect(requestSignal?.aborted).toBe(false);
 
             ac.abort('user cancel');
             await expect(pending).rejects.toThrow();
 
+            // The wire signal is unchanged (spec cancel = notifications/cancelled)…
             expect(cancelledSent(tx.sent)).toHaveLength(1);
+            // …and the request-scoped abort additionally stops any reconnect
+            // chain the transport still owns for this request (#2615).
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era + per-request-stream transport: timeout POSTs notifications/cancelled AND aborts the requestSignal (#2615)', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+
+            await expect(pending).rejects.toThrow('Request timed out');
+
+            expect(cancelledSent(tx.sent)).toHaveLength(1);
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled, no requestSignal', async () => {
+            // stdio / in-memory shape: hasPerRequestStream is undefined.
+            const sent: JSONRPCMessage[] = [];
+            let sawRequestSignal: AbortSignal | undefined;
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage, opts?: TransportSendOptions) => {
+                sent.push(m);
+                if (opts?.requestSignal !== undefined) {
+                    sawRequestSignal = opts.requestSignal;
+                }
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // No per-request stream to tear down — the legacy single-channel
+            // path stays byte-identical: cancelled POST only, no requestSignal.
+            expect(cancelledSent(sent)).toHaveLength(1);
+            expect(sawRequestSignal).toBeUndefined();
         });
 
         test('modern era + per-request-stream transport: timeout aborts the stream, NO notifications/cancelled', async () => {
@@ -910,6 +1102,241 @@ describe('protocol tests', () => {
 
             expect(tx.lastRequestSignal?.aborted).toBe(true);
             expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+
+        test.each(['2025-11-25', '2026-07-28'])(
+            '%s era + per-request-stream transport: maxTotalTimeout settlement aborts the requestSignal (#2615)',
+            async era => {
+                const tx = new PerRequestStreamTransport();
+                const proto = createTestProtocol();
+                await proto.connect(tx);
+                setNegotiatedProtocolVersion(proto, era);
+
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
+                    timeout: 200,
+                    maxTotalTimeout: 1,
+                    resetTimeoutOnProgress: true,
+                    onprogress: () => {}
+                });
+                const requestSignal = tx.lastRequestSignal;
+                expect(requestSignal).toBeInstanceOf(AbortSignal);
+                expect(requestSignal?.aborted).toBe(false);
+
+                // Cross the total budget, then deliver a progress notification:
+                // the maxTotalTimeout check fires on the timeout-reset path
+                // inside _onprogress, which routes the settlement through the
+                // request's cancel path — so this settlement emits the same
+                // wire cancel signal as a plain timeout, while the caller
+                // still sees the original maxTotalTimeout error.
+                await new Promise(resolve => setTimeout(resolve, 5));
+                tx.onmessage?.({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progressToken: 0, progress: 1 }
+                });
+
+                await expect(pending).rejects.toThrow('Maximum total timeout exceeded');
+                expect(requestSignal?.aborted).toBe(true);
+
+                // The wire cancel signal matches the era, exactly like a plain
+                // timeout settlement on the same session: legacy POSTs
+                // notifications/cancelled (carrying the request's id); modern
+                // cancels via the stream-close abort alone.
+                const cancelled = cancelledSent(tx.sent);
+                if (era === '2025-11-25') {
+                    expect(cancelled).toHaveLength(1);
+                    expect((cancelled[0] as { params?: { requestId?: unknown } }).params?.requestId).toBe(0);
+                } else {
+                    expect(cancelled).toHaveLength(0);
+                }
+
+                // The settlement must fully disarm the per-leg timer: cross
+                // the leg `timeout` (200ms) and re-assert nothing else went on
+                // the wire. Before the fix the over-budget branch orphaned the
+                // armed leg timer (deleted the map entry without clearTimeout,
+                // and cancel() never marked the request settled), so the late
+                // timer re-ran cancel() and POSTed a SECOND
+                // notifications/cancelled for the same requestId on legacy.
+                await new Promise(resolve => setTimeout(resolve, 250));
+                expect(cancelledSent(tx.sent)).toHaveLength(era === '2025-11-25' ? 1 : 0);
+            }
+        );
+
+        test('per-leg timeout under a Gecko-style timer (callback invoked with a lateness argument): plain timeout error, not "0.42"', async () => {
+            // Firefox/Gecko invokes setTimeout callbacks with an extra Number
+            // ("lateness") argument. It must never be mistaken for the timeout
+            // handler's optional error parameter — that would reject the
+            // request with the stray number as its message and POST a
+            // notifications/cancelled whose reason is that number.
+            const realSetTimeout = globalThis.setTimeout.bind(globalThis);
+            const setTimeoutSpy = vi
+                .spyOn(globalThis, 'setTimeout')
+                .mockImplementation(((fn: (...args: unknown[]) => void, ms?: number) =>
+                    realSetTimeout(() => fn(0.42), ms)) as unknown as typeof setTimeout);
+            try {
+                const tx = new PerRequestStreamTransport();
+                const proto = createTestProtocol();
+                await proto.connect(tx);
+                setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 1 });
+                await expect(pending).rejects.toThrow('Request timed out');
+
+                const cancelled = cancelledSent(tx.sent);
+                expect(cancelled).toHaveLength(1);
+                expect((cancelled[0] as { params?: { reason?: string } }).params?.reason).toContain('Request timed out');
+            } finally {
+                setTimeoutSpy.mockRestore();
+            }
+        });
+
+        test('close() landing while the cancellation POST is in flight: no spurious "Failed to send cancellation" onerror', async () => {
+            let rejectCancelSend: ((error: unknown) => void) | undefined;
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    // The cancellation POST stays in flight until close()
+                    // aborts it (the transport rethrows the AbortError after
+                    // its own intentional-abort guard stays silent).
+                    return new Promise<void>((_resolve, reject) => {
+                        rejectCancelSend = reject;
+                    });
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            expect(rejectCancelSend).toBeDefined();
+
+            // Deliberate shutdown; the aborted POST's rejection lands after
+            // _onclose has already cleared the transport.
+            await proto.close();
+            rejectCancelSend?.(new DOMException('The operation was aborted', 'AbortError'));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(0);
+        });
+
+        test('cancellation POST aborted by close(): stays silent even after an immediate reconnect', async () => {
+            // The close-then-reconnect recovery pattern re-attaches a
+            // transport before the aborted POST's rejection lands — the guard
+            // must key on the connection the POST was SENT on, not on whether
+            // any transport happens to be attached at rejection time.
+            let rejectCancelSend: ((error: unknown) => void) | undefined;
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    return new Promise<void>((_resolve, reject) => {
+                        rejectCancelSend = reject;
+                    });
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            expect(rejectCancelSend).toBeDefined();
+
+            // Deliberate shutdown, then an IMMEDIATE reconnect on the same
+            // instance — before the aborted POST's rejection lands.
+            await proto.close();
+            await proto.connect(new PerRequestStreamTransport());
+            rejectCancelSend?.(new DOMException('The operation was aborted', 'AbortError'));
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(0);
+        });
+
+        test('genuine cancellation-send failure on a live connection still reports through onerror', async () => {
+            const tx = new PerRequestStreamTransport();
+            const baseSend = tx.send.bind(tx);
+            tx.send = async (message: JSONRPCMessage, opts?: TransportSendOptions) => {
+                await baseSend(message, opts);
+                if ('method' in message && message.method === 'notifications/cancelled') {
+                    throw new TypeError('fetch failed');
+                }
+            };
+            const proto = createTestProtocol();
+            const errors: Error[] = [];
+            proto.onerror = error => void errors.push(error);
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow('Request timed out');
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            expect(errors.map(e => e.message).filter(m => m.includes('Failed to send cancellation'))).toHaveLength(1);
+        });
+
+        test('per-request-stream transport: successful completion releases (aborts) the request-scoped signal', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}));
+            const requestSignal = tx.lastRequestSignal;
+            expect(requestSignal).toBeInstanceOf(AbortSignal);
+            expect(requestSignal?.aborted).toBe(false);
+
+            tx.onmessage?.({ jsonrpc: '2.0', id: 0, result: {} });
+            await expect(pending).resolves.toEqual({});
+
+            // A completed request sends no wire cancel of any kind…
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+            // …but the request-scoped signal is released (aborted) so the
+            // transport can drop its per-request state — otherwise every
+            // successful request leaks an abort listener on the transport-
+            // lifetime signal via the Node 20.0–20.2 anySignal fallback.
+            expect(requestSignal?.aborted).toBe(true);
+        });
+
+        test('legacy era: cancellation POST does not inherit the original request resumptionToken', async () => {
+            // On Streamable HTTP, transport.send() with a resumptionToken
+            // short-circuits into a GET+Last-Event-ID resume WITHOUT posting
+            // the message. A notification is not a resumable request, so the
+            // cancellation send must never carry the original request's
+            // resumption options — forwarding them silently swallows the
+            // cancellation and spawns a fresh, unguarded SSE reconnect chain.
+            class RecordingTransport extends MockTransport {
+                readonly hasPerRequestStream = true;
+                calls: { message: JSONRPCMessage; options?: TransportSendOptions }[] = [];
+                override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+                    this.calls.push({ message, options });
+                }
+            }
+            const tx = new RecordingTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), {
+                signal: ac.signal,
+                resumptionToken: 'evt-42',
+                onresumptiontoken: () => {}
+            });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            const cancelled = tx.calls.find(c => 'method' in c.message && c.message.method === 'notifications/cancelled');
+            expect(cancelled).toBeDefined();
+            expect(cancelled?.options?.resumptionToken).toBeUndefined();
+            expect(cancelled?.options?.onresumptiontoken).toBeUndefined();
         });
     });
 });
