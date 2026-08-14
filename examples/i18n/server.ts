@@ -1,109 +1,151 @@
 /**
- * SEP-2792 i18n example server — per-request language negotiation.
- *
- * Demonstrates:
- * - Reading `acceptLanguage` from request `_meta`
- * - Negotiating the best match from available locales (RFC 4647)
- * - Returning localized tool title/description on `tools/list`
- * - Returning localized content + `contentLanguage` on `tools/call`
- * - Localized error responses via `error.data._meta`
- *
- * Supports both stdio and Streamable HTTP transports.
+ * SEP-2792 per-request language negotiation with current request, cache, and
+ * multi-round-trip APIs. One binary serves stdio or Streamable HTTP.
  */
 import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpHonoApp } from '@modelcontextprotocol/hono';
+import type { CallToolResult, InputRequiredResult, ServerContext } from '@modelcontextprotocol/server';
 import {
-    ACCEPT_LANGUAGE_META,
+    acceptedContent,
     CONTENT_LANGUAGE_META,
     createMcpHandler,
-    McpServer,
+    getAcceptLanguage,
+    inputRequired,
     negotiateLanguage,
-    setContentLanguage
+    Server
 } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-// ---------------------------------------------------------------------------
-// Translation dictionary (trivial in-memory, NOT gettext/ICU)
-// ---------------------------------------------------------------------------
+const LANGUAGES = ['en', 'fr', 'de'] as const;
+const DEFAULT_LANGUAGE = 'en';
 
-const TRANSLATIONS: Record<string, Record<string, string>> = {
+const COPY = {
     en: {
-        toolTitle: 'Greeting',
-        toolDescription: 'Returns a localized greeting',
-        greeting: 'Hello, World!',
-        errorUnknown: 'Unknown name provided'
+        title: 'Deploy release',
+        description: 'Deploys a release after localized operator approval',
+        question: (environment: string) => `Deploy the release to ${environment}?`,
+        approvalTitle: 'Approve deployment',
+        progress: 'Preparing the deployment',
+        success: (environment: string) => `Deployed successfully to ${environment}.`,
+        declined: 'Deployment was not approved.'
     },
     fr: {
-        toolTitle: 'Salutation',
-        toolDescription: 'Retourne une salutation localisée',
-        greeting: 'Bonjour le monde !',
-        errorUnknown: 'Nom inconnu fourni'
+        title: 'Déployer la version',
+        description: 'Déploie une version après approbation localisée de l’opérateur',
+        question: (environment: string) => `Déployer la version vers ${environment} ?`,
+        approvalTitle: 'Approuver le déploiement',
+        progress: 'Préparation du déploiement',
+        success: (environment: string) => `Déploiement réussi vers ${environment}.`,
+        declined: 'Le déploiement n’a pas été approuvé.'
     },
     de: {
-        toolTitle: 'Begrüßung',
-        toolDescription: 'Gibt eine lokalisierte Begrüßung zurück',
-        greeting: 'Hallo Welt!',
-        errorUnknown: 'Unbekannter Name angegeben'
+        title: 'Release bereitstellen',
+        description: 'Stellt ein Release nach lokalisierter Freigabe bereit',
+        question: (environment: string) => `Release in ${environment} bereitstellen?`,
+        approvalTitle: 'Bereitstellung freigeben',
+        progress: 'Bereitstellung wird vorbereitet',
+        success: (environment: string) => `Erfolgreich in ${environment} bereitgestellt.`,
+        declined: 'Die Bereitstellung wurde nicht freigegeben.'
     }
-};
+} as const;
 
-const AVAILABLE_LOCALES = Object.keys(TRANSLATIONS);
-const DEFAULT_LOCALE = 'en';
+type SupportedLanguage = keyof typeof COPY;
 
-function t(lang: string, key: string): string {
-    return TRANSLATIONS[lang]?.[key] ?? TRANSLATIONS[DEFAULT_LOCALE]![key]!;
+function selectedLanguage(ctx: ServerContext): SupportedLanguage {
+    return negotiateLanguage(getAcceptLanguage({ _meta: ctx.mcpReq._meta }), LANGUAGES, DEFAULT_LANGUAGE) as SupportedLanguage;
 }
 
-// ---------------------------------------------------------------------------
-// Server factory
-// ---------------------------------------------------------------------------
+function buildServer(): Server {
+    const server = new Server(
+        { name: 'i18n-deployment-example', version: '1.0.0' },
+        {
+            capabilities: { tools: {} },
+            // Modern cache fields are stamped only on the 2026 wire. The client
+            // additionally keys each entry by the exact acceptLanguage string.
+            cacheHints: { 'tools/list': { ttlMs: 300_000, cacheScope: 'public' } }
+        }
+    );
 
-function buildServer(): McpServer {
-    const server = new McpServer({ name: 'i18n-example', version: '1.0.0' });
-
-    server.registerTool('get_greeting', {
-        title: 'Greeting',
-        description: 'Returns a localized greeting'
-    }, async (ctx) => {
-        // Read the client's language preference from request _meta.
-        const acceptLang = ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META];
-        const lang = typeof acceptLang === 'string'
-            ? negotiateLanguage(acceptLang, AVAILABLE_LOCALES, DEFAULT_LOCALE)
-            : DEFAULT_LOCALE;
-
+    server.setRequestHandler('tools/list', (_request, ctx) => {
+        const language = selectedLanguage(ctx);
         return {
-            content: [{ type: 'text', text: t(lang, 'greeting') }],
-            _meta: { [CONTENT_LANGUAGE_META]: lang }
+            tools: [
+                {
+                    // Machine identifiers and schema property keys stay stable.
+                    name: 'deploy_release',
+                    title: COPY[language].title,
+                    description: COPY[language].description,
+                    inputSchema: {
+                        type: 'object',
+                        properties: {
+                            environment: { type: 'string', description: 'Stable deployment target identifier' }
+                        },
+                        required: ['environment']
+                    }
+                }
+            ],
+            _meta: { [CONTENT_LANGUAGE_META]: language }
         };
     });
 
-    // A second tool that demonstrates localized error responses.
-    server.registerTool('get_personal_greeting', {
-        title: 'Personal Greeting',
-        description: 'Returns a personalized greeting; errors if name is "unknown"'
-    }, async (ctx) => {
-        const acceptLang = ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META];
-        const lang = typeof acceptLang === 'string'
-            ? negotiateLanguage(acceptLang, AVAILABLE_LOCALES, DEFAULT_LOCALE)
-            : DEFAULT_LOCALE;
+    server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
+        const environment =
+            typeof request.params.arguments?.['environment'] === 'string' ? request.params.arguments.environment : 'production';
+        const language = selectedLanguage(ctx);
+        const copy = COPY[language];
+        const approval = acceptedContent<{ approve: boolean }>(ctx.mcpReq.inputResponses, 'approval');
 
-        // Simulate a localized error.
-        const errorData: Record<string, unknown> = {};
-        setContentLanguage(errorData as { _meta?: Record<string, unknown> }, lang);
+        if (approval === undefined) {
+            const progressToken = ctx.mcpReq._meta?.progressToken;
+            if (typeof progressToken === 'string' || typeof progressToken === 'number') {
+                await ctx.mcpReq.notify({
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken,
+                        progress: 0.5,
+                        total: 1,
+                        message: copy.progress,
+                        _meta: { [CONTENT_LANGUAGE_META]: language }
+                    }
+                });
+            }
+
+            return {
+                ...inputRequired({
+                    inputRequests: {
+                        approval: inputRequired.elicit({
+                            message: copy.question(environment),
+                            requestedSchema: {
+                                type: 'object',
+                                properties: {
+                                    // The key remains "approve"; only display text changes.
+                                    approve: { type: 'boolean', title: copy.approvalTitle }
+                                },
+                                required: ['approve']
+                            }
+                        })
+                    }
+                }),
+                _meta: { [CONTENT_LANGUAGE_META]: language }
+            };
+        }
+
+        if (!approval.approve) {
+            return {
+                isError: true,
+                content: [{ type: 'text', text: copy.declined }],
+                _meta: { [CONTENT_LANGUAGE_META]: language }
+            };
+        }
         return {
-            content: [{ type: 'text', text: t(lang, 'errorUnknown') }],
-            isError: true,
-            _meta: { [CONTENT_LANGUAGE_META]: lang }
+            content: [{ type: 'text', text: copy.success(environment) }],
+            _meta: { [CONTENT_LANGUAGE_META]: language }
         };
     });
 
     return server;
 }
-
-// ---------------------------------------------------------------------------
-// Entry point (stdio or HTTP)
-// ---------------------------------------------------------------------------
 
 const { transport, port } = parseExampleArgs();
 
@@ -112,8 +154,9 @@ if (transport === 'stdio') {
     console.error('[i18n-server] serving over stdio');
 } else {
     const handler = createMcpHandler(buildServer);
-    const app = createMcpHonoApp(handler);
-    serve({ fetch: app.fetch, port }, () => {
-        console.error(`[i18n-server] listening on http://localhost:${port}/mcp`);
+    const app = createMcpHonoApp();
+    app.all('/mcp', c => handler.fetch(c.req.raw));
+    serve({ fetch: app.fetch, port, hostname: '127.0.0.1' }, () => {
+        console.error(`[i18n-server] listening on http://127.0.0.1:${port}/mcp`);
     });
 }

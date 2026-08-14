@@ -51,6 +51,7 @@ import { isStandardSchema, validateStandardSchema } from '../util/standardSchema
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
 import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
+import { ACCEPT_LANGUAGE_META, isValidAcceptLanguage } from './i18n';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { Transport, TransportSendOptions } from './transport';
 
@@ -99,6 +100,21 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
  * Options that can be given per request.
  */
 export type RequestOptions = {
+    /**
+     * Natural-language preference for this request, using RFC 9110
+     * `Accept-Language` field-value syntax (SEP-2792).
+     *
+     * The value is written to the canonical request
+     * `_meta["io.modelcontextprotocol/acceptLanguage"]` field. Streamable HTTP
+     * mirrors that exact value to the `Accept-Language` header; other transports
+     * carry only `_meta`. It is deliberately request-scoped: omit or change it
+     * independently on every call.
+     *
+     * When the request already carries the metadata key, this dedicated option
+     * takes precedence.
+     */
+    acceptLanguage?: string;
+
     /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
      */
@@ -1425,12 +1441,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 id: messageId
             };
 
-            if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
+            if (options?.acceptLanguage !== undefined) {
+                if (!isValidAcceptLanguage(options.acceptLanguage)) {
+                    throw new TypeError('acceptLanguage must use RFC 9110 Accept-Language field-value syntax');
+                }
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
                         ...request.params?._meta,
+                        [ACCEPT_LANGUAGE_META]: options.acceptLanguage
+                    }
+                };
+            }
+
+            if (options?.onprogress) {
+                this._progressHandlers.set(messageId, options.onprogress);
+                jsonrpcRequest.params = {
+                    ...jsonrpcRequest.params,
+                    _meta: {
+                        ...jsonrpcRequest.params?._meta,
                         progressToken: messageId
                     }
                 };

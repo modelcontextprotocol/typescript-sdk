@@ -6,7 +6,7 @@
  * mode, and the synthesized handler context contract.
  */
 import type { ElicitResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { ACCEPT_LANGUAGE_META, getAcceptLanguage, InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -317,6 +317,26 @@ describe('auto-fulfilment (default on)', () => {
         await client.callTool({ name: 'deploy', arguments: {} });
         expect(seenCtx).toHaveLength(1);
 
+        await client.close();
+    });
+    it('preserves the exact request-scoped language preference across retry legs', async () => {
+        const { clientTx, toolCalls } = await scriptedModernServer((_request, call) =>
+            call === 1
+                ? {
+                      resultType: 'input_required',
+                      inputRequests: { answer: ELICIT_ENTRY },
+                      _meta: { 'io.modelcontextprotocol/contentLanguage': 'fr' }
+                  }
+                : { resultType: 'complete', content: [{ type: 'text', text: 'fini' }] }
+        );
+        const client = makeClient({ capabilities: { elicitation: { form: {} } } });
+        client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: { name: 'octocat' } }));
+        await client.connect(clientTx);
+
+        await client.callTool({ name: 'quiz', arguments: {} }, { acceptLanguage: 'fr-CA, fr;q=0.9' });
+
+        expect(toolCalls.map(call => getAcceptLanguage(call.params))).toEqual(['fr-CA, fr;q=0.9', 'fr-CA, fr;q=0.9']);
+        expect(toolCalls[0]?.params?._meta?.[ACCEPT_LANGUAGE_META]).toBe('fr-CA, fr;q=0.9');
         await client.close();
     });
 });

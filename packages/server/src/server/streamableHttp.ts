@@ -10,13 +10,18 @@
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    getAcceptLanguage,
+    getMessageContentLanguage,
+    getRawAcceptLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     isInitializeRequest,
     isJsonContentType,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    validateAcceptLanguageHeader
 } from '@modelcontextprotocol/core-internal';
 
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
@@ -244,6 +249,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
+    private _requestLanguageMap: Map<RequestId, { canonical?: string; headerPresent: boolean }> = new Map();
     private _initialized: boolean = false;
     private _enableJsonResponse: boolean = false;
     private _standaloneSseStreamId: string = '_GET_stream';
@@ -318,9 +324,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         status: number,
         code: number,
         message: string,
-        options?: { headers?: Record<string, string>; data?: string }
+        options?: { headers?: Record<string, string>; data?: unknown }
     ): Response {
-        const error: { code: number; message: string; data?: string } = { code, message };
+        const error: { code: number; message: string; data?: unknown } = { code, message };
         if (options?.data !== undefined) {
             error.data = options.data;
         }
@@ -788,6 +794,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(404, -32_001, 'Session not found');
             }
 
+            const acceptLanguageHeader = req.headers.get('accept-language') ?? undefined;
+            for (const message of messages) {
+                if (!isJSONRPCRequest(message)) continue;
+                const rejection = validateAcceptLanguageHeader(acceptLanguageHeader, getRawAcceptLanguage(message.params));
+                if (rejection !== undefined) {
+                    this.onerror?.(new Error(rejection.message));
+                    return this.createJsonErrorResponse(400, HEADER_MISMATCH_ERROR_CODE, rejection.message, {
+                        data: rejection.data
+                    });
+                }
+            }
+
             // Check if this is an initialization request
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
             // The schema-validated guard (types/guards.ts → types/schemas.ts —
@@ -870,6 +888,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     for (const message of messages) {
                         if (isJSONRPCRequest(message)) {
                             this._requestToStreamMapping.set(message.id, streamId);
+                            this._requestLanguageMap.set(message.id, {
+                                canonical: getAcceptLanguage(message.params),
+                                headerPresent: acceptLanguageHeader !== undefined
+                            });
                         }
                     }
 
@@ -917,6 +939,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // We need to track by request ID to maintain the connection
             for (const message of messages) {
                 if (isJSONRPCRequest(message)) {
+                    this._requestLanguageMap.set(message.id, {
+                        canonical: getAcceptLanguage(message.params),
+                        headerPresent: acceptLanguageHeader !== undefined
+                    });
                     this._streamMapping.set(streamId, {
                         controller: streamController!,
                         encoder,
@@ -1062,6 +1088,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         // Clear any pending responses
         this._requestResponseMap.clear();
+        this._requestLanguageMap.clear();
         this.onclose?.();
     }
 
@@ -1197,6 +1224,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         for (const id of relatedIds) {
                             this._requestResponseMap.delete(id);
                             this._requestToStreamMapping.delete(id);
+                            this._requestLanguageMap.delete(id);
                         }
                         return;
                     }
@@ -1207,6 +1235,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     for (const id of relatedIds) {
                         this._requestResponseMap.delete(id);
                         this._requestToStreamMapping.delete(id);
+                        this._requestLanguageMap.delete(id);
                     }
                     return;
                 }
@@ -1220,13 +1249,40 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
-
-                    if (responses.length === 1) {
-                        stream.resolveJson(Response.json(responses[0], { status: 200, headers }));
+                    const contentLanguages = [
+                        ...new Set(
+                            responses
+                                .map(response => getMessageContentLanguage(response))
+                                .filter((language): language is string => language !== undefined)
+                        )
+                    ];
+                    if (contentLanguages.length > 1) {
+                        const error = new Error(
+                            `Cannot mirror conflicting response contentLanguage values in one JSON response: ${contentLanguages.join(', ')}`
+                        );
+                        this.onerror?.(error);
+                        stream.resolveJson(this.createJsonErrorResponse(500, -32_603, error.message));
+                        stream.cleanup();
                     } else {
-                        stream.resolveJson(Response.json(responses, { status: 200, headers }));
+                        const contentLanguage = contentLanguages[0];
+                        const requestLanguages = relatedIds.map(id => this._requestLanguageMap.get(id));
+                        if (contentLanguage !== undefined) {
+                            headers['Content-Language'] = contentLanguage;
+                            if (requestLanguages.some(language => language?.canonical !== undefined)) {
+                                headers.Vary = 'Accept-Language';
+                                if (requestLanguages.some(language => language?.canonical !== undefined && !language.headerPresent)) {
+                                    headers['Cache-Control'] = 'private';
+                                }
+                            }
+                        }
+
+                        if (responses.length === 1) {
+                            stream.resolveJson(Response.json(responses[0], { status: 200, headers }));
+                        } else {
+                            stream.resolveJson(Response.json(responses, { status: 200, headers }));
+                        }
+                        stream.cleanup();
                     }
-                    stream.cleanup();
                 } else {
                     // End the SSE stream
                     stream.cleanup();
@@ -1235,6 +1291,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 for (const id of relatedIds) {
                     this._requestResponseMap.delete(id);
                     this._requestToStreamMapping.delete(id);
+                    this._requestLanguageMap.delete(id);
                 }
             }
         }

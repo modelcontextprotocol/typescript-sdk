@@ -1,148 +1,135 @@
-/**
- * SEP-2792: Internationalization via Per-Request Language Negotiation.
- *
- * Tests cover:
- * 1. i18n helpers and negotiateLanguage
- * 2. Server-side Accept-Language byte-equality validation
- * 3. Client-side Content-Language response mismatch detection
- * 4. Full HTTP integration: header mirroring, Vary, Cache-Control
- * 5. stdio per-request language switch (no transport headers)
- */
-import { describe, expect, test } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
     ACCEPT_LANGUAGE_META,
     CONTENT_LANGUAGE_META,
     getAcceptLanguage,
     getContentLanguage,
+    getErrorContentLanguage,
+    getMessageContentLanguage,
+    getRawAcceptLanguage,
+    isValidAcceptLanguage,
+    languageHeaderValueConflicts,
     negotiateLanguage,
     setAcceptLanguage,
-    setContentLanguage
+    setContentLanguage,
+    setErrorContentLanguage
 } from '../../src/shared/i18n';
-import { HEADER_MISMATCH_ERROR_CODE, validateAcceptLanguageHeader } from '../../src/shared/inboundClassification';
 
-// ---------------------------------------------------------------------------
-// Unit tests for helpers
-// ---------------------------------------------------------------------------
-
-describe('i18n helpers', () => {
-    test('getAcceptLanguage reads from _meta', () => {
-        expect(getAcceptLanguage({ _meta: { [ACCEPT_LANGUAGE_META]: 'en-US' } })).toBe('en-US');
+describe('SEP-2792 metadata helpers', () => {
+    it('uses the standardized metadata keys', () => {
+        expect(ACCEPT_LANGUAGE_META).toBe('io.modelcontextprotocol/acceptLanguage');
+        expect(CONTENT_LANGUAGE_META).toBe('io.modelcontextprotocol/contentLanguage');
     });
 
-    test('getAcceptLanguage returns undefined when absent', () => {
-        expect(getAcceptLanguage({})).toBeUndefined();
-        expect(getAcceptLanguage(undefined)).toBeUndefined();
-        expect(getAcceptLanguage({ _meta: {} })).toBeUndefined();
-    });
-
-    test('setAcceptLanguage creates _meta if needed', () => {
-        const params: { _meta?: Record<string, unknown> } = {};
-        setAcceptLanguage(params, 'fr');
-        expect(params._meta?.[ACCEPT_LANGUAGE_META]).toBe('fr');
-    });
-
-    test('getContentLanguage reads from _meta', () => {
-        expect(getContentLanguage({ _meta: { [CONTENT_LANGUAGE_META]: 'de' } })).toBe('de');
-    });
-
-    test('setContentLanguage creates _meta if needed', () => {
+    it('reads and writes request and response metadata', () => {
+        const request: { _meta?: Record<string, unknown> } = {};
         const result: { _meta?: Record<string, unknown> } = {};
-        setContentLanguage(result, 'fr');
-        expect(result._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+        expect(setAcceptLanguage(request, 'fr-CA, fr;q=0.9')).toBe(request);
+        expect(setContentLanguage(result, 'fr')).toBe(result);
+        expect(getAcceptLanguage(request)).toBe('fr-CA, fr;q=0.9');
+        expect(getContentLanguage(result)).toBe('fr');
+    });
+
+    it('rejects malformed values authored through the dedicated request setter', () => {
+        expect(() => setAcceptLanguage({}, 'en;q=1.001')).toThrow(TypeError);
+    });
+
+    it('treats malformed canonical preferences as absent after retaining the raw agreement value', () => {
+        const params = { _meta: { [ACCEPT_LANGUAGE_META]: '!!!' } };
+        expect(getRawAcceptLanguage(params)).toBe('!!!');
+        expect(getAcceptLanguage(params)).toBeUndefined();
+    });
+
+    it('uses error.data._meta only when error data is structurally an object', () => {
+        const data = setErrorContentLanguage({ reason: 'wrong-answer' }, 'de');
+        expect(getErrorContentLanguage(data)).toBe('de');
+        expect(getErrorContentLanguage('wrong-answer')).toBeUndefined();
+        expect(getErrorContentLanguage(['wrong-answer'])).toBeUndefined();
+    });
+
+    it('reads reported language from complete, input-required, error, and notification messages', () => {
+        const meta = { [CONTENT_LANGUAGE_META]: 'fr' };
+        expect(getMessageContentLanguage({ jsonrpc: '2.0', id: 1, result: { _meta: meta } })).toBe('fr');
+        expect(
+            getMessageContentLanguage({
+                jsonrpc: '2.0',
+                id: 2,
+                result: { resultType: 'input_required', inputRequests: {}, _meta: meta }
+            })
+        ).toBe('fr');
+        expect(
+            getMessageContentLanguage({ jsonrpc: '2.0', id: 3, error: { code: -32_602, message: 'Erreur', data: { _meta: meta } } })
+        ).toBe('fr');
+        expect(
+            getMessageContentLanguage({ jsonrpc: '2.0', method: 'notifications/message', params: { level: 'info', data: {}, _meta: meta } })
+        ).toBe('fr');
     });
 });
 
-// ---------------------------------------------------------------------------
-// negotiateLanguage
-// ---------------------------------------------------------------------------
+describe('Accept-Language grammar and RFC 4647 lookup', () => {
+    it.each(['en', 'fr-CA, fr;q=0.9, en;q=0.5', 'zh-Hant-TW', '*;q=0.2', 'de;q=0', 'EN-us, *;Q=0.100'])(
+        'accepts valid field value %s',
+        value => {
+            expect(isValidAcceptLanguage(value)).toBe(true);
+        }
+    );
 
-describe('negotiateLanguage', () => {
-    test('exact match', () => {
-        expect(negotiateLanguage('en', ['en', 'fr', 'de'], 'en')).toBe('en');
+    it.each(['', ' en', 'en ', 'en;q=1.001', 'en;q=.5', 'en;q=2', 'en;q=0.1234', 'en;level=1', 'en,,fr', 'toolongprimarytag'])(
+        'rejects malformed field value %s',
+        value => {
+            expect(isValidAcceptLanguage(value)).toBe(false);
+        }
+    );
+
+    it('honors quality weights and original order for ties', () => {
+        expect(negotiateLanguage('fr;q=0.4, de;q=0.9', ['en', 'fr', 'de'], 'en')).toBe('de');
+        expect(negotiateLanguage('fr;q=0.8, de;q=0.8', ['en', 'fr', 'de'], 'en')).toBe('fr');
     });
 
-    test('RFC 4647 lookup match (subtag)', () => {
-        expect(negotiateLanguage('fr-CA', ['en', 'fr', 'de'], 'en')).toBe('fr');
+    it('performs case-insensitive RFC 4647 lookup and returns the advertised spelling', () => {
+        expect(negotiateLanguage('FR-ca', ['en', 'fr', 'de'], 'en')).toBe('fr');
+        expect(negotiateLanguage('zh-hant', ['en', 'zh-Hant-TW'], 'en')).toBe('zh-Hant-TW');
     });
 
-    test('quality-weighted selection', () => {
-        expect(negotiateLanguage('fr;q=0.5, de;q=0.9', ['en', 'fr', 'de'], 'en')).toBe('de');
+    it('honors wildcard and q=0 exclusions', () => {
+        expect(negotiateLanguage('fr;q=0, *;q=0.5', ['fr', 'de'], 'fr')).toBe('de');
     });
 
-    test('unmatched value falls back to default without error', () => {
-        expect(negotiateLanguage('ja', ['en', 'fr', 'de'], 'en')).toBe('en');
+    it('applies q=0 exclusions by longest matching range', () => {
+        expect(negotiateLanguage('en, en-GB;q=0', ['en-GB', 'en-US'], 'de')).toBe('en-US');
+        expect(negotiateLanguage('en, en-GB;q=0', ['en-US'], 'de')).toBe('en-US');
+        expect(negotiateLanguage('en, en-GB;q=0', ['en'], 'de')).toBe('en');
+        expect(negotiateLanguage('fr, fr-CA;q=0', ['fr-CA', 'fr-FR'], 'de')).toBe('fr-FR');
+        expect(negotiateLanguage('fr, fr;q=0', ['fr', 'de'], 'de')).toBe('de');
+        expect(negotiateLanguage('fr;q=0, fr-CA;q=1', ['fr-CA', 'de'], 'de')).toBe('fr-CA');
     });
 
-    test('malformed value treated as absent (returns default)', () => {
-        expect(negotiateLanguage(';;;invalid;;;', ['en', 'fr'], 'en')).toBe('en');
+    it('uses the most specific matching range to determine a language quality', () => {
+        expect(negotiateLanguage('*;q=1, en;q=0.5', ['en', 'de'], 'en')).toBe('de');
+        expect(negotiateLanguage('*;q=0, en;q=0.5', ['de', 'en'], 'de')).toBe('en');
     });
 
-    test('empty string returns default', () => {
-        expect(negotiateLanguage('', ['en', 'fr'], 'en')).toBe('en');
-    });
-
-    test('wildcard * alone returns default (not matched as a tag)', () => {
-        expect(negotiateLanguage('*', ['en', 'fr'], 'en')).toBe('en');
+    it('falls back to the server default without error for absent, malformed, or unmatched preferences', () => {
+        expect(negotiateLanguage(undefined, ['en', 'fr'], 'en')).toBe('en');
+        expect(negotiateLanguage('en;q=9', ['en', 'fr'], 'en')).toBe('en');
+        expect(negotiateLanguage('ja', ['en', 'fr'], 'en')).toBe('en');
     });
 });
 
-// ---------------------------------------------------------------------------
-// Server-side Accept-Language byte-equality validation
-// ---------------------------------------------------------------------------
-
-describe('validateAcceptLanguageHeader (byte-equality)', () => {
-    test('both present, byte-identical → accept', () => {
-        expect(validateAcceptLanguageHeader('en-US, fr;q=0.9', 'en-US, fr;q=0.9')).toBeUndefined();
+describe('Streamable HTTP mirror equality', () => {
+    it('accepts an exact exposed field-value match and missing mirrors', () => {
+        expect(languageHeaderValueConflicts('en-US, fr;q=0.9', 'en-US, fr;q=0.9')).toBe(false);
+        expect(languageHeaderValueConflicts(undefined, 'en-US')).toBe(false);
+        expect(languageHeaderValueConflicts('en-US', undefined)).toBe(false);
     });
 
-    test('both present, byte-mismatch (trailing whitespace) → reject', () => {
-        const result = validateAcceptLanguageHeader('en-US ', 'en-US');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-        expect(result!.httpStatus).toBe(400);
-    });
-
-    test('both present, byte-mismatch (case only: en-US vs en-us) → reject', () => {
-        const result = validateAcceptLanguageHeader('en-us', 'en-US');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    test('both present, byte-mismatch (q formatting: q=0.9 vs q=0.900) → reject', () => {
-        const result = validateAcceptLanguageHeader('en;q=0.900', 'en;q=0.9');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    test('both present, byte-mismatch (reordered ranges) → reject', () => {
-        const result = validateAcceptLanguageHeader('fr;q=0.9, en-US', 'en-US, fr;q=0.9');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    test('both present, byte-mismatch (spacing: comma without space) → reject', () => {
-        const result = validateAcceptLanguageHeader('en-US,en;q=0.9', 'en-US, en;q=0.9');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    test('_meta present, header absent → accept (CDN-strip tolerance)', () => {
-        expect(validateAcceptLanguageHeader(undefined, 'en-US')).toBeUndefined();
-    });
-
-    test('header present, _meta absent → accept (bare header ignored)', () => {
-        expect(validateAcceptLanguageHeader('en-US', undefined)).toBeUndefined();
-    });
-
-    test('both absent → no preference', () => {
-        expect(validateAcceptLanguageHeader(undefined, undefined)).toBeUndefined();
-    });
-
-    test('rejection carries -32020 error code', () => {
-        const result = validateAcceptLanguageHeader('en', 'EN');
-        expect(result).not.toBeUndefined();
-        expect(result!.code).toBe(-32020);
-        expect(result!.cell).toBe('accept-language-header-mismatch');
+    it.each([
+        ['en-US', 'en-us'],
+        ['en-US,fr;q=0.9', 'en-US, fr;q=0.9'],
+        ['en;q=0.9', 'en;q=0.900'],
+        ['fr, en;q=0.5', 'en;q=0.5, fr']
+    ])('does not normalize semantically equivalent values (%s vs %s)', (header, metadata) => {
+        expect(languageHeaderValueConflicts(header, metadata)).toBe(true);
     });
 });

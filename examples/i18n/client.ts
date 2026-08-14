@@ -1,83 +1,62 @@
 /**
- * SEP-2792 i18n example client — demonstrates per-request language negotiation.
- *
- * Calls the i18n example server with different language preferences, showing:
- * - Setting `acceptLanguage` in request `_meta`
- * - Reading `contentLanguage` from response `_meta`
- * - Fallback behavior for unmatched locales
- * - Mid-conversation language switching over stdio
+ * Runnable SEP-2792 client showing per-request changes/omission, stdio-neutral
+ * `_meta`, Streamable HTTP mirroring, default fallback, stable identifiers, and
+ * automatic MRTR elicitation retries.
  */
-import { parseExampleArgs } from '@mcp-examples/shared';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
+import { Client, CONTENT_LANGUAGE_META, getContentLanguage, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import {
-    ACCEPT_LANGUAGE_META,
-    CONTENT_LANGUAGE_META
-} from '@modelcontextprotocol/server';
 
-async function callGreeting(client: Client, acceptLanguage: string): Promise<void> {
-    const result = await client.callTool({
-        name: 'get_greeting',
-        arguments: {},
-        _meta: { [ACCEPT_LANGUAGE_META]: acceptLanguage }
-    });
-
-    const content = result.content as Array<{ type: string; text?: string }> | undefined;
-    const text = content?.[0]?.type === 'text' ? content[0].text : '(no text)';
-    const contentLang = (result as { _meta?: Record<string, unknown> })._meta?.[CONTENT_LANGUAGE_META] ?? '(none)';
-    console.log(`  Accept-Language: ${acceptLanguage}`);
-    console.log(`  Response text:   ${text}`);
-    console.log(`  Content-Language: ${contentLang}`);
-    console.log();
-}
-
-async function run(): Promise<void> {
-    const { transport: mode, port, url } = parseExampleArgs();
-
-    let client: Client;
-
-    if (mode === 'stdio') {
-        const transport = new StdioClientTransport({
-            command: 'tsx',
-            args: ['server.ts'],
-            cwd: import.meta.dirname
-        });
-        client = new Client({ name: 'i18n-client', version: '1.0.0' });
-        await client.connect(transport);
-    } else {
-        const transport = new StreamableHTTPClientTransport(new URL(url));
-        client = new Client({ name: 'i18n-client', version: '1.0.0' });
-        await client.connect(transport);
+const { transport, url, era } = parseExampleArgs();
+const client = new Client(
+    { name: 'i18n-deployment-client', version: '1.0.0' },
+    {
+        capabilities: { elicitation: { form: {} } },
+        versionNegotiation: { mode: era === 'modern' ? 'auto' : 'legacy' }
     }
+);
 
-    console.log('=== SEP-2792 i18n Example ===\n');
+client.setRequestHandler('elicitation/create', async request => {
+    console.log(`  elicitation: ${request.params.message}`);
+    return { action: 'accept', content: { approve: true } };
+});
 
-    // 1. English (exact match)
-    console.log('1. Requesting English:');
-    await callGreeting(client, 'en');
+await (transport === 'stdio'
+    ? client.connect(new StdioClientTransport({ command: 'npx', args: ['-y', 'tsx', siblingPath(import.meta.url, 'server.ts')] }))
+    : client.connect(new StreamableHTTPClientTransport(new URL(url))));
 
-    // 2. French-Canadian (RFC 4647 lookup -> fr)
-    console.log('2. Requesting French-Canadian (falls back to fr):');
-    await callGreeting(client, 'fr-CA, fr;q=0.9, en;q=0.5');
+const frenchTools = await client.listTools(undefined, { acceptLanguage: 'fr-CA, fr;q=0.9, en;q=0.5' });
+check.equal(frenchTools.tools[0]?.name, 'deploy_release');
+check.equal(frenchTools.tools[0]?.title, 'Déployer la version');
+check.equal(getContentLanguage(frenchTools), 'fr');
+console.log(`stable tool name: ${frenchTools.tools[0]?.name}; localized title: ${frenchTools.tools[0]?.title}`);
 
-    // 3. German
-    console.log('3. Requesting German:');
-    await callGreeting(client, 'de-DE');
-
-    // 4. Japanese (unmatched -> falls back to en)
-    console.log('4. Requesting Japanese (unmatched, falls back to en):');
-    await callGreeting(client, 'ja');
-
-    // 5. Mid-conversation switch: en -> de (demonstrates per-request scope)
-    console.log('5. Mid-conversation switch (en then de):');
-    await callGreeting(client, 'en');
-    await callGreeting(client, 'de');
-
-    await client.close();
-    console.log('Done.');
+async function deploy(label: string, expectedLanguage: string, acceptLanguage?: string): Promise<void> {
+    const onprogress = (progress: { message?: string; _meta?: Record<string, unknown> }) => {
+        // The SDK's MRTR driver can emit local lifecycle progress too. Only the
+        // server-authored, language-reported notification demonstrates SEP-2792.
+        if (progress.message !== undefined && typeof progress._meta?.[CONTENT_LANGUAGE_META] === 'string') {
+            console.log(`  progress: ${progress.message}`);
+        }
+    };
+    const options = acceptLanguage === undefined ? { onprogress } : { acceptLanguage, onprogress };
+    const result = await client.callTool(
+        {
+            name: 'deploy_release',
+            arguments: { environment: 'production' }
+        },
+        options
+    );
+    check.equal(getContentLanguage(result), expectedLanguage);
+    const text = result.content?.[0]?.type === 'text' ? result.content[0].text : '(no text)';
+    console.log(`${label}: ${text} [${String(result._meta?.[CONTENT_LANGUAGE_META])}]`);
 }
 
-run().then(
-    () => process.exit(0),
-    (err) => { console.error(err); process.exit(1); }
-);
+// Consecutive calls on one connection: change, fallback, then omission. No
+// preference is retained as transport/session state.
+await deploy('English', 'en', 'en');
+await deploy('French Canadian lookup', 'fr', 'fr-CA, fr;q=0.9');
+await deploy('Unsupported Japanese falls back to server default', 'en', 'ja');
+await deploy('Omitted after Japanese still uses server default', 'en');
+
+await client.close();

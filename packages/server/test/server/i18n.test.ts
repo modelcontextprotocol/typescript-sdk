@@ -1,434 +1,317 @@
-/**
- * Integration tests for SEP-2792: i18n per-request language negotiation.
- *
- * Tests HTTP transport header mirroring/mismatch and stdio per-request switching.
- */
-import { randomUUID } from 'node:crypto';
-
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import {
     ACCEPT_LANGUAGE_META,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     CONTENT_LANGUAGE_META,
     HEADER_MISMATCH_ERROR_CODE,
+    inputRequired,
+    negotiateLanguage,
+    PROTOCOL_VERSION_META_KEY,
+    ProtocolError,
     setErrorContentLanguage
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
+import { afterEach, describe, expect, it } from 'vitest';
 
-import { ProtocolError } from '../../src/index.js';
-import { Server } from '../../src/server/server.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { Server } from '../../src/server/server';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
-// ---------- helpers ----------
+const MODERN = '2026-07-28';
+const ENVELOPE = {
+    [PROTOCOL_VERSION_META_KEY]: MODERN,
+    [CLIENT_INFO_META_KEY]: { name: 'i18n-test-client', version: '1.0.0' },
+    [CLIENT_CAPABILITIES_META_KEY]: { elicitation: { form: {} } }
+};
 
-function createRequest(
-    method: string,
-    body?: JSONRPCMessage | JSONRPCMessage[],
-    options?: {
-        sessionId?: string;
-        accept?: string;
-        contentType?: string;
-        extraHeaders?: Record<string, string>;
-    }
-): Request {
-    const headers: Record<string, string> = {};
-
-    if (options?.accept) {
-        headers['Accept'] = options.accept;
-    } else if (method === 'POST') {
-        headers['Accept'] = 'application/json, text/event-stream';
-    }
-
-    if (options?.contentType) {
-        headers['Content-Type'] = options.contentType;
-    } else if (body) {
-        headers['Content-Type'] = 'application/json';
-    }
-
-    if (options?.sessionId) {
-        headers['mcp-session-id'] = options.sessionId;
-        headers['mcp-protocol-version'] = '2025-11-25';
-    }
-
-    if (options?.extraHeaders) {
-        Object.assign(headers, options.extraHeaders);
-    }
-
-    return new Request('http://localhost/mcp', {
-        method,
-        headers,
-        body: body ? JSON.stringify(body) : undefined
-    });
+function languageFromMeta(meta: Record<string, unknown> | undefined): string {
+    const preference = meta?.[ACCEPT_LANGUAGE_META];
+    return negotiateLanguage(typeof preference === 'string' ? preference : undefined, ['en', 'fr', 'de'], 'en');
 }
 
-function createI18nServer(): { server: Server; transport: WebStandardStreamableHTTPServerTransport } {
-    const server = new Server({ name: 'i18n-test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+function makeServer(): Server {
+    const server = new Server(
+        { name: 'i18n-test-server', version: '1.0.0' },
+        { capabilities: { tools: {} }, cacheHints: { 'tools/list': { ttlMs: 60_000, cacheScope: 'public' } } }
+    );
 
     server.setRequestHandler('tools/list', (_request, ctx) => {
-        const lang = (ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META] as string) ?? 'en';
-        const titles: Record<string, string> = { en: 'Greet', fr: 'Saluer', de: 'Grüßen' };
-        const resolved = lang.startsWith('fr') ? 'fr' : lang.startsWith('de') ? 'de' : 'en';
-
+        const language = languageFromMeta(ctx.mcpReq._meta);
         return {
-            tools: [{ name: 'greet', title: titles[resolved] ?? 'Greet', inputSchema: { type: 'object' as const } }],
-            _meta: { [CONTENT_LANGUAGE_META]: resolved }
+            tools: [
+                {
+                    name: 'trivia_quiz',
+                    title: { en: 'Trivia quiz', fr: 'Quiz', de: 'Quizfrage' }[language],
+                    inputSchema: { type: 'object' }
+                }
+            ],
+            _meta: { [CONTENT_LANGUAGE_META]: language }
         };
     });
 
-    server.setRequestHandler('tools/call', (request, ctx) => {
-        const lang = (ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META] as string) ?? 'en';
-        const name = (request.params as { arguments?: { name?: string } }).arguments?.name ?? 'World';
-        const greetings: Record<string, string> = { en: `Hello, ${name}!`, fr: `Bonjour, ${name}!`, de: `Hallo, ${name}!` };
-        const resolved = lang.startsWith('fr') ? 'fr' : lang.startsWith('de') ? 'de' : 'en';
+    server.setRequestHandler('tools/call', async (request, ctx) => {
+        const explicitLanguage = request.params.arguments?.['language'];
+        const language =
+            typeof explicitLanguage === 'string' && ['en', 'fr', 'de'].includes(explicitLanguage)
+                ? explicitLanguage
+                : languageFromMeta(ctx.mcpReq._meta);
+        const mode = request.params.arguments?.['mode'];
+        if (mode === 'error') {
+            throw new ProtocolError(-32_602, 'Localized error', setErrorContentLanguage({ reason: 'test' }, language));
+        }
+        if (mode === 'input') {
+            return {
+                ...inputRequired({
+                    inputRequests: {
+                        answer: inputRequired.elicit({
+                            message: language === 'fr' ? 'Votre réponse ?' : 'Your answer?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { answer: { type: 'string' } },
+                                required: ['answer']
+                            }
+                        })
+                    }
+                }),
+                _meta: { [CONTENT_LANGUAGE_META]: language }
+            };
+        }
+        const progressToken = ctx.mcpReq._meta?.progressToken;
+        if (mode === 'stream' && (typeof progressToken === 'string' || typeof progressToken === 'number')) {
+            await ctx.mcpReq.notify({
+                method: 'notifications/progress',
+                params: {
+                    progressToken,
+                    progress: 0.5,
+                    message: language === 'fr' ? 'En cours' : 'Working',
+                    _meta: { [CONTENT_LANGUAGE_META]: language }
+                }
+            });
+        }
         return {
-            content: [{ type: 'text' as const, text: greetings[resolved] ?? greetings.en! }],
-            _meta: { [CONTENT_LANGUAGE_META]: resolved }
-        } as never;
+            content: [{ type: 'text', text: language === 'fr' ? 'Bonjour' : language === 'de' ? 'Hallo' : 'Hello' }],
+            _meta: { [CONTENT_LANGUAGE_META]: language }
+        };
     });
-
-    const transport = new WebStandardStreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        enableJsonResponse: true
-    });
-
-    return { server, transport };
+    return server;
 }
 
-// ---------- HTTP transport integration tests ----------
+function modernRequest(
+    method: 'tools/list' | 'tools/call',
+    options: { metadata?: string; header?: string; arguments?: Record<string, unknown>; progress?: boolean } = {}
+): Request {
+    const meta: Record<string, unknown> = { ...ENVELOPE };
+    if (options.metadata !== undefined) meta[ACCEPT_LANGUAGE_META] = options.metadata;
+    if (options.progress) meta.progressToken = 'progress-1';
 
-describe('SEP-2792 i18n HTTP transport integration', () => {
-    let transport: WebStandardStreamableHTTPServerTransport;
-    let server: Server;
-    let sessionId: string;
+    const headers: Record<string, string> = {
+        Accept: 'application/json, text/event-stream',
+        'Content-Type': 'application/json',
+        'mcp-protocol-version': MODERN,
+        'mcp-method': method
+    };
+    if (method === 'tools/call') headers['mcp-name'] = 'trivia_quiz';
+    if (options.header !== undefined) headers['Accept-Language'] = options.header;
 
-    beforeEach(async () => {
-        ({ server, transport } = createI18nServer());
-        await server.connect(transport);
-
-        // Initialize
-        const initReq = createRequest('POST', {
+    return new Request('http://example.test/mcp', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
             jsonrpc: '2.0',
-            method: 'initialize',
-            params: { clientInfo: { name: 'test', version: '1.0' }, protocolVersion: '2025-11-25', capabilities: {} },
-            id: 'init-1'
-        } as JSONRPCMessage);
-        const initResp = await transport.handleRequest(initReq);
-        expect(initResp.status).toBe(200);
-        sessionId = initResp.headers.get('mcp-session-id')!;
-
-        // Send initialized notification
-        const notifReq = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'notifications/initialized',
-                params: {}
-            } as JSONRPCMessage,
-            { sessionId }
-        );
-        await transport.handleRequest(notifReq);
+            id: 1,
+            method,
+            params: method === 'tools/list' ? { _meta: meta } : { name: 'trivia_quiz', arguments: options.arguments ?? {}, _meta: meta }
+        })
     });
+}
+
+describe('SEP-2792 createMcpHandler integration', () => {
+    const handlers: Array<ReturnType<typeof createMcpHandler>> = [];
 
     afterEach(async () => {
-        await transport.close();
+        await Promise.all(handlers.splice(0).map(handler => handler.close()));
     });
 
-    it('request: both present, byte-identical — processes normally', async () => {
-        const req = createRequest(
-            'POST',
-            { jsonrpc: '2.0', method: 'tools/list', params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } }, id: 'tl-1' } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'fr' } }
+    function handler(responseMode: 'auto' | 'sse' | 'json' = 'json'): ReturnType<typeof createMcpHandler> {
+        const created = createMcpHandler(makeServer, { responseMode });
+        handlers.push(created);
+        return created;
+    }
+
+    it.each([
+        ['en-US', 'en-us'],
+        ['en-US,en;q=0.9', 'en-US, en;q=0.9'],
+        ['en;q=0.9', 'en;q=0.900'],
+        ['fr, en;q=0.5', 'en;q=0.5, fr']
+    ])('rejects an exact mirror mismatch (%s vs %s) with HeaderMismatch -32020', async (metadata, header) => {
+        const response = await handler().fetch(modernRequest('tools/list', { metadata, header }));
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: { code: HEADER_MISMATCH_ERROR_CODE } });
+    });
+
+    it('evaluates agreement before grammar and treats an agreed malformed preference as absent', async () => {
+        const response = await handler().fetch(modernRequest('tools/list', { metadata: '!!!', header: '!!!' }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('en');
+        const body = (await response.json()) as { result: { tools: Array<{ title?: string }> } };
+        expect(body.result.tools[0]?.title).toBe('Trivia quiz');
+    });
+
+    it('still rejects a malformed canonical value when its present mirror disagrees', async () => {
+        const response = await handler().fetch(modernRequest('tools/list', { metadata: '!!!', header: 'en' }));
+        expect(response.status).toBe(400);
+        await expect(response.json()).resolves.toMatchObject({ error: { code: HEADER_MISMATCH_ERROR_CODE } });
+    });
+
+    it('uses the complete combined value for repeated field lines in received order', async () => {
+        const matching = modernRequest('tools/list', { metadata: 'en-US, en;q=0.9' });
+        const matchingHeaders = new Headers(matching.headers);
+        matchingHeaders.append('Accept-Language', 'en-US');
+        matchingHeaders.append('Accept-Language', 'en;q=0.9');
+        const response = await handler().fetch(new Request(matching, { headers: matchingHeaders }));
+        expect(matchingHeaders.get('accept-language')).toBe('en-US, en;q=0.9');
+        expect(response.status).toBe(200);
+
+        const mismatching = modernRequest('tools/list', { metadata: 'en-US,en;q=0.9' });
+        const mismatchingHeaders = new Headers(mismatching.headers);
+        mismatchingHeaders.append('Accept-Language', 'en-US');
+        mismatchingHeaders.append('Accept-Language', 'en;q=0.9');
+        const mismatch = await handler().fetch(new Request(mismatching, { headers: mismatchingHeaders }));
+        expect(mismatch.status).toBe(400);
+    });
+
+    it('ignores surrounding field-line OWS removed by HTTP parsing', async () => {
+        const request = modernRequest('tools/list', { metadata: 'en' });
+        const headers = new Headers(request.headers);
+        headers.set('Accept-Language', ' \t en \t ');
+        expect(headers.get('accept-language')).toBe('en');
+        const response = await handler().fetch(new Request(request, { headers }));
+        expect(response.status).toBe(200);
+    });
+
+    it('mirrors the selected language on JSON and preserves stable identifiers', async () => {
+        const response = await handler().fetch(
+            modernRequest('tools/list', { metadata: 'fr-CA, fr;q=0.9, en;q=0.5', header: 'fr-CA, fr;q=0.9, en;q=0.5' })
         );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('fr');
+        expect(response.headers.get('vary')).toContain('Accept-Language');
+        const body = (await response.json()) as {
+            result: { tools: Array<{ name: string; title?: string }>; _meta?: Record<string, unknown> };
+        };
+        expect(body.result.tools[0]).toMatchObject({ name: 'trivia_quiz', title: 'Quiz' });
+        expect(body.result._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
     });
 
-    it('request: both present, byte-mismatch (different tag) — rejects 400 with -32005', async () => {
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
-                id: 'tl-2'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'de' } }
+    it('tolerates a stripped request header, uses canonical metadata, and prevents unsafe shared caching', async () => {
+        const response = await handler().fetch(modernRequest('tools/list', { metadata: 'de' }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('de');
+        expect(response.headers.get('vary')).toContain('Accept-Language');
+        expect(response.headers.get('cache-control')).toBe('private');
+    });
+
+    it('ignores a bare request header and falls back without error', async () => {
+        const response = await handler().fetch(modernRequest('tools/list', { header: 'fr' }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('en');
+        expect(response.headers.get('vary')).toBeNull();
+        const body = (await response.json()) as { result: { tools: Array<{ title?: string }> } };
+        expect(body.result.tools[0]?.title).toBe('Trivia quiz');
+    });
+
+    it('reports actual default language for an unsupported preference', async () => {
+        const response = await handler().fetch(modernRequest('tools/list', { metadata: 'ja', header: 'ja' }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('en');
+    });
+
+    it('lets an explicit domain language argument take precedence for the content it controls', async () => {
+        const response = await handler().fetch(
+            modernRequest('tools/call', { metadata: 'fr', header: 'fr', arguments: { language: 'de' } })
         );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number; message?: string } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-        expect(body.error?.message).toMatch(/Accept-Language/);
-    });
-
-    it('request: both present, byte-mismatch (extra space in value) — rejects', async () => {
-        // "fr, en;q=0.5" vs "fr,en;q=0.5" — semantically equivalent but not byte-equal
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr,en;q=0.5' } },
-                id: 'tl-3'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'fr, en;q=0.5' } }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    it('request: both present, byte-mismatch (lowercased tag) — rejects', async () => {
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr-CA' } },
-                id: 'tl-4'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'fr-ca' } }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    it('request: both present, byte-mismatch (reordered ranges) — rejects', async () => {
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr,en;q=0.5' } },
-                id: 'tl-5'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'en;q=0.5,fr' } }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    it('request: both present, byte-mismatch (q=1.0 vs q=1) — rejects', async () => {
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr;q=1.0' } },
-                id: 'tl-6'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'fr;q=1' } }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-    });
-
-    it('request: _meta present, header absent (CDN-strip tolerance) — honors _meta', async () => {
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } },
-                id: 'tl-7'
-            } as JSONRPCMessage,
-            { sessionId }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        expect(body.result?.tools?.[0]?.title).toBe('Grüßen');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('de');
-    });
-
-    it('request: header present, _meta absent — ignores header (no MCP preference)', async () => {
-        const req = createRequest('POST', { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'tl-8' } as JSONRPCMessage, {
-            sessionId,
-            extraHeaders: { 'Accept-Language': 'fr' }
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('de');
+        await expect(response.json()).resolves.toMatchObject({
+            result: { content: [{ type: 'text', text: 'Hallo' }], _meta: { [CONTENT_LANGUAGE_META]: 'de' } }
         });
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        // Server returns default (en), ignoring the bare header
-        expect(body.result?.tools?.[0]?.title).toBe('Greet');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
     });
 
-    it('response: JSON, Content-Language header mirrors _meta[contentLanguage]', async () => {
-        const req = createRequest(
-            'POST',
-            { jsonrpc: '2.0', method: 'tools/list', params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } }, id: 'tl-9' } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'de' } }
-        );
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        expect(resp.headers.get('content-language')).toBe('de');
+    it('mirrors content language from object-shaped error.data._meta', async () => {
+        const response = await handler().fetch(modernRequest('tools/call', { metadata: 'fr', header: 'fr', arguments: { mode: 'error' } }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('fr');
+        await expect(response.json()).resolves.toMatchObject({
+            error: { code: -32_602, data: { _meta: { [CONTENT_LANGUAGE_META]: 'fr' } } }
+        });
     });
 
-    it('response: Content-Language header from error response data._meta', async () => {
-        // Create a server that throws a localized error
-        const errorServer = new Server({ name: 'i18n-error-test', version: '1.0.0' }, { capabilities: { tools: {} } });
-        errorServer.setRequestHandler('tools/call', (_request, ctx) => {
-            const lang = (ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META] as string) ?? 'en';
-            const resolved = lang.startsWith('fr') ? 'fr' : 'en';
-            const errorData = setErrorContentLanguage({}, resolved);
-            throw new ProtocolError(-32_602, `Localized error in ${resolved}`, errorData);
+    it('reports language on an InputRequiredResult used for MRTR elicitation', async () => {
+        const response = await handler().fetch(modernRequest('tools/call', { metadata: 'fr', header: 'fr', arguments: { mode: 'input' } }));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('fr');
+        await expect(response.json()).resolves.toMatchObject({
+            result: {
+                resultType: 'input_required',
+                inputRequests: { answer: { method: 'elicitation/create', params: { message: 'Votre réponse ?' } } },
+                _meta: { [CONTENT_LANGUAGE_META]: 'fr' }
+            }
         });
+    });
 
-        const errorTransport = new WebStandardStreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
-            enableJsonResponse: true
-        });
-        await errorServer.connect(errorTransport);
-
-        // Initialize
-        const initReq = createRequest('POST', {
-            jsonrpc: '2.0',
-            method: 'initialize',
-            params: { clientInfo: { name: 'test', version: '1.0' }, protocolVersion: '2025-11-25', capabilities: {} },
-            id: 'init-err'
-        } as JSONRPCMessage);
-        const initResp = await errorTransport.handleRequest(initReq);
-        const errSessionId = initResp.headers.get('mcp-session-id')!;
-
-        await errorTransport.handleRequest(
-            createRequest('POST', { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage, {
-                sessionId: errSessionId
+    it('keeps SSE reporting per-message and omits a stream-wide header', async () => {
+        const response = await handler('sse').fetch(
+            modernRequest('tools/call', {
+                metadata: 'fr',
+                header: 'fr',
+                arguments: { mode: 'stream' },
+                progress: true
             })
         );
-
-        // Call tool that throws localized error
-        const req = createRequest(
-            'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/call',
-                params: { name: 'greet', arguments: {}, _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
-                id: 'err-1'
-            } as JSONRPCMessage,
-            { sessionId: errSessionId, extraHeaders: { 'Accept-Language': 'fr' } }
-        );
-
-        const resp = await errorTransport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        expect(resp.headers.get('content-language')).toBe('fr');
-
-        const body = (await resp.json()) as { error?: { code?: number; data?: unknown } };
-        expect(body.error?.code).toBe(-32_602);
-
-        await errorTransport.close();
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('text/event-stream');
+        expect(response.headers.get('content-language')).toBeNull();
+        const body = await response.text();
+        expect(body).toContain(`"${CONTENT_LANGUAGE_META}":"fr"`);
+        expect(body).toContain('"method":"notifications/progress"');
+        expect(body).toContain('"result"');
     });
 });
 
-// ---------- stdio transport integration test ----------
-
-describe('SEP-2792 i18n stdio transport integration', () => {
-    it('supports mid-session language switching via _meta', async () => {
-        // Use InMemoryTransport to simulate stdio-like transport (no HTTP headers)
-        const server = new Server({ name: 'i18n-test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
-
-        server.setRequestHandler('tools/list', (_request, ctx) => {
-            const lang = (ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META] as string) ?? 'en';
-            const titles: Record<string, string> = { en: 'Greet', fr: 'Saluer', de: 'Grüßen' };
-            const resolved = lang.startsWith('fr') ? 'fr' : lang.startsWith('de') ? 'de' : 'en';
-            return {
-                tools: [{ name: 'greet', title: titles[resolved] ?? 'Greet', inputSchema: { type: 'object' as const } }],
-                _meta: { [CONTENT_LANGUAGE_META]: resolved }
-            };
+describe('legacy WebStandardStreamableHTTPServerTransport integration', () => {
+    it('applies the same exact request validation and JSON response mirroring', async () => {
+        const server = makeServer();
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: undefined,
+            enableJsonResponse: true
         });
+        await server.connect(transport);
 
-        const { InMemoryTransport } = await import('@modelcontextprotocol/core');
-
-        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
-
-        await server.connect(serverTransport);
-
-        // Simulate client initialization
-        const initMessage: JSONRPCMessage = {
+        const body: JSONRPCMessage = {
             jsonrpc: '2.0',
-            method: 'initialize',
-            params: { clientInfo: { name: 'test', version: '1.0' }, protocolVersion: '2025-11-25', capabilities: {} },
-            id: 'init-1'
+            id: 7,
+            method: 'tools/list',
+            params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } }
         };
+        const request = (header: string) =>
+            new Request('http://example.test/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'mcp-protocol-version': '2025-11-25',
+                    'Accept-Language': header
+                },
+                body: JSON.stringify(body)
+            });
 
-        const responses: JSONRPCMessage[] = [];
-        clientTransport.onmessage = msg => {
-            responses.push(msg as JSONRPCMessage);
-        };
-        await clientTransport.start();
-        await clientTransport.send(initMessage);
+        const mismatch = await transport.handleRequest(request('FR'));
+        expect(mismatch.status).toBe(400);
+        await expect(mismatch.json()).resolves.toMatchObject({ error: { code: HEADER_MISMATCH_ERROR_CODE } });
 
-        // Wait for init response
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        // Send initialized notification
-        await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage);
-        await new Promise(resolve => setTimeout(resolve, 50));
-
-        responses.length = 0;
-
-        // Request tools/list in English
-        await clientTransport.send({
-            jsonrpc: '2.0',
-            method: 'tools/list',
-            params: { _meta: { [ACCEPT_LANGUAGE_META]: 'en' } },
-            id: 'en-1'
-        } as JSONRPCMessage);
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const enResp = responses.find(r => 'id' in r && r.id === 'en-1') as
-            | { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } }
-            | undefined;
-        expect(enResp?.result?.tools?.[0]?.title).toBe('Greet');
-        expect(enResp?.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
-
-        // Request tools/list in French on the SAME connection
-        await clientTransport.send({
-            jsonrpc: '2.0',
-            method: 'tools/list',
-            params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
-            id: 'fr-1'
-        } as JSONRPCMessage);
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const frResp = responses.find(r => 'id' in r && r.id === 'fr-1') as
-            | { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } }
-            | undefined;
-        expect(frResp?.result?.tools?.[0]?.title).toBe('Saluer');
-        expect(frResp?.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
-
-        // Request tools/list in German on the SAME connection
-        await clientTransport.send({
-            jsonrpc: '2.0',
-            method: 'tools/list',
-            params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } },
-            id: 'de-1'
-        } as JSONRPCMessage);
-        await new Promise(resolve => setTimeout(resolve, 100));
-
-        const deResp = responses.find(r => 'id' in r && r.id === 'de-1') as
-            | { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } }
-            | undefined;
-        expect(deResp?.result?.tools?.[0]?.title).toBe('Grüßen');
-        expect(deResp?.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('de');
-
-        await clientTransport.close();
+        const response = await transport.handleRequest(request('fr'));
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-language')).toBe('fr');
+        await transport.close();
     });
 });

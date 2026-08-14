@@ -2,8 +2,11 @@ import type { ReadableWritablePair } from 'node:stream/web';
 
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
+    CONTENT_LANGUAGE_META,
     createFetchWithInit,
     encodeMcpParamValue,
+    getMessageContentLanguage,
+    getRawAcceptLanguage,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
@@ -11,6 +14,7 @@ import {
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     JSONRPCMessageSchema,
+    languageHeaderValueConflicts,
     mediaTypeEssence,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
@@ -91,6 +95,12 @@ export interface StartSSEOptions {
      * when `requestSignal` was aborted.
      */
     onRequestStreamEnd?: () => void;
+
+    /**
+     * A stream-wide `Content-Language` mirror, when the server supplied one.
+     * Every applicable SSE message must carry the same canonical `_meta` value.
+     */
+    contentLanguage?: string;
 }
 
 /**
@@ -258,6 +268,7 @@ export type StreamableHTTPClientTransportOptions = {
  * header/body disagreement the server's SEP-2243 cross-checks reject.
  */
 const RESERVED_REQUEST_HEADER_NAMES: ReadonlySet<string> = new Set([
+    'accept-language',
     'authorization',
     'content-type',
     'mcp-protocol-version',
@@ -473,7 +484,12 @@ export class StreamableHTTPClientTransport implements Transport {
         if (Array.isArray(message) || !isJSONRPCRequest(message)) {
             return;
         }
-        const meta = (message.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+        const params = message.params as { _meta?: Record<string, unknown> } | undefined;
+        const meta = params?._meta;
+        const acceptLanguage = getRawAcceptLanguage(params);
+        if (acceptLanguage !== undefined) {
+            headers.set('accept-language', acceptLanguage);
+        }
         const envelopeVersion = meta?.[PROTOCOL_VERSION_META_KEY];
         if (typeof envelopeVersion !== 'string') {
             return;
@@ -490,14 +506,14 @@ export class StreamableHTTPClientTransport implements Transport {
         // body. The spec's value-encoding rules apply to `Mcp-Name`; the SDK
         // server's `validateStandardRequestHeaders` decodes the sentinel via
         // `decodeMcpParamValue` before the `Mcp-Name` ↔ body cross-check.
-        const params = message.params as { name?: unknown; uri?: unknown } | undefined;
+        const requestParams = message.params as { name?: unknown; uri?: unknown } | undefined;
         const nameHeader =
             message.method === 'resources/read'
-                ? typeof params?.uri === 'string'
-                    ? params.uri
+                ? typeof requestParams?.uri === 'string'
+                    ? requestParams.uri
                     : undefined
-                : typeof params?.name === 'string'
-                  ? params.name
+                : typeof requestParams?.name === 'string'
+                  ? requestParams.name
                   : undefined;
         if (nameHeader !== undefined) {
             headers.set('mcp-name', encodeMcpParamValue(nameHeader));
@@ -515,6 +531,19 @@ export class StreamableHTTPClientTransport implements Transport {
         const meta = (message.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
         const v = meta?.[PROTOCOL_VERSION_META_KEY];
         return typeof v === 'string' && isModernProtocolVersion(v);
+    }
+
+    private _validateContentLanguage(headerValue: string | null, messages: readonly JSONRPCMessage[]): void {
+        for (const message of messages) {
+            const canonicalValue = getMessageContentLanguage(message);
+            if (languageHeaderValueConflicts(headerValue, canonicalValue)) {
+                throw new SdkError(
+                    SdkErrorCode.ClientHttpUnexpectedContent,
+                    `Malformed response: Content-Language header "${headerValue}" does not match response _meta "${canonicalValue}"`,
+                    { header: headerValue, metadata: canonicalValue, metadataKey: CONTENT_LANGUAGE_META }
+                );
+            }
+        }
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
@@ -627,7 +656,11 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
-            this._handleSseStream(response.body, options, true);
+            this._handleSseStream(
+                response.body,
+                { ...options, contentLanguage: response.headers.get('content-language') ?? undefined },
+                true
+            );
         } catch (error) {
             if (!isIntentionalAbort()) {
                 this.onerror?.(error as Error);
@@ -713,7 +746,7 @@ export class StreamableHTTPClientTransport implements Transport {
             options.onRequestStreamEnd?.();
             return;
         }
-        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
+        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd, contentLanguage } = options;
         // An intentional abort — transport-wide close OR a per-request abort
         // (McpSubscription.close() aborting its `requestSignal`) — must read as
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
@@ -767,6 +800,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
+                            this._validateContentLanguage(contentLanguage ?? null, [message]);
                             // Handle both success AND error responses for completion detection and ID remapping
                             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
@@ -1090,6 +1124,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         const parsed = JSONRPCMessageSchema.parse(JSON.parse(text));
                         const requests = (Array.isArray(message) ? message : [message]).filter(m => isJSONRPCRequest(m));
                         if (isJSONRPCErrorResponse(parsed) && requests.some(r => r.id === parsed.id)) {
+                            this._validateContentLanguage(response.headers.get('content-language'), [parsed]);
                             this.onmessage?.(parsed);
                             return;
                         }
@@ -1136,7 +1171,8 @@ export class StreamableHTTPClientTransport implements Transport {
                         {
                             onresumptiontoken,
                             requestSignal: options?.requestSignal,
-                            onRequestStreamEnd: options?.onRequestStreamEnd
+                            onRequestStreamEnd: options?.onRequestStreamEnd,
+                            contentLanguage: response.headers.get('content-language') ?? undefined
                         },
                         false
                     );
@@ -1147,6 +1183,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         ? data.map(msg => JSONRPCMessageSchema.parse(msg))
                         : [JSONRPCMessageSchema.parse(data)];
 
+                    this._validateContentLanguage(response.headers.get('content-language'), responseMessages);
                     for (const msg of responseMessages) {
                         this.onmessage?.(msg);
                     }

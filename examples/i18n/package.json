@@ -15,5 +15,9 @@
     },
     "devDependencies": {
         "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "modern",
+        "//": "The localized approval flow uses multi-round-trip inputRequired, a 2026-07-28 protocol feature."
     }
 }

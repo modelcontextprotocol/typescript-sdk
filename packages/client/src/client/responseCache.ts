@@ -37,7 +37,10 @@ export type CacheMode = 'use' | 'refresh' | 'bypass';
 /**
  * A logical cache address. `params` is the canonical result-affecting params
  * key (`''` for the four list ops, the `uri` for `resources/read`); omitted is
- * equivalent to `''`. `partition` namespaces the entry by connected-server
+ * equivalent to `''`. `variant` is the exact request `acceptLanguage` value;
+ * omitted is equivalent to the no-preference variant `''`. It is deliberately
+ * raw rather than negotiated: two preferences that select the same language
+ * remain distinct cache variants (SEP-2792). `partition` namespaces the entry by connected-server
  * identity AND per-principal scope: the `Client` writes a JSON-encoded
  * `[serverIdentity, principal]` pair (so a server-controlled `serverInfo`
  * string cannot bleed into the principal slot regardless of what characters
@@ -48,6 +51,7 @@ export type CacheMode = 'use' | 'refresh' | 'bypass';
 export interface CacheKey {
     readonly method: string;
     readonly params?: string;
+    readonly variant?: string;
     readonly partition?: string;
 }
 
@@ -78,7 +82,8 @@ export interface CacheEntry {
  * in-memory default stays synchronous (plain values are valid under
  * `MaybePromise`). The `Client` `await`s every call site.
  *
- * Entries are keyed by `{method, params, partition}` where `partition` is the
+ * Entries are keyed by `{method, params, variant, partition}` where `variant`
+ * is the exact request `acceptLanguage` value and `partition` is the
  * `Client`-derived `[serverIdentity, principal]` JSON pair, so one store
  * instance is safe to share across `Client` instances connected to different
  * servers and/or principals: writes from distinct connections never collide,
@@ -106,6 +111,13 @@ export interface ResponseCacheStore {
      */
     delete(key: CacheKey): MaybePromise<void>;
     /**
+     * Drop every language variant for one `{method, params, partition}` key.
+     * Stores SHOULD implement this so list/resource invalidations also remove
+     * variants persisted by an earlier client connection. The SDK falls back
+     * to deleting variants observed by the current connection when omitted.
+     */
+    deleteVariants?(key: Omit<CacheKey, 'variant'>): MaybePromise<void>;
+    /**
      * Drop every entry for `method` across every partition. The `Client` does
      * NOT call this (its `list_changed` path issues two partition-scoped
      * `delete()` calls so co-tenants on a shared store keep their entries);
@@ -119,14 +131,15 @@ export interface ResponseCacheStore {
 /** Options for {@linkcode InMemoryResponseCacheStore}. */
 export interface InMemoryResponseCacheStoreOptions {
     /**
-     * Maximum number of held `resources/read` entries (the only
-     * unbounded-keyspace method). When inserting a new `resources/read` key
+     * Maximum number of held entries in unbounded keyspaces: `resources/read`
+     * URIs and explicit language variants. When inserting a new capped key
      * would exceed this, the oldest such entry (by insertion order) is
      * evicted first. The list-singleton methods (`tools/list`,
      * `prompts/list`, `resources/list`, `resources/templates/list`,
-     * `server/discover`) are **exempt** — they hold at most one entry per
-     * partition and back the `tools/list`-derived index, so an unbounded URI
-     * working set never displaces them. The default of `512` bounds growth on
+     * `server/discover`) are **exempt for the no-preference variant** — that
+     * base entry holds at most one value per partition and backs the
+     * `tools/list`-derived index, so an unbounded URI/language working set never
+     * displaces it. The default of `512` bounds growth on
      * a long-lived client against template-expanded URIs. `0` disables the
      * bound.
      */
@@ -135,11 +148,12 @@ export interface InMemoryResponseCacheStoreOptions {
 
 /**
  * Methods whose entries are exempt from the
- * {@linkcode InMemoryResponseCacheStoreOptions.maxEntries} cap. Each holds at
- * most one entry per partition (a small bounded set) and the
+ * {@linkcode InMemoryResponseCacheStoreOptions.maxEntries} cap for its
+ * no-preference variant. Each such base key holds at most one entry per
+ * partition (a small bounded set), and the
  * `tools/list`-derived index depends on its entry surviving regardless of the
- * `resources/read` working-set size. Only `resources/read` keys count toward
- * the cap and are eligible for FIFO eviction.
+ * `resources/read` working-set size. Explicit language variants and
+ * `resources/read` keys count toward the cap and are eligible for FIFO eviction.
  */
 const CAP_EXEMPT_METHODS: ReadonlySet<string> = new Set([
     'tools/list',
@@ -159,6 +173,7 @@ const CAP_EXEMPT_METHODS: ReadonlySet<string> = new Set([
  */
 export class InMemoryResponseCacheStore implements ResponseCacheStore {
     private readonly _entries = new Map<string, CacheEntry>();
+    private readonly _cappedKeys = new Set<string>();
     private readonly _maxEntries: number;
     private _stamp = 0;
     /** Count of held entries that are subject to the cap (i.e. not in {@linkcode CAP_EXEMPT_METHODS}). */
@@ -179,7 +194,7 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
 
     set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): number {
         const k = keyOf(key);
-        const exempt = CAP_EXEMPT_METHODS.has(key.method);
+        const exempt = CAP_EXEMPT_METHODS.has(key.method) && (key.variant ?? '') === '';
         const isNew = !this._entries.has(k);
         // Evict the oldest CAPPED entry first when adding a NEW capped key
         // would exceed the cap (re-set of an existing key never evicts; an
@@ -187,8 +202,9 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
         // insertion order, so the first non-exempt key is the oldest one.
         if (!exempt && isNew && this._maxEntries > 0 && this._cappedSize >= this._maxEntries) {
             for (const oldKey of this._entries.keys()) {
-                if (!CAP_EXEMPT_METHODS.has(oldKey.slice(0, oldKey.indexOf('\0')))) {
+                if (this._cappedKeys.has(oldKey)) {
                     this._entries.delete(oldKey);
+                    this._cappedKeys.delete(oldKey);
                     this._cappedSize--;
                     break;
                 }
@@ -196,27 +212,40 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
         }
         const stamp = ++this._stamp;
         this._entries.set(k, { ...entry, stamp });
-        if (isNew && !exempt) this._cappedSize++;
+        if (isNew && !exempt) {
+            this._cappedKeys.add(k);
+            this._cappedSize++;
+        }
         return stamp;
     }
 
     delete(key: CacheKey): void {
-        if (this._entries.delete(keyOf(key)) && !CAP_EXEMPT_METHODS.has(key.method)) this._cappedSize--;
+        const k = keyOf(key);
+        if (this._entries.delete(k) && this._cappedKeys.delete(k)) this._cappedSize--;
+    }
+
+    deleteVariants(key: Omit<CacheKey, 'variant'>): void {
+        const prefix = variantPrefix(key);
+        for (const k of this._entries.keys()) {
+            if (!k.startsWith(prefix)) continue;
+            this._entries.delete(k);
+            if (this._cappedKeys.delete(k)) this._cappedSize--;
+        }
     }
 
     evict(method: string): void {
         const prefix = `${method}\0`;
-        const exempt = CAP_EXEMPT_METHODS.has(method);
         for (const k of this._entries.keys()) {
             if (k.startsWith(prefix)) {
                 this._entries.delete(k);
-                if (!exempt) this._cappedSize--;
+                if (this._cappedKeys.delete(k)) this._cappedSize--;
             }
         }
     }
 
     clear(): void {
         this._entries.clear();
+        this._cappedKeys.clear();
         this._cappedSize = 0;
     }
 }
@@ -232,7 +261,12 @@ export class InMemoryResponseCacheStore implements ResponseCacheStore {
  * carry.
  */
 function keyOf(key: CacheKey): string {
-    return `${key.method}\0${JSON.stringify([key.partition ?? '', key.params ?? ''])}`;
+    return `${key.method}\0${JSON.stringify([key.partition ?? '', key.params ?? '', key.variant ?? ''])}`;
+}
+
+function variantPrefix(key: Omit<CacheKey, 'variant'>): string {
+    const encoded = JSON.stringify([key.partition ?? '', key.params ?? '']);
+    return `${key.method}\0${encoded.slice(0, -1)},`;
 }
 
 /**
@@ -242,7 +276,7 @@ function keyOf(key: CacheKey): string {
  * {@linkcode ClientResponseCache.evictKey} bumps a per-URI counter.
  */
 function genKey(method: string, params?: string): string {
-    return params === undefined ? method : `${method}\0${params}`;
+    return params === undefined || params === '' ? method : `${method}\0${params}`;
 }
 
 /**
@@ -284,6 +318,8 @@ export class ClientResponseCache {
      * has never read therefore cannot grow this map.
      */
     private readonly _evictionGeneration = new Map<string, number>();
+    /** Exact language variants observed for each logical `{method, params}` key. */
+    private readonly _variants = new Map<string, Set<string>>();
     /**
      * `name → Tool` index derived from the cached `tools/list` entry, memoized
      * against the entry's `stamp` so it re-derives only when the backing entry
@@ -387,8 +423,16 @@ export class ClientResponseCache {
      * `cachePartition` is `''` the two partitions are identical and only one
      * probe is issued.
      */
-    private async _probe(method: string, params?: string): Promise<CacheEntry | undefined> {
-        const key = { method, params: params ?? '' };
+    private _rememberVariant(method: string, params: string | undefined, variant = ''): string {
+        const key = genKey(method, params);
+        const variants = this._variants.get(key) ?? new Set<string>();
+        variants.add(variant);
+        this._variants.set(key, variants);
+        return variant;
+    }
+
+    private async _probe(method: string, params?: string, variant?: string): Promise<CacheEntry | undefined> {
+        const key = { method, params: params ?? '', variant: this._rememberVariant(method, params, variant) };
         const ownPartition = this._partitionFor('private');
         const own = await this._store.get({ ...key, partition: ownPartition });
         if (own !== undefined) return own;
@@ -416,7 +460,7 @@ export class ClientResponseCache {
      */
     async evict(method: string): Promise<void> {
         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
-        await this._deleteBoth(method, '');
+        await this._deleteAllVariants(method, '');
     }
 
     /**
@@ -424,21 +468,48 @@ export class ClientResponseCache {
      * `delete` is independently wrapped so a custom store's failure on one is
      * reported and does not skip the other, and the call always resolves.
      */
-    private async _deleteBoth(method: string, params: string): Promise<void> {
+    private async _deleteBoth(method: string, params: string, variant = ''): Promise<void> {
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
         try {
-            await this._store.delete({ method, params, partition: ownPartition });
+            await this._store.delete({ method, params, variant, partition: ownPartition });
         } catch (error) {
             this._reportError(error);
         }
         if (sharedPartition !== ownPartition) {
             try {
-                await this._store.delete({ method, params, partition: sharedPartition });
+                await this._store.delete({ method, params, variant, partition: sharedPartition });
             } catch (error) {
                 this._reportError(error);
             }
         }
+    }
+
+    private async _deleteAllVariants(method: string, params: string): Promise<void> {
+        const key = genKey(method, params);
+        const variants = this._variants.get(key) ?? new Set(['']);
+        for (const variant of variants) {
+            await this._deleteBoth(method, params, variant);
+        }
+        if (this._store.deleteVariants !== undefined) {
+            const ownPartition = this._partitionFor('private');
+            const sharedPartition = this._partitionFor('public');
+            try {
+                await this._store.deleteVariants({ method, params, partition: ownPartition });
+            } catch (error) {
+                this._reportError(error);
+            }
+            if (sharedPartition !== ownPartition) {
+                try {
+                    await this._store.deleteVariants({ method, params, partition: sharedPartition });
+                } catch (error) {
+                    this._reportError(error);
+                }
+            }
+            this._variants.delete(key);
+            return;
+        }
+        this._variants.delete(key);
     }
 
     /**
@@ -465,7 +536,7 @@ export class ClientResponseCache {
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
-        await this._deleteBoth(method, params);
+        await this._deleteAllVariants(method, params);
     }
 
     /**
@@ -476,7 +547,8 @@ export class ClientResponseCache {
      * bumps; without the record, `evictKey`'s recorded-only bump would skip
      * and the stale body would be cached.
      */
-    captureGeneration(method: string, params?: string): number {
+    captureGeneration(method: string, params?: string, variant?: string): number {
+        this._rememberVariant(method, params, variant);
         const gk = genKey(method, params);
         const current = this._evictionGeneration.get(gk) ?? 0;
         this._evictionGeneration.set(gk, current);
@@ -523,16 +595,17 @@ export class ClientResponseCache {
         method: string,
         value: unknown,
         capturedGen: number,
-        freshness?: { expiresAt: number; scope: CacheScope; params?: string }
+        freshness?: { expiresAt: number; scope: CacheScope; params?: string; variant?: string }
     ): Promise<void> {
         if ((this._evictionGeneration.get(genKey(method, freshness?.params)) ?? 0) !== capturedGen) return;
         const params = freshness?.params ?? '';
+        const variant = this._rememberVariant(method, freshness?.params, freshness?.variant);
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
         const partition = (freshness?.scope ?? 'private') === 'public' ? sharedPartition : ownPartition;
         try {
             await this._store.set(
-                { method, params, partition },
+                { method, params, variant, partition },
                 { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
             );
         } catch (error) {
@@ -543,6 +616,7 @@ export class ClientResponseCache {
                 await this._store.delete({
                     method,
                     params,
+                    variant,
                     partition: partition === ownPartition ? sharedPartition : ownPartition
                 });
             } catch (error) {
@@ -564,8 +638,8 @@ export class ClientResponseCache {
      * entry would otherwise re-parse and re-report on every read until its
      * `expiresAt` passes.
      */
-    async read(method: string, params?: string): Promise<{ value: unknown } | undefined> {
-        const entry = await this._probe(method, params);
+    async read(method: string, params?: string, variant?: string): Promise<{ value: unknown } | undefined> {
+        const entry = await this._probe(method, params, variant);
         if (entry?.expiresAt === undefined || !(entry.expiresAt > this.now())) return undefined;
         try {
             const parsed: unknown = JSON.parse(entry.value);
@@ -575,7 +649,7 @@ export class ClientResponseCache {
             return { value: parsed };
         } catch (error) {
             this._reportError(error);
-            await this._deleteBoth(method, params ?? '');
+            await this._deleteBoth(method, params ?? '', variant ?? '');
             return undefined;
         }
     }
@@ -593,6 +667,7 @@ export class ClientResponseCache {
     resetForReconnect(): void {
         if (!this._isUserSupplied) void this._store.clear();
         this._evictionGeneration.clear();
+        this._variants.clear();
         this._toolIndex = undefined;
         this._toolOutputValidatorIndex = undefined;
         this._serverIdentity = '';
@@ -608,8 +683,8 @@ export class ClientResponseCache {
      * Consumed by `callTool()`'s SEP-2243 `_resolveXMcpHeaderScan` (mirroring)
      * and, via {@linkcode outputValidator}, its output-schema validation.
      */
-    async toolDefinition(name: string): Promise<Tool | undefined> {
-        const entry = await this._probe('tools/list');
+    async toolDefinition(name: string, variant?: string): Promise<Tool | undefined> {
+        const entry = await this._probe('tools/list', undefined, variant);
         if (entry === undefined) {
             this._toolIndex = undefined;
             return undefined;
@@ -648,8 +723,8 @@ export class ClientResponseCache {
      * a refetched `tools/list` re-derives it, and `resetForReconnect` clears
      * the lot.
      */
-    async outputValidator<V>(name: string, compile: (tool: Tool) => V | undefined): Promise<V | undefined> {
-        const entry = await this._probe('tools/list');
+    async outputValidator<V>(name: string, compile: (tool: Tool) => V | undefined, variant?: string): Promise<V | undefined> {
+        const entry = await this._probe('tools/list', undefined, variant);
         if (entry === undefined) {
             this._toolOutputValidatorIndex = undefined;
             return undefined;
