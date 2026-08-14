@@ -105,6 +105,39 @@ async function readSSEEvent(response: Response): Promise<string> {
 }
 
 /**
+ * Helper to read an SSE response stream until the accumulated text satisfies
+ * a predicate, the stream ends, or a timeout elapses. Returns whatever text
+ * was accumulated.
+ *
+ * fetch makes no guarantee that SSE events written separately by the server
+ * arrive in a single chunk — Node 26.7 delivers them in separate reads — so
+ * a test expecting more than one event must never assert on the result of a
+ * single read(). See #2661.
+ *
+ * The reader's lock is released on return, so the caller can still cancel
+ * the stream via `response.body.cancel()`.
+ */
+async function readSSEUntil(response: Response, predicate: (text: string) => boolean, timeoutMs = 2000): Promise<string> {
+    const reader = response.body!.getReader();
+    const decoder = new TextDecoder();
+    let text = '';
+    const timeout = setTimeout(() => void reader.cancel(), timeoutMs);
+    try {
+        while (!predicate(text)) {
+            const { value, done } = await reader.read();
+            if (done) {
+                break;
+            }
+            text += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        clearTimeout(timeout);
+        reader.releaseLock();
+    }
+    return text;
+}
+
+/**
  * Helper to send JSON-RPC request
  */
 async function sendPostRequest(
@@ -725,11 +758,9 @@ describe('Zod v4', () => {
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('text/event-stream');
 
-            const reader = response.body?.getReader();
-
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may come in any order, and each may arrive in its
+            // own chunk — read until both are in.
+            const text = await readSSEUntil(response, t => t.includes('"id":"req-1"') && t.includes('"id":"req-2"'));
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1480,10 +1511,9 @@ describe('Zod v4', () => {
             // Send a server notification through the MCP server
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
-            // Read the notification from the SSE stream
-            const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // Read the notification from the SSE stream (the priming event and
+            // the notification may arrive in separate chunks)
+            const text = await readSSEUntil(sseResponse, t => t.includes('First notification from MCP server'));
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
@@ -1498,7 +1528,7 @@ describe('Zod v4', () => {
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
 
             // Close the first SSE stream to simulate a disconnect
-            await reader!.cancel();
+            await sseResponse.body!.cancel();
 
             // Reconnect with the Last-Event-ID to get missed messages
             const reconnectResponse = await fetch(baseUrl, {
@@ -1513,10 +1543,9 @@ describe('Zod v4', () => {
 
             expect(reconnectResponse.status).toBe(200);
 
-            // Read the replayed notification
-            const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            // Read the replayed notification (replayed events may span
+            // multiple chunks)
+            const reconnectText = await readSSEUntil(reconnectResponse, t => t.includes('Second notification from MCP server'));
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
