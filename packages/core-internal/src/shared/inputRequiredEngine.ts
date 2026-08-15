@@ -240,10 +240,6 @@ export function runInputRequiredFlow<T extends StandardSchemaV1>(
  * codec's decoded payload — what an `allowInputRequired: true` caller
  * receives instead of the auto-fulfilled complete result.
  */
-export function manualInputRequiredValue(decoded: { inputRequests: Record<string, unknown>; requestState?: string }): InputRequiredResult {
-    return {
-        resultType: 'input_required',
-        inputRequests: decoded.inputRequests as InputRequiredResult['inputRequests'],
-        ...(decoded.requestState !== undefined && { requestState: decoded.requestState })
-    };
+export function manualInputRequiredValue(decoded: { result: InputRequiredResult }): InputRequiredResult {
+    return decoded.result;
 }

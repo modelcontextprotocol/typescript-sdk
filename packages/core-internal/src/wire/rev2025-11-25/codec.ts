@@ -67,6 +67,7 @@ export const rev2025Codec: WireCodec = {
     // ── Function-only validation surface ──
     validateRequest: (method: string, raw: unknown) => triState(getRequestSchema(method), raw),
     validateResult: (method: string, raw: unknown) => triState(getResultSchema(method), raw),
+    validateInputRequiredResult: (): ValidateOutcome<never> => NOT_IN_ERA,
     validateNotification: (method: string, raw: unknown) => triState(getNotificationSchema(method), raw),
     // No in-band input-request vocabulary on this era: elicitation, sampling
     // and roots are real wire request methods here (see the registry).

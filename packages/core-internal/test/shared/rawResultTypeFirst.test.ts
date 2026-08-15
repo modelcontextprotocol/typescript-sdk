@@ -56,7 +56,12 @@ async function wireWithRawResult(rawResult: unknown, era?: '2026-07-28'): Promis
 
 const INPUT_REQUIRED_BODY = {
     resultType: 'input_required',
-    inputRequests: { 'elicit-1': { method: 'elicitation/create', params: { mode: 'form', message: 'Name?' } } },
+    inputRequests: {
+        'elicit-1': {
+            method: 'elicitation/create',
+            params: { mode: 'form', message: 'Name?', requestedSchema: { type: 'object', properties: {} } }
+        }
+    },
     requestState: 'opaque'
 };
 

@@ -155,7 +155,8 @@ export type RequestOptions = {
      * 2026-07-28): when the response is an `input_required` result, hand it
      * back to the caller instead of auto-fulfilling it (or raising a typed
      * error). The resolved value is the neutral input-required shape
-     * (`resultType: 'input_required'`, `inputRequests?`, `requestState?`);
+     * (`resultType: 'input_required'`, base `Result` fields, `inputRequests?`,
+     * `requestState?`);
      * wrap the result schema with `withInputRequired()` on the explicit
      * schema path to type both outcomes. The caller is then responsible for
      * gathering the requested input and retrying the original request with
