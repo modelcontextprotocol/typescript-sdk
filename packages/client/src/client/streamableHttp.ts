@@ -1,6 +1,6 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import type { FetchLike, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     encodeMcpParamValue,
@@ -54,6 +54,12 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
  * Options for starting or authenticating an SSE connection
  */
 export interface StartSSEOptions {
+    /**
+     * The client request whose POST response stream carries this SSE stream.
+     * Standalone GET streams have no related request.
+     */
+    relatedRequestId?: RequestId;
+
     /**
      * The resumption token used to continue long-running requests that were interrupted.
      *
@@ -330,7 +336,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
+    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
     /**
      * Streamable HTTP opens one POST (and SSE response stream) per outbound
@@ -713,7 +719,7 @@ export class StreamableHTTPClientTransport implements Transport {
             options.onRequestStreamEnd?.();
             return;
         }
-        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
+        const { onresumptiontoken, replayMessageId, relatedRequestId, requestSignal, onRequestStreamEnd } = options;
         // An intentional abort — transport-wide close OR a per-request abort
         // (McpSubscription.close() aborting its `requestSignal`) — must read as
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
@@ -775,7 +781,11 @@ export class StreamableHTTPClientTransport implements Transport {
                                     message.id = replayMessageId;
                                 }
                             }
-                            this.onmessage?.(message);
+                            if (relatedRequestId === undefined || !isJSONRPCRequest(message)) {
+                                this.onmessage?.(message);
+                            } else {
+                                this.onmessage?.(message, { relatedRequestId });
+                            }
                         } catch (error) {
                             this.onerror?.(error as Error);
                         }
@@ -794,6 +804,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             resumptionToken: lastEventId,
                             onresumptiontoken,
                             replayMessageId,
+                            relatedRequestId,
                             requestSignal,
                             onRequestStreamEnd
                         },
@@ -827,6 +838,7 @@ export class StreamableHTTPClientTransport implements Transport {
                                 resumptionToken: lastEventId,
                                 onresumptiontoken,
                                 replayMessageId,
+                                relatedRequestId,
                                 requestSignal,
                                 onRequestStreamEnd
                             },
@@ -1121,6 +1133,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const messages = Array.isArray(message) ? message : [message];
 
             const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
+            const relatedRequestId = messages.length === 1 && isJSONRPCRequest(messages[0]) ? messages[0].id : undefined;
 
             // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');
@@ -1135,6 +1148,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         response.body,
                         {
                             onresumptiontoken,
+                            relatedRequestId,
                             requestSignal: options?.requestSignal,
                             onRequestStreamEnd: options?.onRequestStreamEnd
                         },

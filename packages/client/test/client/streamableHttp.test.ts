@@ -524,6 +524,36 @@ describe('StreamableHTTPClientTransport', () => {
         ).toBe(true);
     });
 
+    it('attributes server requests received on a POST SSE stream to the originating request', async () => {
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(
+                    encoder.encode(
+                        'event: message\ndata: {"jsonrpc":"2.0","id":"elicitation-1","method":"elicitation/create","params":{}}\n\n'
+                    )
+                );
+            }
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: stream
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        await transport.send({ jsonrpc: '2.0', id: 'tool-call-1', method: 'tools/call', params: { name: 'route' } });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(messageSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'elicitation-1', method: 'elicitation/create' }), {
+            relatedRequestId: 'tool-call-1'
+        });
+    });
+
     it('declares hasPerRequestStream so the protocol layer routes 2026-era cancellation to stream-close', () => {
         // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
         // closing the per-request SSE stream IS the cancel signal on
