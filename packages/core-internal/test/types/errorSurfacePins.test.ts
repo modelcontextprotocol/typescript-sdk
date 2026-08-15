@@ -198,14 +198,18 @@ describe('SdkError', () => {
 
     test('preserves error cause in Error.cause when passed via data.cause or options', () => {
         const underlyingError = new TypeError('fetch failed: getaddrinfo ENOTFOUND host.invalid');
-        
+
         // When cause is passed via data object (as in classifyNetworkError)
-        const errorFromData = new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', { cause: underlyingError });
+        const errorFromData = new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', {
+            cause: underlyingError
+        });
         expect(errorFromData.cause).toBe(underlyingError);
         expect(errorFromData.data).toEqual({ cause: underlyingError });
 
         // When cause is passed via standard ErrorOptions
-        const errorFromOptions = new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', undefined, { cause: underlyingError });
+        const errorFromOptions = new SdkError(SdkErrorCode.EraNegotiationFailed, 'Version negotiation probe failed', undefined, {
+            cause: underlyingError
+        });
         expect(errorFromOptions.cause).toBe(underlyingError);
     });
 
