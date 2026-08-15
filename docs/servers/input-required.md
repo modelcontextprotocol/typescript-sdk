@@ -177,6 +177,16 @@ To run rounds in sequence, return an opaque `requestState` string alongside the 
 ```ts source="../../examples/guides/servers/input-required.examples.ts#requestState_mint"
 const wipeCacheConfirmationSchema = z.object({ confirm: z.boolean() });
 const wipeCacheScopeSchema = z.object({ scope: z.string() });
+const requestWipeCacheScope = async (): Promise<InputRequiredResult> =>
+    inputRequired({
+        inputRequests: {
+            scope: inputRequired.elicit({
+                message: 'Which scope?',
+                requestedSchema: wipeCacheScopeSchema
+            })
+        },
+        requestState: await stateCodec.mint({ step: 'confirmed' })
+    });
 
 server.registerTool(
     'wipe-cache',
@@ -197,28 +207,12 @@ server.registerTool(
                 });
             }
             // Mint only what the response above already proved: the operator confirmed.
-            return inputRequired({
-                inputRequests: {
-                    scope: inputRequired.elicit({
-                        message: 'Which scope?',
-                        requestedSchema: wipeCacheScopeSchema
-                    })
-                },
-                requestState: await stateCodec.mint({ step: 'confirmed' })
-            });
+            return requestWipeCacheScope();
         }
 
         const scope = acceptedContent(ctx.mcpReq.inputResponses, 'scope', wipeCacheScopeSchema);
         if (scope === undefined) {
-            return inputRequired({
-                inputRequests: {
-                    scope: inputRequired.elicit({
-                        message: 'Which scope?',
-                        requestedSchema: wipeCacheScopeSchema
-                    })
-                },
-                requestState: await stateCodec.mint({ step: 'confirmed' })
-            });
+            return requestWipeCacheScope();
         }
         return { content: [{ type: 'text', text: `Wiped ${scope.scope}` }] };
     }
@@ -226,6 +220,8 @@ server.registerTool(
 ```
 
 Mint only what earlier rounds already proved. The token is bearer proof of whatever it claims: state minted as `{ step: 'confirmed' }` before the confirmation arrives grants that step to anyone who echoes it. One call drives all three entries:
+
+On re-entry, a missing or schema-invalid `scope` is treated as unanswered, so the handler repeats only the scope request instead of widening the operation to `all`.
 
 ```
 [client] elicitation/create → Really wipe the cache?
