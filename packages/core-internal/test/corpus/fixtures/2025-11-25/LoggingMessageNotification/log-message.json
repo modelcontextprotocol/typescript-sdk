@@ -1,0 +1,11 @@
+{
+    "method": "notifications/message",
+    "params": {
+        "level": "error",
+        "logger": "database",
+        "data": {
+            "error": "Connection failed",
+            "host": "localhost"
+        }
+    }
+}

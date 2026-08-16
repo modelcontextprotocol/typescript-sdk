@@ -11,14 +11,14 @@ import type {
     JSONRPCMessage,
     JSONRPCResultResponse,
     RequestId
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from '../src/streamableHttp';
 
 async function getFreePort() {
     return new Promise(res => {

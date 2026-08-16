@@ -1,0 +1,15 @@
+{
+    "description": "Accept-side dispatch sanity: a valid tools/call request reaches the registered handler and produces a result response.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 8,
+        "method": "tools/call",
+        "params": {
+            "name": "echo",
+            "arguments": {
+                "text": "hi"
+            }
+        }
+    },
+    "expect": "result-response"
+}

@@ -1,25 +1,64 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
+    brandedHasInstance,
     createFetchWithInit,
     JSONRPCMessageSchema,
     normalizeHeaders,
     SdkError,
     SdkErrorCode,
-    SdkHttpError
-} from '@modelcontextprotocol/core';
+    SdkHttpError,
+    stampErrorBrands
+} from '@modelcontextprotocol/core-internal';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth';
+import {
+    adaptOAuthProvider,
+    auth,
+    extractWWWAuthenticateParams,
+    isOAuthClientProvider,
+    resolveAuthorizationCallbackParams,
+    UnauthorizedError
+} from './auth';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
+import type { IssuerMismatchError } from './authErrors';
+import { markAuthSeamEscape } from './authSeam';
 
 export class SseError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SseError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
+    /**
+     * Brand-based type guard: equivalent to `value instanceof this`, as an
+     * explicit static predicate (the axios/AWS-SDK `isInstance` style). Reads
+     * the caller's own brand via `this`, so every branded subclass gets a
+     * correctly-scoped guard by inheritance. Must be invoked on the class —
+     * in callback position write `v => SdkError.isInstance(v)`, not
+     * `.filter(SdkError.isInstance)` (detached calls throw rather than
+     * silently matching nothing).
+     */
+    static isInstance<T extends abstract new (...args: never[]) => unknown>(this: T, value: unknown): value is InstanceType<T> {
+        if (typeof this !== 'function') {
+            throw new TypeError(
+                'isInstance must be called on the class (e.g. `SdkError.isInstance(value)`); for callbacks use `v => SdkError.isInstance(v)`'
+            );
+        }
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: number | undefined,
         message: string | undefined,
         public readonly event: ErrorEvent
     ) {
         super(`SSE error: ${message}`);
+        stampErrorBrands(this, new.target);
     }
 }
 
@@ -43,6 +82,15 @@ export type SSEClientTransportOptions = {
      * {@linkcode SSEClientTransport.finishAuth | finishAuth} with the authorization code before reconnecting.
      */
     authProvider?: AuthProvider | OAuthClientProvider;
+
+    /**
+     * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization-server
+     * metadata discovery. **Security-weakening** — see
+     * {@linkcode index.AuthOptions.skipIssuerMetadataValidation | AuthOptions.skipIssuerMetadataValidation}.
+     * Only honoured when {@linkcode SSEClientTransportOptions.authProvider | authProvider}
+     * is an `OAuthClientProvider`.
+     */
+    skipIssuerMetadataValidation?: boolean;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -81,6 +129,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
+    private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -95,9 +144,12 @@ export class SSEClientTransport implements Transport {
         this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
+        this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
-            this._authProvider = adaptOAuthProvider(opts.authProvider);
+            this._authProvider = adaptOAuthProvider(opts.authProvider, {
+                skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
+            });
         } else {
             this._authProvider = opts?.authProvider;
         }
@@ -109,7 +161,14 @@ export class SSEClientTransport implements Transport {
 
     private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
-        const token = await this._authProvider?.token();
+        let token: string | undefined;
+        try {
+            token = await this._authProvider?.token();
+        } catch (error) {
+            // Auth-seam stamp: a throwing token() is an auth failure, never a
+            // network failure.
+            throw markAuthSeamEscape(error);
+        }
         if (token) {
             headers['Authorization'] = `Bearer ${token}`;
         }
@@ -161,15 +220,18 @@ export class SSEClientTransport implements Transport {
                         this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
                             () => this._startOrAuth().then(resolve, reject),
-                            // onUnauthorized failed → not yet reported.
-                            error => {
-                                this.onerror?.(error);
+                            // onUnauthorized failed → not yet reported. Auth-seam
+                            // stamp: covers the SDK's OAuth flow and custom
+                            // callbacks alike.
+                            (error: unknown) => {
+                                markAuthSeamEscape(error);
+                                this.onerror?.(error as Error);
                                 reject(error);
                             }
                         );
                         return;
                     }
-                    const error = new UnauthorizedError();
+                    const error = markAuthSeamEscape(new UnauthorizedError());
                     reject(error);
                     this.onerror?.(error);
                     return;
@@ -228,18 +290,47 @@ export class SSEClientTransport implements Transport {
 
     /**
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+     *
+     * **Preferred:** pass the callback URL's `searchParams` directly. The SDK extracts `code`
+     * and `iss`, validates `iss` against the recorded issuer (RFC 9207) **before** reading any
+     * other parameter, and on mismatch throws an {@linkcode IssuerMismatchError} that carries
+     * none of the callback's `error`/`error_description`/`error_uri` text. The `(code, iss?)`
+     * positional form remains supported for back-compat.
+     *
+     * The SDK does **not** validate `state`; compare it to your stored value before calling
+     * `finishAuth`.
+     *
+     * @param callbackParams - The `URLSearchParams` from the authorization callback URL
+     *   (e.g. `new URL(callbackUrl).searchParams`). `code` and `iss` are read from it.
      */
-    async finishAuth(authorizationCode: string): Promise<void> {
+    async finishAuth(callbackParams: URLSearchParams): Promise<void>;
+    /**
+     * @param authorizationCode - The `code` query parameter from the authorization callback URL.
+     * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
+     *   present. Validated per RFC 9207 against the recorded issuer before the code is redeemed.
+     */
+    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
+        const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
+            codeOrParams,
+            iss,
+            this._oauthProvider,
+            this._url,
+            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+        );
+
         const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
+            iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit
+            fetchFn: this._fetchWithInit,
+            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
@@ -282,23 +373,31 @@ export class SSEClientTransport implements Transport {
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
-                        await this._authProvider.onUnauthorized({
-                            response,
-                            serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
-                        });
+                        try {
+                            await this._authProvider.onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit
+                            });
+                        } catch (error) {
+                            // Auth-seam stamp: covers the SDK's OAuth flow and
+                            // custom onUnauthorized callbacks alike.
+                            throw markAuthSeamEscape(error);
+                        }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
                         return this._send(message, true);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401,
-                            statusText: response.statusText
-                        });
+                        throw markAuthSeamEscape(
+                            new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                                status: 401,
+                                statusText: response.statusText
+                            })
+                        );
                     }
-                    throw new UnauthorizedError();
+                    throw markAuthSeamEscape(new UnauthorizedError());
                 }
 
                 const text = await response.text?.().catch(() => null);

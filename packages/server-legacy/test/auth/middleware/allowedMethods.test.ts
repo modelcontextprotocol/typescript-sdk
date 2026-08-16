@@ -1,4 +1,4 @@
-import { allowedMethods } from '../../../src/auth/middleware/allowedMethods.js';
+import { allowedMethods } from '../../../src/auth/middleware/allowedMethods';
 import express, { Request, Response } from 'express';
 import request from 'supertest';
 

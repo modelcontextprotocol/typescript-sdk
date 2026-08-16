@@ -8,8 +8,8 @@
 
 import { expect } from 'vitest';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 verifies('transport:sse:server-transport', async (_args: TestArgs) => {
     // The server half of the legacy SSE transport must be on the public server-side surface for SSE deployments to be hosted on the SDK alone.

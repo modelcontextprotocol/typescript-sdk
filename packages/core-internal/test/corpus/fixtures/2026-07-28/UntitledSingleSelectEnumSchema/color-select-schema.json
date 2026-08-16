@@ -1,0 +1,7 @@
+{
+  "type": "string",
+  "title": "Color Selection",
+  "description": "Choose your favorite color",
+  "enum": ["Red", "Green", "Blue"],
+  "default": "Red"
+}

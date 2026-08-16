@@ -1,0 +1,12 @@
+{
+    "description": "An error response whose id matches no in-flight request is reported out-of-band.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 98,
+        "error": {
+            "code": -32603,
+            "message": "boom"
+        }
+    },
+    "expect": "onerror"
+}

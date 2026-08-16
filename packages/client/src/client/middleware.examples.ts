@@ -7,8 +7,8 @@
  * @module
  */
 
-import type { Middleware } from './middleware.js';
-import { applyMiddlewares, createMiddleware } from './middleware.js';
+import type { Middleware } from './middleware';
+import { applyMiddlewares, createMiddleware } from './middleware';
 
 // Stubs for hypothetical application middleware
 declare function withOAuth(provider: unknown, url: string): Middleware;

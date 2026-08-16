@@ -1,0 +1,6 @@
+{
+  "resources": {
+    "subscribe": true,
+    "listChanged": true
+  }
+}

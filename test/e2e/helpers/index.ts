@@ -15,30 +15,101 @@ import { PassThrough } from 'node:stream';
 
 import type { Client } from '@modelcontextprotocol/client';
 import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontextprotocol/server';
-import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import type {
+    CreateMcpHandlerOptions,
+    EventStore,
+    Implementation,
+    JSONRPCMessage,
+    McpRequestContext,
+    McpServer,
+    Server
+} from '@modelcontextprotocol/server';
+import {
+    createMcpHandler,
+    InMemoryTransport,
+    ReadBuffer,
+    serializeMessage,
+    WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
-import type { Transport } from '../types.js';
-import { startLegacySseHost } from './sse-host.js';
-import type { SnifferOptions } from './wire-sniffer.js';
-import { sniffTransport } from './wire-sniffer.js';
+import type { SpecVersion, Transport } from '../types';
+import { startLegacySseHost } from './sse-host';
+import type { SnifferOptions } from './wire-sniffer';
+import { sniffTransport } from './wire-sniffer';
+
+/** Narrows away `null`/`undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
+export function defined<T>(value: T | null | undefined, label: string): NonNullable<T> {
+    if (value === null || value === undefined) throw new Error(`expected ${label} to be defined`);
+    return value;
+}
 
 export type ServerFactory = () => McpServer | Server;
+
+/**
+ * A factory that optionally consumes the createMcpHandler per-request context.
+ * The context is only supplied on the entry arms (where the entry constructs a
+ * fresh instance per request); on every other arm the factory is called with no
+ * arguments, so declare the parameter optional.
+ */
+export type EntryServerFactory = (ctx?: McpRequestContext) => McpServer | Server;
+
+/** One HTTP exchange recorded by the entry arms (see {@linkcode Wired.httpLog}). */
+export interface RecordedHttpExchange {
+    /** HTTP request method (GET/POST/DELETE). */
+    method: string;
+    /** The HTTP request headers as resolved by `new Request(...)` — for raw header assertions (e.g. `Mcp-Param-*`). */
+    requestHeaders: Headers;
+    /** The request body text, when one was sent as a string. */
+    requestBody?: string;
+    /** HTTP response status. */
+    status: number;
+    /** Response content-type header (empty string when absent). */
+    contentType: string;
+    /** An unread clone of the HTTP response, for byte-level assertions (`await exchange.response.text()`). */
+    response: Response;
+}
 
 export interface Wired extends AsyncDisposable {
     readonly fetch?: (url: URL | string, init?: RequestInit) => Promise<Response>;
     readonly url?: URL;
+    /**
+     * Every HTTP exchange the wired client performed, in order, including the
+     * connect-time negotiation. Recorded by the createMcpHandler entry arms
+     * only — scenarios on those arms use it to assert raw wire facts (request
+     * bodies, response status/content-type/bytes) that the typed client API
+     * does not expose.
+     */
+    readonly httpLog?: readonly RecordedHttpExchange[];
 }
 
 /**
- * The fourth argument controls the wire-format sniffer (see wire-sniffer.ts):
- * every message the client sends or receives is validated against the SDK's
- * spec-anchored Zod schemas. Tests that intentionally use vendor-extension
- * methods pass `{ allowCustomMethods: true }`; tests that deliberately put
- * malformed MCP on the wire pass `{ strictValidation: false }`.
+ * The fourth argument's sniffer options control the wire-format sniffer (see
+ * wire-sniffer.ts): every message the client sends or receives is validated
+ * against the SDK's spec-anchored Zod schemas. Tests that intentionally use
+ * vendor-extension methods pass `{ allowCustomMethods: true }`; tests that
+ * deliberately put malformed MCP on the wire pass `{ strictValidation: false }`.
+ * `entry` overrides the hosting options of the createMcpHandler entry arms
+ * (ignored by every other transport).
  */
-export async function wire(transport: Transport, makeServer: ServerFactory, client: Client, sniff: SnifferOptions = {}): Promise<Wired> {
+export interface WireOptions extends SnifferOptions {
+    /**
+     * createMcpHandler hosting overrides for the entry arms. Defaults:
+     * `{ legacy: 'stateless' }` on entryStateless (the entry's default posture,
+     * passed explicitly so the arm stays pinned to the 2025 leg even if the
+     * default ever moves) and `{ legacy: 'reject' }` (modern-only strict) on
+     * entryModern. `onerror` and `responseMode` pass through unchanged.
+     */
+    entry?: CreateMcpHandlerOptions;
+}
+
+export async function wire(
+    transport: Transport,
+    makeServer: ServerFactory | EntryServerFactory,
+    client: Client,
+    sniff: WireOptions = {}
+): Promise<Wired> {
     switch (transport) {
         case 'inMemory': {
             const server = makeServer();
@@ -65,6 +136,57 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
                 fetch,
                 url,
                 [Symbol.asyncDispose]: () => Promise.all([client.close(), handle.close()]).then(() => {})
+            };
+        }
+        case 'entryStateless':
+        case 'entryModern': {
+            // The dual-era HTTP entry (`createMcpHandler`) hosted in process via an
+            // injected fetch, exactly like the other HTTP arms. The scenario factory
+            // backs the entry directly (the entry calls it once per request with its
+            // per-request context). `entryStateless` serves the scenario's plain
+            // client through the entry's stateless legacy fallback (the default,
+            // passed explicitly to keep the arm era-pinned); `entryModern` hosts the
+            // endpoint modern-only strict (`legacy: 'reject'` — strict is no longer
+            // the entry default) and pins the scenario's client to the 2026-07-28
+            // revision via the public negotiation setter. The client attaches the
+            // per-request `_meta` envelope itself once a modern era is negotiated,
+            // so no harness wrap is needed. Every HTTP exchange is recorded on
+            // `httpLog`.
+            const handler = createMcpHandler(
+                makeServer,
+                transport === 'entryStateless' ? { legacy: 'stateless', ...sniff.entry } : { legacy: 'reject', ...sniff.entry }
+            );
+            const url = new URL('http://in-process/mcp');
+            const httpLog: RecordedHttpExchange[] = [];
+            const fetch = async (u: URL | string, init?: RequestInit) => {
+                const request = new Request(u, init);
+                const response = await handler.fetch(request);
+                httpLog.push({
+                    method: request.method.toUpperCase(),
+                    requestHeaders: request.headers,
+                    ...(typeof init?.body === 'string' && { requestBody: init.body }),
+                    status: response.status,
+                    contentType: response.headers.get('content-type') ?? '',
+                    response: response.clone()
+                });
+                return response;
+            };
+            const clientTx = new StreamableHTTPClientTransport(url, { fetch });
+            // entryModern is the era-fixed 2026-07-28 arm: it is the only arm
+            // whose wire may legitimately carry input_required results, so it
+            // opts the sniffer into accepting them (other arms stay strict).
+            let armSniff: WireOptions = sniff;
+            if (transport === 'entryModern') {
+                client.setVersionNegotiation({ mode: { pin: MODERN_REVISION } });
+                armSniff = { allowInputRequiredResults: true, ...sniff };
+            }
+            await client.connect(sniffTransport(clientTx, 'client', armSniff));
+            if (transport === 'entryModern') assertModernNegotiation(client);
+            return {
+                fetch,
+                url,
+                httpLog,
+                [Symbol.asyncDispose]: () => Promise.all([client.close(), handler.close()]).then(() => {})
             };
         }
         case 'sse': {
@@ -210,6 +332,44 @@ export function hostStateless(makeServer: ServerFactory): { handleRequest: HttpH
             for (const c of cleanups) await c();
         }
     };
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// createMcpHandler entry arms (entryStateless / entryModern) — client-side shims
+// ───────────────────────────────────────────────────────────────────────────────
+
+/** The protocol revision the entryModern arm negotiates and claims per request. */
+const MODERN_REVISION: SpecVersion = '2026-07-28';
+
+/**
+ * The per-request `_meta` envelope of a 2026-07-28 request, for scenario bodies
+ * that put raw HTTP requests on the wire (via `wired.fetch`) rather than going
+ * through the wired client. Typed calls through the wired client never need
+ * this — the client attaches the envelope itself once a modern era is
+ * negotiated.
+ */
+export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, unknown> {
+    return {
+        [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
+        [CLIENT_INFO_META_KEY]: clientInfo ?? { name: 'e2e-entry-client', version: '1.0.0' },
+        [CLIENT_CAPABILITIES_META_KEY]: {}
+    };
+}
+
+/**
+ * Fail fast if an entryModern connection did not actually negotiate the
+ * 2026-07-28 revision. Every cell on the arm asserts modern-path behavior, so
+ * a broken negotiation pin (or a regression in the discover negotiation) would
+ * otherwise surface as hundreds of unrelated downstream assertion failures;
+ * this turns it into one attributable arm-level error right after connect.
+ */
+function assertModernNegotiation(client: Client): void {
+    const negotiated = client.getNegotiatedProtocolVersion();
+    if (negotiated !== MODERN_REVISION) {
+        throw new Error(
+            `entryModern arm: expected the connection to negotiate protocol version ${MODERN_REVISION}, but it negotiated ${negotiated ?? 'no version'}`
+        );
+    }
 }
 
 // ───────────────────────────────────────────────────────────────────────────────

@@ -21,7 +21,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { JsonSchemaType } from '@modelcontextprotocol/core';
+import type { JsonSchemaType } from '@modelcontextprotocol/core-internal';
 import type {
     CreateMessageRequest,
     CreateMessageResult,
@@ -36,9 +36,9 @@ import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const TINY_WAV_BASE64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -758,21 +758,11 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const first = await client.listTools();
-        expect(first.tools.length).toBeLessThan(TOTAL);
-        expect(first.nextCursor).toBeDefined();
-
-        const seen = new Set(first.tools.map(t => t.name));
-        let result = first;
-        let pages = 1;
-        while (result.nextCursor !== undefined) {
-            result = await client.listTools({ cursor: result.nextCursor });
-            for (const t of result.tools) seen.add(t.name);
-            pages++;
-            expect(pages).toBeLessThan(50);
-        }
-        expect(seen.size).toBe(TOTAL);
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listTools() auto-aggregates every page.
+        const all = await client.listTools();
+        expect(all.tools.length).toBe(TOTAL);
+        expect(all.nextCursor).toBeUndefined();
+        expect(new Set(all.tools.map(t => t.name)).size).toBe(TOTAL);
     },
     { title: 'mcpserver' }
 );
@@ -803,30 +793,20 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const seen = new Set<string>();
-        const cursorsSent: string[] = [];
-        let pages = 0;
-        let result = await client.listTools();
-        expect(result.nextCursor).toBeDefined();
-        for (;;) {
-            for (const t of result.tools) {
-                expect(seen.has(t.name)).toBe(false);
-                seen.add(t.name);
-            }
-            pages++;
-            if (result.nextCursor === undefined) break;
-            cursorsSent.push(result.nextCursor);
-            result = await client.listTools({ cursor: result.nextCursor });
-            expect(pages).toBeLessThan(50);
-        }
-
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listTools() auto-aggregates every page; the server receives
+        // the cursor walk verbatim (protocol-level pagination is what is
+        // verified here).
+        const result = await client.listTools();
+        expect(result.nextCursor).toBeUndefined();
+        const seen = new Set(result.tools.map(t => t.name));
+        expect(seen.size).toBe(TOTAL);
         for (const name of all) expect(seen.has(name)).toBe(true);
+        expect(cursorsReceived).toEqual([undefined, '10', '20']);
 
-        // SDK plumbing: the server's request handler saw the cursors verbatim.
-        expect(cursorsReceived).toHaveLength(pages);
-        expect(cursorsReceived[0]).toBeUndefined();
-        expect(cursorsReceived.slice(1)).toEqual(cursorsSent);
+        // Explicit cursor → one raw page (per-page path).
+        const page = await client.listTools({ cursor: '10' });
+        expect(page.tools.length).toBe(PAGE);
+        expect(page.nextCursor).toBe('20');
     },
     { title: 'raw server' }
 );

@@ -4,12 +4,11 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import readline from 'readline/promises';
 
-const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
 class MCPClient {
   private mcp: Client;
   private _anthropic: Anthropic | null = null;
-  private transport: StdioClientTransport | null = null;
   private tools: Anthropic.Tool[] = [];
 
   constructor() {
@@ -37,8 +36,8 @@ class MCPClient {
         : process.execPath;
 
       // Initialize transport and connect to server
-      this.transport = new StdioClientTransport({ command, args: [serverScriptPath] });
-      await this.mcp.connect(this.transport);
+      const transport = new StdioClientTransport({ command, args: [serverScriptPath] });
+      await this.mcp.connect(transport);
 
       // List available tools
       const toolsResult = await this.mcp.listTools();
@@ -65,29 +64,40 @@ class MCPClient {
     ];
 
     // Initial Claude API call
-    const response = await this.anthropic.messages.create({
+    let response = await this.anthropic.messages.create({
       model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
     });
 
-    // Process response and handle tool calls
+    // Process responses, executing tool calls until Claude stops requesting them
     const finalText = [];
 
-    for (const content of response.content) {
-      if (content.type === 'text') {
-        finalText.push(content.text);
-      } else if (content.type === 'tool_use') {
-        // Execute tool call
-        const toolName = content.name;
-        const toolArgs = content.input as Record<string, unknown> | undefined;
+    while (true) {
+      const toolUses: Anthropic.ToolUseBlock[] = [];
+      for (const content of response.content) {
+        if (content.type === 'text') {
+          finalText.push(content.text);
+        } else if (content.type === 'tool_use') {
+          toolUses.push(content);
+        }
+      }
+
+      if (toolUses.length === 0) {
+        break;
+      }
+
+      // Execute every requested tool call and collect the results
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolUse of toolUses) {
+        const toolArgs = toolUse.input as Record<string, unknown>;
         const result = await this.mcp.callTool({
-          name: toolName,
+          name: toolUse.name,
           arguments: toolArgs,
         });
 
-        finalText.push(`[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`);
+        finalText.push(`[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`);
 
         // Extract text from tool result content blocks
         const toolResultText = result.content
@@ -95,29 +105,33 @@ class MCPClient {
           .map((block) => block.text)
           .join('\n');
 
-        // Continue conversation with tool results
-        messages.push({
-          role: 'assistant',
-          content: response.content,
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: toolResultText,
+          // Tell Claude when the tool call failed
+          ...(result.isError ? { is_error: true } : {}),
         });
-        messages.push({
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: content.id,
-            content: toolResultText,
-          }],
-        });
-
-        // Get next response from Claude
-        const followUp = await this.anthropic.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1000,
-          messages,
-        });
-
-        finalText.push(followUp.content[0].type === 'text' ? followUp.content[0].text : '');
       }
+
+      // Continue the conversation: the assistant turn, then ALL tool
+      // results together in a single user turn
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+      });
+      messages.push({
+        role: 'user',
+        content: toolResults,
+      });
+
+      // Get next response from Claude
+      response = await this.anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1000,
+        messages,
+        tools: this.tools,
+      });
     }
 
     return finalText.join('\n');
@@ -156,13 +170,14 @@ class MCPClient {
 
 //#region main
 async function main() {
-  if (process.argv.length < 3) {
+  const serverScriptPath = process.argv[2];
+  if (!serverScriptPath) {
     console.log('Usage: node build/index.js <path_to_server_script>');
     return;
   }
   const mcpClient = new MCPClient();
   try {
-    await mcpClient.connectToServer(process.argv[2]);
+    await mcpClient.connectToServer(serverScriptPath);
 
     // Check if we have a valid API key to continue
     const apiKey = process.env.ANTHROPIC_API_KEY;

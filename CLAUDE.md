@@ -16,18 +16,19 @@ pnpm check:all       # typecheck + lint across all packages
 
 # Run a single package script (examples)
 # Run a single package script from the repo root with pnpm filter
-pnpm --filter @modelcontextprotocol/core test                # vitest run (core)
-pnpm --filter @modelcontextprotocol/core test:watch          # vitest (watch)
-pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
-pnpm --filter @modelcontextprotocol/core test -- -t "test name"
+pnpm --filter @modelcontextprotocol/core-internal test                # vitest run (core)
+pnpm --filter @modelcontextprotocol/core-internal test:watch          # vitest (watch)
+pnpm --filter @modelcontextprotocol/core-internal test -- path/to/file.test.ts
+pnpm --filter @modelcontextprotocol/core-internal test -- -t "test name"
 ```
 
 ## Breaking Changes
 
-When making breaking changes, document them in **both**:
-
-- `docs/migration.md` — human-readable guide with before/after code examples
-- `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
+When making breaking changes, add to the relevant subsystem section in
+`docs/migration/upgrade-to-v2.md` (or `docs/migration/support-2026-07-28.md` if the
+change is 2026-07-28-only). Mechanical renames go in
+`packages/codemod/src/migrations/v1-to-v2/mappings/` and the codemod handles them — do
+not reproduce mapping tables in the guide; link to the mapping file instead.
 
 Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
 
@@ -36,14 +37,14 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **TypeScript**: Strict type checking, ES modules, explicit return types
 - **Naming**: PascalCase for classes/types, camelCase for functions/variables
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
-- **Imports**: ES module style, include `.js` extension, group imports logically
+- **Imports**: ES module style, no `.js` extension on relative imports (project uses `moduleResolution: bundler`), group imports logically
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
 - **Testing**: Place tests under each package's `test/` directory (vitest only includes `test/**/*.test.ts`), use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
 
 ### JSDoc `@example` Code Snippets
 
-JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use `` ```ts source="./file.examples.ts#regionName" `` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
+JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use ` ```ts source="./file.examples.ts#regionName" ` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
 
 Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdown files.
 
@@ -53,9 +54,9 @@ Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdow
 
 The SDK is organized into three main layers:
 
-1. **Types Layer** (`packages/core/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
+1. **Types Layer** (`packages/core-internal/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
 
-2. **Protocol Layer** (`packages/core/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
+2. **Protocol Layer** (`packages/core-internal/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
 
 3. **High-Level APIs**:
     - `Client` (`packages/client/src/client/client.ts`) - Client implementation extending Protocol with typed methods for MCP operations
@@ -64,21 +65,23 @@ The SDK is organized into three main layers:
 
 ### Public API Exports
 
-The SDK has a two-layer export structure to separate internal code from the public API:
+The SDK separates internal code from the public API surface:
 
-- **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
-- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
-- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
+- **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
+- **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports TypeScript types, error classes, constants, guards, and the `Protocol` base class (+ `mergeCapabilities`). Re-exported by client and server packages.
+- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core-internal/public`.
+- **`@modelcontextprotocol/core`** (`packages/core/src/index.ts`) — Public Zod-schema package and the canonical home of the schema source modules (`src/schemas.ts`, `src/auth.ts`, `src/constants.ts`). The root entry re-exports **only** the `*Schema` Zod constants (MCP spec + OAuth/OpenID) — the published home for raw runtime validation (`CallToolResultSchema.parse(...)`); runtime-neutral (`zod` is its only dependency). The `./internal` subpath re-exports the schema modules wholesale for the sibling packages: `core-internal` re-exports them at the old module paths, and the `client`/`server`/`server-legacy` bundles resolve `@modelcontextprotocol/core/internal` as a real external dependency instead of carrying their own schema copies (their public surfaces stay Zod-free).
 
 When modifying exports:
-- Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
+
+- Use explicit named exports, not `export *`, in package `index.ts` files and `core-internal/public`.
 - Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
-- Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
+- Internal helpers should stay in the core internal barrel and not be added to `core-internal/public` or package index files.
 - The package root entry must stay runtime-neutral so browser and Cloudflare Workers bundlers can consume it. Exports whose module graph transitively touches unpolyfillable Node builtins (`node:child_process`, `node:net`, `cross-spawn`, etc.) must live at a named subpath export (e.g. `./stdio`) and be covered by a `barrelClean` test in that package.
 
 ### Transport System
 
-Transports (`packages/core/src/shared/transport.ts`) provide the communication layer:
+Transports (`packages/core-internal/src/shared/transport.ts`) provide the communication layer:
 
 - **Streamable HTTP** (`packages/server/src/server/streamableHttp.ts`, `packages/client/src/client/streamableHttp.ts`) - Recommended transport for remote servers, supports SSE for streaming
 - **SSE** (`packages/server/src/server/sse.ts`, `packages/client/src/client/sse.ts`) - Legacy HTTP+SSE transport for backwards compatibility
@@ -110,22 +113,26 @@ Located in `packages/*/src/experimental/`. Currently empty.
 
 The SDK uses `zod/v4` internally. Schema utilities live in:
 
-- `packages/core/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
+- `packages/core-internal/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
 
 ### Validation
 
-Pluggable JSON Schema validation (`packages/core/src/validators/`):
+Pluggable JSON Schema validation (`packages/core-internal/src/validators/`):
 
 - `ajvProvider.ts` - Default Ajv-based validator
 - `cfWorkerProvider.ts` - Cloudflare Workers-compatible alternative
 
 ### Examples
 
-Runnable examples in `examples/`:
+Runnable examples in `examples/<story>/{server.ts,client.ts}` — each story is its own
+`@mcp-examples/<story>` workspace package and a self-verifying e2e test (the client connects,
+asserts results, exits non-zero on mismatch). `pnpm run:examples` runs every story over its
+configured transport×era legs; the `examples (build + e2e)` CI job is part of the per-PR gate
+basket. See `examples/README.md` for the full story matrix.
 
-- `examples/server/src/` - Various server configurations (stateful, stateless, OAuth, etc.)
-- `examples/client/src/` - Client examples (basic, OAuth, parallel calls, etc.)
-- `examples/shared/src/` - Shared utilities (OAuth demo provider, etc.)
+- `examples/shared/` — `@mcp-examples/shared` package. Root export is args-only (`parseExampleArgs`, `check`, `siblingPath`); the demo OAuth provider and `InMemoryEventStore` live at the `@mcp-examples/shared/auth` subpath so non-auth stories don't eagerly evaluate better-auth/express/better-sqlite3. Stories import only this plumbing and inline the SDK transport setup themselves — see `examples/CONTRIBUTING.md`.
+- `scripts/examples/` — runner (`run-examples.ts`)
+- `examples/guides/` — per-page snippet companions for the `docs/` guide pages (one `<section>/<page>.examples.ts` per page); fences sync via `pnpm sync:snippets`, and the runnable ones are executed in CI by `pnpm docs:examples`
 
 ## Message Flow (Bidirectional Protocol)
 
@@ -191,14 +198,14 @@ The `ctx` parameter in handlers provides a structured context:
 
 - `sessionId?`: Transport session identifier
 - `mcpReq`: Request-level concerns
-  - `id`: JSON-RPC message ID
-  - `method`: Request method string (e.g., 'tools/call')
-  - `_meta?`: Request metadata
-  - `signal`: AbortSignal for cancellation
-  - `send(request, schema, options?)`: Send related request (for bidirectional flows)
-  - `notify(notification)`: Send related notification back
+    - `id`: JSON-RPC message ID
+    - `method`: Request method string (e.g., 'tools/call')
+    - `_meta?`: Request metadata
+    - `signal`: AbortSignal for cancellation
+    - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+    - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
-  - `authInfo?`: Validated auth token info
+    - `authInfo?`: Validated auth token info
 
 **`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
 

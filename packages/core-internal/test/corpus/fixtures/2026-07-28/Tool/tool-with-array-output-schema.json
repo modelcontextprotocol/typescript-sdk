@@ -1,0 +1,30 @@
+{
+  "name": "list_users",
+  "title": "User List",
+  "description": "Returns a list of all users",
+  "inputSchema": {
+    "type": "object",
+    "properties": {}
+  },
+  "outputSchema": {
+    "type": "array",
+    "items": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "User ID"
+        },
+        "name": {
+          "type": "string",
+          "description": "User name"
+        },
+        "email": {
+          "type": "string",
+          "description": "User email"
+        }
+      },
+      "required": ["id", "name", "email"]
+    }
+  }
+}

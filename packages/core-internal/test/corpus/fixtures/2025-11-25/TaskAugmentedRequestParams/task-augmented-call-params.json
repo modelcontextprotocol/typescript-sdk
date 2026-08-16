@@ -1,0 +1,10 @@
+{
+    "task": {
+        "ttl": 60000
+    },
+    "_meta": {
+        "io.modelcontextprotocol/related-task": {
+            "taskId": "786af6b0-2779-48ed-9cc1-b8a8a25b8a86"
+        }
+    }
+}

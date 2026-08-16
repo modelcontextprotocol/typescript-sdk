@@ -1,15 +1,19 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { beforeAll, describe, expect, test } from 'vitest';
 
+import { ensureBuilt } from '../helpers/ensureBuilt';
+
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
+const requireDist = createRequire(join(pkgDir, 'package.json'));
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
 // Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
 const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
+const ROOT_VALIDATOR_EXPORTS = ['AjvJsonSchemaValidator', 'CfWorkerJsonSchemaValidator', 'CfWorkerSchemaDraft'];
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();
@@ -27,12 +31,16 @@ function chunkImportsOf(entryPath: string): string[] {
     return [...visited];
 }
 
+function rootExportBlockOf(content: string): string {
+    const blocks = content.match(/(?:^|\n)export \{[\s\S]*?\};/g);
+    expect(blocks).toBeTruthy();
+    return blocks!.at(-1)!;
+}
+
 describe('@modelcontextprotocol/client root entry is browser-safe', () => {
-    beforeAll(() => {
-        if (!existsSync(join(distDir, 'index.mjs')) || !existsSync(join(distDir, 'stdio.mjs'))) {
-            execFileSync('pnpm', ['build'], { cwd: pkgDir, stdio: 'inherit' });
-        }
-    }, 60_000);
+    beforeAll(async () => {
+        await ensureBuilt(pkgDir);
+    }, 180_000);
 
     test('dist/index.mjs contains no process-spawning runtime imports', () => {
         const entry = join(distDir, 'index.mjs');
@@ -64,6 +72,26 @@ describe('@modelcontextprotocol/client root entry is browser-safe', () => {
                 expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
                     expect.objectContaining({ content: expect.stringMatching(VALIDATOR_BACKEND_IMPORT) })
                 );
+            }
+        }
+    });
+
+    test('CJS AJV validator subpath exposes Ajv at runtime', () => {
+        const { Ajv, AjvJsonSchemaValidator, addFormats } = requireDist(
+            './dist/validators/ajv.cjs'
+        ) as typeof import('../../src/validators/ajv');
+
+        const ajv = new Ajv({ strict: false, allErrors: true });
+        addFormats(ajv);
+
+        expect(new AjvJsonSchemaValidator(ajv)).toBeInstanceOf(AjvJsonSchemaValidator);
+    });
+
+    test('root declarations do not advertise validator provider classes', () => {
+        for (const declaration of ['index.d.mts', 'index.d.cts']) {
+            const rootExportBlock = rootExportBlockOf(readFileSync(join(distDir, declaration), 'utf8'));
+            for (const symbol of ROOT_VALIDATOR_EXPORTS) {
+                expect(rootExportBlock).not.toMatch(new RegExp(`\\b(?:type\\s+)?${symbol}\\b`));
             }
         }
     });

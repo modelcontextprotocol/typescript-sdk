@@ -12,9 +12,9 @@ import { LATEST_PROTOCOL_VERSION, McpServer, parseJSONRPCMessage } from '@modelc
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostResumable } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { hostResumable } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /**
  * These three tests assert the raw frame sequence of the POST SSE stream itself, so they cannot run their traffic through a connected client.

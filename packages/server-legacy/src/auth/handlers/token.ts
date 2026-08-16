@@ -13,10 +13,10 @@ import {
     ServerError,
     TooManyRequestsError,
     UnsupportedGrantTypeError
-} from '../errors.js';
-import { allowedMethods } from '../middleware/allowedMethods.js';
-import { authenticateClient } from '../middleware/clientAuth.js';
-import type { OAuthServerProvider } from '../provider.js';
+} from '../errors';
+import { allowedMethods } from '../middleware/allowedMethods';
+import { authenticateClient } from '../middleware/clientAuth';
+import type { OAuthServerProvider } from '../provider';
 
 export type TokenHandlerOptions = {
     provider: OAuthServerProvider;

@@ -13,9 +13,9 @@ import type { RegisteredResource } from '@modelcontextprotocol/server';
 import { McpServer, ProtocolError, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const FIXTURE_LAST_MODIFIED = '2024-01-15T10:30:00.000Z';
@@ -78,21 +78,11 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const first = await client.listResources();
-        expect(first.resources.length).toBeLessThan(TOTAL);
-        expect(first.nextCursor).toBeDefined();
-
-        const seen = new Set(first.resources.map(r => r.uri));
-        let result = first;
-        let pages = 1;
-        while (result.nextCursor !== undefined) {
-            result = await client.listResources({ cursor: result.nextCursor });
-            for (const r of result.resources) seen.add(r.uri);
-            pages++;
-            expect(pages).toBeLessThan(50);
-        }
-        expect(seen.size).toBe(TOTAL);
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listResources() auto-aggregates every page.
+        const all = await client.listResources();
+        expect(all.resources.length).toBe(TOTAL);
+        expect(all.nextCursor).toBeUndefined();
+        expect(new Set(all.resources.map(r => r.uri)).size).toBe(TOTAL);
     },
     { title: 'mcpserver' }
 );
@@ -122,30 +112,20 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const seen = new Set<string>();
-        const cursorsSent: string[] = [];
-        let pages = 0;
-        let result = await client.listResources();
-        expect(result.nextCursor).toBeDefined();
-        for (;;) {
-            for (const r of result.resources) {
-                expect(seen.has(r.uri)).toBe(false);
-                seen.add(r.uri);
-            }
-            pages++;
-            if (result.nextCursor === undefined) break;
-            cursorsSent.push(result.nextCursor);
-            result = await client.listResources({ cursor: result.nextCursor });
-            expect(pages).toBeLessThan(50);
-        }
-
+        // No-arg listResources() auto-aggregates every page; the server
+        // receives the cursor walk verbatim (protocol-level pagination is
+        // what is verified here).
+        const result = await client.listResources();
         expect(result.nextCursor).toBeUndefined();
-        expect(pages).toBe(3);
+        const seen = new Set(result.resources.map(r => r.uri));
         expect(seen.size).toBe(TOTAL);
         for (const name of all) expect(seen.has(name)).toBe(true);
-
         expect(cursorsReceived).toEqual([undefined, '10', '20']);
-        expect(cursorsSent).toEqual(['10', '20']);
+
+        // Explicit cursor → one raw page (per-page path).
+        const page = await client.listResources({ cursor: '10' });
+        expect(page.resources.length).toBe(PAGE);
+        expect(page.nextCursor).toBe('20');
     },
     { title: 'raw server' }
 );
@@ -202,10 +182,32 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    await expect(client.readResource({ uri: 'file:///no-such-resource' })).rejects.toMatchObject({
-        code: -32_002,
-        message: expect.stringMatching(/not found|unknown/i)
-    });
+    let received: ProtocolError | undefined;
+    try {
+        const result = await client.readResource({ uri: 'file:///no-such-resource' });
+        // MUST-NOT rider: never an empty contents array for a non-existent resource.
+        expect(result.contents).not.toEqual([]);
+    } catch (error) {
+        received = error as ProtocolError;
+    }
+    expect(received).toBeDefined();
+
+    // The wire code is −32602 on every protocol revision (the encode seam owns
+    // the −32002 → −32602 mapping), with `data.uri` echoing the requested URI.
+    expect(received!.code).toBe(-32_602);
+    expect(received!.message).toMatch(/not found/i);
+    expect(received!.data).toEqual({ uri: 'file:///no-such-resource' });
+
+    // The cross-bundle data-parse recognizer reconstructs the typed error
+    // from code + structurally valid data (no `instanceof` across bundles).
+    // It accepts BOTH −32602 and the legacy −32002; the duck shape is `data.uri`.
+    const recognised = ProtocolError.fromError(received!.code, received!.message, received!.data);
+    expect((recognised as { uri?: string }).uri).toBe('file:///no-such-resource');
+    const legacy = ProtocolError.fromError(-32_002, 'Resource not found', { uri: 'file:///x' });
+    expect((legacy as { uri?: string }).uri).toBe('file:///x');
+    // ProtocolErrorCode.ResourceNotFound (−32002) stays importable as legacy
+    // receive-tolerated vocabulary.
+    expect(ProtocolErrorCode.ResourceNotFound).toBe(-32_002);
 });
 
 verifies('resources:read:template-vars', async ({ transport }: TestArgs) => {
@@ -498,21 +500,11 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const first = await client.listResourceTemplates();
-        expect(first.resourceTemplates.length).toBeLessThan(TOTAL);
-        expect(first.nextCursor).toBeDefined();
-
-        const seen = new Set(first.resourceTemplates.map(t => t.uriTemplate));
-        let result = first;
-        let pages = 1;
-        while (result.nextCursor !== undefined) {
-            result = await client.listResourceTemplates({ cursor: result.nextCursor });
-            for (const t of result.resourceTemplates) seen.add(t.uriTemplate);
-            pages++;
-            expect(pages).toBeLessThan(50);
-        }
-        expect(seen.size).toBe(TOTAL);
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listResourceTemplates() auto-aggregates every page.
+        const all = await client.listResourceTemplates();
+        expect(all.resourceTemplates.length).toBe(TOTAL);
+        expect(all.nextCursor).toBeUndefined();
+        expect(new Set(all.resourceTemplates.map(t => t.uriTemplate)).size).toBe(TOTAL);
     },
     { title: 'mcpserver' }
 );
@@ -539,25 +531,17 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const seen = new Set<string>();
-        let pages = 0;
-        let result = await client.listResourceTemplates();
-        expect(result.nextCursor).toBeDefined();
-        for (;;) {
-            for (const t of result.resourceTemplates) {
-                expect(seen.has(t.uriTemplate)).toBe(false);
-                seen.add(t.uriTemplate);
-            }
-            pages++;
-            if (result.nextCursor === undefined) break;
-            result = await client.listResourceTemplates({ cursor: result.nextCursor });
-            expect(pages).toBeLessThan(50);
-        }
-
+        // No-arg listResourceTemplates() auto-aggregates every page.
+        const result = await client.listResourceTemplates();
         expect(result.nextCursor).toBeUndefined();
-        expect(pages).toBe(3);
+        const seen = new Set(result.resourceTemplates.map(t => t.uriTemplate));
         expect(seen.size).toBe(TOTAL);
         for (const name of all) expect(seen.has(name)).toBe(true);
+
+        // Explicit cursor → one raw page (per-page path).
+        const page = await client.listResourceTemplates({ cursor: '10' });
+        expect(page.resourceTemplates.length).toBe(PAGE);
+        expect(page.nextCursor).toBe('20');
     },
     { title: 'raw server' }
 );

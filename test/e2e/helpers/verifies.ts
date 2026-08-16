@@ -17,11 +17,23 @@
 
 import { describe, test } from 'vitest';
 
-import { REQUIREMENTS } from '../requirements.js';
-import type { TestArgs } from '../types.js';
-import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS } from '../types.js';
+import { REQUIREMENTS } from '../requirements';
+import type { Requirement, SpecVersion, TestArgs, Transport } from '../types';
+import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS, ENTRY_TRANSPORTS, TRANSPORT_SPEC_VERSIONS } from '../types';
 
 type TestBody = (args: TestArgs) => Promise<void>;
+
+/** Whether a requirement's `entryExclusions` keep the given entry arm out of its cells. */
+function excludedFromEntryArm(req: Requirement, transport: Transport): boolean {
+    if (!(ENTRY_TRANSPORTS as readonly Transport[]).includes(transport)) return false;
+    return (req.entryExclusions ?? []).some(x => x.arm === undefined || x.arm === transport);
+}
+
+/** Whether a transport arm serves the given spec version (era-fixed arms serve exactly one). */
+function transportServesVersion(transport: Transport, version: SpecVersion): boolean {
+    const versions = TRANSPORT_SPEC_VERSIONS[transport];
+    return versions === undefined || versions.includes(version);
+}
 
 export function verifies(id: string | readonly string[], fn: TestBody, opts?: { title?: string }): void {
     const ids = Array.isArray(id) ? id : [id];
@@ -33,13 +45,13 @@ function registerOne(id: string, fn: TestBody, opts?: { title?: string }): void 
     if (!req) throw new Error(`verifies('${id}'): unknown requirement id`);
     if (req.deferred) throw new Error(`verifies('${id}'): requirement is deferred — drop the deferral or the test`);
 
-    const transports = req.transports ?? ALL_TRANSPORTS;
+    const transports = (req.transports ?? ALL_TRANSPORTS).filter(t => !excludedFromEntryArm(req, t));
     const versions = ALL_SPEC_VERSIONS.filter(
         v =>
             (req.addedInSpecVersion === undefined || v >= req.addedInSpecVersion) &&
             (req.removedInSpecVersion === undefined || v < req.removedInSpecVersion)
     );
-    const cells = versions.flatMap(v => transports.map(t => [t, v] as const));
+    const cells = versions.flatMap(v => transports.filter(t => transportServesVersion(t, v)).map(t => [t, v] as const));
 
     describe.each(cells)(`${id} [%s %s]`, (transport, protocolVersion) => {
         const kf = req.knownFailures?.find(
