@@ -3101,8 +3101,9 @@ describe('OAuth Authorization', () => {
             ).rejects.toBe(persistError);
 
             // saveTokens was called with the new tokens before throwing.
-            expect((mockProvider.saveTokens as Mock).mock.calls[0][0]).toEqual(
-                expect.objectContaining({ access_token: 'new-access', refresh_token: 'new-refresh' })
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({ access_token: 'new-access', refresh_token: 'new-refresh' }),
+                expect.anything()
             );
             // The fallthrough to a new authorization flow must NOT happen.
             expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
