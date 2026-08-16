@@ -2047,6 +2047,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:negotiation:auth-before-era': {
+        source: 'sdk',
+        behavior:
+            "An OAuth-protected legacy server is reachable under versionNegotiation mode 'auto': the connect-time probe's 401 propagates the auth challenge (UnauthorizedError) without deciding the era — auth settles first, era second — and after finishAuth the reconnect re-probes with the token, takes the legacy server's real server/discover rejection as the era evidence, completes the legacy initialize, and serves tools/call.",
+        transports: ['streamableHttp'],
+        note: "Wire-order pin: exactly two server/discover POSTs — the pre-auth one 401'd by the auth wall, the post-auth one answered by the legacy stack — then a single initialize, only after the second probe. Same single-cell setup as the rest of the client-auth family (self-contained body; the matrix transport arg is ignored)."
+    },
     'client-auth:403-scope-upgrade': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#step-up-authorization-flow',
         behavior: 'A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt; repeated 403s do not loop.',

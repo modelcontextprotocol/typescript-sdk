@@ -19,7 +19,7 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    both `import` and `require('@modelcontextprotocol/…')` resolve natively.
 2. **Run the codemod.**
     ```bash
-    npx @modelcontextprotocol/codemod@beta v1-to-v2 .
+    npx @modelcontextprotocol/codemod@latest v1-to-v2 .
     ```
     Run it at the **package root** (`.`), not `./src` — it also rewrites `package.json`,
     and real projects import the SDK from `test/`, `scripts/`, and fixtures too.
@@ -233,10 +233,9 @@ quote-anchored pattern misses silently — match either quote. The build layout 
 changed: v2 emits `.mjs`/`.cjs` siblings in a flat `dist/`, so v1's `/dist/cjs/` ↔
 `/dist/esm/` flavor-pair path swaps have no equivalent.
 
-#### Registry availability during the beta
+#### Registry availability
 
-All v2 packages are published on the public npm registry. Two notes for the beta
-window:
+All v2 packages are published on the public npm registry. Two notes:
 
 - As of `2.0.0-beta.1` all v2 packages share one version number (earlier alphas
   did not). The codemod writes ranges that match what is published, so prefer its
@@ -1151,11 +1150,11 @@ try {
 }
 ```
 
-One qualification: this direct `instanceof` check applies under the default `'legacy'`
-version negotiation. Under the probing modes (`versionNegotiation: { mode: 'auto' }`,
-with or without a pin) the connect-time 401 currently surfaces wrapped as
-`SdkError(SdkErrorCode.EraNegotiationFailed)` with the `UnauthorizedError` at
-`error.data.cause` — unwrap before the check, as shown in the
+This direct `instanceof` check works in every version-negotiation mode: under the
+probing modes (`versionNegotiation: { mode: 'auto' }`, with or without a pin) the
+connect-time `UnauthorizedError` also propagates unchanged from `connect()`. Older
+releases wrapped it as `SdkError(SdkErrorCode.EraNegotiationFailed)` with the error at
+`error.data.cause` — that unwrap is no longer needed. See the
 [client OAuth guide](../clients/oauth.md).
 
 #### `auth()` options are now `AuthOptions`

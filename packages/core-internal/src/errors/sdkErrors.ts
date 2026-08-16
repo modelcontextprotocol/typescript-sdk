@@ -65,16 +65,34 @@ export enum SdkErrorCode {
     /**
      * Protocol-era negotiation at connect time failed without producing either a
      * usable modern (2026-07-28+) era or a definitive legacy fallback signal —
-     * e.g. the negotiation mode forbids falling back (`pin`), or the probe hit a
-     * network failure (a typed connect error, never an era verdict).
+     * e.g. the negotiation mode forbids falling back (`pin`), the probe hit a
+     * network failure, or the server answered the probe with a 5xx (a typed
+     * connect error, never an era verdict).
      *
-     * Negotiation-phase only: this code is never used once an era is established.
+     * Negotiation-phase only: this code is never used once an era is
+     * established. Auth walls never carry it: a 401/403 rejecting the probe
+     * uses {@linkcode ClientHttpAuthentication} / {@linkcode ClientHttpForbidden}
+     * instead, so era-recovery flows keyed on this code (e.g. cached-verdict
+     * gateways) can never persist a verdict for an unauthorized exchange.
      */
     EraNegotiationFailed = 'ERA_NEGOTIATION_FAILED',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
+    /**
+     * HTTP 401 authentication failure: the transport's re-auth retry still got
+     * 401 (`Server returned 401 after re-authentication`), or the version
+     * negotiation probe was rejected 401 with no `authProvider` configured
+     * (`Version negotiation failed: the server requires authorization (HTTP 401)`).
+     * Carried on an {@linkcode SdkHttpError} with `status: 401`.
+     */
     ClientHttpAuthentication = 'CLIENT_HTTP_AUTHENTICATION',
+    /**
+     * HTTP 403 denial: the step-up re-authorization retry limit was reached,
+     * or the version negotiation probe was rejected 403
+     * (`Version negotiation failed: the server denied access (HTTP 403)`).
+     * Carried on an {@linkcode SdkHttpError} with `status: 403`.
+     */
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
