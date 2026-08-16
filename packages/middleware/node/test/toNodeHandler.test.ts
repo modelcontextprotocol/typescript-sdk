@@ -41,10 +41,10 @@ function bodyDerivedStandardHeaders(body: unknown): Record<string, string> {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) return {};
     const b = body as { method?: unknown; params?: { name?: unknown; uri?: unknown; _meta?: Record<string, unknown> } };
     const claimedVersion = b.params?._meta?.[PROTOCOL_VERSION_META_KEY];
-    if (typeof claimedVersion !== 'string') return {};
+    if (b.params === undefined || typeof claimedVersion !== 'string') return {};
     const out: Record<string, string> = { 'mcp-protocol-version': claimedVersion };
     if (typeof b.method === 'string') out['mcp-method'] = b.method;
-    const name = b.method === 'resources/read' ? b.params?.uri : b.params?.name;
+    const name = b.method === 'resources/read' ? b.params.uri : b.params.name;
     if (typeof name === 'string') out['mcp-name'] = name;
     return out;
 }

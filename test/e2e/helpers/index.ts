@@ -357,6 +357,21 @@ export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, 
 }
 
 /**
+ * The SEP-2243 standard request headers a conformant 2026-07-28 client sends
+ * alongside {@linkcode modernEnvelopeMeta}, for scenario bodies that put raw
+ * HTTP requests on the wire. `MCP-Protocol-Version` and `Mcp-Method` are
+ * required on every modern POST; `Mcp-Name` is additionally required for the
+ * methods that mirror `params.name` / `params.uri`.
+ */
+export function modernStandardHeaders(method: string, name?: string): Record<string, string> {
+    return {
+        'mcp-protocol-version': MODERN_REVISION,
+        'mcp-method': method,
+        ...(name !== undefined && { 'mcp-name': name })
+    };
+}
+
+/**
  * Fail fast if an entryModern connection did not actually negotiate the
  * 2026-07-28 revision. Every cell on the arm asserts modern-path behavior, so
  * a broken negotiation pin (or a regression in the discover negotiation) would
