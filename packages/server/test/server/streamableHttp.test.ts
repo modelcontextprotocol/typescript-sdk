@@ -204,7 +204,21 @@ describe('Zod v4', () => {
 
                 expect(response.status).toBe(400);
                 const errorData = await response.json();
-                expectErrorResponse(errorData, -32_600, /Only one initialization request is allowed/);
+                expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
+            });
+
+            it('should reject non-initialize batch request', async () => {
+                const batchMessages: JSONRPCMessage[] = [
+                    { jsonrpc: '2.0', method: 'tools/list', id: 'tools-1' },
+                    { jsonrpc: '2.0', method: 'ping', id: 'ping-1' }
+                ];
+
+                const request = createRequest('POST', batchMessages);
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
             });
         });
 

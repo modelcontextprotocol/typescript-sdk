@@ -772,13 +772,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 rawMessage = options.parsedBody;
             }
 
+            // JSON-RPC batches were removed from the MCP protocol; the streamable
+            // HTTP transport accepts a single JSON-RPC message per request.
+            if (Array.isArray(rawMessage)) {
+                this.onerror?.(new Error('Invalid Request: batch requests are not supported'));
+                return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: batch requests are not supported');
+            }
+
             let messages: JSONRPCMessage[];
 
-            // handle batch and single messages
             try {
-                messages = Array.isArray(rawMessage)
-                    ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
-                    : [JSONRPCMessageSchema.parse(rawMessage)];
+                messages = [JSONRPCMessageSchema.parse(rawMessage)];
             } catch (error) {
                 this.onerror?.(error as Error);
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');

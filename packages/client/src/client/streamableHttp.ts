@@ -1143,9 +1143,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 } else if (responseMediaType === 'application/json') {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
-                    const responseMessages = Array.isArray(data)
-                        ? data.map(msg => JSONRPCMessageSchema.parse(msg))
-                        : [JSONRPCMessageSchema.parse(data)];
+                    // JSON-RPC batches were removed from the MCP protocol; a
+                    // response must be a single JSON-RPC message.
+                    if (Array.isArray(data)) {
+                        throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected batch response from server', {
+                            contentType
+                        });
+                    }
+                    const responseMessages = [JSONRPCMessageSchema.parse(data)];
 
                     for (const msg of responseMessages) {
                         this.onmessage?.(msg);
