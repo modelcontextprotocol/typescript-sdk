@@ -19,6 +19,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { localhostAllowedHostnames, validateHostHeader } from './middleware/hostHeaderValidation';
+import { localhostAllowedOrigins, validateOriginHeader } from './middleware/originValidation';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -124,21 +126,29 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
 
     /**
      * List of allowed `Host` header values for DNS rebinding protection.
-     * If not specified, host validation is disabled.
+     * When neither this nor `allowedOrigins` is configured, a localhost
+     * allowlist (`localhost`, `127.0.0.1`, `[::1]`) is enforced instead.
      * @deprecated Use external middleware for host validation instead.
      */
     allowedHosts?: string[];
 
     /**
      * List of allowed `Origin` header values for DNS rebinding protection.
-     * If not specified, origin validation is disabled.
+     * When neither this nor `allowedHosts` is configured, a localhost
+     * allowlist (origins whose hostname is `localhost` or `127.0.0.1`, on
+     * any port) is enforced instead.
      * @deprecated Use external middleware for origin validation instead.
      */
     allowedOrigins?: string[];
 
     /**
-     * Enable DNS rebinding protection (requires `allowedHosts` and/or `allowedOrigins` to be configured).
-     * Default is `false` for backwards compatibility.
+     * Enable DNS rebinding protection (Host and Origin header validation).
+     * Default is `true`. When enabled and neither `allowedHosts` nor
+     * `allowedOrigins` is configured, requests are validated against a
+     * localhost allowlist (`localhost`, `127.0.0.1`, `[::1]` for `Host`;
+     * origins with a `localhost` or `127.0.0.1` hostname for `Origin`), so
+     * only localhost requests pass unless allowlists are configured. Set to
+     * `false` to disable validation entirely.
      * @deprecated Use external middleware for DNS rebinding protection instead.
      */
     enableDnsRebindingProtection?: boolean;
@@ -270,7 +280,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._onsessionclosed = options.onsessionclosed;
         this._allowedHosts = options.allowedHosts;
         this._allowedOrigins = options.allowedOrigins;
-        this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
+        this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? true;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
@@ -345,25 +355,45 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * @returns Error response if validation fails, `undefined` if validation passes.
      */
     private validateRequestHeaders(req: Request): Response | undefined {
-        // Skip validation if protection is not enabled
+        // Skip validation if protection is explicitly disabled.
         if (!this._enableDnsRebindingProtection) {
             return undefined;
         }
 
-        // Validate Host header if allowedHosts is configured
-        if (this._allowedHosts && this._allowedHosts.length > 0) {
+        // When neither allowlist is configured, fall back to a localhost
+        // allowlist so that DNS rebinding protection stays armed out of the
+        // box (previously, enabling protection with no allowlist skipped the
+        // checks entirely, failing open).
+        const localhostFallback =
+            (this._allowedHosts === undefined || this._allowedHosts.length === 0) &&
+            (this._allowedOrigins === undefined || this._allowedOrigins.length === 0);
+        const allowedHosts = localhostFallback ? localhostAllowedHostnames() : this._allowedHosts;
+        const allowedOrigins = localhostFallback ? localhostAllowedOrigins() : this._allowedOrigins;
+
+        // Validate Host header if an allowlist is in effect. A missing Host
+        // header passes in the localhost fallback (in-process requests and
+        // some non-browser clients omit it; browsers always send one), but a
+        // present hostname that is not localhost is rejected.
+        if (allowedHosts && allowedHosts.length > 0) {
             const hostHeader = req.headers.get('host');
-            if (!hostHeader || !this._allowedHosts.includes(hostHeader)) {
+            const hostAllowed = localhostFallback
+                ? hostHeader === null || validateHostHeader(hostHeader, allowedHosts).ok
+                : hostHeader !== null && allowedHosts.includes(hostHeader);
+            if (!hostAllowed) {
                 const error = `Invalid Host header: ${hostHeader}`;
                 this.onerror?.(new Error(error));
                 return this.createJsonErrorResponse(403, -32_000, error);
             }
         }
 
-        // Validate Origin header if allowedOrigins is configured
-        if (this._allowedOrigins && this._allowedOrigins.length > 0) {
+        // Validate Origin header if an allowlist is in effect. A missing
+        // Origin header always passes (non-browser clients do not send one).
+        if (allowedOrigins && allowedOrigins.length > 0) {
             const originHeader = req.headers.get('origin');
-            if (originHeader && !this._allowedOrigins.includes(originHeader)) {
+            const originAllowed = localhostFallback
+                ? validateOriginHeader(originHeader, allowedOrigins).ok
+                : !originHeader || allowedOrigins.includes(originHeader);
+            if (!originAllowed) {
                 const error = `Invalid Origin header: ${originHeader}`;
                 this.onerror?.(new Error(error));
                 return this.createJsonErrorResponse(403, -32_000, error);
