@@ -106,11 +106,11 @@ describe('WebStandardStreamableHTTPServerTransport DNS rebinding protection', ()
         expect(body.id).toBeNull();
     }
 
-    it('default construction rejects a cross-origin request with 403', async () => {
+    it('default construction rejects a non-localhost Host header with 403', async () => {
         const { transport } = await createTransport();
         try {
             const response = await transport.handleRequest(
-                postRequest('http://localhost:3000/mcp', { host: 'localhost:3000', origin: 'http://evil.example.com' })
+                postRequest('http://localhost:3000/mcp', { host: 'evil.example.com', origin: 'http://evil.example.com' })
             );
             await expectForbidden(response);
         } finally {
@@ -118,11 +118,17 @@ describe('WebStandardStreamableHTTPServerTransport DNS rebinding protection', ()
         }
     });
 
-    it('default construction rejects a non-localhost Host header with 403', async () => {
+    it('default construction accepts a cross-origin Origin header when the Host is localhost', async () => {
+        // Browser-origin hosting is typically delegated to an external CORS
+        // middleware; the transport's default DNS rebinding protection
+        // validates the Host header, not the Origin header.
         const { transport } = await createTransport();
         try {
-            const response = await transport.handleRequest(postRequest('http://localhost:3000/mcp', { host: 'evil.example.com' }));
-            await expectForbidden(response);
+            const response = await transport.handleRequest(
+                postRequest('http://localhost:3000/mcp', { host: 'localhost:3000', origin: 'http://dashboard.example.com' })
+            );
+            expect(response.status).toBe(200);
+            await response.body?.cancel();
         } finally {
             await transport.close();
         }
@@ -165,7 +171,7 @@ describe('WebStandardStreamableHTTPServerTransport DNS rebinding protection', ()
         }
     });
 
-    it('empty allowlists with protection enabled fall back to the localhost allowlist', async () => {
+    it('empty allowlists with protection enabled fall back to the localhost Host allowlist', async () => {
         const { transport } = await createTransport({ enableDnsRebindingProtection: true, allowedHosts: [], allowedOrigins: [] });
         try {
             const local = await transport.handleRequest(
@@ -174,13 +180,29 @@ describe('WebStandardStreamableHTTPServerTransport DNS rebinding protection', ()
             expect(local.status).toBe(200);
             await local.body?.cancel();
 
-            const badOrigin = await transport.handleRequest(
-                postRequest('http://localhost:3000/mcp', { host: 'localhost:3000', origin: 'http://evil.example.com' })
-            );
-            await expectForbidden(badOrigin);
-
             const badHost = await transport.handleRequest(postRequest('http://localhost:3000/mcp', { host: 'evil.example.com' }));
             await expectForbidden(badHost);
+        } finally {
+            await transport.close();
+        }
+    });
+
+    it('explicit allowedOrigins rejects a non-allowed Origin header with 403', async () => {
+        const { transport } = await createTransport({
+            enableDnsRebindingProtection: true,
+            allowedOrigins: ['http://dashboard.example.com']
+        });
+        try {
+            const allowed = await transport.handleRequest(
+                postRequest('http://localhost:3000/mcp', { host: 'localhost:3000', origin: 'http://dashboard.example.com' })
+            );
+            expect(allowed.status).toBe(200);
+            await allowed.body?.cancel();
+
+            const rejected = await transport.handleRequest(
+                postRequest('http://localhost:3000/mcp', { host: 'localhost:3000', origin: 'http://evil.example.com' })
+            );
+            await expectForbidden(rejected);
         } finally {
             await transport.close();
         }
