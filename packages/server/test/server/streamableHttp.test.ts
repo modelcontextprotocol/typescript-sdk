@@ -472,6 +472,28 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(200);
         });
+
+        it('should reject DELETE in stateless mode', async () => {
+            const request = createRequest('DELETE', undefined);
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(405);
+            expect(response.headers.get('Allow')).toContain('POST');
+        });
+
+        it('should remain functional after a rejected stateless DELETE', async () => {
+            const deleteRequest = createRequest('DELETE', undefined);
+            const deleteResponse = await transport.handleRequest(deleteRequest);
+            expect(deleteResponse.status).toBe(405);
+
+            const initRequest = createRequest('POST', TEST_MESSAGES.initialize);
+            const initResponse = await transport.handleRequest(initRequest);
+            expect(initResponse.status).toBe(200);
+
+            const request = createRequest('POST', TEST_MESSAGES.toolsList);
+            const response = await transport.handleRequest(request);
+            expect(response.status).toBe(200);
+        });
     });
 
     describe('HTTPServerTransport - JSON Response Mode', () => {
