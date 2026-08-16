@@ -772,9 +772,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 rawMessage = options.parsedBody;
             }
 
-            // JSON-RPC batches were removed from the MCP protocol; the streamable
-            // HTTP transport accepts a single JSON-RPC message per request.
-            if (Array.isArray(rawMessage)) {
+            // JSON-RPC batches were removed from the MCP protocol in 2025-06-18;
+            // for that protocol version and later, a POST body must be a single
+            // JSON-RPC message. Older protocol versions (and version-less legacy
+            // traffic) keep the legacy batch behavior.
+            const batchProtocolVersion = (() => {
+                const initRequest = Array.isArray(rawMessage) ? undefined : isInitializeRequest(rawMessage) ? rawMessage : undefined;
+                return (
+                    (initRequest
+                        ? (initRequest.params as { protocolVersion?: string }).protocolVersion
+                        : req.headers.get('mcp-protocol-version')) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION
+                );
+            })();
+
+            if (Array.isArray(rawMessage) && batchProtocolVersion >= '2025-06-18') {
                 this.onerror?.(new Error('Invalid Request: batch requests are not supported'));
                 return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: batch requests are not supported');
             }
@@ -782,7 +793,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let messages: JSONRPCMessage[];
 
             try {
-                messages = [JSONRPCMessageSchema.parse(rawMessage)];
+                messages = Array.isArray(rawMessage)
+                    ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
+                    : [JSONRPCMessageSchema.parse(rawMessage)];
             } catch (error) {
                 this.onerror?.(error as Error);
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');

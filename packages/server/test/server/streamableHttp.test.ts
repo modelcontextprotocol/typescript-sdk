@@ -185,7 +185,7 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_600, /Server already initialized/);
             });
 
-            it('should reject batch initialize request', async () => {
+            it('should reject batch initialize request for protocol >= 2025-06-18', async () => {
                 const batchInitMessages: JSONRPCMessage[] = [
                     TEST_MESSAGES.initialize,
                     {
@@ -199,7 +199,7 @@ describe('Zod v4', () => {
                     }
                 ];
 
-                const request = createRequest('POST', batchInitMessages);
+                const request = createRequest('POST', batchInitMessages, { extraHeaders: { 'mcp-protocol-version': '2025-06-18' } });
                 const response = await transport.handleRequest(request);
 
                 expect(response.status).toBe(400);
@@ -207,13 +207,13 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
             });
 
-            it('should reject non-initialize batch request', async () => {
+            it('should reject non-initialize batch request for protocol >= 2025-06-18', async () => {
                 const batchMessages: JSONRPCMessage[] = [
                     { jsonrpc: '2.0', method: 'tools/list', id: 'tools-1' },
                     { jsonrpc: '2.0', method: 'ping', id: 'ping-1' }
                 ];
 
-                const request = createRequest('POST', batchMessages);
+                const request = createRequest('POST', batchMessages, { extraHeaders: { 'mcp-protocol-version': '2025-06-18' } });
                 const response = await transport.handleRequest(request);
 
                 expect(response.status).toBe(400);
