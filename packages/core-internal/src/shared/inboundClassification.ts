@@ -69,6 +69,7 @@ import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors'
 import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards';
 import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types';
 import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope';
+import { getRawAcceptLanguage, languageHeaderValueConflicts } from './i18n';
 // Value encoding is shared between the standard `Mcp-Name` header and the
 // custom `Mcp-Param-*` headers; the codec module already imports the
 // `HeaderMismatch` constant and rejection type from here, so this is a benign
@@ -96,6 +97,8 @@ export interface InboundHttpRequest {
     mcpMethodHeader?: string;
     /** The value of the `Mcp-Name` header, when present. */
     mcpNameHeader?: string;
+    /** The value of the `Accept-Language` header, when present. */
+    acceptLanguageHeader?: string;
     /** The parsed JSON request body (`undefined` for body-less methods). */
     body?: unknown;
 }
@@ -454,6 +457,27 @@ function crossCheckMismatch(
 }
 
 /**
+ * Validate the Streamable HTTP `Accept-Language` mirror.
+ *
+ * `_meta` is canonical. A missing/stripped header and a bare header without the
+ * metadata key are both tolerated. When both values are present they must be
+ * exact character-for-character matches; semantic language equivalence is not
+ * the transport equality rule.
+ */
+export function validateAcceptLanguageHeader(
+    headerValue: string | undefined,
+    canonicalValue: string | undefined
+): InboundLadderRejection | undefined {
+    if (!languageHeaderValueConflicts(headerValue, canonicalValue)) return undefined;
+    return crossCheckMismatch(
+        'accept-language-header-mismatch',
+        headerValue!,
+        `the request _meta acceptLanguage value is "${canonicalValue}" but the Accept-Language header is "${headerValue}"`,
+        'standard-header-validation'
+    );
+}
+
+/**
  * The methods whose body carries a `params.name` / `params.uri` value the
  * `Mcp-Name` header must mirror, and which body field supplies it (SEP-2243
  * § Standard Request Headers, `Required For` column).
@@ -526,6 +550,11 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
             `the body names method ${method} but the required Mcp-Method header is absent`,
             'standard-header-validation'
         );
+    }
+
+    const languageRejection = validateAcceptLanguageHeader(request.acceptLanguageHeader, getRawAcceptLanguage(route.message.params));
+    if (languageRejection !== undefined) {
+        return languageRejection;
     }
 
     // `method` is the JSON-RPC method string from the body — peer-controlled,

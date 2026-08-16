@@ -57,11 +57,13 @@ import {
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    getAcceptLanguage,
     HEADER_MISMATCH_ERROR_CODE,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
     isSpecType,
+    isValidAcceptLanguage,
     legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -1127,12 +1129,16 @@ export class Client extends Protocol<ClientContext> {
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
+            if (options?.acceptLanguage !== undefined && !isValidAcceptLanguage(options.acceptLanguage)) {
+                throw new TypeError('acceptLanguage must use RFC 9110 Accept-Language field-value syntax');
+            }
             const transportKind = detectProbeTransportKind(transport);
             const baseDeps = {
                 clientInfo: this._clientInfo,
                 capabilities: this._capabilities,
                 environment: detectProbeEnvironment(),
-                defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
+                defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC,
+                ...(options?.acceptLanguage !== undefined && { acceptLanguage: options.acceptLanguage })
             };
             // The SDK's stdio transport probes on a disposable sibling process,
             // so the caller's transport spends its one child life on the
@@ -1612,7 +1618,12 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'prompts/list', params }, options);
         }
-        const hit = await this._serveFromCache<ListPromptsResult>('prompts/list', undefined, options);
+        const hit = await this._serveFromCache<ListPromptsResult>(
+            'prompts/list',
+            undefined,
+            this._requestAcceptLanguage(params, options),
+            options
+        );
         if (hit !== undefined) return hit;
         return this._listAllPages<ListPromptsResult>('prompts/list', params, options, (acc, page) => acc.prompts.push(...page.prompts));
     }
@@ -1652,7 +1663,12 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'resources/list', params }, options);
         }
-        const hit = await this._serveFromCache<ListResourcesResult>('resources/list', undefined, options);
+        const hit = await this._serveFromCache<ListResourcesResult>(
+            'resources/list',
+            undefined,
+            this._requestAcceptLanguage(params, options),
+            options
+        );
         if (hit !== undefined) return hit;
         return this._listAllPages<ListResourcesResult>('resources/list', params, options, (acc, page) =>
             acc.resources.push(...page.resources)
@@ -1685,7 +1701,12 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'resources/templates/list', params }, options);
         }
-        const hit = await this._serveFromCache<ListResourceTemplatesResult>('resources/templates/list', undefined, options);
+        const hit = await this._serveFromCache<ListResourceTemplatesResult>(
+            'resources/templates/list',
+            undefined,
+            this._requestAcceptLanguage(params, options),
+            options
+        );
         if (hit !== undefined) return hit;
         return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, (acc, page) =>
             acc.resourceTemplates.push(...page.resourceTemplates)
@@ -1725,11 +1746,12 @@ export class Client extends Protocol<ClientContext> {
         // written, so the substrate is byte-untouched (the `tools/list`
         // derived index keeps whatever it held).
         const bypass = options?.cacheMode === 'bypass';
+        const languageVariant = this._requestAcceptLanguage(baseParams, options);
         // Capture the eviction generation BEFORE page 1: a `list_changed` that
         // lands mid-walk bumps the counter, and the terminal `write` skips
         // when it observes the bump (the result still returns to the caller —
         // it just is not cached).
-        const generation = this._cache.captureGeneration(method);
+        const generation = this._cache.captureGeneration(method, undefined, languageVariant);
         const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
         let cursor = acc.nextCursor;
         const seen = new Set<string>();
@@ -1760,7 +1782,7 @@ export class Client extends Protocol<ClientContext> {
         // while the freshness gate in `_serveFromCache` never serves it.
         // Page-1 carries the result-level `ttlMs`/`cacheScope` (`acc` IS the
         // mutated page-1 object).
-        await this._cache.write(method, acc, generation, this._freshness(acc));
+        await this._cache.write(method, acc, generation, this._freshness(acc, undefined, languageVariant));
         return acc;
     }
 
@@ -1778,14 +1800,28 @@ export class Client extends Protocol<ClientContext> {
      * strong to infer by default, and matches this SDK's server-side stamp
      * default.
      */
-    private _freshness(result: unknown, params?: string): { expiresAt: number; scope: CacheScope; params?: string } {
+    private _freshness(
+        result: unknown,
+        params?: string,
+        variant?: string
+    ): { expiresAt: number; scope: CacheScope; params?: string; variant?: string } {
         const body = result as { ttlMs?: unknown; cacheScope?: unknown };
         const ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : this._defaultCacheTtlMs;
         const scope: CacheScope = body.cacheScope === 'public' ? 'public' : 'private';
         // Clamp at 24h (`MAX_CACHE_TTL_MS`) so a server cannot pin an entry
         // indefinitely; floor at 0 so a negative `ttlMs` is treated as
         // immediately stale (the spec's absent-or-≤0 rule).
-        return { expiresAt: this._cache.now() + Math.min(Math.max(0, ttlMs), MAX_CACHE_TTL_MS), scope, params };
+        return { expiresAt: this._cache.now() + Math.min(Math.max(0, ttlMs), MAX_CACHE_TTL_MS), scope, params, variant };
+    }
+
+    private _requestAcceptLanguage(
+        params: { _meta?: Record<string, unknown> } | undefined,
+        options: RequestOptions | undefined
+    ): string | undefined {
+        if (options?.acceptLanguage !== undefined && !isValidAcceptLanguage(options.acceptLanguage)) {
+            throw new TypeError('acceptLanguage must use RFC 9110 Accept-Language field-value syntax');
+        }
+        return options?.acceptLanguage ?? getAcceptLanguage(params);
     }
 
     /**
@@ -1801,10 +1837,11 @@ export class Client extends Protocol<ClientContext> {
     private async _serveFromCache<R>(
         method: string,
         params: string | undefined,
+        variant: string | undefined,
         options: CacheableRequestOptions | undefined
     ): Promise<R | undefined> {
         if (options?.cacheMode === 'bypass' || options?.cacheMode === 'refresh') return undefined;
-        const hit = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
+        const hit = await this._cache.read(method, params, variant).catch(error => void this._reportStoreError(error));
         if (hit !== undefined) {
             // A pre-aborted caller signal must reject the same way it would on
             // the wire path (`Protocol.request()` wraps an already-aborted
@@ -1865,8 +1902,12 @@ export class Client extends Protocol<ClientContext> {
      * "client SHOULD send without custom headers" guidance) and relies on the
      * same recovery.
      */
-    private async _resolveXMcpHeaderScan(name: string, override: Tool | undefined): Promise<XMcpHeaderScanResult | undefined> {
-        const tool = override ?? (await this._cache.toolDefinition(name));
+    private async _resolveXMcpHeaderScan(
+        name: string,
+        override: Tool | undefined,
+        languageVariant?: string
+    ): Promise<XMcpHeaderScanResult | undefined> {
+        const tool = override ?? (await this._cache.toolDefinition(name, languageVariant));
         return tool === undefined ? undefined : scanXMcpHeaderDeclarations(tool.inputSchema);
     }
 
@@ -1885,17 +1926,18 @@ export class Client extends Protocol<ClientContext> {
      * unbounded).
      */
     async readResource(params: ReadResourceRequest['params'], options?: CacheableRequestOptions): Promise<ReadResourceResult> {
-        const hit = await this._serveFromCache<ReadResourceResult>('resources/read', params.uri, options);
+        const languageVariant = this._requestAcceptLanguage(params, options);
+        const hit = await this._serveFromCache<ReadResourceResult>('resources/read', params.uri, languageVariant, options);
         if (hit !== undefined) return hit;
         // Capture the per-URI eviction generation BEFORE the request: a
         // `notifications/resources/updated` for this URI arriving while the
         // read is in flight bumps it (via `evictKey`), and the terminal
         // `write` skips so the now-stale body is not re-cached. Same guard as
         // the list verbs' `_listAllPages`, keyed by `{method, uri}`.
-        const generation = this._cache.captureGeneration('resources/read', params.uri);
+        const generation = this._cache.captureGeneration('resources/read', params.uri, languageVariant);
         const result = await this.request({ method: 'resources/read', params }, options);
         if (options?.cacheMode !== 'bypass') {
-            const freshness = this._freshness(result, params.uri);
+            const freshness = this._freshness(result, params.uri, languageVariant);
             if (freshness.expiresAt > this._cache.now()) {
                 await this._cache.write('resources/read', result, generation, freshness);
             } else if (options?.cacheMode === 'refresh') {
@@ -2315,6 +2357,7 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: CallToolRequestOptions): Promise<CallToolResult> {
+        const languageVariant = this._requestAcceptLanguage(params, options);
         // SEP-2243 `Mcp-Param-*` mirroring (protocol revision 2026-07-28; the
         // 5-step client algorithm, steps 3–5). Modern-era only — the legacy
         // `callTool` path is byte-untouched. Transports that share a single
@@ -2351,7 +2394,7 @@ export class Client extends Protocol<ClientContext> {
             // rather than aborting the call before it reaches the wire.
             let scan: XMcpHeaderScanResult | undefined;
             try {
-                scan = await this._resolveXMcpHeaderScan(params.name, options?.toolDefinition);
+                scan = await this._resolveXMcpHeaderScan(params.name, options?.toolDefinition, languageVariant);
             } catch (error) {
                 this._reportStoreError(error);
             }
@@ -2371,7 +2414,7 @@ export class Client extends Protocol<ClientContext> {
         let compiled =
             options?.toolDefinition === undefined
                 ? await this._cache
-                      .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                      .outputValidator(params.name, tool => this._compileOutputValidator(tool), languageVariant)
                       .catch(error => void this._reportStoreError(error))
                 : this._compileOutputValidator(options.toolDefinition);
         const assertCompiled = (): void => {
@@ -2408,7 +2451,12 @@ export class Client extends Protocol<ClientContext> {
             // the `listTools()` below would cache-serve the very entry whose
             // staleness triggered this recovery. The generation bump still
             // happens regardless, so the refetch's write overwrites.
-            const refreshOptions = { signal: options?.signal, timeout: options?.timeout, cacheMode: 'refresh' as const };
+            const refreshOptions = {
+                signal: options?.signal,
+                timeout: options?.timeout,
+                cacheMode: 'refresh' as const,
+                ...(languageVariant !== undefined && { acceptLanguage: languageVariant })
+            };
             await this._cache.evict('tools/list');
             // The recovery refetch may itself fail (e.g. `listMaxPages`, a
             // transient error that hits only the `tools/list` walk). Surface
@@ -2425,7 +2473,7 @@ export class Client extends Protocol<ClientContext> {
             // entered when `options.toolDefinition` is undefined, so the cache is the sole source.
             // Re-run the same fail-fast compile-error check before issuing the retry.
             compiled = await this._cache
-                .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                .outputValidator(params.name, tool => this._compileOutputValidator(tool), languageVariant)
                 .catch(error_ => void this._reportStoreError(error_));
             assertCompiled();
             result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
@@ -2514,7 +2562,12 @@ export class Client extends Protocol<ClientContext> {
             this._excludeInvalidXMcpHeaderTools(page);
             return page;
         }
-        const hit = await this._serveFromCache<ListToolsResult>('tools/list', undefined, options);
+        const hit = await this._serveFromCache<ListToolsResult>(
+            'tools/list',
+            undefined,
+            this._requestAcceptLanguage(params, options),
+            options
+        );
         if (hit !== undefined) return hit;
         // Auto-aggregate: SEP-2243 invalid-`x-mcp-header` exclusion runs on
         // the complete aggregate via the `finalize` hook before the cache

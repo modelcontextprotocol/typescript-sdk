@@ -169,8 +169,8 @@ export async function dispatchInputRequest(
  *
  * Only the fields that are correct to apply to every leg carry over (a
  * deliberate whitelist): the per-leg `timeout`, the (shrinking) total budget
- * `maxTotalTimeout`, the caller's `onprogress`/`resetTimeoutOnProgress`, and
- * the caller's abort `signal`. Everything else — in particular
+ * `maxTotalTimeout`, the caller's `onprogress`/`resetTimeoutOnProgress`,
+ * per-request language preference, and the caller's abort `signal`. Everything else — in particular
  * `relatedRequestId`, `resumptionToken`, and `onresumptiontoken` — is scoped
  * to the originating wire leg and is NOT inherited by retries.
  */
@@ -179,6 +179,9 @@ export function buildRetryLegRequestOptions(options: RequestOptions | undefined,
         ...(options?.signal !== undefined && { signal: options.signal }),
         ...(options?.onprogress !== undefined && { onprogress: options.onprogress }),
         ...(options?.resetTimeoutOnProgress !== undefined && { resetTimeoutOnProgress: options.resetTimeoutOnProgress }),
+        // The retry is the same logical request, so its request-scoped natural
+        // language preference must remain exact across every MRTR leg.
+        ...(options?.acceptLanguage !== undefined && { acceptLanguage: options.acceptLanguage }),
         // Per-request HTTP headers (SEP-2243 `Mcp-Param-*`) carry over: the
         // retry's `arguments` are byte-identical to the originating leg (the
         // driver only adds `inputResponses`/`requestState`), so the param
@@ -237,10 +240,6 @@ export function runInputRequiredFlow<T extends StandardSchemaV1>(
  * codec's decoded payload — what an `allowInputRequired: true` caller
  * receives instead of the auto-fulfilled complete result.
  */
-export function manualInputRequiredValue(decoded: { inputRequests: Record<string, unknown>; requestState?: string }): InputRequiredResult {
-    return {
-        resultType: 'input_required',
-        inputRequests: decoded.inputRequests as InputRequiredResult['inputRequests'],
-        ...(decoded.requestState !== undefined && { requestState: decoded.requestState })
-    };
+export function manualInputRequiredValue(decoded: { result: InputRequiredResult }): InputRequiredResult {
+    return decoded.result;
 }

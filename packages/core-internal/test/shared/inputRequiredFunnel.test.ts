@@ -29,7 +29,12 @@ class TestProtocol extends Protocol<BaseContext> {
 
 const INPUT_REQUIRED_BODY = {
     resultType: 'input_required',
-    inputRequests: { 'elicit-1': { method: 'elicitation/create', params: { mode: 'form', message: 'Name?' } } },
+    inputRequests: {
+        'elicit-1': {
+            method: 'elicitation/create',
+            params: { mode: 'form', message: 'Name?', requestedSchema: { type: 'object', properties: {} } }
+        }
+    },
     requestState: 'opaque-state'
 };
 

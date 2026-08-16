@@ -51,6 +51,7 @@ import { isStandardSchema, validateStandardSchema } from '../util/standardSchema
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
 import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
+import { ACCEPT_LANGUAGE_META, isValidAcceptLanguage } from './i18n';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { Transport, TransportSendOptions } from './transport';
 
@@ -100,6 +101,21 @@ export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60_000;
  */
 export type RequestOptions = {
     /**
+     * Natural-language preference for this request, using RFC 9110
+     * `Accept-Language` field-value syntax (SEP-2792).
+     *
+     * The value is written to the canonical request
+     * `_meta["io.modelcontextprotocol/acceptLanguage"]` field. Streamable HTTP
+     * mirrors that exact value to the `Accept-Language` header; other transports
+     * carry only `_meta`. It is deliberately request-scoped: omit or change it
+     * independently on every call.
+     *
+     * When the request already carries the metadata key, this dedicated option
+     * takes precedence.
+     */
+    acceptLanguage?: string;
+
+    /**
      * If set, requests progress notifications from the remote end (if supported). When progress notifications are received, this callback will be invoked.
      */
     onprogress?: ProgressCallback;
@@ -139,7 +155,8 @@ export type RequestOptions = {
      * 2026-07-28): when the response is an `input_required` result, hand it
      * back to the caller instead of auto-fulfilling it (or raising a typed
      * error). The resolved value is the neutral input-required shape
-     * (`resultType: 'input_required'`, `inputRequests?`, `requestState?`);
+     * (`resultType: 'input_required'`, base `Result` fields, `inputRequests?`,
+     * `requestState?`);
      * wrap the result schema with `withInputRequired()` on the explicit
      * schema path to type both outcomes. The caller is then responsible for
      * gathering the requested input and retrying the original request with
@@ -1427,12 +1444,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 id: messageId
             };
 
-            if (options?.onprogress) {
-                this._progressHandlers.set(messageId, options.onprogress);
+            if (options?.acceptLanguage !== undefined) {
+                if (!isValidAcceptLanguage(options.acceptLanguage)) {
+                    throw new TypeError('acceptLanguage must use RFC 9110 Accept-Language field-value syntax');
+                }
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
                         ...request.params?._meta,
+                        [ACCEPT_LANGUAGE_META]: options.acceptLanguage
+                    }
+                };
+            }
+
+            if (options?.onprogress) {
+                this._progressHandlers.set(messageId, options.onprogress);
+                jsonrpcRequest.params = {
+                    ...jsonrpcRequest.params,
+                    _meta: {
+                        ...jsonrpcRequest.params?._meta,
                         progressToken: messageId
                     }
                 };

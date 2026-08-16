@@ -31,6 +31,7 @@ import type {
     Root
 } from '../types/types';
 import type { StandardSchemaV1 } from '../util/standardSchema';
+import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec';
 import type { ElicitInputParams } from './elicitation';
 import { normalizeElicitInputParams } from './elicitation';
 
@@ -254,8 +255,9 @@ export function inputResponse(responses: InputResponses | Record<string, unknown
  * request options so an `input_required` response is handed back to the
  * caller instead of being auto-fulfilled (or rejected), and wrap the result
  * schema with `withInputRequired()` so the returned value is typed and
- * validated correctly for both outcomes — `input_required` values pass
- * through as-is, complete results validate against the wrapped schema.
+ * validated correctly for both outcomes — `input_required` values validate
+ * against the modern wire result schema (including base `Result` fields),
+ * while complete results validate against the wrapped schema.
  */
 export function withInputRequired<S extends StandardSchemaV1>(
     schema: S
@@ -266,7 +268,19 @@ export function withInputRequired<S extends StandardSchemaV1>(
             vendor: 'modelcontextprotocol',
             validate: (value: unknown, options?: StandardSchemaV1.Options) => {
                 if (isInputRequiredResult(value)) {
-                    return { value };
+                    const outcome = codecForVersion(MODERN_WIRE_REVISION).validateInputRequiredResult(value);
+                    return outcome.ok
+                        ? { value: outcome.value }
+                        : {
+                              issues: [
+                                  {
+                                      message:
+                                          outcome.reason === 'invalid'
+                                              ? outcome.message
+                                              : 'InputRequiredResult is not defined by the modern protocol era'
+                                  }
+                              ]
+                          };
                 }
                 return schema['~standard'].validate(value, options) as
                     | StandardSchemaV1.Result<StandardSchemaV1.InferOutput<S> | InputRequiredResult>

@@ -45,6 +45,23 @@ export { isJsonContentType } from '../../shared/mediaType';
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 
+// Per-request natural-language negotiation (SEP-2792)
+export {
+    ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
+    getAcceptLanguage,
+    getContentLanguage,
+    getErrorContentLanguage,
+    getMessageContentLanguage,
+    getRawAcceptLanguage,
+    isValidAcceptLanguage,
+    languageHeaderValueConflicts,
+    negotiateLanguage,
+    setAcceptLanguage,
+    setContentLanguage,
+    setErrorContentLanguage
+} from '../../shared/i18n';
+
 // Protocol types and the Protocol base class
 export type {
     BaseContext,

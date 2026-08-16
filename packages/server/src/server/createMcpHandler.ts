@@ -470,6 +470,7 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
         protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
         mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
         mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
+        acceptLanguageHeader: request.headers.get('accept-language') ?? undefined,
         ...(body !== undefined && { body })
     });
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
@@ -676,7 +677,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             {
                 httpMethod: request.method,
                 mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-                mcpNameHeader: request.headers.get('mcp-name') ?? undefined
+                mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
+                acceptLanguageHeader: request.headers.get('accept-language') ?? undefined
             },
             route
         );

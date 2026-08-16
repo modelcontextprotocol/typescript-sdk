@@ -13,6 +13,7 @@
  */
 import type { ClientCapabilities, DiscoverResult, Implementation, JSONRPCRequest, Transport } from '@modelcontextprotocol/core-internal';
 import {
+    ACCEPT_LANGUAGE_META,
     codecForVersion,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
@@ -357,7 +358,8 @@ export function buildProbeRequest(
     id: string,
     protocolVersion: string,
     clientInfo: Implementation,
-    capabilities: ClientCapabilities
+    capabilities: ClientCapabilities,
+    acceptLanguage?: string
 ): JSONRPCRequest {
     return {
         jsonrpc: '2.0',
@@ -366,11 +368,14 @@ export function buildProbeRequest(
         params: {
             // The era codec owns the keyed-envelope shape; the probe is sent
             // for a modern version, so this is always the 2026 envelope.
-            _meta: codecForVersion(protocolVersion).outboundEnvelope({
-                protocolVersion,
-                clientInfo,
-                clientCapabilities: capabilities
-            })
+            _meta: {
+                ...codecForVersion(protocolVersion).outboundEnvelope({
+                    protocolVersion,
+                    clientInfo,
+                    clientCapabilities: capabilities
+                }),
+                ...(acceptLanguage !== undefined && { [ACCEPT_LANGUAGE_META]: acceptLanguage })
+            }
         }
     };
 }
@@ -426,6 +431,8 @@ export interface NegotiationDeps {
     transport: Transport;
     clientInfo: Implementation;
     capabilities: ClientCapabilities;
+    /** Request-scoped natural-language preference for the `server/discover` probe. */
+    acceptLanguage?: string;
     environment: ProbeEnvironment;
     /** The transport class, for the transport-aware timeout and closed verdicts (see {@linkcode ProbeTransportKind}). */
     transportKind: ProbeTransportKind;
@@ -472,7 +479,7 @@ export async function negotiateEra(
         let timeoutRetriesRemaining = maxRetries;
         for (;;) {
             const reply = await window.exchange(
-                id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities),
+                id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities, deps.acceptLanguage),
                 timeoutMs
             );
 

@@ -29,12 +29,12 @@ import type * as z from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
-import type { CallToolResult, Implementation, Result } from '../../types/types';
+import type { CallToolResult, Implementation, InputRequiredResult, Result } from '../../types/types';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
 import { buildSchemas2026 } from './buildSchemas';
 import { fillCacheFields, stampResultType, stampServerInfoMeta } from './encodeContract';
-import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired';
+import { getInputRequestSchema2026, getInputResponseSchema2026, isInputRequestMethod2026 } from './inputRequired';
 import {
     getNotificationSchema2026,
     getRequestSchema2026,
@@ -55,6 +55,21 @@ function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOu
 }
 
 const NOT_IN_ERA: ValidateOutcome<never> = { ok: false, reason: 'not-in-era' };
+
+function validateInputRequiredResult(raw: unknown): ValidateOutcome<InputRequiredResult> {
+    const parsed = buildSchemas2026().InputRequiredResultSchema.safeParse(raw);
+    if (!parsed.success) {
+        return { ok: false, reason: 'invalid', message: String(parsed.error) };
+    }
+    if (parsed.data.resultType !== 'input_required') {
+        return { ok: false, reason: 'invalid', message: "InputRequiredResult.resultType must be 'input_required'" };
+    }
+    // The literal check above narrows the generated spec's open
+    // ResultType string to the neutral InputRequiredResult literal. The
+    // remaining assertion bridges the 2026 URL-elicitation fork, whose wire
+    // params intentionally omit the legacy neutral type's elicitationId.
+    return { ok: true, value: parsed.data as unknown as InputRequiredResult };
+}
 
 /**
  * The reserved `_meta` keys an envelope must carry on this era (in reporting
@@ -115,6 +130,7 @@ export const rev2026Codec: WireCodec & {
     // ── Function-only validation surface ──
     validateRequest: (method: string, raw: unknown) => triState(getRequestSchema2026(method), raw),
     validateResult: (method: string, raw: unknown) => triState(getResultSchema2026(method), raw),
+    validateInputRequiredResult,
     validateNotification: (method: string, raw: unknown) => triState(getNotificationSchema2026(method), raw),
     // In-band multi-round-trip vocabulary: the demoted elicitation/sampling/
     // roots shapes carried inside `input_required` results (NOT wire request
@@ -198,10 +214,41 @@ export const rev2026Codec: WireCodec & {
             };
         }
         if (rawResultType === 'input_required') {
-            // The driver seam (#13 consumes this payload).
             const rawInputRequests = raw['inputRequests'];
-            const inputRequests = isPlainObject(rawInputRequests) ? rawInputRequests : {};
-            const requestState = raw['requestState'];
+            if (isPlainObject(rawInputRequests)) {
+                for (const [key, entry] of Object.entries(rawInputRequests)) {
+                    if (isPlainObject(entry) && typeof entry['method'] === 'string' && !isInputRequestMethod2026(entry['method'])) {
+                        return {
+                            kind: 'invalid',
+                            error: new SdkError(
+                                SdkErrorCode.InvalidResult,
+                                `Invalid input request '${key}': '${entry['method']}' is not an embedded request the 2026-07-28 revision defines ` +
+                                    `(expected elicitation/create, sampling/createMessage, or roots/list)`,
+                                { key, method: entry['method'] }
+                            )
+                        };
+                    }
+                }
+            }
+            // Validate through the complete InputRequiredResult schema before
+            // projecting driver fields. This retains Result._meta and extension
+            // fields for manual callers instead of reconstructing a partial value.
+            const validation = validateInputRequiredResult(raw);
+            if (!validation.ok) {
+                return {
+                    kind: 'invalid',
+                    error: new SdkError(
+                        SdkErrorCode.InvalidResult,
+                        `Invalid result for ${method}: ${
+                            validation.reason === 'invalid' ? validation.message : 'input_required is not defined by this protocol era'
+                        }`,
+                        { method }
+                    )
+                };
+            }
+            const result = validation.value;
+            const inputRequests = result.inputRequests ?? {};
+            const requestState = result.requestState;
             if (Object.keys(inputRequests).length === 0 && typeof requestState !== 'string') {
                 // At-least-one rule, client side: with neither inputRequests
                 // nor requestState there is nothing to fulfil and nothing to
@@ -219,6 +266,7 @@ export const rev2026Codec: WireCodec & {
             }
             return {
                 kind: 'input_required',
+                result,
                 inputRequests,
                 ...(typeof requestState === 'string' && { requestState })
             };

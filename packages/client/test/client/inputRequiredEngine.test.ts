@@ -6,11 +6,22 @@
  * mode, and the synthesized handler context contract.
  */
 import type { ElicitResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import {
+    ACCEPT_LANGUAGE_META,
+    CallToolResultSchema,
+    CONTENT_LANGUAGE_META,
+    getAcceptLanguage,
+    InMemoryTransport,
+    isInputRequiredResult,
+    SdkError,
+    SdkErrorCode,
+    withInputRequired
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client';
 import type { ClientOptions } from '../../src/client/client';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 const MODERN = '2026-07-28';
 
@@ -319,6 +330,26 @@ describe('auto-fulfilment (default on)', () => {
 
         await client.close();
     });
+    it('preserves the exact request-scoped language preference across retry legs', async () => {
+        const { clientTx, toolCalls } = await scriptedModernServer((_request, call) =>
+            call === 1
+                ? {
+                      resultType: 'input_required',
+                      inputRequests: { answer: ELICIT_ENTRY },
+                      _meta: { 'io.modelcontextprotocol/contentLanguage': 'fr' }
+                  }
+                : { resultType: 'complete', content: [{ type: 'text', text: 'fini' }] }
+        );
+        const client = makeClient({ capabilities: { elicitation: { form: {} } } });
+        client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: { name: 'octocat' } }));
+        await client.connect(clientTx);
+
+        await client.callTool({ name: 'quiz', arguments: {} }, { acceptLanguage: 'fr-CA, fr;q=0.9' });
+
+        expect(toolCalls.map(call => getAcceptLanguage(call.params))).toEqual(['fr-CA, fr;q=0.9', 'fr-CA, fr;q=0.9']);
+        expect(toolCalls[0]?.params?._meta?.[ACCEPT_LANGUAGE_META]).toBe('fr-CA, fr;q=0.9');
+        await client.close();
+    });
 });
 
 describe('manual mode', () => {
@@ -341,34 +372,102 @@ describe('manual mode', () => {
         await client.close();
     });
 
-    it('allowInputRequired: true hands the input-required value back to the caller, who can retry manually', async () => {
+    it('preserves typed input-required Result metadata for a manual caller without changing the final result', async () => {
+        const inputRequiredMeta = { [CONTENT_LANGUAGE_META]: 'fr' };
+        const completeMeta = { [CONTENT_LANGUAGE_META]: 'en' };
         const { clientTx, toolCalls } = await scriptedModernServer((_request, call) =>
             call === 1
-                ? { resultType: 'input_required', inputRequests: { github_login: ELICIT_ENTRY }, requestState: 'manual-state' }
-                : COMPLETE_RESULT
+                ? {
+                      resultType: 'input_required',
+                      inputRequests: { github_login: ELICIT_ENTRY },
+                      requestState: 'manual-state',
+                      _meta: inputRequiredMeta,
+                      extensionResultField: { retained: true }
+                  }
+                : { ...COMPLETE_RESULT, _meta: completeMeta }
         );
 
         const client = makeClient({ inputRequired: { autoFulfill: false } });
         await client.connect(clientTx);
 
-        const first = (await client.callTool({ name: 'deploy', arguments: {} }, { allowInputRequired: true })) as unknown as Record<
-            string,
-            unknown
-        >;
-        expect(first.resultType).toBe('input_required');
+        const first = await client.request(
+            { method: 'tools/call', params: { name: 'deploy', arguments: {} } },
+            withInputRequired(CallToolResultSchema),
+            { allowInputRequired: true }
+        );
+        expect(isInputRequiredResult(first)).toBe(true);
+        if (!isInputRequiredResult(first)) throw new Error('Expected an InputRequiredResult');
+        expect(first._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+        expect(first).toMatchObject({ extensionResultField: { retained: true } });
         expect(first.requestState).toBe('manual-state');
+        if (first.requestState === undefined) throw new Error('Expected requestState');
 
         // The caller drives the retry itself: same params + responses + echo.
         const second = await client.callTool({
             name: 'deploy',
             arguments: {},
             inputResponses: { github_login: { action: 'accept', content: { name: 'octocat' } } },
-            requestState: first.requestState as string
+            requestState: first.requestState
         } as Parameters<Client['callTool']>[0]);
         expect(second.content).toEqual([{ type: 'text', text: 'deployed' }]);
+        expect(second._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
+        expect('resultType' in second).toBe(false);
         expect(toolCalls).toHaveLength(2);
         expect(toolCalls[0]!.id).not.toEqual(toolCalls[1]!.id);
 
+        await client.close();
+    });
+
+    it('preserves typed metadata through Streamable HTTP when Content-Language agrees', async () => {
+        const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+            const request = JSON.parse(String(init?.body)) as JSONRPCRequest;
+            if (request.method === 'server/discover') {
+                return Response.json(
+                    {
+                        jsonrpc: '2.0',
+                        id: request.id,
+                        result: {
+                            resultType: 'complete',
+                            supportedVersions: [MODERN],
+                            capabilities: { tools: {} },
+                            _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'http-mrtr-server', version: '1.0.0' } }
+                        }
+                    },
+                    { headers: { 'Content-Type': 'application/json' } }
+                );
+            }
+
+            expect(request.method).toBe('tools/call');
+            expect(new Headers(init?.headers).get('accept-language')).toBe('fr');
+            return Response.json(
+                {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: {
+                        resultType: 'input_required',
+                        requestState: 'http-state',
+                        _meta: { [CONTENT_LANGUAGE_META]: 'fr' }
+                    }
+                },
+                { headers: { 'Content-Type': 'application/json', 'Content-Language': 'fr' } }
+            );
+        });
+        const transport = new StreamableHTTPClientTransport(new URL('http://example.test/mcp'), {
+            fetch: fetch as typeof globalThis.fetch
+        });
+        const client = makeClient({ inputRequired: { autoFulfill: false } });
+        await client.connect(transport);
+
+        const result = await client.request(
+            { method: 'tools/call', params: { name: 'deploy', arguments: {} } },
+            withInputRequired(CallToolResultSchema),
+            { allowInputRequired: true, acceptLanguage: 'fr' }
+        );
+
+        expect(isInputRequiredResult(result)).toBe(true);
+        if (!isInputRequiredResult(result)) throw new Error('Expected an InputRequiredResult');
+        expect(result.requestState).toBe('http-state');
+        expect(result._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
         await client.close();
     });
 });

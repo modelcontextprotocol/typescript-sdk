@@ -95,6 +95,23 @@ describe('toWebRequest', () => {
         expect(request.headers.get('content-length')).toBe(String(text.length + 1));
     });
 
+    it('preserves every repeated Accept-Language value through the Fetch combined-value accessor', async () => {
+        const request = await toWebRequest(
+            nodeRequest({
+                method: 'POST',
+                url: '/mcp',
+                headers: {
+                    host: 'localhost',
+                    'content-type': 'application/json',
+                    'accept-language': ['en-US', 'en;q=0.9']
+                },
+                body: '{}'
+            })
+        );
+
+        expect(request.headers.get('accept-language')).toBe('en-US, en;q=0.9');
+    });
+
     it('produces a body-less Request when the supplied parsedBody is not JSON-serializable', async () => {
         const request = await toWebRequest(
             unreadableNodeRequest({ method: 'POST', url: '/mcp', headers: { host: 'localhost', 'content-length': '42' } }),

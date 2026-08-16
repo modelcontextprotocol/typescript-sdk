@@ -49,6 +49,7 @@ import type {
     CreateMessageResult,
     CreateMessageResultWithTools,
     Implementation,
+    InputRequiredResult,
     LoggingLevel,
     MessageClassification,
     NotificationMethod,
@@ -140,6 +141,8 @@ export type DecodedResult =
       }
     | {
           kind: 'input_required';
+          /** The fully validated neutral value exposed by manual mode. */
+          result: InputRequiredResult;
           /**
            * Driver-only material (never consumer-visible). The full
            * multi-round-trip driver is M4.1 scope; this seam carries the
@@ -176,6 +179,9 @@ export interface WireCodec {
     /** Era-exact result validation (same registry as `validateRequest`). */
     validateResult<M extends RequestMethod>(method: M, raw: unknown): ValidateOutcome<ResultTypeMap[M]>;
     validateResult(method: string, raw: unknown): ValidateOutcome<unknown>;
+
+    /** Era-exact validation for the non-complete result carried by modern multi-round-trip requests. */
+    validateInputRequiredResult(raw: unknown): ValidateOutcome<InputRequiredResult>;
 
     /** Era-exact notification validation. */
     validateNotification<M extends NotificationMethod>(method: M, raw: unknown): ValidateOutcome<NotificationTypeMap[M]>;

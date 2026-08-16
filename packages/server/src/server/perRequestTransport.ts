@@ -49,6 +49,8 @@ import type {
     TransportSendOptions
 } from '@modelcontextprotocol/core-internal';
 import {
+    getAcceptLanguage,
+    getMessageContentLanguage,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -142,6 +144,8 @@ export class PerRequestHTTPServerTransport implements Transport {
      */
     private _dispatchWindowOpen = false;
     private _requestId?: RequestId;
+    private _requestAcceptLanguage?: string;
+    private _requestHasAcceptLanguageHeader = false;
     private _deferredResponse?: DeferredResponse;
     private _sse?: SseSink;
     private _abortCleanup?: () => void;
@@ -181,6 +185,8 @@ export class PerRequestHTTPServerTransport implements Transport {
             throw new Error('PerRequestHTTPServerTransport is closed');
         }
         this._used = true;
+        this._requestAcceptLanguage = getAcceptLanguage(message.params);
+        this._requestHasAcceptLanguageHeader = extra?.request?.headers.has('accept-language') ?? false;
 
         const signal = extra?.request?.signal;
         if (signal?.aborted) {
@@ -291,7 +297,7 @@ export class PerRequestHTTPServerTransport implements Transport {
                     ? LADDER_ERROR_HTTP_STATUS[errorCode]
                     : undefined;
             if (ladderStatus !== undefined && this._sse === undefined) {
-                this.settleResponse(Response.json(message, { status: ladderStatus, headers: { 'Content-Type': 'application/json' } }));
+                this.settleResponse(Response.json(message, { status: ladderStatus, headers: this.jsonResponseHeaders(message) }));
                 queueMicrotask(() => void this.close());
                 return;
             }
@@ -308,7 +314,7 @@ export class PerRequestHTTPServerTransport implements Transport {
             }
 
             // Single JSON body.
-            this.settleResponse(Response.json(message, { status: 200, headers: { 'Content-Type': 'application/json' } }));
+            this.settleResponse(Response.json(message, { status: 200, headers: this.jsonResponseHeaders(message) }));
             queueMicrotask(() => void this.close());
             return;
         }
@@ -376,6 +382,24 @@ export class PerRequestHTTPServerTransport implements Transport {
         }
         this._deferredResponse.settled = true;
         this._deferredResponse.resolve(response);
+    }
+
+    private jsonResponseHeaders(message: JSONRPCMessage): Record<string, string> {
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        const contentLanguage = getMessageContentLanguage(message);
+        if (contentLanguage === undefined) return headers;
+
+        headers['Content-Language'] = contentLanguage;
+        if (this._requestAcceptLanguage !== undefined) {
+            headers.Vary = 'Accept-Language';
+            if (!this._requestHasAcceptLanguageHeader) {
+                // `_meta` was canonical and reached the server, but a shared HTTP
+                // cache cannot see that variant key because the mirror was
+                // stripped. Keep the response out of shared caches.
+                headers['Cache-Control'] = 'private';
+            }
+        }
+        return headers;
     }
 
     private upgradeToSse(): void {

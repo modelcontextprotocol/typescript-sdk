@@ -7,9 +7,11 @@
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
+import { CONTENT_LANGUAGE_META } from '../../src/shared/i18n';
 import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired';
 import { isInputRequiredResult } from '../../src/types/guards';
 import { validateStandardSchema } from '../../src/util/standardSchema';
+import { codecForVersion } from '../../src/wire/codec';
 
 describe('inputRequired() builder', () => {
     test('builds a plain discriminated value (no brand) from inputRequests', () => {
@@ -385,11 +387,44 @@ describe('acceptedContent()', () => {
 describe('withInputRequired()', () => {
     const inner = z.object({ content: z.array(z.unknown()) });
 
-    test('passes input-required values through untouched', async () => {
+    test('the modern result validator preserves content-language metadata and base Result extensions', () => {
+        const value = {
+            resultType: 'input_required',
+            requestState: 'blob',
+            _meta: { [CONTENT_LANGUAGE_META]: 'fr' },
+            extensionResultField: { retained: true }
+        };
+        const outcome = codecForVersion('2026-07-28').validateInputRequiredResult(value);
+
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) throw new Error('Expected a valid InputRequiredResult');
+        expect(outcome.value).toEqual(value);
+    });
+
+    test('preserves base Result metadata and extensions on valid input-required values', async () => {
         const wrapped = withInputRequired(inner);
-        const value = { resultType: 'input_required', requestState: 'blob' };
+        const value = {
+            resultType: 'input_required',
+            requestState: 'blob',
+            _meta: { [CONTENT_LANGUAGE_META]: 'fr' },
+            extensionResultField: { retained: true }
+        };
         const outcome = await validateStandardSchema(wrapped, value);
         expect(outcome).toEqual({ success: true, data: value });
+    });
+
+    test('rejects malformed input-required values instead of discriminator-only passthrough', async () => {
+        const wrapped = withInputRequired(inner);
+
+        await expect(validateStandardSchema(wrapped, { resultType: 'input_required', requestState: 42 })).resolves.toMatchObject({
+            success: false
+        });
+        await expect(
+            validateStandardSchema(wrapped, {
+                resultType: 'input_required',
+                inputRequests: { unknown: { method: 'tasks/create', params: {} } }
+            })
+        ).resolves.toMatchObject({ success: false });
     });
 
     test('validates complete results against the wrapped schema', async () => {
