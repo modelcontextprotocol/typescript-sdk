@@ -15,7 +15,12 @@ import { PassThrough } from 'node:stream';
 
 import type { Client } from '@modelcontextprotocol/client';
 import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    encodeMcpParamValue,
+    PROTOCOL_VERSION_META_KEY
+} from '@modelcontextprotocol/core-internal';
 import type {
     CreateMcpHandlerOptions,
     EventStore,
@@ -353,6 +358,25 @@ export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, 
         [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
         [CLIENT_INFO_META_KEY]: clientInfo ?? { name: 'e2e-entry-client', version: '1.0.0' },
         [CLIENT_CAPABILITIES_META_KEY]: {}
+    };
+}
+
+/**
+ * The SEP-2243 standard request headers a conformant 2026-07-28 client sends
+ * alongside {@linkcode modernEnvelopeMeta}, for scenario bodies that put raw
+ * HTTP requests on the wire. `MCP-Protocol-Version` and `Mcp-Method` are
+ * required on every modern *request* POST (notification POSTs are exempt);
+ * `Mcp-Name` is additionally required for the methods that mirror
+ * `params.name` / `params.uri`, and carries the `=?base64?…?=` sentinel
+ * encoding the shipped client applies to it, so a name that is not a safe
+ * plain-ASCII field value reaches the server exactly as that client would
+ * send it rather than throwing in `Headers` construction.
+ */
+export function modernStandardHeaders(method: string, name?: string): Record<string, string> {
+    return {
+        'mcp-protocol-version': MODERN_REVISION,
+        'mcp-method': method,
+        ...(name !== undefined && { 'mcp-name': encodeMcpParamValue(name) })
     };
 }
 

@@ -1453,19 +1453,29 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._progressHandlers.delete(messageId);
 
                 if (requestAbort === undefined) {
-                    this._transport
-                        ?.send(
-                            this._envelopeOutbound({
-                                jsonrpc: '2.0',
-                                method: 'notifications/cancelled',
-                                params: {
-                                    requestId: messageId,
-                                    reason: String(reason)
-                                }
-                            }),
-                            { relatedRequestId, resumptionToken, onresumptiontoken }
-                        )
-                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    // "A client MUST NOT attempt to cancel its `initialize`
+                    // request" (spec basic/lifecycle, mirrored on
+                    // `CancelledNotification`). The handshake is the one request
+                    // whose cancellation is forbidden outright, so an abort or
+                    // timeout on it settles purely locally: the promise still
+                    // rejects below, but nothing goes on the wire. Only the
+                    // legacy era can reach this — `initialize` is absent from the
+                    // modern registry, which negotiates via `server/discover`.
+                    if (request.method !== 'initialize') {
+                        this._transport
+                            ?.send(
+                                this._envelopeOutbound({
+                                    jsonrpc: '2.0',
+                                    method: 'notifications/cancelled',
+                                    params: {
+                                        requestId: messageId,
+                                        reason: String(reason)
+                                    }
+                                }),
+                                { relatedRequestId, resumptionToken, onresumptiontoken }
+                            )
+                            .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    }
                 } else {
                     // Modern-era per-request-stream transport: aborting the
                     // request's underlying stream IS the spec cancel signal.

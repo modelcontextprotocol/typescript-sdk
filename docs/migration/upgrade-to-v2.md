@@ -1506,7 +1506,11 @@ rewrite required unless noted.
   on those survive verbatim. The cancelled-on-timeout signal is unchanged on legacy-era
   connections and on stdio/in-memory at any era; on 2026-era Streamable HTTP the cancel
   signal is the per-request stream close instead of a `notifications/cancelled` POST
-  (see [support-2026-07-28.md](./support-2026-07-28.md)).
+  (see [support-2026-07-28.md](./support-2026-07-28.md)). The one exemption is the
+  `initialize` handshake: an aborted or timed-out `connect()` still rejects locally, but
+  no `notifications/cancelled` goes on the wire — the spec forbids cancelling
+  `initialize`, and v1 sent one anyway. v1 tests asserting that notification need
+  re-baselining.
 - **Also unchanged: SSE reconnection exhaustion.** `StreamableHTTPClientTransport`'s
   standalone GET-stream reconnection behavior and its exhaustion signal carry over from
   v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
