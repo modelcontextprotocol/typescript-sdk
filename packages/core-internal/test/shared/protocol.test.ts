@@ -866,6 +866,23 @@ describe('protocol tests', () => {
         const cancelledSent = (sent: JSONRPCMessage[]): JSONRPCMessage[] =>
             sent.filter(m => 'method' in m && m.method === 'notifications/cancelled');
 
+        /**
+         * Connects a fresh protocol over a single-channel transport (stdio /
+         * in-memory shape: no `hasPerRequestStream`) at `version`, recording
+         * every outbound message.
+         */
+        const connectSingleChannel = async (version: string) => {
+            const sent: JSONRPCMessage[] = [];
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage) => {
+                sent.push(m);
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, version);
+            return { proto, sent };
+        };
+
         test('modern era + per-request-stream transport: abort closes the stream, NO notifications/cancelled', async () => {
             const tx = new PerRequestStreamTransport();
             const proto = createTestProtocol();
@@ -888,15 +905,7 @@ describe('protocol tests', () => {
         });
 
         test('modern era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled', async () => {
-            // stdio / in-memory shape: hasPerRequestStream is undefined.
-            const sent: JSONRPCMessage[] = [];
-            const tx = new MockTransport();
-            tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
-                sent.push(m);
-            };
-            const proto = createTestProtocol();
-            await proto.connect(tx);
-            setNegotiatedProtocolVersion(proto, '2026-07-28');
+            const { proto, sent } = await connectSingleChannel('2026-07-28');
 
             const ac = new AbortController();
             const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
@@ -946,14 +955,7 @@ describe('protocol tests', () => {
         describe('the initialize handshake is never cancelled on the wire', () => {
             test('aborting an in-flight initialize sends NO notifications/cancelled', async () => {
                 // ARRANGE
-                const sent: JSONRPCMessage[] = [];
-                const tx = new MockTransport();
-                tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
-                    sent.push(m);
-                };
-                const proto = createTestProtocol();
-                await proto.connect(tx);
-                setNegotiatedProtocolVersion(proto, '2025-11-25');
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
 
                 // ACT
                 const ac = new AbortController();
@@ -967,14 +969,7 @@ describe('protocol tests', () => {
 
             test('timing out an in-flight initialize sends NO notifications/cancelled', async () => {
                 // ARRANGE
-                const sent: JSONRPCMessage[] = [];
-                const tx = new MockTransport();
-                tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
-                    sent.push(m);
-                };
-                const proto = createTestProtocol();
-                await proto.connect(tx);
-                setNegotiatedProtocolVersion(proto, '2025-11-25');
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
 
                 // ACT
                 const pending = testRequest(proto, { method: 'initialize', params: {} }, z.object({}), { timeout: 0 });
@@ -986,14 +981,7 @@ describe('protocol tests', () => {
 
             test('every other method still POSTs notifications/cancelled (regression guard)', async () => {
                 // ARRANGE
-                const sent: JSONRPCMessage[] = [];
-                const tx = new MockTransport();
-                tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
-                    sent.push(m);
-                };
-                const proto = createTestProtocol();
-                await proto.connect(tx);
-                setNegotiatedProtocolVersion(proto, '2025-11-25');
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
 
                 // ACT
                 const ac = new AbortController();
