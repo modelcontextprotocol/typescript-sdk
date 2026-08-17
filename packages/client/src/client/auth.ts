@@ -1323,7 +1323,13 @@ async function authInternal(
             }
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
-                // Could not refresh OAuth tokens
+                // Could not refresh OAuth tokens. The fallthrough to a fresh authorization
+                // request is deliberate, but it is invisible on a headless client whose
+                // redirectToAuthorization() is a no-op — so say why it happened.
+                console.warn(
+                    `[mcp-sdk] Could not refresh OAuth tokens; falling back to a new authorization request. ` +
+                        `Cause: ${error instanceof Error ? error.message : String(error)}`
+                );
             } else {
                 // Refresh failed for another reason, re-throw
                 throw error;

@@ -3092,7 +3092,11 @@ describe('OAuth Authorization', () => {
                 issuer: 'https://auth.example.com'
             });
             const persistError = new Error('disk full');
-            (mockProvider.saveTokens as Mock).mockRejectedValue(persistError);
+            // `mockRejectedValueOnce`, not `mockRejectedValue`: `mockProvider` is shared by
+            // the whole describe and its beforeEach only calls `vi.clearAllMocks()`, which
+            // clears call history but keeps implementations. A persistent rejection would
+            // leak 'disk full' into every later test that reaches saveTokens.
+            (mockProvider.saveTokens as Mock).mockRejectedValueOnce(persistError);
 
             await expect(
                 auth(mockProvider, {
