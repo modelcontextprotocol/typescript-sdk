@@ -201,5 +201,11 @@ const exported = await client.callTool(
 console.log(exported.content);
 //#endregion callTool_progress
 
+// "Check the connection" — the empty result the page quotes.
+//#region ping_basic
+const pong = await client.ping({ timeout: 5000 });
+console.log(pong);
+//#endregion ping_basic
+
 await client.close();
 await server.close();

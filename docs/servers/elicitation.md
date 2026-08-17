@@ -123,6 +123,45 @@ server.registerTool(
 [ { type: 'text', text: 'Declined - nothing deleted.' } ]
 ```
 
+## Prefill a field with a default
+
+Set `default` on a field and the client renders the form with that value already filled in.
+
+```ts source="../../examples/guides/servers/elicitation.examples.ts#registerTool_elicitDefault"
+server.registerTool(
+    'export-report',
+    {
+        description: 'Export a report after the user picks a format',
+        inputSchema: z.object({ name: z.string() })
+    },
+    async ({ name }, ctx) => {
+        const result = await ctx.mcpReq.elicitInput({
+            mode: 'form',
+            message: `Export ${name} as which format?`,
+            requestedSchema: {
+                type: 'object',
+                properties: { format: { type: 'string', title: 'Format', enum: ['pdf', 'csv'], default: 'pdf' } },
+                required: ['format']
+            }
+        });
+        if (result.action !== 'accept') {
+            return { content: [{ type: 'text', text: `Export ${result.action}.` }] };
+        }
+        return { content: [{ type: 'text', text: `Exported ${name} as ${result.content?.format}.` }] };
+    }
+);
+```
+
+`requestedSchema` reaches the client unchanged, `default` included; the end user submits the prefilled `pdf` or picks `csv`. An accept with `format` left out still returns:
+
+```
+[ { type: 'text', text: 'Exported quarterly-sales as pdf.' } ]
+```
+
+::: info
+A client that declares `elicitation: { form: { applyDefaults: true } }` — an SDK flag, not a protocol capability — fills defaulted fields the end user leaves out before the accept reaches your handler; the output above is that case.
+:::
+
 ## Send the end user to a URL
 
 **URL mode** replaces the form with a browser flow: pass `url` and a unique `elicitationId` instead of `requestedSchema`.
@@ -181,5 +220,6 @@ Elicitation only works against a client that declared the `elicitation` capabili
 - `ctx.mcpReq.elicitInput` sends an `elicitation/create` request mid-handler and resolves with the end user's answer.
 - Form mode carries a `message` and a flat JSON-Schema `requestedSchema`; the SDK validates accepted content against it.
 - `result.action` is `accept`, `decline`, or `cancel`; `result.content` is present only on accept.
+- `default` on a `requestedSchema` field prefills the form; a client that declares `applyDefaults` fills the field in when the end user leaves it out.
 - URL mode hands the end user a browser flow — use it for anything sensitive.
 - Calls against a client that never declared the `elicitation` capability fail before reaching the wire.

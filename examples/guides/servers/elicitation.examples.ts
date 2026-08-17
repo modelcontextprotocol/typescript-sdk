@@ -78,6 +78,37 @@ server.registerTool(
 );
 //#endregion registerTool_elicitActions
 
+// "Prefill a field with a default" — the requested schema carries `default`.
+// Wrapped so the harness can register the same tool on a second server whose
+// client declares `applyDefaults`; the page's fence shows the body unindented.
+function registerExportReport(server: McpServer): void {
+    //#region registerTool_elicitDefault
+    server.registerTool(
+        'export-report',
+        {
+            description: 'Export a report after the user picks a format',
+            inputSchema: z.object({ name: z.string() })
+        },
+        async ({ name }, ctx) => {
+            const result = await ctx.mcpReq.elicitInput({
+                mode: 'form',
+                message: `Export ${name} as which format?`,
+                requestedSchema: {
+                    type: 'object',
+                    properties: { format: { type: 'string', title: 'Format', enum: ['pdf', 'csv'], default: 'pdf' } },
+                    required: ['format']
+                }
+            });
+            if (result.action !== 'accept') {
+                return { content: [{ type: 'text', text: `Export ${result.action}.` }] };
+            }
+            return { content: [{ type: 'text', text: `Exported ${name} as ${result.content?.format}.` }] };
+        }
+    );
+    //#endregion registerTool_elicitDefault
+}
+registerExportReport(server);
+
 // "Send the end user to a URL" — url mode hands the browser flow to the client.
 //#region registerTool_elicitUrl
 server.registerTool(
@@ -143,6 +174,24 @@ console.log(linked.content);
 client.setRequestHandler('elicitation/create', async () => ({ action: 'decline' }));
 const declined = await client.callTool({ name: 'delete-dataset', arguments: { name: 'staging-snapshots' } });
 console.log(declined.content);
+
+// "Prefill a field with a default" — a client that declares `applyDefaults`
+// accepts with `format` left out; the SDK fills it from the schema before the
+// accept reaches the handler.
+const defaultsClient = new Client(
+    { name: 'defaults-host', version: '1.0.0' },
+    { capabilities: { elicitation: { form: { applyDefaults: true } } } }
+);
+defaultsClient.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: {} }));
+const [defaultsClientTransport, defaultsServerTransport] = InMemoryTransport.createLinkedPair();
+const defaultsServer = new McpServer({ name: 'feedback', version: '1.0.0' });
+registerExportReport(defaultsServer);
+await defaultsServer.connect(defaultsServerTransport);
+await defaultsClient.connect(defaultsClientTransport);
+const exported = await defaultsClient.callTool({ name: 'export-report', arguments: { name: 'quarterly-sales' } });
+console.log(exported.content);
+await defaultsClient.close();
+await defaultsServer.close();
 
 // "Require the elicitation capability" — the same form tool served to a client
 // that never declared the elicitation capability. elicitInput throws before
