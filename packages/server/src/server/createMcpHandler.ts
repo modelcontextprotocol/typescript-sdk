@@ -31,6 +31,7 @@ import type {
     ClientCapabilities,
     Implementation,
     InboundClassificationOutcome,
+    InboundHttpRequest,
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
@@ -406,6 +407,25 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
  * The entry's classification step (shared with isLegacyRequest)
  * ------------------------------------------------------------------------ */
 
+/**
+ * Read the SEP-2243 standard request headers off the inbound request.
+ *
+ * Both halves of the standard-header story need them — the body-primary
+ * classifier for its cross-check cells, and
+ * {@linkcode validateStandardRequestHeaders} for the presence half — and a
+ * header read at one site but not the other is precisely how a required header
+ * goes unenforced: that divergence is what let a modern POST omitting
+ * `MCP-Protocol-Version` be served. Read them here once so a header added to
+ * {@linkcode InboundHttpRequest} reaches both sites together.
+ */
+function standardHeadersOf(request: Request): Omit<InboundHttpRequest, 'httpMethod' | 'body'> {
+    return {
+        protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
+        mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+        mcpNameHeader: request.headers.get('mcp-name') ?? undefined
+    };
+}
+
 /** The outcome of the entry's classification step for one inbound HTTP request. */
 type EntryClassification =
     /** The body bytes could not be read at all (a failing stream, not malformed JSON). */
@@ -467,9 +487,7 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
 
     const outcome = classifyInboundRequest({
         httpMethod,
-        protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
-        mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-        mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
+        ...standardHeadersOf(request),
         ...(body !== undefined && { body })
     });
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
@@ -661,10 +679,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
         }
 
-        // SEP-2243 standard-header presence and `Mcp-Name` cross-check
+        // SEP-2243 standard-header presence (`MCP-Protocol-Version`,
+        // `Mcp-Method`) and `Mcp-Name` cross-check
         // (`standard-header-validation` rung; the `MCP-Protocol-Version` and
         // `Mcp-Method` *mismatch* cells are already answered inside
-        // `classifyInboundRequest` on the edge `era-classification` rung).
+        // `classifyInboundRequest` on the edge `era-classification` rung,
+        // which only cross-checks a protocol-version header that is present).
         // Evaluated after the supported-revision
         // gate so an envelope naming a revision this endpoint does not serve
         // is still answered with `-32022` (the supported list is the more
@@ -672,14 +692,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // before the capability gate, the factory call, and the
         // `Mcp-Param-*` rung so a request that fails several rungs is
         // answered by the standard-header rung first.
-        const stdHeaderRejection = validateStandardRequestHeaders(
-            {
-                httpMethod: request.method,
-                mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-                mcpNameHeader: request.headers.get('mcp-name') ?? undefined
-            },
-            route
-        );
+        const stdHeaderRejection = validateStandardRequestHeaders({ httpMethod: request.method, ...standardHeadersOf(request) }, route);
         if (stdHeaderRejection !== undefined) {
             reportError(new Error(`Rejected inbound request (${stdHeaderRejection.cell}): ${stdHeaderRejection.message}`));
             return rejectionResponse(stdHeaderRejection, echoableRequestId(route.message));

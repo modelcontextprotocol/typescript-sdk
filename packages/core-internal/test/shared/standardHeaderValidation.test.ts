@@ -4,7 +4,8 @@
  *
  * Evaluated by the HTTP entry on a modern-classified request immediately
  * after `classifyInboundRequest` returns a modern route: rejects `400` /
- * `-32020` (`HeaderMismatch`) when the required `Mcp-Method` header is
+ * `-32020` (`HeaderMismatch`) when the required `MCP-Protocol-Version` header
+ * is absent, when the required `Mcp-Method` header is
  * absent, when the required `Mcp-Name` header is absent on a `tools/call` /
  * `prompts/get` / `resources/read` request, when the `Mcp-Name` header
  * carries an invalid Base64 sentinel, and when its (decoded) value disagrees
@@ -60,6 +61,55 @@ function expectRejection(result: InboundLadderRejection | undefined, cell: strin
     expect(result?.settled).toBe(true);
 }
 
+describe('SEP-2243 standard-header validation (MCP-Protocol-Version presence)', () => {
+    test('a modern request without an MCP-Protocol-Version header is rejected (version-header-missing)', () => {
+        const request: InboundHttpRequest = {
+            httpMethod: 'POST',
+            mcpMethodHeader: 'tools/list',
+            body: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: ENVELOPE } }
+        };
+        const outcome = classifyInboundRequest(request);
+        // Body-primary classification is deliberately untouched: a proxy that
+        // strips the header must not change the era, so the request still
+        // routes modern and the rejection belongs to this rung — not to the
+        // classifier.
+        expect(outcome.kind).toBe('modern');
+        expectRejection(validateStandardRequestHeaders(request, outcome as InboundModernRoute), 'version-header-missing');
+    });
+
+    test('the missing-version cell outranks the missing-method cell (spec header order)', () => {
+        const request: InboundHttpRequest = {
+            httpMethod: 'POST',
+            body: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: ENVELOPE } }
+        };
+        const outcome = classifyInboundRequest(request);
+        expect(outcome.kind).toBe('modern');
+        expectRejection(validateStandardRequestHeaders(request, outcome as InboundModernRoute), 'version-header-missing');
+    });
+
+    test('a present and matching MCP-Protocol-Version header passes', () => {
+        const { request, route } = modernPost('tools/list', {}, { mcpMethod: 'tools/list' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+    });
+
+    test('the header/body version mismatch cell stays inside classifyInboundRequest (this rung never sees it)', () => {
+        // The protocol-version check is split across two rungs: *absence* is
+        // this rung's cell, *disagreement* stays on the classifier's edge
+        // `era-classification` rung. Pinned so the split stays observable —
+        // the same guard the Mcp-Method pair carries below.
+        const outcome = classifyInboundRequest({
+            httpMethod: 'POST',
+            protocolVersionHeader: '2025-11-25',
+            mcpMethodHeader: 'tools/list',
+            body: { jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: ENVELOPE } }
+        });
+        expect(outcome.kind).toBe('reject');
+        expect((outcome as InboundLadderRejection).cell).toBe('header-body-version-mismatch');
+        expect((outcome as InboundLadderRejection).rung).toBe('era-classification');
+        expect((outcome as InboundLadderRejection).code).toBe(-32_020);
+    });
+});
+
 describe('SEP-2243 standard-header validation (Mcp-Method presence)', () => {
     test('a modern request without an Mcp-Method header is rejected (method-header-missing)', () => {
         const { request, route } = modernPost('tools/list', {});
@@ -86,7 +136,14 @@ describe('SEP-2243 standard-header validation (Mcp-Method presence)', () => {
         expect((outcome as InboundLadderRejection).cell).toBe('method-header-mismatch');
     });
 
-    test('notifications are never enforced', () => {
+    test('notifications are never enforced — including the MCP-Protocol-Version presence cell', () => {
+        // Deliberate, not an oversight. The Streamable HTTP "Sending Messages"
+        // note states that "header requirements for notification POSTs are not
+        // defined by this revision" (the revision defines no client-to-server
+        // notifications over Streamable HTTP at all), so the "Every POST
+        // request MUST include an MCP-Protocol-Version header" rule does not
+        // reach a posted notification and this rung stays request-only.
+        // The request below carries NO standard headers whatsoever.
         const route: InboundModernRoute = {
             kind: 'modern',
             messageKind: 'notification',
