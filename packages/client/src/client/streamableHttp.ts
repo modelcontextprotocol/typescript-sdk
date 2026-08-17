@@ -966,9 +966,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 // same per-request abort as the original POST — modern-era
                 // cancel-via-stream-close routes through `requestSignal`, and
                 // without it a resumed long-running request would not cancel.
+                // `relatedRequestId` rides along for the same reason: the
+                // resumed GET continues *this* request's stream, so a server
+                // request replayed on it keeps the provenance the original
+                // POST stream would have carried.
+                const resumedRequestId = isJSONRPCRequest(message) ? message.id : undefined;
                 this._startOrAuthSse({
                     resumptionToken,
-                    replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
+                    replayMessageId: resumedRequestId,
+                    relatedRequestId: resumedRequestId,
                     requestSignal: options?.requestSignal
                 }).catch(error => this.onerror?.(error));
                 return;

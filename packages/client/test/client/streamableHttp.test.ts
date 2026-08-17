@@ -554,6 +554,108 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    it('keeps that attribution when the request is resumed with a resumption token', async () => {
+        // Resuming an interrupted request replaces the POST response stream
+        // with a `Last-Event-ID` GET, but the stream still belongs to the same
+        // client request — so provenance has to survive the swap. This is the
+        // long-running-call case: the stream drops, the client resumes, and the
+        // elicitation arrives on the resumed stream.
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(
+                    encoder.encode(
+                        'event: message\ndata: {"jsonrpc":"2.0","id":"elicitation-1","method":"elicitation/create","params":{}}\n\n'
+                    )
+                );
+            }
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: stream
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        await transport.send(
+            { jsonrpc: '2.0', id: 'tool-call-1', method: 'tools/call', params: { name: 'route' } },
+            { resumptionToken: 'event-42' }
+        );
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(messageSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'elicitation-1', method: 'elicitation/create' }), {
+            relatedRequestId: 'tool-call-1'
+        });
+    });
+
+    it('does not attribute server requests received on the standalone GET stream', async () => {
+        // Transports spec (2025-03-26 … 2025-11-25) §Listening for Messages:
+        // messages on the standalone GET stream SHOULD be unrelated to any
+        // concurrently-running client request. Attributing one to whatever
+        // request happened to be in flight would be a fabricated relation.
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(
+                    encoder.encode(
+                        'event: message\ndata: {"jsonrpc":"2.0","id":"elicitation-1","method":"elicitation/create","params":{}}\n\n'
+                    )
+                );
+            }
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: stream
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        const transportWithPrivateMethods = transport as unknown as {
+            _startOrAuthSse: (options: StartSSEOptions) => Promise<void>;
+        };
+        await transportWithPrivateMethods._startOrAuthSse({ resumptionToken: undefined });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(messageSpy).toHaveBeenCalledTimes(1);
+        expect(messageSpy.mock.calls[0]![1]).toBeUndefined();
+    });
+
+    it('does not attach provenance to the response that terminates a POST SSE stream', async () => {
+        // A response already carries its own correlation — its `id` IS the
+        // originating request. Only server-initiated requests, whose ids come
+        // from the server's own numbering, need the stream to supply it.
+        const encoder = new TextEncoder();
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(encoder.encode('event: message\ndata: {"jsonrpc":"2.0","id":"tool-call-1","result":{}}\n\n'));
+            }
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: stream
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        await transport.send({ jsonrpc: '2.0', id: 'tool-call-1', method: 'tools/call', params: { name: 'route' } });
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(messageSpy).toHaveBeenCalledTimes(1);
+        expect(messageSpy.mock.calls[0]![1]).toBeUndefined();
+    });
+
     it('declares hasPerRequestStream so the protocol layer routes 2026-era cancellation to stream-close', () => {
         // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
         // closing the per-request SSE stream IS the cancel signal on
