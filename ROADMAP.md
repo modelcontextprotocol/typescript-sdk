@@ -7,7 +7,7 @@ The SDK tracks implementation of MCP spec components via GitHub Projects, with a
 - [2026-07-28 spec revision board](https://github.com/orgs/modelcontextprotocol/projects/41) — implemented in v2.0.0 (released 2026-07-27, alongside the spec).
 - [2025-11-25 spec revision board](https://github.com/orgs/modelcontextprotocol/projects/26) — implemented in v1.23.0 (2025-11-25) and carried into v2.
 
-Conformance against every supported revision runs on each push to `main` and `v1.x` via the [conformance workflow](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/conformance.yml) using the [MCP conformance suite](https://github.com/modelcontextprotocol/conformance).
+Conformance against the 2025-11-25 and 2026-07-28 revisions runs on each push to `main` (and against 2025-11-25 on `v1.x`) via the [conformance workflow](https://github.com/modelcontextprotocol/typescript-sdk/actions/workflows/conformance.yml) using the [MCP conformance suite](https://github.com/modelcontextprotocol/conformance).
 
 ## Current Focus Areas
 
@@ -17,7 +17,7 @@ v2.0.0 is the stable release line (`main`). Post-release work is tracked as issu
 
 - Migration tooling and guides (`@modelcontextprotocol/codemod`, `docs/migration/`).
 - Runtime coverage beyond Node.js (Bun, Deno, Cloudflare Workers, Vercel) and the framework integrations (`node`, `express`, `hono`, `fastify`).
-- Documentation completeness for every non-experimental spec feature at https://ts.sdk.modelcontextprotocol.io.
+- Documentation completeness for every non-experimental spec feature at https://ts.sdk.modelcontextprotocol.io/v2/.
 
 ### Next Spec Revision
 

@@ -30,6 +30,6 @@ Dependencies are only updated when there is a concrete reason, not simply becaus
 
 ## Pinning and Ranges
 
-Dependency ranges live in the pnpm workspace catalogs (`pnpm-workspace.yaml`), so a version is declared once and shared by every package. Runtime dependencies use caret ranges (`^`) to allow compatible updates within a major version. Exact versions are pinned only when necessary to work around a specific issue. Framework integrations (`express`, `hono`, `fastify`) declare the framework as a peer dependency rather than bundling a copy.
+Ranges shared by more than one package live in the pnpm workspace catalogs (`pnpm-workspace.yaml`), so a version is declared once. Runtime dependencies use caret ranges (`^`) to allow compatible updates within a major version; exact versions of runtime dependencies are pinned only when necessary to work around a specific issue. Framework integrations (`express`, `hono`, `fastify`) declare the framework as a peer dependency rather than bundling a copy.
 
-Runtime dependencies of published packages are kept to a minimum; adding one is a design decision discussed in an issue first (see `CONTRIBUTING.md`).
+Runtime dependencies of published packages are kept to a minimum; adding one is a significant change under the discuss-before-you-code rule in `CONTRIBUTING.md`.
