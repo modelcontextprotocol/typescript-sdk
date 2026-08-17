@@ -21,9 +21,11 @@
  *   classification*: it never upgrades or downgrades a body-derived
  *   classification, and a disagreement between header and body is an explicit
  *   ladder outcome. Its absence likewise never changes the era — but the spec
- *   requires the header on every modern POST, so a modern-classified request
- *   that omits it is refused one rung later, by
- *   {@linkcode validateStandardRequestHeaders}, not here.
+ *   requires the header on every modern *request* POST, so a
+ *   modern-classified request that omits it is refused one rung later, by
+ *   {@linkcode validateStandardRequestHeaders}, not here. Notification POSTs
+ *   are exempt (see the next bullet), and that rung enforces presence on
+ *   requests only.
  * - Notifications carry no envelope claim of their own under the current
  *   spec, so for notification POSTs without a body claim the modern header is
  *   determinative; the `Mcp-Method` header is validated against the body when
@@ -327,8 +329,10 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
             'SEP-2243 standard `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and ' +
             '`Mcp-Name` ↔ body cross-check — are validated by the HTTP entry on a modern-classified request after the ' +
             'supported-revision gate and before dispatch. The spec requires `MCP-Protocol-Version` and `Mcp-Method` on every ' +
-            'modern POST (`Mcp-Name` only for the methods that mirror `params.name` / `params.uri`) and names them in that ' +
-            'order, so a request missing several is answered by the earliest. The classifier’s own header-mismatch cells ' +
+            'modern *request* POST (`Mcp-Name` only for the methods that mirror `params.name` / `params.uri`) and names them ' +
+            'in that order, so a request missing several is answered by the earliest. Notification POSTs are exempt: the ' +
+            'presence half runs on requests only, so a modern-enveloped notification is dispatched even with no standard ' +
+            'headers at all. The classifier’s own header-mismatch cells ' +
             '(protocol-version, `Mcp-Method` mismatch) stay on the edge ' +
             '`era-classification` rung; this rung carries the entry-layer presence/`Mcp-Name` half — including the missing ' +
             '`MCP-Protocol-Version` cell, which cannot live on the edge rung without breaking body-primary classification. ' +
@@ -504,9 +508,9 @@ function stripHttpOws(value: string): string {
  * `Mcp-Method` *mismatch* cells) when:
  *
  * - the required `MCP-Protocol-Version` header is absent (SEP-2243 requires it
- *   on every modern POST, and lists it first among the required standard
- *   headers — so a request missing it *and* `Mcp-Method` is answered by this
- *   cell);
+ *   on every modern *request* POST, and lists it first among the required
+ *   standard headers — so a request missing it *and* `Mcp-Method` is answered
+ *   by this cell);
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
  *   `prompts/get`, or `resources/read` request whose body carries the
