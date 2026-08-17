@@ -209,6 +209,33 @@ describe('protocol tests', () => {
         expect(onmessageMock).toHaveBeenCalled();
     });
 
+    test('should report protocol errors when no onerror handler is set', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        await protocol.connect(transport);
+
+        const error = new Error('transport failed');
+        transport.onerror!(error);
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Unhandled MCP protocol error'), error);
+
+        consoleErrorSpy.mockRestore();
+    });
+
+    test('should stay quiet when an onerror handler is set', async () => {
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const onerrorMock = vi.fn();
+        protocol.onerror = onerrorMock;
+        await protocol.connect(transport);
+
+        const error = new Error('transport failed');
+        transport.onerror!(error);
+
+        expect(onerrorMock).toHaveBeenCalledWith(error);
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+
+        consoleErrorSpy.mockRestore();
+    });
+
     describe('_meta preservation with onprogress', () => {
         test('should preserve existing _meta when adding progressToken', async () => {
             await protocol.connect(transport);

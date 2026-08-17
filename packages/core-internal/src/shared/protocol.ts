@@ -856,7 +856,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onerror(error: Error): void {
-        this.onerror?.(error);
+        if (this.onerror) {
+            this.onerror(error);
+            return;
+        }
+
+        // Without a fallback the error is dropped, and a peer waiting on a response that was never
+        // sent only learns about it when its own timeout fires. stderr is used because the stdio
+        // transport reserves stdout for protocol messages.
+        console.error('Unhandled MCP protocol error. Set `onerror` to handle these:', error);
     }
 
     /**
