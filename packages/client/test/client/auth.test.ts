@@ -191,6 +191,26 @@ describe('OAuth Authorization', () => {
                 errorDescription: 'needs admin'
             });
         });
+
+        it('does not match a field name inside a longer auth-param name', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? `Bearer error_scope="should-not-be-read", scope="read write"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ scope: 'read write' });
+        });
+
+        it('does not match resource_metadata inside a longer auth-param name', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name => (name === 'WWW-Authenticate' ? `Bearer x_resource_metadata="https://decoy.example.com"` : null))
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({});
+        });
     });
 
     describe('computeScopeUnion', () => {
