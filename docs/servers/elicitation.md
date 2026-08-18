@@ -194,6 +194,99 @@ The client opens the URL and answers once the end user finishes there; whatever 
 [ { type: 'text', text: 'Linked github.' } ]
 ```
 
+## Signal that the URL flow finished
+
+The client learns that the end user finished at the URL from a `notifications/elicitation/complete` notification that carries the same `elicitationId`. `server.server.createElicitationCompletionNotifier` returns the function that sends it — keep it where your callback endpoint can reach it, and pass `relatedRequestId` so the notification rides the in-flight tool call. Raise the request `timeout` too — the default is 60 seconds, and a person is on the other end of this one — and forward `ctx.mcpReq.signal` so a cancelled tool call also cancels the parked elicitation.
+
+```ts source="../../examples/guides/servers/elicitation.examples.ts#createElicitationCompletionNotifier_connectCalendar"
+const pendingFlows = new Map<string, () => Promise<void>>();
+
+server.registerTool(
+    'connect-calendar',
+    {
+        description: 'Connect a calendar through a hosted consent flow',
+        inputSchema: z.object({ provider: z.string() })
+    },
+    async ({ provider }, ctx) => {
+        const elicitationId = crypto.randomUUID();
+        pendingFlows.set(
+            elicitationId,
+            server.server.createElicitationCompletionNotifier(elicitationId, { relatedRequestId: ctx.mcpReq.id })
+        );
+        try {
+            const result = await ctx.mcpReq.elicitInput(
+                {
+                    mode: 'url',
+                    message: `Grant ${provider} calendar access`,
+                    url: `https://calendar.example.com/consent/${encodeURIComponent(provider)}?state=${elicitationId}`,
+                    elicitationId
+                },
+                // a person is on the other end (the default timeout is 60 s); the signal
+                // cancels the parked elicitation if the tool call itself is cancelled
+                { timeout: 10 * 60_000, signal: ctx.mcpReq.signal }
+            );
+            if (result.action !== 'accept') {
+                return { content: [{ type: 'text', text: `Consent ${result.action}.` }] };
+            }
+            return { content: [{ type: 'text', text: `Connected ${provider}.` }] };
+        } finally {
+            pendingFlows.delete(elicitationId);
+        }
+    }
+);
+
+// The hosted flow redirects back to your server with the id in `state`; that
+// endpoint sends the notification.
+async function completeFlow(elicitationId: string): Promise<void> {
+    await pendingFlows.get(elicitationId)?.();
+}
+```
+
+On the client, hold the `elicitation/create` answer until the notification names the `elicitationId` the request carried, and let `ctx.mcpReq.signal` release it when the server cancels — a timed-out or abandoned flow must not leave the handler waiting.
+
+```ts source="../../examples/guides/servers/elicitation.examples.ts#setNotificationHandler_elicitationComplete"
+const finished = new Map<string, () => void>();
+
+client.setNotificationHandler('notifications/elicitation/complete', notification => {
+    console.log('URL flow finished:', notification.params.elicitationId);
+    finished.get(notification.params.elicitationId)?.();
+    finished.delete(notification.params.elicitationId);
+});
+
+client.setRequestHandler('elicitation/create', async (request, ctx) => {
+    if (request.params.mode === 'url') {
+        // Open request.params.url in the user's browser; answer once the server signals completion.
+        const { elicitationId } = request.params;
+        const done = await new Promise<'complete' | 'cancelled'>(resolve => {
+            finished.set(elicitationId, () => resolve('complete'));
+            ctx.mcpReq.signal.addEventListener('abort', () => {
+                finished.delete(elicitationId);
+                resolve('cancelled');
+            });
+        });
+        return { action: done === 'complete' ? 'accept' : 'cancel' };
+    }
+    return { action: 'accept', content: { rating: 5, comment: 'Smooth setup' } };
+});
+```
+
+The host's own `tools/call` has the same 60-second default, so the caller raises it as well:
+
+```ts source="../../examples/guides/servers/elicitation.examples.ts#callTool_connectCalendar_timeout"
+const connecting = client.callTool({ name: 'connect-calendar', arguments: { provider: 'google' } }, { timeout: 10 * 60_000 });
+```
+
+Let the callback endpoint run `completeFlow` with the id from `state`, and the client logs the notification before the tool result arrives (the id is fresh on every run):
+
+```
+URL flow finished: c9a7bcfc-acc9-494c-8ce5-44c921232ea6
+[ { type: 'text', text: 'Connected google.' } ]
+```
+
+::: info
+This notification exists on 2025-11-25 connections only — the 2026-07-28 [input-required](./input-required.md) flow has no `elicitationId` and no completion signal; see [Protocol versions](../protocol-versions.md).
+:::
+
 ## Keep secrets out of forms
 
 Form answers travel back through the client and land in the model's context like any other tool result.
@@ -221,5 +314,5 @@ Elicitation only works against a client that declared the `elicitation` capabili
 - Form mode carries a `message` and a flat JSON-Schema `requestedSchema`; the SDK validates accepted content against it.
 - `result.action` is `accept`, `decline`, or `cancel`; `result.content` is present only on accept.
 - `default` on a `requestedSchema` field prefills the form; a client that declares `applyDefaults` fills the field in when the end user leaves it out.
-- URL mode hands the end user a browser flow — use it for anything sensitive.
+- URL mode hands the end user a browser flow — use it for anything sensitive; `createElicitationCompletionNotifier` returns the function that sends `notifications/elicitation/complete` so the client can answer.
 - Calls against a client that never declared the `elicitation` capability fail before reaching the wire.
