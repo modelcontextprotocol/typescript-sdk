@@ -792,7 +792,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // keeping repeated connect/idle-close cycles bounded by `maxRetries`
         // (#2682).
         let receivedMessage = false;
-        const streamOpenedAt = Date.now();
+        const streamOpenedAt = performance.now();
 
         // Single scheduling site for both the graceful-close and the
         // mid-stream-error paths below — the #2682 bug existed precisely
@@ -810,7 +810,7 @@ export class StreamableHTTPClientTransport implements Transport {
             // looping forever (#2682). Priming events alone deliberately do
             // not reset the count — a server can send one and still close
             // immediately, which would re-arm exactly that loop.
-            const madeProgress = receivedMessage || Date.now() - streamOpenedAt >= this._reconnectionOptions.maxReconnectionDelay;
+            const madeProgress = receivedMessage || performance.now() - streamOpenedAt >= this._reconnectionOptions.maxReconnectionDelay;
             this._scheduleReconnection(
                 {
                     // A reconnected stream that ended before any event arrived
