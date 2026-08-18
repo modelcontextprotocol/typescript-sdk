@@ -1,5 +1,30 @@
+/* Legacy-era protocol revisions. These three constants describe only the legacy
+ * protocol era — the 2025-11-25 family and earlier, negotiated via the `initialize`
+ * handshake. The modern era (2026-07-28 and later) has no `initialize` handshake and
+ * is versioned separately, so no modern revision ever appears here. */
+
+/**
+ * The newest protocol revision negotiable via the legacy `initialize` handshake.
+ *
+ * This is **not** the newest revision this SDK implements, and it is not a usable
+ * signal for whether the installed version supports a given spec revision — modern-era
+ * (2026-07-28+) support is deliberately kept out of this constant so that a modern
+ * version string can never leak into a legacy handshake.
+ */
 export const LATEST_PROTOCOL_VERSION = '2025-11-25';
+
+/**
+ * The revision assumed for a legacy-era HTTP request that carries no
+ * `MCP-Protocol-Version` header, per the 2025-06-18 spec's backwards-compatibility rule.
+ */
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
+
+/**
+ * Legacy-era revisions this SDK can negotiate via `initialize`, in preference order.
+ *
+ * Used to validate the `MCP-Protocol-Version` header on the legacy HTTP transport.
+ * Modern-era revisions are tracked separately and are never members of this list.
+ */
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
 /**
