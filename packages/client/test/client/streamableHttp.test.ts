@@ -2652,6 +2652,81 @@ describe('StreamableHTTPClientTransport', () => {
             await vi.advanceTimersByTimeAsync(5000);
             expect(fetchMock).toHaveBeenCalledTimes(4);
         });
+
+        it('treats a long-lived idle stream as progress, so periodic idle-closes reconnect indefinitely', async () => {
+            // A healthy-but-quiet session behind e.g. a load balancer with an
+            // idle timeout: the standby stream delivers nothing but stays open
+            // well past maxReconnectionDelay before each close. That must NOT
+            // count against maxRetries — the notification channel stays alive.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controllers.push(controller);
+                    }
+                })
+            }));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Five cycles: each stream lives longer than maxReconnectionDelay
+            // (fake timers also drive Date.now), then idle-closes empty.
+            for (let cycle = 0; cycle < 5; cycle++) {
+                await vi.advanceTimersByTimeAsync(1500);
+                controllers[cycle]!.close();
+                await vi.advanceTimersByTimeAsync(50);
+            }
+
+            // Well past 1 + maxRetries fetches, and no exhaustion error.
+            expect(fetchMock.mock.calls.length).toBeGreaterThan(3);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('carries the resumption token through reconnected streams that ended before any event', async () => {
+            // Stream 1 delivers a priming event (id only), so the first
+            // reconnect resumes from it. Stream 2 ends empty — the next
+            // attempt must still send the same Last-Event-ID instead of
+            // dropping it and starting a fresh stream.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 3
+                }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            const bodies: string[][] = [['id: event-1\ndata: \n\n']];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(100);
+
+            expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers as Headers;
+            const thirdCallHeaders = fetchMock.mock.calls[2]![1]?.headers as Headers;
+            expect(secondCallHeaders.get('last-event-id')).toBe('event-1');
+            // Before the fix this was null: the empty second stream dropped the token.
+            expect(thirdCallHeaders.get('last-event-id')).toBe('event-1');
+        });
     });
 
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {

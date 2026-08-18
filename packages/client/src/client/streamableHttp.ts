@@ -118,9 +118,14 @@ export interface StreamableHTTPReconnectionOptions {
     /**
      * Maximum number of consecutive reconnection attempts before giving up.
      * An attempt counts against this limit when it fails outright or when the
-     * reconnected stream ends again without having delivered a message (for
-     * example, a server that gracefully idle-closes its standby SSE stream);
-     * a stream that delivers a message resets the count.
+     * reconnected stream ends again without making progress — no message
+     * delivered and the connection lasted less than
+     * {@linkcode maxReconnectionDelay} (for example, a server that gracefully
+     * idle-closes its standby SSE stream immediately after every reconnect).
+     * A stream that delivers a message or stays open at least
+     * {@linkcode maxReconnectionDelay} resets the count, so healthy sessions
+     * whose standby stream is periodically idle-closed keep reconnecting
+     * indefinitely.
      * Default is 2.
      */
     maxRetries: number;
@@ -717,9 +722,10 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * @param reconnectAttempt - Which reconnection attempt produced this
      * stream (0 for an original stream). Carried into the next
-     * `_scheduleReconnection` call when the stream ends without having
-     * delivered a message, so consecutive fruitless reconnects are bounded by
-     * `maxRetries`; a stream that delivered a message resets the count.
+     * `_scheduleReconnection` call when the stream ends without having made
+     * progress (no message delivered, connection shorter than
+     * `maxReconnectionDelay`), so consecutive fruitless reconnects are bounded
+     * by `maxRetries`; a stream that made progress resets the count.
      */
     private _handleSseStream(
         stream: ReadableStream<Uint8Array> | null,
@@ -756,6 +762,40 @@ export class StreamableHTTPClientTransport implements Transport {
         // keeping repeated connect/idle-close cycles bounded by `maxRetries`
         // (#2682).
         let receivedMessage = false;
+        const streamOpenedAt = Date.now();
+
+        // Single scheduling site for both the graceful-close and the
+        // mid-stream-error paths below — the #2682 bug existed precisely
+        // because the two branches carried separate copies of this block.
+        const scheduleNext = (): void => {
+            // A stream counts as having made progress when it delivered a
+            // message, or when it stayed open for at least
+            // `maxReconnectionDelay` before ending — an idle standby stream
+            // that a server (or intermediary) periodically closes is healthy,
+            // and resetting the count for it can never produce a reconnect
+            // rate faster than the maximum backoff already permits. Without
+            // progress, a connect-then-close cycle is retry-equivalent to a
+            // failed attempt: the count continues so a server that idle-closes
+            // every standby stream right away cannot keep the transport
+            // looping forever (#2682). Priming events alone deliberately do
+            // not reset the count — a server can send one and still close
+            // immediately, which would re-arm exactly that loop.
+            const madeProgress = receivedMessage || Date.now() - streamOpenedAt >= this._reconnectionOptions.maxReconnectionDelay;
+            this._scheduleReconnection(
+                {
+                    // A reconnected stream that ended before any event arrived
+                    // must not drop the token the stream was opened with —
+                    // fall back to it so the next attempt still resumes.
+                    resumptionToken: lastEventId ?? options.resumptionToken,
+                    onresumptiontoken,
+                    replayMessageId,
+                    requestSignal,
+                    onRequestStreamEnd
+                },
+                madeProgress ? 0 : reconnectAttempt
+            );
+        };
+
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -818,21 +858,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    // A stream that delivered a message was genuinely working —
-                    // restart the attempt count. A graceful close without one is
-                    // retry-equivalent to a failed attempt: continue the count so
-                    // a server that idle-closes every standby stream cannot keep
-                    // the transport reconnecting forever (#2682).
-                    this._scheduleReconnection(
-                        {
-                            resumptionToken: lastEventId,
-                            onresumptiontoken,
-                            replayMessageId,
-                            requestSignal,
-                            onRequestStreamEnd
-                        },
-                        receivedMessage ? 0 : reconnectAttempt
-                    );
+                    scheduleNext();
                 } else if (!isIntentionalAbort()) {
                     // The per-request stream ended without reconnecting (no
                     // priming event for a POST stream, or response already
@@ -855,19 +881,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     // Use the exponential backoff reconnection strategy. Same
-                    // accounting as the graceful-close path: only a stream that
-                    // delivered a message restarts the attempt count.
+                    // accounting as the graceful-close path.
                     try {
-                        this._scheduleReconnection(
-                            {
-                                resumptionToken: lastEventId,
-                                onresumptiontoken,
-                                replayMessageId,
-                                requestSignal,
-                                onRequestStreamEnd
-                            },
-                            receivedMessage ? 0 : reconnectAttempt
-                        );
+                        scheduleNext();
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
                         onRequestStreamEnd?.();
