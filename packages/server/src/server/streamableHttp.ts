@@ -25,6 +25,57 @@ export type StreamId = string;
 export type EventId = string;
 
 /**
+ * Default maximum size in bytes for POST request bodies, aligned with the
+ * other official SDKs (Python, Go, Kotlin, Ruby, PHP all cap request bodies
+ * at 4 MiB).
+ */
+const DEFAULT_MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
+
+/**
+ * Error thrown by {@link readJsonBody} when the request body exceeds the
+ * configured size limit.
+ */
+class RequestBodyTooLargeError extends Error {}
+
+/**
+ * Reads and JSON-parses a request body, enforcing a maximum size limit.
+ *
+ * The body is read as text so the byte count is exact even for chunked
+ * transfers where the Content-Length header is absent. If the body exceeds
+ * `maxSize` bytes, a {@link RequestBodyTooLargeError} is thrown and the
+ * remainder of the stream is discarded.
+ */
+async function readJsonBody(req: Request, maxSize: number): Promise<unknown> {
+    const reader = req.body?.getReader();
+    if (reader === undefined) {
+        // No body: fall back to the regular parser, which handles empty bodies.
+        return req.json();
+    }
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) {
+            break;
+        }
+        total += value.byteLength;
+        if (total > maxSize) {
+            await reader.cancel();
+            throw new RequestBodyTooLargeError();
+        }
+        chunks.push(value);
+    }
+    const buffer = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+        buffer.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    const text = new TextDecoder().decode(buffer);
+    return JSON.parse(text);
+}
+
+/**
  * Interface for resumability support via event storage
  */
 export interface EventStore {
@@ -167,6 +218,14 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Maximum size in bytes of the POST request body accepted by the transport.
+     * Requests whose body exceeds this limit are rejected with `413 Payload Too Large`.
+     *
+     * @default 4 * 1024 * 1024 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -256,6 +315,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
+    private _maxRequestBodySize: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -274,6 +334,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+        this._maxRequestBodySize = options.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE;
     }
 
     private startKeepAlive(
@@ -762,10 +823,32 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             let rawMessage;
             if (options?.parsedBody === undefined) {
+                // Reject oversized bodies before reading them: check the
+                // Content-Length header when present, and cap the read for
+                // chunked or otherwise unannounced bodies.
+                const contentLength = req.headers.get('content-length');
+                if (contentLength !== null) {
+                    const declared = Number(contentLength);
+                    if (Number.isFinite(declared) && declared > this._maxRequestBodySize) {
+                        this.onerror?.(new Error(`Request body exceeds maximum allowed size of ${this._maxRequestBodySize} bytes`));
+                        return this.createJsonErrorResponse(
+                            413,
+                            -32_000,
+                            `Request body exceeds maximum allowed size of ${this._maxRequestBodySize} bytes`
+                        );
+                    }
+                }
                 try {
-                    rawMessage = await req.json();
+                    rawMessage = await readJsonBody(req, this._maxRequestBodySize);
                 } catch (error) {
                     this.onerror?.(error as Error);
+                    if (error instanceof RequestBodyTooLargeError) {
+                        return this.createJsonErrorResponse(
+                            413,
+                            -32_000,
+                            `Request body exceeds maximum allowed size of ${this._maxRequestBodySize} bytes`
+                        );
+                    }
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {

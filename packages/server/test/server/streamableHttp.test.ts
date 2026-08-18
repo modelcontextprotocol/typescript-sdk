@@ -472,6 +472,47 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(200);
         });
+
+        it('should reject oversized request bodies with 413', async () => {
+            const oversizedBody = JSON.stringify({
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'echo', arguments: { message: 'x'.repeat(4 * 1024 * 1024 + 1) } },
+                id: 'big-1'
+            });
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                body: oversizedBody
+            });
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(413);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_000, /exceeds maximum allowed size/);
+        });
+
+        it('should reject request bodies exceeding a custom limit', async () => {
+            const limitedTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                maxRequestBodySize: 1024
+            });
+            await mcpServer.connect(limitedTransport);
+            try {
+                const paddedBody =
+                    JSON.stringify({ jsonrpc: '2.0', method: 'ping', id: 'big-2' }).slice(0, -1) + ',"padding":"' + 'x'.repeat(2048) + '"}';
+                const request = new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: paddedBody
+                });
+                const response = await limitedTransport.handleRequest(request);
+
+                expect(response.status).toBe(413);
+            } finally {
+                await limitedTransport.close();
+            }
+        });
     });
 
     describe('HTTPServerTransport - JSON Response Mode', () => {
