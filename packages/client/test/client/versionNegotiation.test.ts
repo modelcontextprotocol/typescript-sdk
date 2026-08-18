@@ -1390,3 +1390,73 @@ describe('probe window preserves pre-set transport handlers', () => {
         await client.close();
     });
 });
+
+/* ---------------------------------------------------------------------------
+ * Probe answers the HTTP layer accepted but could not use: an intermediary
+ * that swallows the unrecognized `server/discover` POST into an empty 2xx is
+ * the same evidence as the unparseable 4xx a deployed 2025 server answers, so
+ * it takes the legacy fallback instead of failing the connect.
+ * ------------------------------------------------------------------------- */
+
+describe('probe unusable-reply classification', () => {
+    /** Rejects the probe send with `probeError`, then serves legacy initialize. */
+    class UnusableReplyTransport extends ScriptedTransport {
+        constructor(private readonly probeError: Error) {
+            super(legacyServerScript);
+        }
+
+        override async send(message: JSONRPCMessage): Promise<void> {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                throw this.probeError;
+            }
+            await super.send(message);
+        }
+    }
+
+    const unusableReplies: Array<[string, () => Error]> = [
+        [
+            'an empty 2xx body parsed as application/json (a gateway swallowing the probe)',
+            () => {
+                try {
+                    JSON.parse('');
+                    throw new Error('unreachable');
+                } catch (error) {
+                    return error as Error;
+                }
+            }
+        ],
+        [
+            'a bare 204 / text-plain answer the transport does not accept',
+            () =>
+                new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected content type: text/plain', {
+                    contentType: 'text/plain'
+                })
+        ]
+    ];
+
+    test.each(unusableReplies)('%s falls back to the legacy initialize handshake', async (_label, makeError) => {
+        const transport = new UnusableReplyTransport(makeError());
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport);
+
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
+        await client.close();
+    });
+
+    test('a genuine network failure is still a typed connect error (not folded into the fallback)', async () => {
+        const transport = new UnusableReplyTransport(new TypeError('fetch failed'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+});

@@ -327,3 +327,41 @@ describe('row: browser opaque CORS/preflight TypeError, PROBE PHASE ONLY → leg
         expect(verdict.kind).toBe('error');
     });
 });
+
+describe('row: unusable-reply — the HTTP layer answered 2xx with an unusable body', () => {
+    // An intermediary (reverse proxy, API gateway) that swallows the
+    // unrecognized `server/discover` POST into an empty 2xx is at least as
+    // strong evidence of "this endpoint does not speak discover" as the
+    // unparseable 4xx a deployed 2025 server answers, so it takes the same
+    // conservative legacy fallback instead of bricking the connection.
+    const jsonSyntaxError = () => {
+        try {
+            JSON.parse('');
+            throw new Error('unreachable');
+        } catch (error) {
+            return error;
+        }
+    };
+
+    test('an empty JSON body falls back to legacy', () => {
+        expect(classify({ kind: 'unusable-reply', error: jsonSyntaxError() })).toEqual({ kind: 'legacy' });
+    });
+
+    test('an unaccepted media type (bare 204, text/plain) falls back to legacy', () => {
+        const error = new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected content type: text/plain', {
+            contentType: 'text/plain'
+        });
+        expect(classify({ kind: 'unusable-reply', error })).toEqual({ kind: 'legacy' });
+    });
+
+    test('without a fallback the unusable answer is a typed negotiation error carrying the cause', () => {
+        const cause = jsonSyntaxError();
+        const verdict = classify({ kind: 'unusable-reply', error: cause }, { fallbackAvailable: false });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect((verdict.error as SdkError).data).toMatchObject({ cause });
+        }
+    });
+});
