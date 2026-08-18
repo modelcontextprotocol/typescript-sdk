@@ -37,6 +37,13 @@ export { McpServer, ResourceTemplate } from './server/mcp';
 // middleware in @modelcontextprotocol/express adapts the same core.
 export type { BearerAuthOptions, OAuthTokenVerifier } from './server/middleware/bearerAuth';
 export { bearerAuthChallengeResponse, requireBearerAuth, verifyBearerToken } from './server/middleware/bearerAuth';
+// DPoP (RFC 9449 / SEP-1932) sender-constrained tokens: proof validation primitives plus the
+// runtime-neutral authentication gate for web-standard hosts; the Express middleware in
+// @modelcontextprotocol/express adapts the same core.
+export type { DpopAlg, DpopNonceState, DpopProofClaims, VerifiedDpopProof, VerifyDpopProofOptions } from './server/middleware/dpop';
+export { accessTokenHash, calculateJwkThumbprint, DPOP_SUPPORTED_ALGS, verifyDpopProof } from './server/middleware/dpop';
+export type { DpopAuthOptions, DpopRequest } from './server/middleware/dpopAuth';
+export { dpopAuthChallengeResponse, requireDpopAuth, verifyDpopToken } from './server/middleware/dpopAuth';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
 // OAuth discovery documents (RFC 9728 / RFC 8414) for web-standard hosts; the

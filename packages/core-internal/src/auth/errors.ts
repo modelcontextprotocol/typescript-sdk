@@ -97,7 +97,20 @@ export enum OAuthErrorCode {
     /**
      * The requested resource is invalid, missing, unknown, or malformed. (Custom error for resource indicators - RFC 8707)
      */
-    InvalidTarget = 'invalid_target'
+    InvalidTarget = 'invalid_target',
+
+    /**
+     * The DPoP proof is missing, malformed, or fails validation (signature, `htm`/`htu`/`iat`,
+     * key binding, etc.). (RFC 9449 §4.3 / §7.1, SEP-1932)
+     */
+    InvalidDpopProof = 'invalid_dpop_proof',
+
+    /**
+     * The server requires a fresh DPoP proof carrying a server-provided nonce; the response
+     * carries the nonce in a `DPoP-Nonce` header for the client to retry with.
+     * (RFC 9449 §8 / §9, SEP-1932)
+     */
+    UseDpopNonce = 'use_dpop_nonce'
 }
 
 /**
