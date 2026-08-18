@@ -3230,7 +3230,75 @@ describe('OAuth Authorization', () => {
 
             expect(warn).toHaveBeenCalledWith(expect.stringContaining("OAuth 'invalid_grant'"));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
+            // This provider implements no invalidateCredentials(), so the warn must not
+            // claim anything was discarded.
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('without discarding the stored tokens'));
             expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+            warn.mockRestore();
+        });
+
+        it('reports the discard when the provider does implement invalidateCredentials (#2034)', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve(
+                        Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Refresh token expired').toResponseObject(), {
+                            status: 400
+                        })
+                    );
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            // A local provider — adding invalidateCredentials to the shared mockProvider
+            // would leak into every later test in this describe.
+            const invalidateCredentials = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                invalidateCredentials,
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+                tokens: vi
+                    .fn()
+                    .mockResolvedValueOnce({
+                        access_token: 'old-access',
+                        refresh_token: 'refresh123',
+                        issuer: 'https://auth.example.com'
+                    })
+                    .mockResolvedValue(undefined),
+                saveTokens: vi.fn().mockResolvedValue(undefined),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockResolvedValue('verifier')
+            };
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored tokens'));
             warn.mockRestore();
         });
 

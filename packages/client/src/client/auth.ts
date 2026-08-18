@@ -991,10 +991,15 @@ export interface AuthOptions {
  * common case is `invalid_grant` — an expired, revoked, or rotation-reuse-detected refresh
  * token. See issue #2034.
  */
-function warnCredentialInvalidation(error: OAuthError, invalidated: string): void {
-    console.warn(
-        `[mcp-sdk] OAuth '${error.code}' — invalidating stored ${invalidated} and retrying authorization. Cause: ${error.message}`
-    );
+function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthError, invalidated: string): void {
+    // `invalidateCredentials` is optional. When a provider omits it nothing is actually
+    // discarded, so do not claim otherwise — the stale credential is still in storage and
+    // will be replayed on the next call, which is the thing worth telling the operator.
+    const action =
+        provider.invalidateCredentials === undefined
+            ? `retrying authorization without discarding the stored ${invalidated} (provider implements no invalidateCredentials())`
+            : `invalidating the stored ${invalidated} and retrying authorization`;
+    console.warn(`[mcp-sdk] OAuth '${error.code}' — ${action}. Cause: ${error.message}`);
 }
 
 /**
@@ -1010,7 +1015,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
         // Handle recoverable error types by invalidating credentials and retrying
         if (error instanceof OAuthError) {
             if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
-                warnCredentialInvalidation(error, 'client credentials and tokens');
+                warnCredentialInvalidation(provider, error, 'client credentials and tokens');
                 // Not 'all' — preserve discoveryState so the callback-leg gate on retry doesn't
                 // fire a false 'discoveryState was not available on the callback leg' AuthorizationServerMismatchError that masks the
                 // real invalid_client.
@@ -1018,7 +1023,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             } else if (error.code === OAuthErrorCode.InvalidGrant) {
-                warnCredentialInvalidation(error, 'tokens');
+                warnCredentialInvalidation(provider, error, 'tokens');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             }
