@@ -2855,6 +2855,54 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).toHaveBeenCalled();
         });
 
+        it('settles at most once when the user onRequestStreamEnd throws at a terminal 405 resume', async () => {
+            // The 405 settle site runs inside _startOrAuthSse's try: a
+            // throwing user callback propagates to its catch, which reports
+            // via onerror and rejects the resume promise — whose own catch
+            // then reaches its settlement call. The at-most-once wrapper
+            // applied in send() keeps the exactly-once contract.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn().mockImplementation(() => {
+                throw new Error('user callback exploded');
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            // The resume GET gets a 405: terminal non-resumable outcome.
+            fetchMock.mockResolvedValue({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Exactly one settlement attempt reached the user callback.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+        });
+
         it('close() cancels every pending reconnection timer, not just the latest', async () => {
             // Two concurrent reconnect chains (standby GET + a resumed
             // per-request stream) each park a timer; close() must cancel both.

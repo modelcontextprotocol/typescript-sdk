@@ -316,6 +316,34 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
 }
 
 /**
+ * Wrap a per-request stream-end callback so it fires at most once.
+ *
+ * The transport has several terminal settlement sites for one request — the
+ * 405 and null-body outcomes, reconnection exhaustion, a throwing custom
+ * scheduler, and the resumed-send failure path — and more than one of them
+ * can be reached for the same request (for example, a user callback that
+ * throws at the 405 site rejects the resume promise, whose catch settles
+ * again). Enforcing the exactly-once contract here, at the entry point,
+ * hardens every current and future settlement site at one stroke instead of
+ * requiring each site to infer whether another already ran. The flag is set
+ * BEFORE the callback is invoked so a throwing callback still counts as
+ * fired.
+ */
+function atMostOnce(callback?: () => void): (() => void) | undefined {
+    if (!callback) {
+        return undefined;
+    }
+    let fired = false;
+    return () => {
+        if (fired) {
+            return;
+        }
+        fired = true;
+        callback();
+    };
+}
+
+/**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
@@ -1041,7 +1069,14 @@ export class StreamableHTTPClientTransport implements Transport {
             headers?: Readonly<Record<string, string>>;
         }
     ): Promise<void> {
-        return this._send(message, options, false);
+        // Enforce the per-request settlement contract at the entry point:
+        // `onRequestStreamEnd` is wrapped to fire at most once no matter
+        // which terminal path (405/null-body, reconnection exhaustion,
+        // scheduler failure, resume failure) reaches it first — every
+        // downstream site can then call it unconditionally. Wrapped here
+        // rather than in `_send` so auth-retry recursion reuses the same
+        // wrapper instance.
+        return this._send(message, options && { ...options, onRequestStreamEnd: atMostOnce(options.onRequestStreamEnd) }, false);
     }
 
     private async _send(
