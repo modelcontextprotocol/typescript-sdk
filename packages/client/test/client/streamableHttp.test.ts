@@ -2727,6 +2727,91 @@ describe('StreamableHTTPClientTransport', () => {
             // Before the fix this was null: the empty second stream dropped the token.
             expect(thirdCallHeaders.get('last-event-id')).toBe('event-1');
         });
+
+        it('threads the stream callbacks through a resumed send(), settling the caller on exhaustion', async () => {
+            // A send() with a resumptionToken resumes via GET. New event IDs on
+            // the resumed stream must reach the caller's onresumptiontoken, and
+            // when reconnection attempts are exhausted the caller's
+            // onRequestStreamEnd must fire so the pending request settles
+            // instead of hanging until its timeout.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const tokenSpy = vi.fn();
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Resumed stream delivers a fresh priming event then idle-closes;
+            // every stream after that closes empty until exhaustion.
+            const bodies: string[][] = [['id: event-next\ndata: \n\n']];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onresumptiontoken: tokenSpy,
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(200);
+
+            // The resume goes out as a GET with the caller's token.
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect((fetchMock.mock.calls[0]![1]?.headers as Headers).get('last-event-id')).toBe('event-0');
+            // The fresh priming event reached the caller's persistence hook.
+            expect(tokenSpy).toHaveBeenCalledWith('event-next');
+            // Exhaustion settled the caller instead of leaving it hanging.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (1) exceeded.'
+                })
+            );
+        });
+
+        it('does not double-fire exhaustion callbacks when a user onerror handler throws on graceful close', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 0 // exhaustion trips on the first graceful close
+                }
+            });
+            const errorSpy = vi.fn().mockImplementationOnce(() => {
+                throw new Error('user handler exploded');
+            });
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ onRequestStreamEnd: streamEndSpy });
+            await vi.advanceTimersByTimeAsync(100);
+
+            // The throwing handler is contained by the graceful branch's guard:
+            // the caller still settles exactly once, no reconnect is scheduled,
+            // and no misleading 'SSE stream disconnected' error is emitted.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const messages = errorSpy.mock.calls.map(args => (args[0] as Error).message);
+            expect(messages.some(m => m.includes('SSE stream disconnected'))).toBe(false);
+        });
     });
 
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {

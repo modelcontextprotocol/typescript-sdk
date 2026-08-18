@@ -858,7 +858,19 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    scheduleNext();
+                    // Same guard as the error path below. With the fruitless
+                    // accounting, exhaustion — which synchronously invokes
+                    // `onerror`/`onRequestStreamEnd` and any custom
+                    // `ReconnectionScheduler` — is reachable from a graceful
+                    // close, and a throwing user callback must not fall into
+                    // the outer catch (which would surface a misleading
+                    // disconnect error and schedule a second time).
+                    try {
+                        scheduleNext();
+                    } catch (error) {
+                        this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+                        onRequestStreamEnd?.();
+                    }
                 } else if (!isIntentionalAbort()) {
                     // The per-request stream ended without reconnecting (no
                     // priming event for a POST stream, or response already
@@ -1006,10 +1018,18 @@ export class StreamableHTTPClientTransport implements Transport {
                 // same per-request abort as the original POST — modern-era
                 // cancel-via-stream-close routes through `requestSignal`, and
                 // without it a resumed long-running request would not cancel.
+                // Thread the caller's stream callbacks through as well:
+                // `onresumptiontoken` so new event IDs on the resumed stream
+                // keep reaching the caller's persistence hook, and
+                // `onRequestStreamEnd` so the pending request settles instead
+                // of hanging when the resumed stream ends for good (e.g.
+                // reconnection attempts are exhausted).
                 this._startOrAuthSse({
                     resumptionToken,
+                    onresumptiontoken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
+                    requestSignal: options?.requestSignal,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
                 }).catch(error => this.onerror?.(error));
                 return;
             }
