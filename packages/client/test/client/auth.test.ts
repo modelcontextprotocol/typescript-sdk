@@ -3113,6 +3113,127 @@ describe('OAuth Authorization', () => {
             expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
         });
 
+        it('warns when a server-side refresh failure falls back to a new authorization request (#2034)', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    // A real Response: parseErrorResponse() reads the body via .text(),
+                    // which a plain object mock cannot satisfy.
+                    return Promise.resolve(
+                        Response.json(new OAuthError(OAuthErrorCode.ServerError, 'AS is having a bad day').toResponseObject(), {
+                            status: 400
+                        })
+                    );
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                issuer: 'https://auth.example.com'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('AS is having a bad day'));
+            warn.mockRestore();
+        });
+
+        it('warns before invalidating tokens and retrying when a refresh fails with invalid_grant (#2034)', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    // A real Response: parseErrorResponse() reads the body via .text(),
+                    // which a plain object mock cannot satisfy.
+                    return Promise.resolve(
+                        Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Refresh token expired').toResponseObject(), {
+                            status: 400
+                        })
+                    );
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            // The retry runs against invalidated storage, so the second read has no tokens —
+            // otherwise the retry would re-POST the dead refresh token and reject.
+            (mockProvider.tokens as Mock)
+                .mockResolvedValueOnce({
+                    access_token: 'old-access',
+                    refresh_token: 'refresh123',
+                    issuer: 'https://auth.example.com'
+                })
+                .mockResolvedValue(undefined);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            // invalid_grant is rethrown out of the refresh block and recovered by auth()'s
+            // outer wrapper, which invalidates tokens and re-authorizes — silently, before.
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining("OAuth 'invalid_grant'"));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
+            expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+            warn.mockRestore();
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {

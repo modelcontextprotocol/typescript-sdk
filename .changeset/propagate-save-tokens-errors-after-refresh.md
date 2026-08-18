@@ -23,9 +23,15 @@ after it, on an unguarded path, so a provider's I/O error propagates to the call
 Refresh-request failures keep their existing control flow exactly: a `ServerError` or an
 unknown error still falls through to a new authorization flow, a non-`ServerError`
 `OAuthError` is still rethrown, and `InsecureTokenEndpointError` is still surfaced. The
-SEP-2352 `issuer` stamp written with the refreshed tokens is unchanged. That fallthrough
-no longer happens in total silence, though — it now emits a `console.warn` naming the
-cause, so the re-authorization prompt a user sees can be traced back to the failed refresh.
+SEP-2352 `issuer` stamp written with the refreshed tokens is unchanged.
+
+Those fallbacks no longer happen in silence, though. Both routes to an unexplained
+re-authorization now emit a `console.warn` naming the cause: the in-place fallthrough in
+the refresh block, and `auth()`'s outer recovery for `invalid_grant`, `invalid_client`,
+and `unauthorized_client`, which discards stored credentials and retries. The second one
+matters most in practice — an expired, revoked, or rotation-reuse-detected refresh token
+is reported as `invalid_grant`, which is precisely the state a dropped token set leaves
+behind for the next call.
 
 Consumers whose `OAuthClientProvider.saveTokens` can reject should note that `auth()` may
 now reject where it previously returned `'REDIRECT'` — that rejection is the failure that

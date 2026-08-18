@@ -985,6 +985,19 @@ export interface AuthOptions {
 }
 
 /**
+ * Recovering from a recoverable OAuth error discards stored credentials and silently starts a
+ * fresh authorization. On a headless client whose `redirectToAuthorization()` is a no-op that
+ * recovery is indistinguishable from nothing happening at all, so name the cause. The most
+ * common case is `invalid_grant` — an expired, revoked, or rotation-reuse-detected refresh
+ * token. See issue #2034.
+ */
+function warnCredentialInvalidation(error: OAuthError, invalidated: string): void {
+    console.warn(
+        `[mcp-sdk] OAuth '${error.code}' — invalidating stored ${invalidated} and retrying authorization. Cause: ${error.message}`
+    );
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -997,6 +1010,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
         // Handle recoverable error types by invalidating credentials and retrying
         if (error instanceof OAuthError) {
             if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
+                warnCredentialInvalidation(error, 'client credentials and tokens');
                 // Not 'all' — preserve discoveryState so the callback-leg gate on retry doesn't
                 // fire a false 'discoveryState was not available on the callback leg' AuthorizationServerMismatchError that masks the
                 // real invalid_client.
@@ -1004,6 +1018,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             } else if (error.code === OAuthErrorCode.InvalidGrant) {
+                warnCredentialInvalidation(error, 'tokens');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             }

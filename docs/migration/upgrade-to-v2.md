@@ -1127,8 +1127,11 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
   nothing usable on either side. A provider whose `saveTokens()` can throw (transient
   storage errors, file-lock contention) must handle the rejection from `auth()` — and from
   the transport 401-retry paths built on it — where v1 silently re-authorized. Refresh
-  failures themselves are unchanged: a `ServerError` or an unknown error still falls
-  through to a new authorization request, now with a `console.warn` naming the cause.
+  failures themselves keep their control flow: a `ServerError` or an unknown error still
+  falls through to a new authorization request, and `invalid_grant` / `invalid_client` /
+  `unauthorized_client` are still recovered by discarding stored credentials and retrying.
+  Both routes now emit a `console.warn` naming the cause, so an unexplained re-auth prompt
+  can be traced to the failure that triggered it.
 
 #### OAuth client flow errors (new)
 
