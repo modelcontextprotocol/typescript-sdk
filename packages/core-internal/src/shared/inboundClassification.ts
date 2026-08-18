@@ -17,9 +17,15 @@
  *   named revision belongs to (a malformed envelope behind a present claim is
  *   a validation error, never a silent fall back to legacy handling).
  * - A request without a claim is legacy-era traffic.
- * - The `MCP-Protocol-Version` header is a cross-check only: it never
- *   upgrades or downgrades a body-derived classification, and a disagreement
- *   between header and body is an explicit ladder outcome.
+ * - The `MCP-Protocol-Version` header is a cross-check only *for
+ *   classification*: it never upgrades or downgrades a body-derived
+ *   classification, and a disagreement between header and body is an explicit
+ *   ladder outcome. Its absence likewise never changes the era — but the spec
+ *   requires the header on every modern *request* POST, so a
+ *   modern-classified request that omits it is refused one rung later, by
+ *   {@linkcode validateStandardRequestHeaders}, not here. Notification POSTs
+ *   are exempt (see the next bullet), and that rung enforces presence on
+ *   requests only.
  * - Notifications carry no envelope claim of their own under the current
  *   spec, so for notification POSTs without a body claim the modern header is
  *   determinative; the `Mcp-Method` header is validated against the body when
@@ -320,10 +326,17 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         codes: [HEADER_MISMATCH_ERROR_CODE],
         conformance: ['http-header-validation'],
         rationale:
-            'SEP-2243 standard `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and `Mcp-Name` ↔ body cross-check ' +
-            '— are validated by the HTTP entry on a modern-classified request after the supported-revision gate and before ' +
-            'dispatch. The classifier’s own header-mismatch cells (protocol-version, `Mcp-Method` mismatch) stay on the edge ' +
-            '`era-classification` rung; this rung carries the entry-layer presence/`Mcp-Name` half. Evaluated before the ' +
+            'SEP-2243 standard `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and ' +
+            '`Mcp-Name` ↔ body cross-check — are validated by the HTTP entry on a modern-classified request after the ' +
+            'supported-revision gate and before dispatch. The spec requires `MCP-Protocol-Version` and `Mcp-Method` on every ' +
+            'modern *request* POST (`Mcp-Name` only for the methods that mirror `params.name` / `params.uri`) and names them ' +
+            'in that order, so a request missing several is answered by the earliest. Notification POSTs are exempt: the ' +
+            'presence half runs on requests only, so a modern-enveloped notification is dispatched even with no standard ' +
+            'headers at all. The classifier’s own header-mismatch cells ' +
+            '(protocol-version, `Mcp-Method` mismatch) stay on the edge ' +
+            '`era-classification` rung; this rung carries the entry-layer presence/`Mcp-Name` half — including the missing ' +
+            '`MCP-Protocol-Version` cell, which cannot live on the edge rung without breaking body-primary classification. ' +
+            'Evaluated before the ' +
             'capability gate, the factory call, and the `Mcp-Param-*` rung so a request that fails several rungs is answered by ' +
             'the standard-header rung first. The documented order (after method-registry 5 and request-params 6) is NOT the ' +
             'observed precedence: serveModern evaluates this rung immediately after the supported-revision gate, so a request ' +
@@ -494,6 +507,10 @@ function stripHttpOws(value: string): string {
  * `era-classification` rung for the `MCP-Protocol-Version` and
  * `Mcp-Method` *mismatch* cells) when:
  *
+ * - the required `MCP-Protocol-Version` header is absent (SEP-2243 requires it
+ *   on every modern *request* POST, and lists it first among the required
+ *   standard headers — so a request missing it *and* `Mcp-Method` is answered
+ *   by this cell);
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
  *   `prompts/get`, or `resources/read` request whose body carries the
@@ -511,13 +528,34 @@ function stripHttpOws(value: string): string {
  * call to the classifier (no headers passed) keeps routing a modern request
  * unchanged: the classifier remains a pure body-primary router, and this
  * function is the presence/`Mcp-Name` half of the standard-header rung the
- * entry layers on top.
+ * entry layers on top. That separation is what lets the missing
+ * `MCP-Protocol-Version` cell live here without disturbing the body-primary
+ * rule — classification still resolves from the body (a proxy stripping the
+ * header must not change the era), and only this rung refuses to serve it.
  */
 export function validateStandardRequestHeaders(request: InboundHttpRequest, route: InboundModernRoute): InboundLadderRejection | undefined {
     if (route.messageKind !== 'request') {
         return undefined;
     }
     const method = route.message.method;
+
+    // SEP-2243 names `MCP-Protocol-Version` first among the required standard
+    // headers, so a request missing both it and `Mcp-Method` is answered by
+    // the header the spec names first. The presence check lives here rather
+    // than in `classifyInboundRequest` on purpose: classification stays
+    // body-primary (a proxy stripping the header must not change the era), and
+    // only this rung refuses to serve the request.
+    if (request.protocolVersionHeader === undefined) {
+        const claimed = route.classification.revision;
+        return crossCheckMismatch(
+            'version-header-missing',
+            '(missing)',
+            claimed === undefined
+                ? 'the body carries a modern per-request envelope but the required MCP-Protocol-Version header is absent'
+                : `the body envelope names protocol version ${claimed} but the required MCP-Protocol-Version header is absent`,
+            'standard-header-validation'
+        );
+    }
 
     if (request.mcpMethodHeader === undefined) {
         return crossCheckMismatch(

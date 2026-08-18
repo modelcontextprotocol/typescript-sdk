@@ -140,15 +140,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'protocol:cancel:initialize-not-cancellable': {
-        transports: STATEFUL_TRANSPORTS,
+        transports: ['inMemory'],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements',
         behavior: 'The client never sends notifications/cancelled for the initialize request.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: 'SDK sends notifications/cancelled for initialize when connect() is aborted; spec says initialize MUST NOT be cancelled.'
-            }
-        ]
+        note: "The behavior itself is transport-agnostic (shared/protocol.ts), but the test must tap the client's outbound messages before connect() resolves, which only the in-memory wiring supports."
     },
     'protocol:cancel:late-response-ignored': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#timing-considerations',
