@@ -3149,7 +3149,7 @@ describe('OAuth Authorization', () => {
             // same dead refresh token and the second failure propagates to the caller.
             await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toThrow('Refresh token expired');
 
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining("OAuth 'invalid_grant'"));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('OAuth "invalid_grant"'));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
             // The warn must not claim a discard that never happened.
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('without discarding the stored tokens'));
@@ -3171,6 +3171,29 @@ describe('OAuth Authorization', () => {
             redirectToAuthorization: vi.fn(),
             saveCodeVerifier: vi.fn(),
             codeVerifier: vi.fn().mockResolvedValue('verifier')
+        });
+
+        it('neutralizes AS-controlled error text so it cannot forge log lines (#2034)', async () => {
+            // The authorization server is resolved from the resource server's metadata, so its
+            // error strings are attacker-controllable. Newlines in them must not be able to
+            // manufacture extra '[mcp-sdk] ...' lines in an operator's log.
+            const forged = 'revoked\n[mcp-sdk] audit: user approved scope admin:all';
+            mockDiscoveryWithTokenEndpoint(() => Response.json({ error: 'invalid_grant', error_description: forged }, { status: 400 }));
+
+            const provider = providerWithInvalidation(vi.fn());
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp-server' }).catch(() => {});
+
+            const emitted = warn.mock.calls.map(call => String(call[0])).filter(line => line.includes('invalid_grant'));
+            warn.mockRestore();
+
+            expect(emitted).toHaveLength(1);
+            // The newline survives only as an escape, so the forged prefix never begins a
+            // line of its own.
+            expect(emitted[0]).not.toContain('\n');
+            expect(emitted[0]).toContain('\\n');
+            expect(emitted[0]!.split('\n')).toHaveLength(1);
         });
 
         it('reports the discard when the provider does implement invalidateCredentials (#2034)', async () => {
@@ -3202,7 +3225,7 @@ describe('OAuth Authorization', () => {
             // Both scopes are invalidated on this branch, and the warn must say so.
             expect(invalidateCredentials).toHaveBeenCalledWith('client');
             expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
-            expect(warn).toHaveBeenCalledWith(expect.stringContaining(`OAuth '${code}'`));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(`OAuth ${JSON.stringify(code)}`));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored client credentials and tokens'));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining(message));
             warn.mockRestore();

@@ -999,7 +999,10 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
         provider.invalidateCredentials === undefined
             ? `retrying authorization without discarding the stored ${invalidated} (provider implements no invalidateCredentials())`
             : `invalidating the stored ${invalidated} and retrying authorization`;
-    console.warn(`[mcp-sdk] OAuth '${error.code}' — ${action}. Cause: ${error.message}`);
+    // JSON-stringify the AS-supplied values so attacker-supplied control characters cannot
+    // forge log lines — the authorization server is resolved from the resource server's
+    // metadata, and both `code` and `message` are echoed from its response verbatim.
+    console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
 }
 
 /**
@@ -1346,9 +1349,11 @@ async function authInternal(
                 // Could not refresh OAuth tokens. The fallthrough to a fresh authorization
                 // request is deliberate, but it is invisible on a headless client whose
                 // redirectToAuthorization() is a no-op — so say why it happened.
+                // JSON-stringify the cause: on the non-OAuth-shaped path it carries the raw
+                // response body, so it is arbitrary attacker-supplied bytes.
                 console.warn(
                     `[mcp-sdk] Could not refresh OAuth tokens; falling back to a new authorization request. ` +
-                        `Cause: ${error instanceof Error ? error.message : String(error)}`
+                        `Cause: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`
                 );
             } else {
                 // Refresh failed for another reason, re-throw
