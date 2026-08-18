@@ -3,6 +3,7 @@ import type { ReadableWritablePair } from 'node:stream/web';
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     encodeMcpParamValue,
     isInitializedNotification,
     isInitializeRequest,
@@ -1143,6 +1144,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 } else if (responseMediaType === 'application/json') {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
+                    // JSON-RPC batches were removed from the MCP protocol in
+                    // 2025-06-18; for that protocol version and later, a response
+                    // must be a single JSON-RPC message. Older protocol versions
+                    // keep the legacy batch response behavior.
+                    if (Array.isArray(data) && (this._protocolVersion ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION) >= '2025-06-18') {
+                        throw new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected batch response from server', {
+                            contentType
+                        });
+                    }
                     const responseMessages = Array.isArray(data)
                         ? data.map(msg => JSONRPCMessageSchema.parse(msg))
                         : [JSONRPCMessageSchema.parse(data)];
