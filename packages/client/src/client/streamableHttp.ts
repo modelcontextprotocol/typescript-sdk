@@ -99,6 +99,9 @@ export interface StartSSEOptions {
 export interface StreamableHTTPReconnectionOptions {
     /**
      * Maximum backoff time between reconnection attempts in milliseconds.
+     * Also serves as the stream-lifetime threshold for retry accounting: a
+     * stream that stays open at least this long counts as progress and resets
+     * the {@linkcode maxRetries} attempt count (see {@linkcode maxRetries}).
      * Default is 30000 (30 seconds).
      */
     maxReconnectionDelay: number;
@@ -116,7 +119,16 @@ export interface StreamableHTTPReconnectionOptions {
     reconnectionDelayGrowFactor: number;
 
     /**
-     * Maximum number of reconnection attempts before giving up.
+     * Maximum number of consecutive reconnection attempts before giving up.
+     * An attempt counts against this limit when it fails outright or when the
+     * reconnected stream ends again without making progress — no message
+     * delivered and the connection lasted less than
+     * {@linkcode maxReconnectionDelay} (for example, a server that gracefully
+     * idle-closes its standby SSE stream immediately after every reconnect).
+     * A stream that delivers a message or stays open at least
+     * {@linkcode maxReconnectionDelay} resets the count, so healthy sessions
+     * whose standby stream is periodically idle-closed keep reconnecting
+     * indefinitely.
      * Default is 2.
      */
     maxRetries: number;
@@ -304,6 +316,34 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
 }
 
 /**
+ * Wrap a per-request stream-end callback so it fires at most once.
+ *
+ * The transport has several terminal settlement sites for one request — the
+ * 405 and null-body outcomes, reconnection exhaustion, a throwing custom
+ * scheduler, and the resumed-send failure path — and more than one of them
+ * can be reached for the same request (for example, a user callback that
+ * throws at the 405 site rejects the resume promise, whose catch settles
+ * again). Enforcing the exactly-once contract here, at the entry point,
+ * hardens every current and future settlement site at one stroke instead of
+ * requiring each site to infer whether another already ran. The flag is set
+ * BEFORE the callback is invoked so a throwing callback still counts as
+ * fired.
+ */
+function atMostOnce(callback?: () => void): (() => void) | undefined {
+    if (!callback) {
+        return undefined;
+    }
+    let fired = false;
+    return () => {
+        if (fired) {
+            return;
+        }
+        fired = true;
+        callback();
+    };
+}
+
+/**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
@@ -326,7 +366,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _maxStepUpRetries: number;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
-    private _cancelReconnection?: () => void;
+    private _pendingReconnections = new Set<() => void>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -517,7 +557,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0, reconnectAttempt = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -575,7 +615,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true, stepUpRetries);
+                        return this._startOrAuthSse(options, true, stepUpRetries, reconnectAttempt);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -600,7 +640,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
-                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1, reconnectAttempt);
                     }
                 }
 
@@ -627,7 +667,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
-            this._handleSseStream(response.body, options, true);
+            this._handleSseStream(response.body, options, true, reconnectAttempt);
         } catch (error) {
             if (!isIntentionalAbort()) {
                 this.onerror?.(error as Error);
@@ -639,7 +679,9 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * Calculates the next reconnection delay using a backoff algorithm
      *
-     * @param attempt Current reconnection attempt count for the specific stream
+     * @param attempt Zero-indexed reconnection attempt number the delay is for
+     * (the attempt count persists across fruitless connect-then-close cycles —
+     * see `_scheduleReconnection`)
      * @returns Time to wait in milliseconds before next reconnection attempt
      */
     private _getNextReconnectionDelay(attempt: number): number {
@@ -660,8 +702,13 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * Schedule a reconnection attempt using server-provided retry interval or backoff
      *
-     * @param lastEventId The ID of the last received event for resumability
-     * @param attemptCount Current reconnection attempt count for this specific stream
+     * @param options Stream options carried into the reconnected stream
+     * (resumption token, stream callbacks, per-request abort signal)
+     * @param attemptCount Zero-indexed number of this reconnection attempt
+     * within the current chain of fruitless attempts. It persists across
+     * connect-then-close cycles that make no progress (bounding them by
+     * `maxRetries`) and resets only when a stream delivers a message or stays
+     * open at least `maxReconnectionDelay` — see `_handleSseStream`.
      */
     private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
         // Use provided options or default options
@@ -669,22 +716,42 @@ export class StreamableHTTPClientTransport implements Transport {
 
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
-            this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
-            // The per-request stream is now definitively gone.
-            options.onRequestStreamEnd?.();
+            try {
+                this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            } finally {
+                // The per-request stream is now definitively gone. Settlement
+                // must survive a throwing user `onerror` handler on every
+                // route into this branch (graceful close, mid-stream error,
+                // failed reconnect chain) — callers only contain propagation,
+                // they never settle.
+                options.onRequestStreamEnd?.();
+            }
             return;
         }
 
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
+        // The chain's registry entry. Registered before the scheduler is
+        // invoked so a synchronously-firing custom scheduler still
+        // deregisters it (otherwise the entry would be added after the fact
+        // and linger until close()); the real cancel behavior is filled in
+        // once the scheduler returns.
+        let cancelImpl: (() => void) | undefined;
+        const cancelEntry = (): void => cancelImpl?.();
         const reconnect = (): void => {
-            this._cancelReconnection = undefined;
+            this._pendingReconnections.delete(cancelEntry);
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
             if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-            this._startOrAuthSse(options).catch(error => {
+            // Thread the attempt number into the stream this attempt produces:
+            // if the server accepts the connection but the stream ends again
+            // without delivering a message, `_handleSseStream` continues the
+            // count instead of restarting it — otherwise a server that
+            // gracefully idle-closes the stream on every reconnect would keep
+            // the transport looping forever with `maxRetries` never tripping.
+            this._startOrAuthSse(options, false, 0, attemptCount + 1).catch(error => {
                 if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
@@ -695,16 +762,50 @@ export class StreamableHTTPClientTransport implements Transport {
             });
         };
 
-        if (this._reconnectionScheduler) {
-            const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
-            this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
-        } else {
-            const handle = setTimeout(reconnect, delay);
-            this._cancelReconnection = () => clearTimeout(handle);
+        // Track every pending reconnection — concurrent chains (the standby
+        // GET stream plus resumed per-request streams) each park a timer
+        // here, and close() must cancel all of them, not just the latest.
+        this._pendingReconnections.add(cancelEntry);
+        try {
+            if (this._reconnectionScheduler) {
+                const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
+                cancelImpl = typeof cancel === 'function' ? cancel : undefined;
+            } else {
+                const handle = setTimeout(reconnect, delay);
+                cancelImpl = () => clearTimeout(handle);
+            }
+        } catch (error) {
+            // A throwing custom scheduler settles the caller ONLY when it
+            // threw without dispatching. `reconnect()`'s first action is
+            // deleting this entry, so a successful delete here proves no
+            // attempt was dispatched — no reconnection is pending, the stream
+            // is definitively gone, and this is the only route that can still
+            // settle. If the scheduler synchronously invoked `reconnect()`
+            // before throwing, the in-flight attempt owns settlement (it
+            // reaches a terminal settlement site or ends by intentional
+            // abort) — settling here would prematurely end the request and
+            // swallow the chain's later legitimate settlement.
+            if (this._pendingReconnections.delete(cancelEntry)) {
+                options.onRequestStreamEnd?.();
+            }
+            throw error;
         }
     }
 
-    private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
+    /**
+     * @param reconnectAttempt - Which reconnection attempt produced this
+     * stream (0 for an original stream). Carried into the next
+     * `_scheduleReconnection` call when the stream ends without having made
+     * progress (no message delivered, connection shorter than
+     * `maxReconnectionDelay`), so consecutive fruitless reconnects are bounded
+     * by `maxRetries`; a stream that made progress resets the count.
+     */
+    private _handleSseStream(
+        stream: ReadableStream<Uint8Array> | null,
+        options: StartSSEOptions,
+        isReconnectable: boolean,
+        reconnectAttempt = 0
+    ): void {
         if (!stream) {
             // A null body on a per-request stream (or its GET resume) is the
             // same terminal non-resumable outcome as a 405 — fire the
@@ -728,6 +829,46 @@ export class StreamableHTTPClientTransport implements Transport {
         // Track whether we've received a response - if so, no need to reconnect
         // Reconnection is for when server disconnects BEFORE sending response
         let receivedResponse = false;
+        // Track whether the stream delivered any message at all. A stream that
+        // did is genuinely working, so its next reconnection starts a fresh
+        // attempt count; a stream that ended without one continues the count,
+        // keeping repeated connect/idle-close cycles bounded by `maxRetries`
+        // (#2682).
+        let receivedMessage = false;
+        const streamOpenedAt = performance.now();
+
+        // Single scheduling site for both the graceful-close and the
+        // mid-stream-error paths below — the #2682 bug existed precisely
+        // because the two branches carried separate copies of this block.
+        const scheduleNext = (): void => {
+            // A stream counts as having made progress when it delivered a
+            // message, or when it stayed open for at least
+            // `maxReconnectionDelay` before ending — an idle standby stream
+            // that a server (or intermediary) periodically closes is healthy,
+            // and resetting the count for it can never produce a reconnect
+            // rate faster than the maximum backoff already permits. Without
+            // progress, a connect-then-close cycle is retry-equivalent to a
+            // failed attempt: the count continues so a server that idle-closes
+            // every standby stream right away cannot keep the transport
+            // looping forever (#2682). Priming events alone deliberately do
+            // not reset the count — a server can send one and still close
+            // immediately, which would re-arm exactly that loop.
+            const madeProgress = receivedMessage || performance.now() - streamOpenedAt >= this._reconnectionOptions.maxReconnectionDelay;
+            this._scheduleReconnection(
+                {
+                    // A reconnected stream that ended before any event arrived
+                    // must not drop the token the stream was opened with —
+                    // fall back to it so the next attempt still resumes.
+                    resumptionToken: lastEventId ?? options.resumptionToken,
+                    onresumptiontoken,
+                    replayMessageId,
+                    requestSignal,
+                    onRequestStreamEnd
+                },
+                madeProgress ? 0 : reconnectAttempt
+            );
+        };
+
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -775,6 +916,7 @@ export class StreamableHTTPClientTransport implements Transport {
                                     message.id = replayMessageId;
                                 }
                             }
+                            receivedMessage = true;
                             this.onmessage?.(message);
                         } catch (error) {
                             this.onerror?.(error as Error);
@@ -789,16 +931,20 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    this._scheduleReconnection(
-                        {
-                            resumptionToken: lastEventId,
-                            onresumptiontoken,
-                            replayMessageId,
-                            requestSignal,
-                            onRequestStreamEnd
-                        },
-                        0
-                    );
+                    // Same guard as the error path below. With the fruitless
+                    // accounting, exhaustion — which synchronously invokes
+                    // `onerror`/`onRequestStreamEnd` and any custom
+                    // `ReconnectionScheduler` — is reachable from a graceful
+                    // close, and a throwing user callback must not fall into
+                    // the outer catch (which would surface a misleading
+                    // disconnect error and schedule a second time). Containment
+                    // only: `_scheduleReconnection` itself guarantees the
+                    // caller settles on every no-reconnection-pending exit.
+                    try {
+                        scheduleNext();
+                    } catch (error) {
+                        this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+                    }
                 } else if (!isIntentionalAbort()) {
                     // The per-request stream ended without reconnecting (no
                     // priming event for a POST stream, or response already
@@ -820,21 +966,13 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    // Use the exponential backoff reconnection strategy
+                    // Use the exponential backoff reconnection strategy. Same
+                    // accounting as the graceful-close path; containment only,
+                    // settlement is guaranteed inside `_scheduleReconnection`.
                     try {
-                        this._scheduleReconnection(
-                            {
-                                resumptionToken: lastEventId,
-                                onresumptiontoken,
-                                replayMessageId,
-                                requestSignal,
-                                onRequestStreamEnd
-                            },
-                            0
-                        );
+                        scheduleNext();
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
-                        onRequestStreamEnd?.();
                     }
                 } else {
                     // Non-deliberate stream error without reconnection: the
@@ -910,9 +1048,20 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async close(): Promise<void> {
         try {
-            this._cancelReconnection?.();
+            // Cancel EVERY pending reconnection — concurrent chains (standby
+            // GET + resumed per-request streams) can each have a parked timer.
+            // Per-entry guard: a throwing user-supplied cancel (from a custom
+            // ReconnectionScheduler) must not skip the remaining cancels or
+            // escape the shutdown path.
+            for (const cancel of this._pendingReconnections) {
+                try {
+                    cancel();
+                } catch (error) {
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
+            }
         } finally {
-            this._cancelReconnection = undefined;
+            this._pendingReconnections.clear();
             this._abortController?.abort();
             this.onclose?.();
         }
@@ -928,7 +1077,14 @@ export class StreamableHTTPClientTransport implements Transport {
             headers?: Readonly<Record<string, string>>;
         }
     ): Promise<void> {
-        return this._send(message, options, false);
+        // Enforce the per-request settlement contract at the entry point:
+        // `onRequestStreamEnd` is wrapped to fire at most once no matter
+        // which terminal path (405/null-body, reconnection exhaustion,
+        // scheduler failure, resume failure) reaches it first — every
+        // downstream site can then call it unconditionally. Wrapped here
+        // rather than in `_send` so auth-retry recursion reuses the same
+        // wrapper instance.
+        return this._send(message, options && { ...options, onRequestStreamEnd: atMostOnce(options.onRequestStreamEnd) }, false);
     }
 
     private async _send(
@@ -954,11 +1110,35 @@ export class StreamableHTTPClientTransport implements Transport {
                 // same per-request abort as the original POST — modern-era
                 // cancel-via-stream-close routes through `requestSignal`, and
                 // without it a resumed long-running request would not cancel.
+                // Thread the caller's stream callbacks through as well:
+                // `onresumptiontoken` so new event IDs on the resumed stream
+                // keep reaching the caller's persistence hook, and
+                // `onRequestStreamEnd` so the pending request settles instead
+                // of hanging when the resumed stream ends for good (e.g.
+                // reconnection attempts are exhausted).
                 this._startOrAuthSse({
                     resumptionToken,
+                    onresumptiontoken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
-                }).catch(error => this.onerror?.(error));
+                    requestSignal: options?.requestSignal,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
+                }).catch(() => {
+                    // No onerror here: `_startOrAuthSse` already surfaced the
+                    // failure for every non-intentional rejection and
+                    // deliberately stays silent on intentional aborts — an
+                    // unconditional report would double-fire on genuine
+                    // failures and surface a spurious AbortError on aborts.
+                    // The resume GET failed outright (network rejection, HTTP
+                    // error, auth failure) before any stream existed, so none
+                    // of the downstream settlement paths (405/null-body,
+                    // reconnection exhaustion) can run — the per-request
+                    // stream is terminally gone and the caller must settle.
+                    // Never on an intentional abort, matching the
+                    // `onRequestStreamEnd` contract.
+                    if (this._abortController?.signal.aborted !== true && options?.requestSignal?.aborted !== true) {
+                        options?.onRequestStreamEnd?.();
+                    }
+                });
                 return;
             }
 
@@ -1111,8 +1291,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    // Start without a lastEventId since this is a fresh connection.
+                    // Rejections are already surfaced by `_startOrAuthSse` for
+                    // every non-intentional failure (and deliberately suppressed
+                    // on intentional aborts), so reporting here again would
+                    // double-fire onerror or surface a spurious AbortError.
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(() => {});
                 }
                 return;
             }
