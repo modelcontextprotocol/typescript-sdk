@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsdown';
 
+import { stripDtsSourceMappingUrl } from '../../common/tsdown/stripDtsSourceMappingUrl.mjs';
+
 // core owns the schema source modules (src/schemas.ts, src/auth.ts, src/constants.ts) and builds
 // two entries from them:
 //   - src/index.ts    → the curated public surface (spec + OAuth `*Schema` constants only)
@@ -17,6 +19,13 @@ export default defineConfig({
     target: 'esnext',
     platform: 'neutral',
     dts: {
+        // Declaration maps would reference src/ (and, where bundled, the private
+        // core-internal's src/), which is not shipped ("files": ["dist"]); tsc cannot
+        // embed sourcesContent into .d.ts maps, so the shipped maps could never resolve
+        // on a consumer's machine. Don't emit them (#2233).
+        sourcemap: false,
         resolver: 'tsc'
-    }
+    },
+    // Drop the dangling sourceMappingURL comment rolldown leaves on the (map-less) declaration output.
+    inputOptions: stripDtsSourceMappingUrl
 });
