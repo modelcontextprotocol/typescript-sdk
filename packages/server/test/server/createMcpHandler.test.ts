@@ -777,6 +777,25 @@ describe('createMcpHandler — responseMode', () => {
         expect(response.headers.get('content-type')).toContain('text/event-stream');
         expect(await response.text()).toContain('eager stream');
     });
+
+    it("responseMode: 'json' never streams legacy-classified requests", async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory, { responseMode: 'json' });
+
+        const response = await handler.fetch(
+            postRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: { name: 'progress-then-echo', arguments: { text: 'legacy json only' } }
+            })
+        );
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toContain('application/json');
+        const text = await response.text();
+        expect(text).not.toContain('notifications/progress');
+        expect(text).toContain('legacy json only');
+    });
 });
 
 describe('createMcpHandler — handler faces', () => {

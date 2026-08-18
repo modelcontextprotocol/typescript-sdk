@@ -167,11 +167,12 @@ export interface CreateMcpHandlerOptions {
     /** Callback for out-of-band errors and rejected requests (reporting only; it never alters the response). */
     onerror?: (error: Error) => void;
     /**
-     * Response shaping for modern (2026-07-28) request exchanges:
+     * Response shaping, applied on both legs this entry serves:
      *
      * - `'auto'` (default) — a single JSON body unless the handler emits a
      *   related message before its result, in which case the response upgrades
-     *   to an SSE stream.
+     *   to an SSE stream. The legacy leg has no partial-upgrade concept, so it
+     *   behaves like `'sse'` there.
      * - `'sse'` — always stream.
      * - `'json'` — never stream. **Mid-call notifications (progress, logging,
      *   any related message emitted before the result) are dropped** — only the
@@ -311,7 +312,8 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
 function createLegacyStatelessFallback(
     factory: McpServerFactory,
     onerror?: (error: Error) => void,
-    keepAliveMs?: number
+    keepAliveMs?: number,
+    responseMode?: PerRequestResponseMode
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
@@ -325,7 +327,8 @@ function createLegacyStatelessFallback(
             });
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
-                ...(keepAliveMs !== undefined && { keepAliveMs })
+                ...(keepAliveMs !== undefined && { keepAliveMs }),
+                ...(responseMode === 'json' && { enableJsonResponse: true })
             });
             await product.connect(transport);
 
@@ -399,8 +402,12 @@ function createLegacyStatelessFallback(
     };
 }
 
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
-    return createLegacyStatelessFallback(factory, onerror);
+export function legacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    responseMode?: PerRequestResponseMode
+): LegacyHttpHandler {
+    return createLegacyStatelessFallback(factory, onerror, undefined, responseMode);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -663,7 +670,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined =
-        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, responseMode);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
