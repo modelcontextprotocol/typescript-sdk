@@ -651,7 +651,9 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * Calculates the next reconnection delay using a backoff algorithm
      *
-     * @param attempt Current reconnection attempt count for the specific stream
+     * @param attempt Zero-indexed reconnection attempt number the delay is for
+     * (the attempt count persists across fruitless connect-then-close cycles —
+     * see `_scheduleReconnection`)
      * @returns Time to wait in milliseconds before next reconnection attempt
      */
     private _getNextReconnectionDelay(attempt: number): number {
@@ -672,8 +674,13 @@ export class StreamableHTTPClientTransport implements Transport {
     /**
      * Schedule a reconnection attempt using server-provided retry interval or backoff
      *
-     * @param lastEventId The ID of the last received event for resumability
-     * @param attemptCount Current reconnection attempt count for this specific stream
+     * @param options Stream options carried into the reconnected stream
+     * (resumption token, stream callbacks, per-request abort signal)
+     * @param attemptCount Zero-indexed number of this reconnection attempt
+     * within the current chain of fruitless attempts. It persists across
+     * connect-then-close cycles that make no progress (bounding them by
+     * `maxRetries`) and resets only when a stream delivers a message or stays
+     * open at least `maxReconnectionDelay` — see `_handleSseStream`.
      */
     private _scheduleReconnection(options: StartSSEOptions, attemptCount = 0): void {
         // Use provided options or default options
@@ -1072,8 +1079,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
                     requestSignal: options?.requestSignal,
                     onRequestStreamEnd: options?.onRequestStreamEnd
-                }).catch(error => {
-                    this.onerror?.(error as Error);
+                }).catch(() => {
+                    // No onerror here: `_startOrAuthSse` already surfaced the
+                    // failure for every non-intentional rejection and
+                    // deliberately stays silent on intentional aborts — an
+                    // unconditional report would double-fire on genuine
+                    // failures and surface a spurious AbortError on aborts.
                     // The resume GET failed outright (network rejection, HTTP
                     // error, auth failure) before any stream existed, so none
                     // of the downstream settlement paths (405/null-body,
@@ -1237,8 +1248,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    // Start without a lastEventId since this is a fresh connection.
+                    // Rejections are already surfaced by `_startOrAuthSse` for
+                    // every non-intentional failure (and deliberately suppressed
+                    // on intentional aborts), so reporting here again would
+                    // double-fire onerror or surface a spurious AbortError.
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(() => {});
                 }
                 return;
             }

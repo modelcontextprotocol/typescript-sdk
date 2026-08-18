@@ -2689,7 +2689,7 @@ describe('StreamableHTTPClientTransport', () => {
             await transport['_startOrAuthSse']({});
 
             // Five cycles: each stream lives longer than maxReconnectionDelay
-            // (fake timers also drive Date.now), then idle-closes empty.
+            // (fake timers also drive performance.now), then idle-closes empty.
             for (let cycle = 0; cycle < 5; cycle++) {
                 await vi.advanceTimersByTimeAsync(1500);
                 controllers[cycle]!.close();
