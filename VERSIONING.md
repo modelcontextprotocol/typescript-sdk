@@ -7,7 +7,7 @@ The MCP TypeScript SDK follows [Semantic Versioning 2.0.0](https://semver.org/) 
 The v2 SDK is a monorepo. Versions are managed with [Changesets](https://github.com/changesets/changesets) (`.changeset/`):
 
 - `@modelcontextprotocol/core`, `client`, `server`, `server-legacy` and `codemod` form a **fixed group** and always release together with the same version.
-- The framework integrations `@modelcontextprotocol/node`, `express`, `hono` and `fastify` are versioned independently through Changesets (a change to `core` does not by itself imply a new integration release).
+- The framework integrations `@modelcontextprotocol/node`, `express`, `hono` and `fastify` are versioned through Changesets alongside the fixed group: they bump whenever their `@modelcontextprotocol/server` peer range has to move, and independently for their own changes.
 - `@modelcontextprotocol/core-internal` is private and carries no compatibility promise; the `@modelcontextprotocol/core/internal` entry point is likewise not covered by this policy and may change in any release.
 - The `v1.x` branch continues to publish `@modelcontextprotocol/sdk` 1.x under the same rules (patch releases on `release-X.Y` npm tags; see `CONTRIBUTING.md`).
 
