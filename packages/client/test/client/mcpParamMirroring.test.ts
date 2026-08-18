@@ -488,6 +488,10 @@ describe('SEP-2243 Streamable HTTP transport seams', () => {
         // tasks/list carries no routing name — off the source table, no header.
         await tx.send(modernRequest('tasks/list', {}));
         expect(sent().get('mcp-name')).toBeNull();
+        // A non-string params.taskId has nothing to mirror — no header, so the
+        // server's later rungs (not -32020) answer the malformed body.
+        await tx.send(modernRequest('tasks/get', { taskId: 42 }));
+        expect(sent().get('mcp-name')).toBeNull();
     });
 
     it('per-request TransportSendOptions.headers cannot override reserved standard/auth headers', async () => {
