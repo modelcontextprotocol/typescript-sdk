@@ -3130,26 +3130,33 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
-        it('warns before invalidating tokens and retrying when a refresh fails with invalid_grant (#2034)', async () => {
-            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired'));
+        it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
+            let tokenPosts = 0;
+            mockDiscoveryWithTokenEndpoint(() => {
+                tokenPosts++;
+                return oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired');
+            });
 
             (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
-            // The retry runs against invalidated storage, so the second read has no tokens —
-            // otherwise the retry would re-POST the dead refresh token and reject.
-            (mockProvider.tokens as Mock).mockResolvedValueOnce(storedTokens).mockResolvedValue(undefined);
+            // This provider implements no invalidateCredentials(), so storage is never
+            // cleared and every read returns the same dead refresh token.
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
             (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-            // invalid_grant is rethrown out of the refresh block and recovered by auth()'s
-            // outer wrapper, which invalidates tokens and re-authorizes — silently, before.
-            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+            // invalid_grant is rethrown out of the refresh block into auth()'s outer catch,
+            // which retries authInternal. Nothing was invalidated, so the retry replays the
+            // same dead refresh token and the second failure propagates to the caller.
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toThrow('Refresh token expired');
 
             expect(warn).toHaveBeenCalledWith(expect.stringContaining("OAuth 'invalid_grant'"));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
-            // This provider implements no invalidateCredentials(), so the warn must not
-            // claim anything was discarded.
+            // The warn must not claim a discard that never happened.
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('without discarding the stored tokens'));
-            expect(mockProvider.redirectToAuthorization).toHaveBeenCalled();
+            // The retry is futile for this provider shape: the dead refresh token goes to the
+            // token endpoint a second time and no authorization is ever started.
+            expect(tokenPosts).toBe(2);
+            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
             warn.mockRestore();
         });
 
