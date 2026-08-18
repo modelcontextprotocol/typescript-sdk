@@ -2903,6 +2903,51 @@ describe('StreamableHTTPClientTransport', () => {
             expect(streamEndSpy).toHaveBeenCalledTimes(1);
         });
 
+        it('does not settle from the scheduler-throw catch when the scheduler dispatched before throwing', async () => {
+            // A pathological scheduler that synchronously invokes reconnect()
+            // and THEN throws leaves an attempt in flight. The scheduler-throw
+            // catch must not settle the caller then — reconnect()'s first
+            // action deletes the registry entry, so the catch settles only
+            // when its own delete succeeds (i.e. nothing was dispatched).
+            // Settlement instead arrives later from the in-flight chain when
+            // it exhausts.
+            const order: string[] = [];
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                },
+                reconnectionScheduler: reconnect => {
+                    reconnect();
+                    throw new Error('scheduler exploded after dispatch');
+                }
+            });
+            transport.onerror = e => order.push(`error:${(e as Error).message}`);
+            const streamEndSpy = vi.fn().mockImplementation(() => order.push('settled'));
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Every GET opens fine and closes empty: the original stream
+            // schedules attempt 0 (sync-dispatched by the scheduler, which
+            // then throws); the dispatched stream closes empty and trips
+            // exhaustion at attempt 1 — the chain's own settlement.
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ onRequestStreamEnd: streamEndSpy });
+            await vi.advanceTimersByTimeAsync(100);
+
+            // The dispatched attempt ran (two GETs), and the caller settled
+            // exactly once — from exhaustion, strictly AFTER the max-retries
+            // report, not from the scheduler-throw catch.
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            const exhaustedAt = order.indexOf('error:Maximum reconnection attempts (1) exceeded.');
+            expect(exhaustedAt).toBeGreaterThanOrEqual(0);
+            expect(order.indexOf('settled')).toBeGreaterThan(exhaustedAt);
+        });
+
         it('close() cancels every pending reconnection timer, not just the latest', async () => {
             // Two concurrent reconnect chains (standby GET + a resumed
             // per-request stream) each park a timer; close() must cancel both.

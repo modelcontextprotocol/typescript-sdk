@@ -775,11 +775,19 @@ export class StreamableHTTPClientTransport implements Transport {
                 cancelImpl = () => clearTimeout(handle);
             }
         } catch (error) {
-            // A throwing custom scheduler means no reconnection is pending —
-            // deregister the entry and settle the caller here (the only route
-            // that can still do it), then rethrow for reporting.
-            this._pendingReconnections.delete(cancelEntry);
-            options.onRequestStreamEnd?.();
+            // A throwing custom scheduler settles the caller ONLY when it
+            // threw without dispatching. `reconnect()`'s first action is
+            // deleting this entry, so a successful delete here proves no
+            // attempt was dispatched — no reconnection is pending, the stream
+            // is definitively gone, and this is the only route that can still
+            // settle. If the scheduler synchronously invoked `reconnect()`
+            // before throwing, the in-flight attempt owns settlement (it
+            // reaches a terminal settlement site or ends by intentional
+            // abort) — settling here would prematurely end the request and
+            // swallow the chain's later legitimate settlement.
+            if (this._pendingReconnections.delete(cancelEntry)) {
+                options.onRequestStreamEnd?.();
+            }
             throw error;
         }
     }
