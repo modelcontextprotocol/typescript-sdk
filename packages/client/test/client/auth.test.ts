@@ -3035,13 +3035,9 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
-        it('propagates saveTokens errors after a successful refresh (#2034)', async () => {
-            // Regression test: previously the catch block that wraps
-            // refreshAuthorization() also wrapped saveTokens(), silently
-            // swallowing any non-OAuthError thrown while persisting the new
-            // tokens and falling through to startAuthorization(). With
-            // rotating refresh tokens, that loses the freshly minted refresh
-            // token while invalidating the old one server-side.
+        // The #2034 tests below differ only in how the token endpoint answers, so the
+        // discovery fixture is shared. `tokenResponse` is invoked per POST to /token.
+        const mockDiscoveryWithTokenEndpoint = (tokenResponse: () => unknown): void => {
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
 
@@ -3067,30 +3063,40 @@ describe('OAuth Authorization', () => {
                         })
                     });
                 } else if (urlString.includes('/token')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            access_token: 'new-access',
-                            token_type: 'Bearer',
-                            expires_in: 3600,
-                            refresh_token: 'new-refresh'
-                        })
-                    });
+                    return Promise.resolve(tokenResponse());
                 }
 
                 return Promise.resolve({ ok: false, status: 404 });
             });
+        };
 
-            (mockProvider.clientInformation as Mock).mockResolvedValue({
-                client_id: 'test-client',
-                client_secret: 'test-secret'
-            });
-            (mockProvider.tokens as Mock).mockResolvedValue({
-                access_token: 'old-access',
-                refresh_token: 'refresh123',
-                issuer: 'https://auth.example.com'
-            });
+        // A real Response: parseErrorResponse() reads the body via .text(), which a plain
+        // object mock cannot satisfy.
+        const oauthErrorResponse = (code: OAuthErrorCode, message: string): Response =>
+            Response.json(new OAuthError(code, message).toResponseObject(), { status: 400 });
+
+        const storedTokens = { access_token: 'old-access', refresh_token: 'refresh123', issuer: 'https://auth.example.com' };
+
+        it('propagates saveTokens errors after a successful refresh (#2034)', async () => {
+            // Regression test: previously the catch block that wraps
+            // refreshAuthorization() also wrapped saveTokens(), silently
+            // swallowing any non-OAuthError thrown while persisting the new
+            // tokens and falling through to startAuthorization(). With
+            // rotating refresh tokens, that loses the freshly minted refresh
+            // token while invalidating the old one server-side.
+            mockDiscoveryWithTokenEndpoint(() => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-access',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh'
+                })
+            }));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
             const persistError = new Error('disk full');
             // `mockRejectedValueOnce`, not `mockRejectedValue`: `mockProvider` is shared by
             // the whole describe and its beforeEach only calls `vi.clearAllMocks()`, which
@@ -3098,11 +3104,7 @@ describe('OAuth Authorization', () => {
             // leak 'disk full' into every later test that reaches saveTokens.
             (mockProvider.saveTokens as Mock).mockRejectedValueOnce(persistError);
 
-            await expect(
-                auth(mockProvider, {
-                    serverUrl: 'https://api.example.com/mcp-server'
-                })
-            ).rejects.toBe(persistError);
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toBe(persistError);
 
             // saveTokens was called with the new tokens before throwing.
             expect(mockProvider.saveTokens).toHaveBeenCalledWith(
@@ -3114,52 +3116,10 @@ describe('OAuth Authorization', () => {
         });
 
         it('warns when a server-side refresh failure falls back to a new authorization request (#2034)', async () => {
-            mockFetch.mockImplementation(url => {
-                const urlString = url.toString();
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            issuer: 'https://auth.example.com',
-                            authorization_endpoint: 'https://auth.example.com/authorize',
-                            token_endpoint: 'https://auth.example.com/token',
-                            response_types_supported: ['code'],
-                            code_challenge_methods_supported: ['S256']
-                        })
-                    });
-                } else if (urlString.includes('/token')) {
-                    // A real Response: parseErrorResponse() reads the body via .text(),
-                    // which a plain object mock cannot satisfy.
-                    return Promise.resolve(
-                        Response.json(new OAuthError(OAuthErrorCode.ServerError, 'AS is having a bad day').toResponseObject(), {
-                            status: 400
-                        })
-                    );
-                }
-
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            (mockProvider.clientInformation as Mock).mockResolvedValue({
-                client_id: 'test-client',
-                client_secret: 'test-secret'
-            });
-            (mockProvider.tokens as Mock).mockResolvedValue({
-                access_token: 'old-access',
-                refresh_token: 'refresh123',
-                issuer: 'https://auth.example.com'
-            });
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
             (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -3171,56 +3131,12 @@ describe('OAuth Authorization', () => {
         });
 
         it('warns before invalidating tokens and retrying when a refresh fails with invalid_grant (#2034)', async () => {
-            mockFetch.mockImplementation(url => {
-                const urlString = url.toString();
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired'));
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            issuer: 'https://auth.example.com',
-                            authorization_endpoint: 'https://auth.example.com/authorize',
-                            token_endpoint: 'https://auth.example.com/token',
-                            response_types_supported: ['code'],
-                            code_challenge_methods_supported: ['S256']
-                        })
-                    });
-                } else if (urlString.includes('/token')) {
-                    // A real Response: parseErrorResponse() reads the body via .text(),
-                    // which a plain object mock cannot satisfy.
-                    return Promise.resolve(
-                        Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Refresh token expired').toResponseObject(), {
-                            status: 400
-                        })
-                    );
-                }
-
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            (mockProvider.clientInformation as Mock).mockResolvedValue({
-                client_id: 'test-client',
-                client_secret: 'test-secret'
-            });
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
             // The retry runs against invalidated storage, so the second read has no tokens —
             // otherwise the retry would re-POST the dead refresh token and reject.
-            (mockProvider.tokens as Mock)
-                .mockResolvedValueOnce({
-                    access_token: 'old-access',
-                    refresh_token: 'refresh123',
-                    issuer: 'https://auth.example.com'
-                })
-                .mockResolvedValue(undefined);
+            (mockProvider.tokens as Mock).mockResolvedValueOnce(storedTokens).mockResolvedValue(undefined);
             (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
@@ -3237,68 +3153,51 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
+        // A local provider — adding invalidateCredentials to the shared mockProvider would
+        // leak into every later test in this describe.
+        const providerWithInvalidation = (invalidateCredentials: Mock): OAuthClientProvider => ({
+            ...mockProvider,
+            invalidateCredentials,
+            clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+            tokens: vi.fn().mockResolvedValueOnce(storedTokens).mockResolvedValue(undefined),
+            saveTokens: vi.fn().mockResolvedValue(undefined),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('verifier')
+        });
+
         it('reports the discard when the provider does implement invalidateCredentials (#2034)', async () => {
-            mockFetch.mockImplementation(url => {
-                const urlString = url.toString();
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired'));
 
-                if (urlString.includes('/.well-known/oauth-protected-resource')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            resource: 'https://api.example.com/mcp-server',
-                            authorization_servers: ['https://auth.example.com']
-                        })
-                    });
-                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
-                    return Promise.resolve({
-                        ok: true,
-                        status: 200,
-                        json: async () => ({
-                            issuer: 'https://auth.example.com',
-                            authorization_endpoint: 'https://auth.example.com/authorize',
-                            token_endpoint: 'https://auth.example.com/token',
-                            response_types_supported: ['code'],
-                            code_challenge_methods_supported: ['S256']
-                        })
-                    });
-                } else if (urlString.includes('/token')) {
-                    return Promise.resolve(
-                        Response.json(new OAuthError(OAuthErrorCode.InvalidGrant, 'Refresh token expired').toResponseObject(), {
-                            status: 400
-                        })
-                    );
-                }
-
-                return Promise.resolve({ ok: false, status: 404 });
-            });
-
-            // A local provider — adding invalidateCredentials to the shared mockProvider
-            // would leak into every later test in this describe.
             const invalidateCredentials = vi.fn();
-            const provider: OAuthClientProvider = {
-                ...mockProvider,
-                invalidateCredentials,
-                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
-                tokens: vi
-                    .fn()
-                    .mockResolvedValueOnce({
-                        access_token: 'old-access',
-                        refresh_token: 'refresh123',
-                        issuer: 'https://auth.example.com'
-                    })
-                    .mockResolvedValue(undefined),
-                saveTokens: vi.fn().mockResolvedValue(undefined),
-                redirectToAuthorization: vi.fn(),
-                saveCodeVerifier: vi.fn(),
-                codeVerifier: vi.fn().mockResolvedValue('verifier')
-            };
+            const provider = providerWithInvalidation(invalidateCredentials);
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
             await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
 
             expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored tokens'));
+            warn.mockRestore();
+        });
+
+        it.each([
+            [OAuthErrorCode.InvalidClient, 'Client authentication failed'],
+            [OAuthErrorCode.UnauthorizedClient, 'Client not authorized']
+        ])('warns before discarding client credentials on %s (#2034)', async (code, message) => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(code, message));
+
+            const invalidateCredentials = vi.fn();
+            const provider = providerWithInvalidation(invalidateCredentials);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            // Both scopes are invalidated on this branch, and the warn must say so.
+            expect(invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(`OAuth '${code}'`));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored client credentials and tokens'));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(message));
             warn.mockRestore();
         });
 
