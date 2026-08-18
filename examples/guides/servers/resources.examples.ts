@@ -124,6 +124,9 @@ server.registerResource(
 //#region sendResourceUpdated_subscribers
 let deployStatus = 'idle';
 
+// Declaring `resources.subscribe` is the whole opt-in: at connect time the SDK
+// installs the subscribe/unsubscribe handlers and records this connection's
+// subscribed URIs in `deploys.resourceSubscriptions`.
 const deploys = new McpServer({ name: 'deploys', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
 
 deploys.registerResource(
@@ -133,21 +136,10 @@ deploys.registerResource(
     async uri => ({ contents: [{ uri: uri.href, text: deployStatus }] })
 );
 
-// The SDK routes the two verbs; which URIs this connection watches is yours to track.
-const subscribedUris = new Set<string>();
-deploys.server.setRequestHandler('resources/subscribe', request => {
-    subscribedUris.add(request.params.uri);
-    return {};
-});
-deploys.server.setRequestHandler('resources/unsubscribe', request => {
-    subscribedUris.delete(request.params.uri);
-    return {};
-});
-
 async function setDeployStatus(status: string): Promise<void> {
     deployStatus = status;
-    if (subscribedUris.has('deploys://status')) {
-        await deploys.server.sendResourceUpdated({ uri: 'deploys://status' });
+    if (deploys.resourceSubscriptions.has('deploys://status')) {
+        await deploys.sendResourceUpdated({ uri: 'deploys://status' });
     }
 }
 //#endregion sendResourceUpdated_subscribers
