@@ -436,6 +436,15 @@ const LIST_CHANGED_EVICTIONS: Readonly<Record<string, readonly string[]>> = {
 const DEFAULT_LIST_MAX_PAGES = 64;
 
 /**
+ * Upper bound on how long `McpSubscription.close()` waits for the
+ * `notifications/cancelled` teardown send before resolving anyway. A healthy
+ * transport settles the send in well under this; the bound exists so a send
+ * that never settles (e.g. a stdio write parked on `'drain'`, which ignores
+ * `requestSignal`) cannot park `close()` forever. See #2641/#2643.
+ */
+const LISTEN_CLOSE_TEARDOWN_WAIT_MSEC = 5000;
+
+/**
  * A handle to an open `subscriptions/listen` stream (protocol revision
  * 2026-07-28). Change notifications delivered on the stream dispatch to the
  * existing {@linkcode Client.setNotificationHandler} registrations.
@@ -450,7 +459,10 @@ export interface McpSubscription {
      * Tears the subscription down. Idempotent. Aborts the listen request's
      * stream (where the transport supports it) AND sends
      * `notifications/cancelled` referencing the listen request id — both,
-     * always, so close works on any transport.
+     * always, so close works on any transport. The wait for the
+     * cancelled-notification send is capped (~5s); on a transport whose send
+     * never settles, `close()` resolves with the notification still in
+     * flight.
      */
     close(): Promise<void>;
     /**
@@ -2060,7 +2072,25 @@ export class Client extends Protocol<ClientContext> {
         const close = async (): Promise<void> => {
             if (state === 'closed') return;
             settle({ cause: 'local' });
-            await wireTeardown();
+            // Bounded wait: close() waits for the cancelled notification so
+            // it is on the wire when close() resolves (transports settle a
+            // healthy send quickly), but a send that never settles — a stdio
+            // write parked on 'drain' ignores `requestSignal`, so the
+            // `requestAbort.abort()` above cannot reach it — must not park
+            // close() forever. The bound cuts only the WAIT; the notification
+            // stays in flight, and the state machine settled above regardless.
+            await new Promise<void>(resolve => {
+                const timer = setTimeout(resolve, LISTEN_CLOSE_TEARDOWN_WAIT_MSEC);
+                // In the parked-send case clearTimeout below is unreachable,
+                // and the armed timer would hold an idle Node process open
+                // for the full bound. Guarded: this module is runtime-neutral
+                // and browser timers have no unref.
+                (timer as { unref?: () => void }).unref?.();
+                void wireTeardown().finally(() => {
+                    clearTimeout(timer);
+                    resolve();
+                });
+            });
         };
 
         // The per-subscription state is registered BEFORE the request is sent
