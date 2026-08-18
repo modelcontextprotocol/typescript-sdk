@@ -1406,6 +1406,44 @@ describe('Zod v4', () => {
             expect(cleanupCalls).toEqual(['stream-1']);
         });
     });
+
+    describe('a rejected event store write on the response path', () => {
+        it('should retire the request and close its stream instead of leaking it', async () => {
+            const eventStore: EventStore = {
+                async storeEvent(): Promise<EventId> {
+                    throw new Error('event store write failed');
+                },
+                async replayEventsAfter(): Promise<StreamId> {
+                    return '';
+                }
+            };
+
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                eventStore,
+                keepAliveMs: 20
+            });
+            transport.onmessage = () => {};
+
+            const res = await transport.handleRequest(createRequest('POST', { jsonrpc: '2.0', id: 1, method: 'ping' } as JSONRPCMessage));
+            expect(res.status).toBe(200);
+
+            await expect(transport.send({ jsonrpc: '2.0', id: 1, result: {} } as JSONRPCMessage)).rejects.toThrow(
+                'event store write failed'
+            );
+
+            // @ts-expect-error accessing private map for test purposes
+            expect(transport._streamMapping.size).toBe(0);
+            // @ts-expect-error accessing private map for test purposes
+            expect(transport._requestToStreamMapping.size).toBe(0);
+            // @ts-expect-error accessing private map for test purposes
+            expect(transport._requestResponseMap.size).toBe(0);
+
+            // The SSE body is terminated rather than held open by the keep-alive timer.
+            const reader = res.body!.getReader();
+            await expect(reader.read()).resolves.toMatchObject({ done: true });
+        });
+    });
 });
 
 describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
