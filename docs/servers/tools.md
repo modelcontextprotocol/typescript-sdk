@@ -153,7 +153,11 @@ server.registerTool(
                 { type: 'audio', data: spokenNameWav, mimeType: 'audio/wav' },
                 {
                     type: 'resource',
-                    resource: { uri: `catalog://products/${product.name}`, mimeType: 'application/json', text: JSON.stringify(product) }
+                    resource: {
+                        uri: `catalog://products/${encodeURIComponent(product.name)}`,
+                        mimeType: 'application/json',
+                        text: JSON.stringify(product)
+                    }
                 }
             ]
         };
@@ -178,7 +182,7 @@ Calling `product-card` with `{ name: 'Travel mug' }` returns the three blocks as
   {
     type: 'resource',
     resource: {
-      uri: 'catalog://products/Travel mug',
+      uri: 'catalog://products/Travel%20mug',
       mimeType: 'application/json',
       text: '{"name":"Travel mug","price":24}'
     }

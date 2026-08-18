@@ -96,7 +96,11 @@ server.registerTool(
                 { type: 'audio', data: spokenNameWav, mimeType: 'audio/wav' },
                 {
                     type: 'resource',
-                    resource: { uri: `catalog://products/${product.name}`, mimeType: 'application/json', text: JSON.stringify(product) }
+                    resource: {
+                        uri: `catalog://products/${encodeURIComponent(product.name)}`,
+                        mimeType: 'application/json',
+                        text: JSON.stringify(product)
+                    }
                 }
             ]
         };

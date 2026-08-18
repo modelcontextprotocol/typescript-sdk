@@ -66,7 +66,7 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 
 const sessions = new Map<string, SSEServerTransport>();
-const sseApp = createMcpExpressApp();
+const sseApp = createMcpExpressApp({ host: 'sse.example.com', jsonLimit: '4mb' });
 
 sseApp.get('/sse', async (_req, res) => {
     const transport = new SSEServerTransport('/messages', res);
@@ -76,7 +76,12 @@ sseApp.get('/sse', async (_req, res) => {
 });
 
 sseApp.post('/messages', async (req, res) => {
-    const transport = sessions.get(String(req.query.sessionId));
+    const sessionId = req.query.sessionId;
+    if (typeof sessionId !== 'string') {
+        res.status(400).send('Missing sessionId parameter');
+        return;
+    }
+    const transport = sessions.get(sessionId);
     if (!transport) {
         res.status(404).send('Session not found');
         return;
