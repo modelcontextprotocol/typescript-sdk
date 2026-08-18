@@ -3085,7 +3085,10 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onerror).not.toHaveBeenCalled();
         });
 
-        it('still aborts and fires onclose if the cancel function throws', async () => {
+        it('contains a throwing cancel function: close() completes, aborts, and fires onclose', async () => {
+            // A user-supplied cancel that throws must not escape the shutdown
+            // path or skip the remaining pending cancels — it is surfaced via
+            // onerror instead.
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: () => () => {
@@ -3094,12 +3097,15 @@ describe('StreamableHTTPClientTransport', () => {
             });
             const onclose = vi.fn();
             transport.onclose = onclose;
+            const onerror = vi.fn();
+            transport.onerror = onerror;
 
             await transport.start();
             triggerReconnection(transport);
             const abortController = transport['_abortController'];
 
-            await expect(transport.close()).rejects.toThrow('cancel failed');
+            await expect(transport.close()).resolves.toBeUndefined();
+            expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'cancel failed' }));
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
         });

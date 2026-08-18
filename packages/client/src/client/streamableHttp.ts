@@ -697,7 +697,13 @@ export class StreamableHTTPClientTransport implements Transport {
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
-        let cancelEntry: () => void;
+        // The chain's registry entry. Registered before the scheduler is
+        // invoked so a synchronously-firing custom scheduler still
+        // deregisters it (otherwise the entry would be added after the fact
+        // and linger until close()); the real cancel behavior is filled in
+        // once the scheduler returns.
+        let cancelImpl: (() => void) | undefined;
+        const cancelEntry = (): void => cancelImpl?.();
         const reconnect = (): void => {
             this._pendingReconnections.delete(cancelEntry);
             // Honour BOTH the transport-wide abort and the per-request abort
@@ -721,32 +727,26 @@ export class StreamableHTTPClientTransport implements Transport {
             });
         };
 
-        try {
-            if (this._reconnectionScheduler) {
-                const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
-                cancelEntry =
-                    typeof cancel === 'function'
-                        ? cancel
-                        : () => {
-                              // No-op: the custom scheduler provided no cancel
-                              // function; tracked so `reconnect` can still
-                              // deregister the chain's pending entry.
-                          };
-            } else {
-                const handle = setTimeout(reconnect, delay);
-                cancelEntry = () => clearTimeout(handle);
-            }
-        } catch (error) {
-            // A throwing custom scheduler means no reconnection is pending —
-            // the stream is definitively gone. Settle the caller here (the
-            // only route that can still do it), then rethrow for reporting.
-            options.onRequestStreamEnd?.();
-            throw error;
-        }
         // Track every pending reconnection — concurrent chains (the standby
         // GET stream plus resumed per-request streams) each park a timer
         // here, and close() must cancel all of them, not just the latest.
         this._pendingReconnections.add(cancelEntry);
+        try {
+            if (this._reconnectionScheduler) {
+                const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
+                cancelImpl = typeof cancel === 'function' ? cancel : undefined;
+            } else {
+                const handle = setTimeout(reconnect, delay);
+                cancelImpl = () => clearTimeout(handle);
+            }
+        } catch (error) {
+            // A throwing custom scheduler means no reconnection is pending —
+            // deregister the entry and settle the caller here (the only route
+            // that can still do it), then rethrow for reporting.
+            this._pendingReconnections.delete(cancelEntry);
+            options.onRequestStreamEnd?.();
+            throw error;
+        }
     }
 
     /**
@@ -1007,8 +1007,15 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             // Cancel EVERY pending reconnection — concurrent chains (standby
             // GET + resumed per-request streams) can each have a parked timer.
+            // Per-entry guard: a throwing user-supplied cancel (from a custom
+            // ReconnectionScheduler) must not skip the remaining cancels or
+            // escape the shutdown path.
             for (const cancel of this._pendingReconnections) {
-                cancel();
+                try {
+                    cancel();
+                } catch (error) {
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
             }
         } finally {
             this._pendingReconnections.clear();
