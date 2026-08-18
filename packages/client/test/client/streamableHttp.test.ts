@@ -2497,7 +2497,7 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             // Verify no reconnection was scheduled
-            expect(transport['_cancelReconnection']).toBeUndefined();
+            expect(transport['_pendingReconnections'].size).toBe(0);
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -2519,10 +2519,13 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_cancelReconnection']).toBeDefined();
+            expect(transport['_pendingReconnections'].size).toBe(1);
 
             // Clean up the pending reconnection to avoid test pollution
-            transport['_cancelReconnection']?.();
+            for (const cancel of transport['_pendingReconnections']) {
+                cancel();
+            }
+            transport['_pendingReconnections'].clear();
         });
     });
 
@@ -2850,6 +2853,44 @@ describe('StreamableHTTPClientTransport', () => {
 
             expect(streamEndSpy).toHaveBeenCalledTimes(1);
             expect(errorSpy).toHaveBeenCalled();
+        });
+
+        it('close() cancels every pending reconnection timer, not just the latest', async () => {
+            // Two concurrent reconnect chains (standby GET + a resumed
+            // per-request stream) each park a timer; close() must cancel both.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5000,
+                    maxReconnectionDelay: 30000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 3
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            // Every stream closes empty immediately, so each chain schedules
+            // a reconnection 5s out.
+            fetchMock.mockImplementation(async () => sseResponse(['id: keep-1\ndata: \n\n']));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await transport.send(requestMessage, { resumptionToken: 'event-0' });
+            await vi.advanceTimersByTimeAsync(10);
+
+            expect(transport['_pendingReconnections'].size).toBe(2);
+            expect(vi.getTimerCount()).toBe(2);
+
+            await transport.close();
+
+            // Both parked timers were cancelled, not just the latest.
+            expect(transport['_pendingReconnections'].size).toBe(0);
+            expect(vi.getTimerCount()).toBe(0);
         });
     });
 

@@ -99,6 +99,9 @@ export interface StartSSEOptions {
 export interface StreamableHTTPReconnectionOptions {
     /**
      * Maximum backoff time between reconnection attempts in milliseconds.
+     * Also serves as the stream-lifetime threshold for retry accounting: a
+     * stream that stays open at least this long counts as progress and resets
+     * the {@linkcode maxRetries} attempt count (see {@linkcode maxRetries}).
      * Default is 30000 (30 seconds).
      */
     maxReconnectionDelay: number;
@@ -335,7 +338,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _maxStepUpRetries: number;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
-    private _cancelReconnection?: () => void;
+    private _pendingReconnections = new Set<() => void>();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -678,17 +681,25 @@ export class StreamableHTTPClientTransport implements Transport {
 
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
-            this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
-            // The per-request stream is now definitively gone.
-            options.onRequestStreamEnd?.();
+            try {
+                this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            } finally {
+                // The per-request stream is now definitively gone. Settlement
+                // must survive a throwing user `onerror` handler on every
+                // route into this branch (graceful close, mid-stream error,
+                // failed reconnect chain) — callers only contain propagation,
+                // they never settle.
+                options.onRequestStreamEnd?.();
+            }
             return;
         }
 
         // Calculate next delay based on current attempt count
         const delay = this._getNextReconnectionDelay(attemptCount);
 
+        let cancelEntry: () => void;
         const reconnect = (): void => {
-            this._cancelReconnection = undefined;
+            this._pendingReconnections.delete(cancelEntry);
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
@@ -710,13 +721,32 @@ export class StreamableHTTPClientTransport implements Transport {
             });
         };
 
-        if (this._reconnectionScheduler) {
-            const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
-            this._cancelReconnection = typeof cancel === 'function' ? cancel : undefined;
-        } else {
-            const handle = setTimeout(reconnect, delay);
-            this._cancelReconnection = () => clearTimeout(handle);
+        try {
+            if (this._reconnectionScheduler) {
+                const cancel = this._reconnectionScheduler(reconnect, delay, attemptCount);
+                cancelEntry =
+                    typeof cancel === 'function'
+                        ? cancel
+                        : () => {
+                              // No-op: the custom scheduler provided no cancel
+                              // function; tracked so `reconnect` can still
+                              // deregister the chain's pending entry.
+                          };
+            } else {
+                const handle = setTimeout(reconnect, delay);
+                cancelEntry = () => clearTimeout(handle);
+            }
+        } catch (error) {
+            // A throwing custom scheduler means no reconnection is pending —
+            // the stream is definitively gone. Settle the caller here (the
+            // only route that can still do it), then rethrow for reporting.
+            options.onRequestStreamEnd?.();
+            throw error;
         }
+        // Track every pending reconnection — concurrent chains (the standby
+        // GET stream plus resumed per-request streams) each park a timer
+        // here, and close() must cancel all of them, not just the latest.
+        this._pendingReconnections.add(cancelEntry);
     }
 
     /**
@@ -864,12 +894,13 @@ export class StreamableHTTPClientTransport implements Transport {
                     // `ReconnectionScheduler` — is reachable from a graceful
                     // close, and a throwing user callback must not fall into
                     // the outer catch (which would surface a misleading
-                    // disconnect error and schedule a second time).
+                    // disconnect error and schedule a second time). Containment
+                    // only: `_scheduleReconnection` itself guarantees the
+                    // caller settles on every no-reconnection-pending exit.
                     try {
                         scheduleNext();
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
-                        onRequestStreamEnd?.();
                     }
                 } else if (!isIntentionalAbort()) {
                     // The per-request stream ended without reconnecting (no
@@ -893,12 +924,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     // Use the exponential backoff reconnection strategy. Same
-                    // accounting as the graceful-close path.
+                    // accounting as the graceful-close path; containment only,
+                    // settlement is guaranteed inside `_scheduleReconnection`.
                     try {
                         scheduleNext();
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
-                        onRequestStreamEnd?.();
                     }
                 } else {
                     // Non-deliberate stream error without reconnection: the
@@ -974,9 +1005,13 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async close(): Promise<void> {
         try {
-            this._cancelReconnection?.();
+            // Cancel EVERY pending reconnection — concurrent chains (standby
+            // GET + resumed per-request streams) can each have a parked timer.
+            for (const cancel of this._pendingReconnections) {
+                cancel();
+            }
         } finally {
-            this._cancelReconnection = undefined;
+            this._pendingReconnections.clear();
             this._abortController?.abort();
             this.onclose?.();
         }
