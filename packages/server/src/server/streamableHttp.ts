@@ -1054,14 +1054,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
         this._closed = true;
 
-        // Close all SSE connections
-        for (const { cleanup } of this._streamMapping.values()) {
-            cleanup();
+        // Close all SSE connections. JSON-response mode parks the POST's
+        // `Response` promise in `resolveJson` until every response is ready —
+        // settle it here, otherwise closing the transport mid-request leaves
+        // the HTTP request hanging until the platform's own timeout fires.
+        for (const stream of this._streamMapping.values()) {
+            stream.resolveJson?.(this.createJsonErrorResponse(404, -32_001, 'Session not found'));
+            stream.cleanup();
         }
         this._streamMapping.clear();
 
-        // Clear any pending responses
+        // Clear any pending responses, and the in-flight request correlations
+        // they belong to. Leaving `_requestToStreamMapping` populated keeps
+        // retired request ids resolvable in `send()`, so a closed transport
+        // still accepts responses it can never deliver.
         this._requestResponseMap.clear();
+        this._requestToStreamMapping.clear();
         this.onclose?.();
     }
 
@@ -1159,6 +1167,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 // storeEvent() may have registered a resumed stream under this
                 // streamId (mirrors the standalone path's post-await read).
                 stream = this._streamMapping.get(streamId);
+                // The correlation itself can also disappear across the await —
+                // close() retires every in-flight request id. Re-check it for
+                // the same reason the stream is re-read above: without this,
+                // the response below is recorded into `_requestResponseMap` on
+                // a transport that can never deliver it, and both the entry and
+                // its correlation leak for the lifetime of the process.
+                if (!this._requestToStreamMapping.has(requestId)) {
+                    throw new Error(`No connection established for request ID: ${String(requestId)}`);
+                }
             }
             // Write the event to the response stream — unless the resumed
             // stream's replay already delivered this exact eventId (the store
