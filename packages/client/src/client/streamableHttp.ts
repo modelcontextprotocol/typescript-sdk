@@ -304,6 +304,89 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
 }
 
 /**
+ * `signal?.aborted === true` behind a function boundary: `aborted` flips
+ * asynchronously (across awaits), so an inline check after an earlier guard
+ * gets unsoundly narrowed to `false` by the type checker.
+ */
+function isAborted(signal: AbortSignal | undefined): boolean {
+    return signal?.aborted === true;
+}
+
+/**
+ * Normalize an aborted signal's `reason` to an `Error` (matching how the
+ * listen driver and `fetch` surface aborts) so a raced auth await rejects
+ * with something callers can inspect.
+ */
+function abortReasonError(signal: AbortSignal): Error {
+    const reason: unknown = signal.reason;
+    return reason instanceof Error ? reason : new Error(String(reason ?? 'Aborted'));
+}
+
+/**
+ * Race a pending auth-chain await (`AuthProvider.token()`, `onUnauthorized`,
+ * step-up authorization) against the request/transport abort signal so an
+ * abort settles `send()` even when the underlying promise never does. The
+ * loser keeps running — the `AuthProvider` contract has no cancellation
+ * channel of its own beyond the optional `ctx.signal` — but the transport
+ * stops waiting on it, which is what `TransportSendOptions.requestSignal`
+ * promises. The abort listener is removed as soon as the promise settles so
+ * a long-lived transport signal does not accumulate closures per request.
+ */
+function raceWithSignal<T>(produce: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+    // Aborted fast-path BEFORE the producer is invoked: an already-dead
+    // request must not start side-effectful auth work (a token refresh, an
+    // OAuth step-up that mutates discovery state or redirects the user)
+    // just to have its result discarded.
+    if (signal !== undefined && isAborted(signal)) {
+        return Promise.reject(abortReasonError(signal));
+    }
+    // Normalize: a plain-JS provider may return a bare value (or a foreign
+    // thenable) where the types say Promise — the plain `await` these call
+    // sites used before the race tolerated that, so the race must too
+    // (`.then` on a bare string would TypeError and get misstamped as an
+    // auth failure). Identity-preserving for native promises. A synchronous
+    // throw from the producer becomes a rejection, matching how the plain
+    // `await` call sites surfaced it.
+    let promise: Promise<T>;
+    try {
+        promise = Promise.resolve(produce());
+    } catch (error) {
+        return Promise.reject(error);
+    }
+    if (signal === undefined) {
+        return promise;
+    }
+    if (signal.aborted) {
+        // Attach a no-op handler so the loser's eventual rejection (if any)
+        // does not escape as an unhandledRejection.
+        promise.catch(() => {});
+        return Promise.reject(abortReasonError(signal));
+    }
+    return new Promise<T>((resolve, reject) => {
+        const onAbort = (): void => {
+            promise.catch(() => {});
+            reject(abortReasonError(signal));
+        };
+        signal.addEventListener('abort', onAbort, { once: true });
+        promise.then(
+            value => {
+                signal.removeEventListener('abort', onAbort);
+                resolve(value);
+            },
+            (error: unknown) => {
+                signal.removeEventListener('abort', onAbort);
+                // Verbatim: the loser's rejection must flow through
+                // identity-preserved — the auth-seam stamp is a property on
+                // the thrown object (Error or not), and rewrapping would strip
+                // it (and any `.cause` chain) on paths with no re-stamping
+                // catch, e.g. the step-up awaits.
+                reject(error);
+            }
+        );
+    });
+}
+
+/**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
@@ -432,12 +515,46 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
-    private async _commonHeaders(): Promise<Headers> {
+    /**
+     * The abort signal governing one request: the transport-lifetime signal
+     * combined with the caller's per-request signal when both exist,
+     * whichever one exists otherwise. Computed BEFORE header acquisition so
+     * the auth chain (token(), 401 recovery, step-up) is raced against the
+     * same abort as the request itself.
+     */
+    private _combinedSignal(requestSignal?: AbortSignal): AbortSignal | undefined {
+        const transportSignal = this._abortController?.signal;
+        return requestSignal !== undefined && transportSignal !== undefined
+            ? anySignal(transportSignal, requestSignal)
+            : (requestSignal ?? transportSignal);
+    }
+
+    /**
+     * Whether teardown has been signalled for the transport (`close()`) or
+     * for the observed request (its `requestSignal`). Errors surfacing after
+     * either are intentional-abort fallout, not reportable failures — the
+     * guard-site mirror of {@linkcode _combinedSignal}.
+     */
+    private _isIntentionalAbort(requestSignal?: AbortSignal): boolean {
+        return isAborted(this._abortController?.signal) || isAborted(requestSignal);
+    }
+
+    private async _commonHeaders(signal?: AbortSignal): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
+        const provider = this._authProvider;
         let token: string | undefined;
         try {
-            token = await this._authProvider?.token();
+            // Raced against the per-request/transport abort so a hung
+            // `token()` (wedged refresh, slow broker) cannot park the send
+            // past its `requestSignal` (#2643).
+            token = provider === undefined ? undefined : await raceWithSignal(() => provider.token(), signal);
         } catch (error) {
+            // An abort is an intentional teardown, never an auth failure —
+            // leave it unstamped so the send-catch and the negotiation
+            // probe's classifier treat it as a plain abort.
+            if (isAborted(signal)) {
+                throw error;
+            }
             // Auth-seam stamp: a throwing token() is an auth failure, never a
             // network failure.
             throw markAuthSeamEscape(error);
@@ -519,17 +636,13 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
-        // Same guard as `_handleSseStream`: a resurrected listen stream (the
-        // POST-SSE → GET reconnect path threads `requestSignal` through
-        // `StartSSEOptions`) must honour the per-request abort exactly as the
-        // original POST did — both as a fetch signal and as a "do not surface
-        // onerror" gate.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         try {
+            const signal = this._combinedSignal(requestSignal);
+
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
-            const headers = await this._commonHeaders();
+            const headers = await this._commonHeaders(signal);
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
@@ -539,11 +652,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
-            const transportSignal = this._abortController?.signal;
-            const signal =
-                requestSignal !== undefined && transportSignal !== undefined
-                    ? anySignal(transportSignal, requestSignal)
-                    : (requestSignal ?? transportSignal);
             const response = await (this._fetch ?? fetch)(this._url, {
                 ...this._requestInit,
                 method: 'GET',
@@ -561,14 +669,29 @@ export class StreamableHTTPClientTransport implements Transport {
                         this._scope = computeScopeUnion(this._scope, scope);
                     }
 
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                    const onUnauthorized = this._authProvider.onUnauthorized?.bind(this._authProvider);
+                    if (onUnauthorized && !isAuthRetry) {
                         try {
-                            await this._authProvider.onUnauthorized({
-                                response,
-                                serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
-                            });
+                            // Raced against the per-request/transport abort so
+                            // a hung 401 recovery cannot park the GET (#2643);
+                            // the signal is also handed to the provider so a
+                            // cooperative implementation can cancel its own work.
+                            await raceWithSignal(
+                                () =>
+                                    onUnauthorized({
+                                        response,
+                                        serverUrl: this._url,
+                                        fetchFn: this._fetchWithInit,
+                                        signal
+                                    }),
+                                signal
+                            );
                         } catch (error) {
+                            // An abort is an intentional teardown, not an auth
+                            // failure — leave it unstamped.
+                            if (isAborted(signal)) {
+                                throw error;
+                            }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
                             throw markAuthSeamEscape(error);
@@ -593,9 +716,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
                     if (error === 'insufficient_scope') {
                         const text = await response.text?.().catch(() => null);
-                        const result = await this._stepUpAuthorize(
-                            { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
-                            stepUpRetries
+                        // Raced against the per-request/transport abort so a
+                        // hung step-up authorization cannot park the GET (#2643).
+                        const result = await raceWithSignal(
+                            () =>
+                                this._stepUpAuthorize(
+                                    { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
+                                    stepUpRetries
+                                ),
+                            signal
                         );
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
@@ -629,7 +758,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._handleSseStream(response.body, options, true);
         } catch (error) {
-            if (!isIntentionalAbort()) {
+            // A resurrected listen stream (the POST-SSE → GET reconnect path
+            // threads `requestSignal` through `StartSSEOptions`) must honour
+            // the per-request abort exactly as the original POST did — both
+            // as a fetch signal and as a "do not surface onerror" gate.
+            if (!this._isIntentionalAbort(requestSignal)) {
                 this.onerror?.(error as Error);
             }
             throw error;
@@ -683,14 +816,22 @@ export class StreamableHTTPClientTransport implements Transport {
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
-            if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-            this._startOrAuthSse(options).catch(error => {
-                if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-                this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
+            if (this._isIntentionalAbort(options.requestSignal)) return;
+            this._startOrAuthSse(options).catch(() => {
+                if (this._isIntentionalAbort(options.requestSignal)) return;
+                // `_startOrAuthSse`'s own catch already routed the failure to
+                // onerror before rethrowing — re-emitting here would report
+                // every failed attempt twice. Just schedule the next try.
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
                 } catch (scheduleError) {
                     this.onerror?.(scheduleError instanceof Error ? scheduleError : new Error(String(scheduleError)));
+                    // A scheduler that throws while re-arming ends the retry
+                    // chain — that is TERMINAL for an observed per-request
+                    // stream, exactly like retry-budget exhaustion above, so
+                    // the caller must be told or a listen() observer waits
+                    // forever.
+                    options.onRequestStreamEnd?.();
                 }
             });
         };
@@ -719,7 +860,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
         // and no GET+Last-Event-ID reconnect that would resurrect a stream the
         // caller just tore down.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
+        const isIntentionalAbort = (): boolean => this._isIntentionalAbort(requestSignal);
 
         let lastEventId: string | undefined;
         // Track whether we've received a priming event (event with ID)
@@ -791,7 +932,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     this._scheduleReconnection(
                         {
-                            resumptionToken: lastEventId,
+                            // Fall back to the token this stream was RESUMED
+                            // from: a resumed stream that drops before its
+                            // first ID-bearing event must not lose its
+                            // Last-Event-ID (a token-less GET starts a fresh
+                            // stream and the pending response never replays).
+                            resumptionToken: lastEventId ?? options.resumptionToken,
                             onresumptiontoken,
                             replayMessageId,
                             requestSignal,
@@ -824,7 +970,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     try {
                         this._scheduleReconnection(
                             {
-                                resumptionToken: lastEventId,
+                                // Same fallback as the graceful-close path
+                                // above: keep the token this stream was
+                                // resumed from when it dies pre-first-event.
+                                resumptionToken: lastEventId ?? options.resumptionToken,
                                 onresumptiontoken,
                                 replayMessageId,
                                 requestSignal,
@@ -957,12 +1106,40 @@ export class StreamableHTTPClientTransport implements Transport {
                 this._startOrAuthSse({
                     resumptionToken,
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
-                    requestSignal: options?.requestSignal
-                }).catch(error => this.onerror?.(error));
+                    requestSignal: options?.requestSignal,
+                    // Keep the caller's stream observers across the resume,
+                    // matching the fresh-POST path below: without them a
+                    // resume-via-send() dropped later resumption tokens (the
+                    // persistence chain) and never reported the resumed
+                    // stream's terminal end.
+                    onresumptiontoken,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
+                }).catch(() => {
+                    // `_startOrAuthSse`'s own catch already routed the
+                    // failure to onerror (suppressed for intentional aborts)
+                    // before rethrowing — no second emission here. Same
+                    // abort guard as `_scheduleReconnection`'s reconnect():
+                    // an abort of either signal during the resume (now
+                    // reachable mid-auth-chain too) is intentional teardown.
+                    if (this._isIntentionalAbort(options?.requestSignal)) {
+                        return;
+                    }
+                    // An outright resume failure (network, non-401/403/405
+                    // HTTP error) is TERMINAL for the per-request stream the
+                    // caller is observing — this is the only channel that
+                    // reports it (the 405 case fires inside _startOrAuthSse).
+                    options?.onRequestStreamEnd?.();
+                });
                 return;
             }
 
-            const headers = await this._commonHeaders();
+            // Per-request abort: when the caller supplies a request-scoped
+            // signal (the `subscriptions/listen` driver), aborting it cancels
+            // this POST and its SSE response stream without closing the
+            // transport.
+            const signal = this._combinedSignal(options?.requestSignal);
+
+            const headers = await this._commonHeaders(signal);
             this._applyBodyDerivedHeaders(headers, message);
             // A new session starts "without a session ID attached" (2025-11-25 transports §Session Management).
             const isHandshake = Array.isArray(message) ? message.some(m => isInitializeRequest(m)) : isInitializeRequest(message);
@@ -987,15 +1164,6 @@ export class StreamableHTTPClientTransport implements Transport {
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
 
-            // Per-request abort: when the caller supplies a request-scoped
-            // signal (the `subscriptions/listen` driver), aborting it cancels
-            // this POST and its SSE response stream without closing the
-            // transport.
-            const transportSignal = this._abortController?.signal;
-            const signal =
-                options?.requestSignal !== undefined && transportSignal !== undefined
-                    ? anySignal(transportSignal, options.requestSignal)
-                    : (options?.requestSignal ?? transportSignal);
             const init = {
                 ...this._requestInit,
                 method: 'POST',
@@ -1023,14 +1191,29 @@ export class StreamableHTTPClientTransport implements Transport {
                         this._scope = computeScopeUnion(this._scope, scope);
                     }
 
-                    if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                    const onUnauthorized = this._authProvider.onUnauthorized?.bind(this._authProvider);
+                    if (onUnauthorized && !isAuthRetry) {
                         try {
-                            await this._authProvider.onUnauthorized({
-                                response,
-                                serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
-                            });
+                            // Raced against the per-request/transport abort so
+                            // a hung 401 recovery cannot park the send (#2643);
+                            // the signal is also handed to the provider so a
+                            // cooperative implementation can cancel its own work.
+                            await raceWithSignal(
+                                () =>
+                                    onUnauthorized({
+                                        response,
+                                        serverUrl: this._url,
+                                        fetchFn: this._fetchWithInit,
+                                        signal
+                                    }),
+                                signal
+                            );
                         } catch (error) {
+                            // An abort is an intentional teardown, not an auth
+                            // failure — leave it unstamped.
+                            if (isAborted(signal)) {
+                                throw error;
+                            }
                             // Auth-seam stamp: covers the SDK's OAuth flow and
                             // custom onUnauthorized callbacks alike.
                             throw markAuthSeamEscape(error);
@@ -1057,9 +1240,16 @@ export class StreamableHTTPClientTransport implements Transport {
                     const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
-                        const result = await this._stepUpAuthorize(
-                            { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
-                            stepUpRetries
+                        // Raced against the per-request/transport abort so a
+                        // hung step-up authorization (metadata discovery, token
+                        // exchange) cannot park the send (#2643).
+                        const result = await raceWithSignal(
+                            () =>
+                                this._stepUpAuthorize(
+                                    { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
+                                    stepUpRetries
+                                ),
+                            signal
                         );
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
@@ -1111,8 +1301,13 @@ export class StreamableHTTPClientTransport implements Transport {
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
-                    // Start without a lastEventId since this is a fresh connection
-                    this._startOrAuthSse({ resumptionToken: undefined }).catch(error => this.onerror?.(error));
+                    // Start without a lastEventId since this is a fresh
+                    // connection. `_startOrAuthSse`'s own catch already
+                    // routes failures to onerror (suppressed for intentional
+                    // aborts) before rethrowing — emitting here again would
+                    // double-report. Standalone GET: no per-request stream,
+                    // so there is no terminal callback to fire either.
+                    this._startOrAuthSse({ resumptionToken: undefined }).catch(() => {});
                 }
                 return;
             }
@@ -1161,13 +1356,13 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
-            // Intentional per-request abort BEFORE response headers (the
-            // `subscriptions/listen` driver aborting its `requestSignal`):
-            // fetch rejects with AbortError. Same guard as
-            // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
-            // misleading onerror; still rethrow so `listen()`'s send-catch
-            // settles the per-subscription state machine.
-            if (options?.requestSignal?.aborted !== true) {
+            // Intentional abort BEFORE response headers — the
+            // `subscriptions/listen` driver aborting its `requestSignal`, or
+            // `close()` aborting the transport signal while the send is in
+            // the auth chain or the fetch. Do not surface a misleading
+            // onerror; still rethrow so `listen()`'s send-catch settles the
+            // per-subscription state machine.
+            if (!this._isIntentionalAbort(options?.requestSignal)) {
                 this.onerror?.(error as Error);
             }
             throw error;
@@ -1195,13 +1390,14 @@ export class StreamableHTTPClientTransport implements Transport {
         }
 
         try {
-            const headers = await this._commonHeaders();
+            const signal = this._combinedSignal();
+            const headers = await this._commonHeaders(signal);
 
             const init = {
                 ...this._requestInit,
                 method: 'DELETE',
                 headers,
-                signal: this._abortController?.signal
+                signal
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
@@ -1222,7 +1418,13 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._sessionId = undefined;
         } catch (error) {
-            this.onerror?.(error as Error);
+            // A transport-lifetime abort (close() during a DELETE parked in
+            // the auth chain or the fetch) is intentional teardown — same
+            // discipline as `_send`'s catch. No per-request signal on this
+            // path. Still rethrow so the caller observes the failure.
+            if (!this._isIntentionalAbort()) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }
