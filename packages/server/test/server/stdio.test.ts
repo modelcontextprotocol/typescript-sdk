@@ -138,6 +138,36 @@ test('should not fire onclose twice when close() is called after stdout error', 
     expect(closeCount).toBe(1);
 });
 
+test('should close when stdin closes', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    input.emit('close');
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
+
+test('should close when stdin ends', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    input.emit('end');
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
+
 test('should reject send() when stdout errors before drain', async () => {
     let completeWrite: ((error?: Error | null) => void) | undefined;
     const slowOutput = new Writable({
