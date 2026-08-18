@@ -1185,11 +1185,13 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: string | URL | undefined =
+        selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
-        await provider.saveResourceUrl?.(String(resource));
+        await provider.saveResourceUrl?.(resourceIndicatorToString(resource));
     }
 
     // Scope selection used consistently for DCR and the authorization request.
@@ -1950,6 +1952,10 @@ export async function discoverOAuthServerInfo(
     };
 }
 
+function resourceIndicatorToString(resource: string | URL): string {
+    return typeof resource === 'string' ? resource : resource.href;
+}
+
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
@@ -1968,7 +1974,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: string | URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2016,7 +2022,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', resourceIndicatorToString(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2064,7 +2070,7 @@ export async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: string | URL;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2076,7 +2082,7 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', resourceIndicatorToString(resource));
     }
 
     if (addClientAuthentication) {
@@ -2147,7 +2153,7 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2195,7 +2201,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2257,7 +2263,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: string | URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**
