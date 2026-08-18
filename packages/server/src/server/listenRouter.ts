@@ -213,6 +213,24 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 );
                 writeNotification(ack.method, ack.params);
 
+                // Nothing honored: the ack has already told the client this
+                // stream carries nothing, and `listenFilterAccepts({}, event)`
+                // is false for every event kind, so the subscription below is
+                // provably a no-op. Close gracefully rather than hold an idle
+                // connection and a keepalive timer for a set that is empty —
+                // the spec's transport binding ends the listen stream "until
+                // the client or server closes" it, and this is the server
+                // closing with the same result frame `closeAll()` emits.
+                //
+                // Matters most where a connection is request-scoped: a
+                // serverless invocation held for a subscription that can never
+                // deliver runs until the platform kills it, and the client
+                // reopens, indefinitely.
+                if (Object.keys(honored).length === 0) {
+                    teardown(true);
+                    return;
+                }
+
                 // Only after the ack frame is enqueued does delivery activate.
                 unsubscribe = bus.subscribe(event => {
                     if (closed || !listenFilterAccepts(honored, event)) return;
