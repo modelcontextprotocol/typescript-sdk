@@ -181,6 +181,10 @@ const described = await client.getPrompt({
     arguments: { imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' }
 });
 console.log(described.messages[0]);
+const imageMessage = described.messages[0]?.content;
+if (imageMessage?.type !== 'image' || imageMessage.mimeType !== 'image/png') {
+    throw new Error(`prompts.md claim failed: describe-image first message is ${JSON.stringify(imageMessage)}`);
+}
 
 // "Embed a resource in a message" — the embedded-resource message the page quotes.
 const review = await client.getPrompt({

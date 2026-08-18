@@ -190,6 +190,10 @@ await defaultsServer.connect(defaultsServerTransport);
 await defaultsClient.connect(defaultsClientTransport);
 const exported = await defaultsClient.callTool({ name: 'export-report', arguments: { name: 'quarterly-sales' } });
 console.log(exported.content);
+const exportedText = Array.isArray(exported.content) && exported.content[0]?.type === 'text' ? exported.content[0].text : undefined;
+if (exported.isError || exportedText !== 'Exported quarterly-sales as pdf.') {
+    throw new Error(`elicitation.md claim failed: applyDefaults round returned ${JSON.stringify(exported.content)}`);
+}
 await defaultsClient.close();
 await defaultsServer.close();
 

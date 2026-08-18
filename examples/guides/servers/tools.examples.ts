@@ -140,6 +140,10 @@ console.log(details);
 // "Return other content types" — the three-block result the page quotes.
 const card = await client.callTool({ name: 'product-card', arguments: { name: 'Travel mug' } });
 console.log(card.content);
+const cardTypes = Array.isArray(card.content) ? card.content.map(block => block.type) : [];
+if (card.isError || cardTypes.join(',') !== 'image,audio,resource') {
+    throw new Error(`tools.md claim failed: product-card returned ${JSON.stringify(card.content)}`);
+}
 
 // Proof for the page's ::: tip — `.describe()` lands in the JSON Schema that
 // `tools/list` advertises for the `query` argument. Throws (non-zero exit) if

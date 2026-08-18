@@ -206,6 +206,9 @@ console.log(exported.content);
 const pong = await client.ping({ timeout: 5000 });
 console.log(pong);
 //#endregion ping_basic
+if (Object.keys(pong).length !== 0) {
+    throw new Error(`calling.md claim failed: ping resolved with ${JSON.stringify(pong)}`);
+}
 
 await client.close();
 await server.close();
