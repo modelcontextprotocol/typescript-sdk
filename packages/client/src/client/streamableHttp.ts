@@ -116,7 +116,11 @@ export interface StreamableHTTPReconnectionOptions {
     reconnectionDelayGrowFactor: number;
 
     /**
-     * Maximum number of reconnection attempts before giving up.
+     * Maximum number of consecutive reconnection attempts before giving up.
+     * An attempt counts against this limit when it fails outright or when the
+     * reconnected stream ends again without having delivered a message (for
+     * example, a server that gracefully idle-closes its standby SSE stream);
+     * a stream that delivers a message resets the count.
      * Default is 2.
      */
     maxRetries: number;
@@ -517,7 +521,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0, reconnectAttempt = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -575,7 +579,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true, stepUpRetries);
+                        return this._startOrAuthSse(options, true, stepUpRetries, reconnectAttempt);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -600,7 +604,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
-                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1, reconnectAttempt);
                     }
                 }
 
@@ -627,7 +631,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 });
             }
 
-            this._handleSseStream(response.body, options, true);
+            this._handleSseStream(response.body, options, true, reconnectAttempt);
         } catch (error) {
             if (!isIntentionalAbort()) {
                 this.onerror?.(error as Error);
@@ -684,7 +688,13 @@ export class StreamableHTTPClientTransport implements Transport {
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
             if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
-            this._startOrAuthSse(options).catch(error => {
+            // Thread the attempt number into the stream this attempt produces:
+            // if the server accepts the connection but the stream ends again
+            // without delivering a message, `_handleSseStream` continues the
+            // count instead of restarting it — otherwise a server that
+            // gracefully idle-closes the stream on every reconnect would keep
+            // the transport looping forever with `maxRetries` never tripping.
+            this._startOrAuthSse(options, false, 0, attemptCount + 1).catch(error => {
                 if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
@@ -704,7 +714,19 @@ export class StreamableHTTPClientTransport implements Transport {
         }
     }
 
-    private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
+    /**
+     * @param reconnectAttempt - Which reconnection attempt produced this
+     * stream (0 for an original stream). Carried into the next
+     * `_scheduleReconnection` call when the stream ends without having
+     * delivered a message, so consecutive fruitless reconnects are bounded by
+     * `maxRetries`; a stream that delivered a message resets the count.
+     */
+    private _handleSseStream(
+        stream: ReadableStream<Uint8Array> | null,
+        options: StartSSEOptions,
+        isReconnectable: boolean,
+        reconnectAttempt = 0
+    ): void {
         if (!stream) {
             // A null body on a per-request stream (or its GET resume) is the
             // same terminal non-resumable outcome as a 405 — fire the
@@ -728,6 +750,12 @@ export class StreamableHTTPClientTransport implements Transport {
         // Track whether we've received a response - if so, no need to reconnect
         // Reconnection is for when server disconnects BEFORE sending response
         let receivedResponse = false;
+        // Track whether the stream delivered any message at all. A stream that
+        // did is genuinely working, so its next reconnection starts a fresh
+        // attempt count; a stream that ended without one continues the count,
+        // keeping repeated connect/idle-close cycles bounded by `maxRetries`
+        // (#2682).
+        let receivedMessage = false;
         const processStream = async () => {
             // this is the closest we can get to trying to catch network errors
             // if something happens reader will throw
@@ -775,6 +803,7 @@ export class StreamableHTTPClientTransport implements Transport {
                                     message.id = replayMessageId;
                                 }
                             }
+                            receivedMessage = true;
                             this.onmessage?.(message);
                         } catch (error) {
                             this.onerror?.(error as Error);
@@ -789,6 +818,11 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
+                    // A stream that delivered a message was genuinely working —
+                    // restart the attempt count. A graceful close without one is
+                    // retry-equivalent to a failed attempt: continue the count so
+                    // a server that idle-closes every standby stream cannot keep
+                    // the transport reconnecting forever (#2682).
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
@@ -797,7 +831,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             requestSignal,
                             onRequestStreamEnd
                         },
-                        0
+                        receivedMessage ? 0 : reconnectAttempt
                     );
                 } else if (!isIntentionalAbort()) {
                     // The per-request stream ended without reconnecting (no
@@ -820,7 +854,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
                 if (needsReconnect && this._abortController && !isIntentionalAbort()) {
-                    // Use the exponential backoff reconnection strategy
+                    // Use the exponential backoff reconnection strategy. Same
+                    // accounting as the graceful-close path: only a stream that
+                    // delivered a message restarts the attempt count.
                     try {
                         this._scheduleReconnection(
                             {
@@ -830,7 +866,7 @@ export class StreamableHTTPClientTransport implements Transport {
                                 requestSignal,
                                 onRequestStreamEnd
                             },
-                            0
+                            receivedMessage ? 0 : reconnectAttempt
                         );
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));

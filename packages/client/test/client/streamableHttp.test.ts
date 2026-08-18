@@ -2526,6 +2526,134 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('Reconnection attempt accounting (#2682)', () => {
+        let transport: StreamableHTTPClientTransport;
+
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        /** An SSE response whose stream delivers the given chunks and then closes gracefully. */
+        const sseResponse = (chunks: string[]) => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream({
+                start(controller) {
+                    const encoder = new TextEncoder();
+                    for (const chunk of chunks) {
+                        controller.enqueue(encoder.encode(chunk));
+                    }
+                    controller.close();
+                }
+            })
+        });
+
+        const notificationEvent = 'data: {"jsonrpc":"2.0","method":"notifications/message","params":{}}\n\n';
+
+        it('bounds repeated graceful idle-closes of the standby stream by maxRetries', async () => {
+            // Regression test for #2682: a server that gracefully idle-closes
+            // the standby GET/SSE stream on every (re)connect must not keep the
+            // transport reconnecting forever — the attempt count has to persist
+            // across successful-connect-then-idle-close cycles.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Every GET opens fine and closes gracefully without delivering anything.
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(500);
+
+            // Original stream + exactly maxRetries reconnection attempts.
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (2) exceeded.'
+                })
+            );
+
+            // And it stays stopped — no further reconnects are scheduled.
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        });
+
+        it('does not count streams that delivered messages against maxRetries', async () => {
+            // A stream that delivers a message is genuinely working; when it
+            // later closes gracefully, reconnection accounting starts fresh.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => sseResponse([notificationEvent]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(200);
+
+            // Far more streams than maxRetries + 1 — every one delivered a
+            // message, so the reconnect loop keeps going by design.
+            expect(fetchMock.mock.calls.length).toBeGreaterThan(5);
+            expect(messageSpy).toHaveBeenCalled();
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resets the attempt count after a productive stream, then bounds fruitless reconnects again', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // GET 1: closes empty. GET 2: delivers a message (resets the
+            // count). GETs 3+: close empty until the limit trips again.
+            const bodies: string[][] = [[], [notificationEvent]];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(500);
+
+            // GET 1 (empty, attempt 0 scheduled) → GET 2 (productive, count
+            // resets) → GETs 3-4 (empty, attempts 0-1 of the fresh count) →
+            // limit trips. Without the reset this would stop after 3 fetches.
+            expect(fetchMock).toHaveBeenCalledTimes(4);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (2) exceeded.'
+                })
+            );
+
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(fetchMock).toHaveBeenCalledTimes(4);
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {
