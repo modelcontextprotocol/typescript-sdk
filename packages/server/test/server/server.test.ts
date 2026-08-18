@@ -1,4 +1,4 @@
-import type { CallToolResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import type { CallToolResult, JSONRPCMessage, JSONRPCRequest, Tool } from '@modelcontextprotocol/core-internal';
 import {
     InitializeResultSchema,
     InMemoryTransport,
@@ -240,6 +240,196 @@ describe('Server', () => {
             const result = response.result as { content: unknown; structuredContent: unknown };
             expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
             expect(result.structuredContent).toEqual({ ok: true });
+        });
+    });
+
+    describe('low-level tools/call input validation', () => {
+        async function callTool(
+            server: Server,
+            args: Record<string, unknown>,
+            inputSchema: Tool['inputSchema'] = {
+                type: 'object',
+                properties: { code: { type: 'string' } },
+                required: ['code']
+            },
+            requestList = true
+        ): Promise<{ response: JSONRPCMessage; receivedArgs: Record<string, unknown> | undefined }> {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const waiters = new Map<string | number, (message: JSONRPCMessage) => void>();
+            const receivedArgs: { value: Record<string, unknown> | undefined } = { value: undefined };
+
+            clientTransport.onmessage = message => {
+                if (!('id' in message) || message.id === undefined || message.id === null) {
+                    return;
+                }
+                waiters.get(message.id)?.(message);
+                waiters.delete(message.id);
+            };
+
+            server.setRequestHandler('tools/list', () => ({
+                tools: [
+                    {
+                        name: 'scan_code_imports',
+                        inputSchema
+                    }
+                ]
+            }));
+            server.setRequestHandler('tools/call', request => {
+                receivedArgs.value = request.params.arguments;
+                return { content: [{ type: 'text', text: 'CLEAN' }] };
+            });
+
+            await server.connect(serverTransport);
+            await clientTransport.start();
+
+            const request = (message: JSONRPCRequest): Promise<JSONRPCMessage> =>
+                new Promise(resolve => {
+                    waiters.set(message.id, resolve);
+                    void clientTransport.send(message);
+                });
+
+            await request({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            });
+            await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            if (requestList) {
+                await request({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+            }
+            const response = await request({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tools/call',
+                params: { name: 'scan_code_imports', arguments: args }
+            });
+
+            await server.close();
+            return { response, receivedArgs: receivedArgs.value };
+        }
+
+        it('returns a tool error and does not dispatch invalid arguments', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            const { response, receivedArgs } = await callTool(server, { code: 12345 });
+
+            if (!isJSONRPCResultResponse(response)) {
+                throw new Error(`Expected a result response, got: ${JSON.stringify(response)}`);
+            }
+
+            expect(receivedArgs).toBeUndefined();
+            expect(response.result).toMatchObject({
+                isError: true,
+                content: [{ type: 'text', text: expect.stringContaining('Invalid arguments for tool scan_code_imports') }]
+            });
+        });
+
+        it('dispatches arguments that satisfy the declared schema', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            const { response, receivedArgs } = await callTool(server, { code: 'import pathlib' });
+
+            if (!isJSONRPCResultResponse(response)) {
+                throw new Error(`Expected a result response, got: ${JSON.stringify(response)}`);
+            }
+
+            expect(receivedArgs).toEqual({ code: 'import pathlib' });
+            expect(response.result).toEqual({ content: [{ type: 'text', text: 'CLEAN' }] });
+        });
+
+        it('does not reuse tool schemas after the connection closes', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            const firstCall = await callTool(server, { code: 12345 });
+            expect(firstCall.receivedArgs).toBeUndefined();
+
+            const secondCall = await callTool(
+                server,
+                { code: 12345 },
+                {
+                    type: 'object',
+                    properties: { code: { type: 'number' } },
+                    required: ['code']
+                },
+                false
+            );
+
+            expect(secondCall.receivedArgs).toEqual({ code: 12345 });
+            expect(secondCall.response).toMatchObject({ result: { content: [{ type: 'text', text: 'CLEAN' }] } });
+        });
+
+        it('preserves low-level dispatch when no tool list has been requested', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+            let called = false;
+            server.setRequestHandler('tools/call', () => {
+                called = true;
+                return { content: [{ type: 'text', text: 'CLEAN' }] };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const responsePromise = new Promise<JSONRPCMessage>(resolve => {
+                clientTransport.onmessage = resolve;
+            });
+            await server.connect(serverTransport);
+            await clientTransport.start();
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            });
+            await responsePromise;
+
+            const callResponsePromise = new Promise<JSONRPCMessage>(resolve => {
+                clientTransport.onmessage = resolve;
+            });
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'tools/call',
+                params: { name: 'scan_code_imports', arguments: { code: 12345 } }
+            });
+            const response = await callResponsePromise;
+
+            await server.close();
+            expect(called).toBe(true);
+            expect(response).toMatchObject({ result: { content: [{ type: 'text', text: 'CLEAN' }] } });
+        });
+
+        it('uses the configured JSON Schema validator for low-level tool calls', async () => {
+            const validator = {
+                getValidator: vi.fn(() => (value: unknown) => ({
+                    valid: false as const,
+                    data: undefined,
+                    errorMessage: `Rejected ${JSON.stringify(value)}`
+                }))
+            };
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} }, jsonSchemaValidator: validator });
+
+            const { response, receivedArgs } = await callTool(server, { code: 'import pathlib' });
+
+            expect(receivedArgs).toBeUndefined();
+            expect(validator.getValidator).toHaveBeenCalledTimes(1);
+            expect(response).toMatchObject({
+                result: {
+                    isError: true,
+                    content: [
+                        {
+                            type: 'text',
+                            text: 'Input validation error: Invalid arguments for tool scan_code_imports: Rejected {"code":"import pathlib"}'
+                        }
+                    ]
+                }
+            });
         });
     });
 });
