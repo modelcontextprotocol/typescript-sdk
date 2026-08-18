@@ -2812,6 +2812,45 @@ describe('StreamableHTTPClientTransport', () => {
             const messages = errorSpy.mock.calls.map(args => (args[0] as Error).message);
             expect(messages.some(m => m.includes('SSE stream disconnected'))).toBe(false);
         });
+
+        it('settles a resumed send() when the initial resume GET fails outright', async () => {
+            // If the resume GET itself rejects (network failure, session
+            // expired, auth failure) no stream ever exists, so none of the
+            // downstream settlement paths can run — the caller's
+            // onRequestStreamEnd must still fire or the pending request hangs
+            // until its timeout.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValue(new Error('connection refused'));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(100);
+
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalled();
+        });
     });
 
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {

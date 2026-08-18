@@ -1030,7 +1030,19 @@ export class StreamableHTTPClientTransport implements Transport {
                     replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
                     requestSignal: options?.requestSignal,
                     onRequestStreamEnd: options?.onRequestStreamEnd
-                }).catch(error => this.onerror?.(error));
+                }).catch(error => {
+                    this.onerror?.(error as Error);
+                    // The resume GET failed outright (network rejection, HTTP
+                    // error, auth failure) before any stream existed, so none
+                    // of the downstream settlement paths (405/null-body,
+                    // reconnection exhaustion) can run — the per-request
+                    // stream is terminally gone and the caller must settle.
+                    // Never on an intentional abort, matching the
+                    // `onRequestStreamEnd` contract.
+                    if (this._abortController?.signal.aborted !== true && options?.requestSignal?.aborted !== true) {
+                        options?.onRequestStreamEnd?.();
+                    }
+                });
                 return;
             }
 
