@@ -35,7 +35,7 @@ import {
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta, tapWire, wire } from '../helpers/index';
+import { modernEnvelopeMeta, modernStandardHeaders, tapWire, wire } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
@@ -1158,8 +1158,7 @@ verifies('protocol:meta:server-identity', async ({ transport }: TestArgs) => {
         headers: {
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream',
-            'mcp-protocol-version': '2026-07-28',
-            'mcp-method': 'server/discover'
+            ...modernStandardHeaders('server/discover')
         },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: modernEnvelopeMeta() } })
     });
@@ -1184,8 +1183,7 @@ verifies('protocol:envelope:client-info-optional', async ({ transport }: TestArg
         headers: {
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream',
-            'mcp-protocol-version': '2026-07-28',
-            'mcp-method': 'tools/list'
+            ...modernStandardHeaders('tools/list')
         },
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: meta } })
     });
