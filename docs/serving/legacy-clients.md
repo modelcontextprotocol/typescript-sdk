@@ -93,14 +93,14 @@ The v2 server never serves the HTTP+SSE transport. An SSE server moving to v2 mo
 
 The client side keeps `SSEClientTransport`, so a v2 `Client` still reaches old SSE servers. For a server deployment that cannot move yet, a frozen v1 copy of the transport ships as `@modelcontextprotocol/server-legacy/sse` (deprecated, planned for removal in v3).
 
-Mount the frozen transport on two Express routes: `GET /sse` opens the stream and `POST /messages` delivers each client message to the session its `sessionId` query names. `createMcpExpressApp` takes the same options as on the [Express](./express.md) page — set `host` (or `allowedHosts`) for a public deployment and raise `jsonLimit` above Express's 100kb default, since the SSE transport itself accepts messages up to 4mb.
+Mount the frozen transport on two Express routes: `GET /sse` opens the stream and `POST /messages` delivers each client message to the session its `sessionId` query names. `createMcpExpressApp` takes the same options as on the [Express](./express.md) page: binding beyond localhost drops the default `Host`/`Origin` validation, so name the hosts you serve in `allowedHosts`, and raise `jsonLimit` above Express's 100kb default, since the SSE transport itself accepts messages up to 4mb.
 
 ```ts source="../../examples/guides/serving/legacy-clients.examples.ts#SSEServerTransport_express"
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 
 const sessions = new Map<string, SSEServerTransport>();
-const sseApp = createMcpExpressApp({ host: 'sse.example.com', jsonLimit: '4mb' });
+const sseApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['sse.example.com'], jsonLimit: '4mb' });
 
 sseApp.get('/sse', async (_req, res) => {
     const transport = new SSEServerTransport('/messages', res);

@@ -66,7 +66,7 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 
 const sessions = new Map<string, SSEServerTransport>();
-const sseApp = createMcpExpressApp({ host: 'sse.example.com', jsonLimit: '4mb' });
+const sseApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['sse.example.com'], jsonLimit: '4mb' });
 
 sseApp.get('/sse', async (_req, res) => {
     const transport = new SSEServerTransport('/messages', res);
