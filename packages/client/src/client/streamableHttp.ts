@@ -1229,6 +1229,10 @@ export class StreamableHTTPClientTransport implements Transport {
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
+        return this._terminateSession(0);
+    }
+
+    private async _terminateSession(dpopNonceRetries: number): Promise<void> {
         if (!this._sessionId) {
             return; // No session to terminate
         }
@@ -1245,6 +1249,16 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});
+
+            // RFC 9449 §9: see the matching comment in _send.
+            if (
+                response.status === 401 &&
+                this._authProvider &&
+                dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
+                (await this._authProvider.consumeChallenge?.(response, { method: 'DELETE', url: this._url }))
+            ) {
+                return this._terminateSession(dpopNonceRetries + 1);
+            }
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
