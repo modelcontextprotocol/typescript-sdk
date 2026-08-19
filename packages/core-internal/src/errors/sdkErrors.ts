@@ -147,9 +147,15 @@ export class SdkError extends Error {
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
-        public readonly data?: unknown
+        public readonly data?: unknown,
+        options?: ErrorOptions
     ) {
-        super(message);
+        const errorOptions =
+            options ??
+            (data && typeof data === 'object' && 'cause' in data && (data as { cause: unknown }).cause !== undefined
+                ? { cause: (data as { cause: unknown }).cause }
+                : undefined);
+        super(message, errorOptions);
         this.name = 'SdkError';
         stampErrorBrands(this, new.target);
     }
