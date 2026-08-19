@@ -31,7 +31,8 @@ import pkceChallenge from 'pkce-challenge';
 
 import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
 import type { DpopSession } from './dpop';
-import { isDpopNonceChallenge } from './dpop';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
+import type { withDpopFromProvider, withOAuth } from './middleware';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
 export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
@@ -60,18 +61,6 @@ export interface UnauthorizedContext {
 }
 
 /**
- * The HTTP method and target URL of the request a transport is about to send, passed to
- * {@linkcode AuthProvider.authorizeRequest} and {@linkcode AuthProvider.consumeChallenge} so a
- * proof-of-possession scheme (e.g. DPoP) can bind the proof to the exact request it accompanies.
- */
-export interface AuthRequestContext {
-    /** HTTP method of the outgoing request (e.g. `'POST'`, `'GET'`, `'DELETE'`). */
-    method: string;
-    /** Target URL of the outgoing request. */
-    url: URL;
-}
-
-/**
  * Minimal interface for authenticating MCP client transports with bearer tokens.
  *
  * Transports call {@linkcode AuthProvider.token | token()} before every request
@@ -90,36 +79,9 @@ export interface AuthRequestContext {
 export interface AuthProvider {
     /**
      * Returns the current bearer token, or `undefined` if no token is available.
-     * Called before every request whose provider does not implement {@linkcode authorizeRequest}.
+     * Called before every request.
      */
     token(): Promise<string | undefined>;
-
-    /**
-     * Contributes the full set of per-request authentication headers (e.g. `Authorization` and,
-     * for DPoP, also `DPoP`), keyed to the specific request via `ctx`. When implemented, transports
-     * call this instead of `token()` + a hard-coded `Authorization: Bearer …` header. Return
-     * `undefined` when no credential is available yet (equivalent to `token()` returning
-     * `undefined`) — the request proceeds unauthenticated.
-     *
-     * {@linkcode adaptOAuthProvider} implements this for every {@linkcode OAuthClientProvider},
-     * switching between a plain Bearer header and a DPoP-bound `Authorization`/`DPoP` pair
-     * depending on whether {@linkcode OAuthClientProvider.dpop} resolves to a session.
-     */
-    authorizeRequest?(ctx: AuthRequestContext): Promise<Record<string, string> | undefined>;
-
-    /**
-     * Gives the provider a chance to consume a re-presentable challenge carried on a response —
-     * currently, a DPoP `use_dpop_nonce` challenge (RFC 9449 §9). Returns `true` when the transport
-     * should immediately retry the *same* request (a fresh {@linkcode authorizeRequest} call will
-     * pick up the newly learned nonce); `false`/`undefined` when the response is not such a
-     * challenge, so the transport falls through to its normal 401 handling
-     * ({@linkcode onUnauthorized} or throwing).
-     *
-     * Distinct from `onUnauthorized`: this retry does not re-run authorization or consume the
-     * transport's one-shot `isAuthRetry` budget, since a nonce challenge is not a credential
-     * failure — the same token and proof key are still valid, only the proof needs re-signing.
-     */
-    consumeChallenge?(response: Response, ctx: AuthRequestContext): Promise<boolean> | boolean;
 
     /**
      * Called when the server responds with 401. If provided, the transport will
@@ -239,8 +201,8 @@ export async function handleOAuthUnauthorized(
  * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
  * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 `insufficient_scope` step-up).
  *
- * SEP-2352 note: `token()`/`authorizeRequest()` here read the per-request `Authorization: …`
- * header for the *resource server* (the MCP transport URL), not an authorization server. No OAuth
+ * SEP-2352 note: `token()` here is the per-request `Authorization: Bearer …` read for
+ * the *resource server* (the MCP transport URL), not an authorization server. No OAuth
  * discovery has run at this layer, so there is no `issuer` to pass as `ctx` and no
  * {@linkcode discardIfIssuerMismatch} check to apply — the access token is sent only to
  * the resource server, never to an AS, so the SEP-2352 cross-AS isolation invariant is
@@ -248,12 +210,11 @@ export async function handleOAuthUnauthorized(
  * as "return the most-recently-saved token set" (the only consumer is the resource server
  * the token was minted for); providers that round-trip a single blob need no change.
  *
- * SEP-1932 (DPoP) note: when {@linkcode OAuthClientProvider.dpop} resolves to a
- * {@linkcode DpopSession}, `authorizeRequest` presents the token with the `DPoP` scheme plus a
- * fresh per-request proof instead of `Bearer`, and `consumeChallenge` captures a resource-server
- * `use_dpop_nonce` challenge (RFC 9449 §9) so the transport's retry picks up the nonce. A provider
- * without `dpop()` (the common case) is unaffected — `authorizeRequest` degrades to exactly the
- * old `Bearer ${token}` behavior, and `consumeChallenge` always returns `false`.
+ * SEP-1932 (DPoP) note: DPoP request-signing is deliberately *not* done here. When the provider
+ * implements {@linkcode OAuthClientProvider.dpop | dpop()}, the transports wrap their
+ * resource-server `fetch` with {@linkcode withDpopFromProvider}, which upgrades the `Bearer` header
+ * this adapter produces to `DPoP` + proof for DPoP-bound tokens and handles nonce challenges — at
+ * the one layer that sees the real method, URL and response of every request.
  */
 export function adaptOAuthProvider(
     provider: OAuthClientProvider,
@@ -263,25 +224,6 @@ export function adaptOAuthProvider(
         token: async () => {
             const tokens = await provider.tokens();
             return tokens?.access_token;
-        },
-        authorizeRequest: async ctx => {
-            const tokens = await provider.tokens();
-            if (!tokens?.access_token) return;
-            const session = await provider.dpop?.();
-            const headers: Record<string, string> = { Authorization: `Bearer ${tokens.access_token}` };
-            if (!session) return headers;
-            const proof = await session.buildProof({ htm: ctx.method, htu: ctx.url, accessToken: tokens.access_token });
-            headers.Authorization = `DPoP ${tokens.access_token}`;
-            headers.DPoP = proof;
-            return headers;
-        },
-        consumeChallenge: async (response, ctx) => {
-            const session = await provider.dpop?.();
-            if (!session || !isDpopNonceChallenge(response)) return false;
-            session.observeNonce(response, ctx.url);
-            // observeNonce is a no-op when the challenge carried no DPoP-Nonce header — in that
-            // case there is nothing new to retry with, so don't spend the transport's retry on it.
-            return session.nonceFor(ctx.url) !== undefined;
         },
         onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, extraAuthOptions)
     };
@@ -411,8 +353,9 @@ export interface OAuthClientProvider {
     /**
      * Enables DPoP (RFC 9449 / SEP-1932) sender-constrained tokens when implemented. When this
      * resolves to a {@linkcode DpopSession}, {@linkcode auth} signs a DPoP proof into the token
-     * request and {@linkcode adaptOAuthProvider} presents the resulting access token with the
-     * `DPoP` Authorization scheme plus a fresh per-request proof, instead of `Bearer`.
+     * request, and the transports (and {@linkcode withOAuth}) present a resulting `token_type: DPoP`
+     * access token with the `DPoP` Authorization scheme plus a fresh per-request proof instead of
+     * `Bearer`, by wrapping their resource-server `fetch` with {@linkcode withDpopFromProvider}.
      *
      * Return the *same* session across calls — the AS/RS nonce state and signing key it holds are
      * meant to persist for the life of this client registration. A minimal implementation:
@@ -1091,7 +1034,11 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('client');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
-            } else if (error.code === OAuthErrorCode.InvalidGrant) {
+            } else if (error.code === OAuthErrorCode.InvalidGrant || error.code === OAuthErrorCode.InvalidDpopProof) {
+                // invalid_dpop_proof on refresh typically means the stored refresh token is bound
+                // (RFC 9449 §5) to a DPoP key this process no longer holds — e.g. a non-extractable
+                // key regenerated across a restart. Like invalid_grant, the token set is unusable;
+                // drop it and fall through to a fresh authorization.
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             }
@@ -2184,9 +2131,7 @@ export async function executeTokenRequest(
         tokenRequestParams.set('resource', resource.href);
     }
 
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
-    } else if (clientInformation) {
+    if (!addClientAuthentication && clientInformation) {
         const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
         const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
@@ -2194,6 +2139,11 @@ export async function executeTokenRequest(
 
     const requestOnce = async (): Promise<Response> => {
         const requestHeaders = new Headers(headers);
+        // Per attempt, not once up front: a `private_key_jwt` client_assertion carries a one-time
+        // `jti` (RFC 7521 §5.2), so the DPoP nonce retry below must mint a fresh one, not replay it.
+        if (addClientAuthentication) {
+            await addClientAuthentication(requestHeaders, tokenRequestParams, tokenUrl, metadata);
+        }
         if (dpop) {
             // No `ath`: RFC 9449 §4.3 step 12a only binds a proof to an access token when one is
             // presented, and the token request is presenting credentials to *obtain* one.
@@ -2218,7 +2168,7 @@ export async function executeTokenRequest(
             .clone()
             .json()
             .catch(() => {})) as { error?: string } | undefined;
-        if (challenge?.error === 'use_dpop_nonce') {
+        if (challenge?.error === OAuthErrorCode.UseDpopNonce) {
             dpop.observeNonce(response, tokenUrl);
             response = await requestOnce();
         }
