@@ -233,6 +233,79 @@ describe('ClientResponseCache', () => {
         expect(store.get({ method: 'resources/read', params: 'res://a', partition: PRE })).toBeDefined();
     });
 
+    it('evict removes a write whose asynchronous store.set was already in flight', async () => {
+        const backing = new InMemoryResponseCacheStore();
+        let releaseSet!: () => void;
+        const setCanFinish = new Promise<void>(resolve => {
+            releaseSet = resolve;
+        });
+        let markSetStarted!: () => void;
+        const setStarted = new Promise<void>(resolve => {
+            markSetStarted = resolve;
+        });
+        const store: ResponseCacheStore = {
+            get: key => backing.get(key),
+            set: async (key, entry) => {
+                markSetStarted();
+                await setCanFinish;
+                return backing.set(key, entry);
+            },
+            delete: key => backing.delete(key),
+            evict: method => backing.evict(method),
+            clear: () => backing.clear()
+        };
+        const cache = new ClientResponseCache(store, true);
+        const generation = cache.captureGeneration('tools/list');
+
+        const write = cache.write('tools/list', { tools: [TOOL_A] }, generation);
+        await setStarted;
+        // The invalidation starts after set() has been called but before the
+        // asynchronous backend applies the write.
+        const eviction = cache.evict('tools/list');
+        releaseSet();
+        await Promise.all([write, eviction]);
+
+        expect(backing.get({ method: 'tools/list', params: '', partition: PRE })).toBeUndefined();
+    });
+
+    it('evict preserves a fresh write that starts after an asynchronous invalidation', async () => {
+        const backing = new InMemoryResponseCacheStore();
+        let releaseFirstSet!: () => void;
+        const firstSetCanFinish = new Promise<void>(resolve => {
+            releaseFirstSet = resolve;
+        });
+        let markFirstSetStarted!: () => void;
+        const firstSetStarted = new Promise<void>(resolve => {
+            markFirstSetStarted = resolve;
+        });
+        let setCount = 0;
+        const store: ResponseCacheStore = {
+            get: key => backing.get(key),
+            set: async (key, entry) => {
+                setCount += 1;
+                if (setCount === 1) {
+                    markFirstSetStarted();
+                    await firstSetCanFinish;
+                }
+                return backing.set(key, entry);
+            },
+            delete: key => backing.delete(key),
+            evict: method => backing.evict(method),
+            clear: () => backing.clear()
+        };
+        const cache = new ClientResponseCache(store, true);
+
+        const staleWrite = cache.write('tools/list', { tools: [TOOL_A] }, cache.captureGeneration('tools/list'));
+        await firstSetStarted;
+        const eviction = cache.evict('tools/list');
+        const freshWrite = cache.write('tools/list', { tools: [TOOL_B] }, cache.captureGeneration('tools/list'));
+        releaseFirstSet();
+        await Promise.all([staleWrite, eviction, freshWrite]);
+
+        const entry = backing.get({ method: 'tools/list', params: '', partition: PRE });
+        expect(JSON.parse(entry!.value)).toEqual({ tools: [TOOL_B] });
+    });
+
     it('evictKey: own-partition store.delete rejecting does not skip the shared-partition delete', async () => {
         const deleted: string[] = [];
         const store: ResponseCacheStore = {
