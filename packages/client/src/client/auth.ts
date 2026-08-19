@@ -267,8 +267,10 @@ export function adaptOAuthProvider(
         authorizeRequest: async ctx => {
             const tokens = await provider.tokens();
             if (!tokens?.access_token) return;
-            const session = await provider.dpop?.();
             const headers: Record<string, string> = { Authorization: `Bearer ${tokens.access_token}` };
+            // RFC 9449 §7.1: only a token the AS actually bound (token_type=DPoP) is presented with
+            // the DPoP scheme; an AS that ignored the proof issues a plain Bearer token.
+            const session = tokens.token_type?.toLowerCase() === 'dpop' ? await provider.dpop?.() : undefined;
             if (!session) return headers;
             const proof = await session.buildProof({ htm: ctx.method, htu: ctx.url, accessToken: tokens.access_token });
             headers.Authorization = `DPoP ${tokens.access_token}`;
