@@ -1,6 +1,7 @@
 ---
 shape: how-to
 ---
+
 # input_required
 
 An **`input_required`** result is how a `tools/call`, `prompts/get`, or `resources/read` handler asks the connected client for input mid-call: the handler returns the embedded requests, the client answers them and retries the call, and the handler runs again with the responses.
@@ -174,6 +175,19 @@ Sampling and roots are deprecated as of protocol revision 2026-07-28 (SEP-2577) 
 To run rounds in sequence, return an opaque `requestState` string alongside the requests. The client echoes it back byte-for-byte on the retry, and `ctx.mcpReq.requestState<State>()` reads its decoded payload on re-entry. Mint it with the codec from the next section.
 
 ```ts source="../../examples/guides/servers/input-required.examples.ts#requestState_mint"
+const wipeCacheConfirmationSchema = z.object({ confirm: z.boolean() });
+const wipeCacheScopeSchema = z.object({ scope: z.string() });
+const requestWipeCacheScope = async (): Promise<InputRequiredResult> =>
+    inputRequired({
+        inputRequests: {
+            scope: inputRequired.elicit({
+                message: 'Which scope?',
+                requestedSchema: wipeCacheScopeSchema
+            })
+        },
+        requestState: await stateCodec.mint({ step: 'confirmed' })
+    });
+
 server.registerTool(
     'wipe-cache',
     { description: 'Confirm, then pick a scope, then wipe', inputSchema: z.object({}) },
@@ -181,36 +195,33 @@ server.registerTool(
         const state = ctx.mcpReq.requestState<{ step: string }>();
 
         if (state?.step !== 'confirmed') {
-            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', wipeCacheConfirmationSchema);
             if (confirmed?.confirm !== true) {
                 return inputRequired({
                     inputRequests: {
                         confirm: inputRequired.elicit({
                             message: 'Really wipe the cache?',
-                            requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                            requestedSchema: wipeCacheConfirmationSchema
                         })
                     }
                 });
             }
             // Mint only what the response above already proved: the operator confirmed.
-            return inputRequired({
-                inputRequests: {
-                    scope: inputRequired.elicit({
-                        message: 'Which scope?',
-                        requestedSchema: { type: 'object', properties: { scope: { type: 'string' } }, required: ['scope'] }
-                    })
-                },
-                requestState: await stateCodec.mint({ step: 'confirmed' })
-            });
+            return requestWipeCacheScope();
         }
 
-        const scope = acceptedContent<{ scope: string }>(ctx.mcpReq.inputResponses, 'scope');
-        return { content: [{ type: 'text', text: `Wiped ${scope?.scope ?? 'all'}` }] };
+        const scope = acceptedContent(ctx.mcpReq.inputResponses, 'scope', wipeCacheScopeSchema);
+        if (scope === undefined) {
+            return requestWipeCacheScope();
+        }
+        return { content: [{ type: 'text', text: `Wiped ${scope.scope}` }] };
     }
 );
 ```
 
 Mint only what earlier rounds already proved. The token is bearer proof of whatever it claims: state minted as `{ step: 'confirmed' }` before the confirmation arrives grants that step to anyone who echoes it. One call drives all three entries:
+
+On re-entry, a missing or schema-invalid `scope` is treated as unanswered, so the handler repeats only the scope request instead of widening the operation to `all`.
 
 ```
 [client] elicitation/create → Really wipe the cache?

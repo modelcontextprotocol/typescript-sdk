@@ -125,6 +125,19 @@ server.registerTool(
 
 // "Carry state across rounds with `requestState`" — two sequential rounds.
 //#region requestState_mint
+const wipeCacheConfirmationSchema = z.object({ confirm: z.boolean() });
+const wipeCacheScopeSchema = z.object({ scope: z.string() });
+const requestWipeCacheScope = async (): Promise<InputRequiredResult> =>
+    inputRequired({
+        inputRequests: {
+            scope: inputRequired.elicit({
+                message: 'Which scope?',
+                requestedSchema: wipeCacheScopeSchema
+            })
+        },
+        requestState: await stateCodec.mint({ step: 'confirmed' })
+    });
+
 server.registerTool(
     'wipe-cache',
     { description: 'Confirm, then pick a scope, then wipe', inputSchema: z.object({}) },
@@ -132,31 +145,26 @@ server.registerTool(
         const state = ctx.mcpReq.requestState<{ step: string }>();
 
         if (state?.step !== 'confirmed') {
-            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', wipeCacheConfirmationSchema);
             if (confirmed?.confirm !== true) {
                 return inputRequired({
                     inputRequests: {
                         confirm: inputRequired.elicit({
                             message: 'Really wipe the cache?',
-                            requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                            requestedSchema: wipeCacheConfirmationSchema
                         })
                     }
                 });
             }
             // Mint only what the response above already proved: the operator confirmed.
-            return inputRequired({
-                inputRequests: {
-                    scope: inputRequired.elicit({
-                        message: 'Which scope?',
-                        requestedSchema: { type: 'object', properties: { scope: { type: 'string' } }, required: ['scope'] }
-                    })
-                },
-                requestState: await stateCodec.mint({ step: 'confirmed' })
-            });
+            return requestWipeCacheScope();
         }
 
-        const scope = acceptedContent<{ scope: string }>(ctx.mcpReq.inputResponses, 'scope');
-        return { content: [{ type: 'text', text: `Wiped ${scope?.scope ?? 'all'}` }] };
+        const scope = acceptedContent(ctx.mcpReq.inputResponses, 'scope', wipeCacheScopeSchema);
+        if (scope === undefined) {
+            return requestWipeCacheScope();
+        }
+        return { content: [{ type: 'text', text: `Wiped ${scope.scope}` }] };
     }
 );
 //#endregion requestState_mint
