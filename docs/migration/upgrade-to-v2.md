@@ -986,6 +986,7 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 | `NotInitialized`                      | Protocol is not initialized                                                |
 | `CapabilityNotSupported`              | Required capability is not supported                                       |
 | `RequestTimeout`                      | Request timed out waiting for response                                     |
+| `RequestAborted`                      | Request was cancelled through `RequestOptions.signal`                      |
 | `ConnectionClosed`                    | Connection was closed                                                      |
 | `SendFailed`                          | Failed to send message                                                     |
 | `InvalidResult`                       | Response result failed local schema validation                             |
@@ -1550,8 +1551,12 @@ rewrite required unless noted.
   fires (v1 let them run to completion). `InMemoryTransport.close()` no longer
   double-fires `onclose` on the initiating side.
 - **`Protocol.request()` with an already-aborted signal** rejects with
-  `SdkError(SdkErrorCode.RequestTimeout, reason)` instead of throwing the raw
-  `signal.reason`, matching the in-flight-abort path.
+  `SdkError(SdkErrorCode.RequestAborted, reason)` instead of throwing the raw
+  `signal.reason`, matching the in-flight-abort path. Cancellation through
+  `RequestOptions.signal` — pre-aborted or in-flight — carries `RequestAborted`,
+  not `RequestTimeout`; only an elapsed `RequestOptions.timeout` carries
+  `RequestTimeout`. An abort `reason` that is already an `SdkError` is still
+  rethrown verbatim with its own code.
 - **OAuth discovery (`discoverOAuthProtectedResourceMetadata` / `discoverOAuthMetadata`,
   transitively `auth()`) throws on fetch `TypeError`** (DNS failure, `ECONNREFUSED`,
   invalid URL) in Node and Cloudflare Workers instead of swallowing it as a CORS miss
@@ -1571,7 +1576,7 @@ rewrite required unless noted.
   verbs on top of it — `callTool()` and the cacheable list verbs — perform async work
   first (header-mirroring scan, response-cache freshness, output-validator resolution),
   so an abort fired in the same tick can land before the frame is ever sent: the call
-  rejects with `SdkError(RequestTimeout, reason)` and **no `notifications/cancelled` is
+  rejects with `SdkError(RequestAborted, reason)` and **no `notifications/cancelled` is
   emitted** (nothing was in flight). v1 sent the frame synchronously from these verbs.
   Once the frame is on the wire, aborting still sends `notifications/cancelled` before
   rejecting.
