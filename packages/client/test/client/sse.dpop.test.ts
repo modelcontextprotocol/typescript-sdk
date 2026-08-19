@@ -32,6 +32,8 @@ describe('SSEClientTransport — DPoP', () => {
         authProvider = createDpopAuthProvider();
         postHandler = (_req, res) => res.writeHead(200).end();
 
+        // The announced message endpoint is deliberately a different path from the SSE URL (the
+        // normal shape for this transport) so the POST proof's htu binding is actually exercised.
         resourceServer = createServer((req, res) => {
             if (req.method === 'GET') {
                 res.writeHead(200, {
@@ -40,7 +42,7 @@ describe('SSEClientTransport — DPoP', () => {
                     Connection: 'keep-alive'
                 });
                 res.write('event: endpoint\n');
-                res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                res.write(`data: ${resourceBaseUrl.origin}/messages?sessionId=s1\n\n`);
                 return;
             }
             let body = '';
@@ -71,7 +73,7 @@ describe('SSEClientTransport — DPoP', () => {
         expect(authProvider.authorizeRequest).toHaveBeenCalledWith({ method: 'GET', url: resourceBaseUrl });
     });
 
-    it('presents DPoP Authorization + a per-request proof on POST', async () => {
+    it('presents DPoP Authorization + a per-request proof on POST, bound to the message endpoint (not the SSE URL)', async () => {
         let receivedAuth: string | undefined;
         let receivedProof: string | undefined;
         postHandler = (req, res) => {
@@ -83,7 +85,12 @@ describe('SSEClientTransport — DPoP', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
 
         expect(receivedAuth).toBe('DPoP the-access-token');
-        expect(receivedProof).toBe(`proof-for-POST-${resourceBaseUrl.pathname}`);
+        // RFC 9449 §4.2: htu is the URI of *this* request — the announced /messages endpoint.
+        expect(authProvider.authorizeRequest).toHaveBeenCalledWith({
+            method: 'POST',
+            url: new URL(`${resourceBaseUrl.origin}/messages?sessionId=s1`)
+        });
+        expect(receivedProof).toBe('proof-for-POST-/messages');
     });
 
     it('retries once on a use_dpop_nonce challenge from the POST endpoint', async () => {
@@ -102,6 +109,11 @@ describe('SSEClientTransport — DPoP', () => {
 
         expect(postCalls).toBe(2);
         expect(authProvider.consumeChallenge).toHaveBeenCalledTimes(1);
+        // The nonce is remembered per origin of ctx.url, so it must be the endpoint actually POSTed to.
+        expect(authProvider.consumeChallenge.mock.calls[0]![1]).toEqual({
+            method: 'POST',
+            url: new URL(`${resourceBaseUrl.origin}/messages?sessionId=s1`)
+        });
         expect(authProvider.onUnauthorized).not.toHaveBeenCalled();
     });
 

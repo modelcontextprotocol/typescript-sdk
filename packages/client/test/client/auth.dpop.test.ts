@@ -1,8 +1,9 @@
 import type { Mock } from 'vitest';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
-import { adaptOAuthProvider, executeTokenRequest, extractWWWAuthenticateParams } from '../../src/client/auth';
+import { adaptOAuthProvider, auth, executeTokenRequest, extractWWWAuthenticateParams } from '../../src/client/auth';
+import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions';
 import { DpopSession } from '../../src/client/dpop';
 
 function decodeJwtPart(part: string): Record<string, unknown> {
@@ -45,6 +46,16 @@ describe('adaptOAuthProvider — DPoP', () => {
         expect(payload.htm).toBe('POST');
         expect(payload.htu).toBe('https://mcp.example.com/mcp');
         expect(payload.ath).toBeDefined();
+    });
+
+    it('presents a token_type=Bearer token with the Bearer scheme and no proof, even when dpop() resolves (RFC 9449 §7.1)', async () => {
+        // An AS that ignored the DPoP proof (or does not support DPoP) issues token_type=Bearer;
+        // presenting that with the DPoP scheme to a Bearer-only resource server is a guaranteed 401.
+        (provider.tokens as Mock).mockResolvedValue({ access_token: 'tok-1', token_type: 'Bearer' });
+        const authProvider = adaptOAuthProvider(provider);
+
+        const headers = await authProvider.authorizeRequest?.({ method: 'POST', url: new URL('https://mcp.example.com/mcp') });
+        expect(headers).toEqual({ Authorization: 'Bearer tok-1' });
     });
 
     it('falls back to plain Bearer when the provider has no dpop() (back-compat)', async () => {
@@ -92,6 +103,15 @@ describe('adaptOAuthProvider — DPoP', () => {
             status: 401,
             headers: { 'WWW-Authenticate': 'DPoP error="invalid_dpop_proof"', 'DPoP-Nonce': 'server-nonce-1' }
         });
+        await expect(authProvider.consumeChallenge?.(challenge, { method: 'POST', url })).resolves.toBe(false);
+    });
+
+    it('consumeChallenge returns false when a use_dpop_nonce challenge carries no fresh DPoP-Nonce, even with a remembered nonce', async () => {
+        const authProvider = adaptOAuthProvider(provider);
+        const url = new URL('https://mcp.example.com/mcp');
+        // The nonce the server just rejected — retrying with it again is a wasted round trip.
+        session.rememberNonce(url, 'stale-nonce');
+        const challenge = new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } });
         await expect(authProvider.consumeChallenge?.(challenge, { method: 'POST', url })).resolves.toBe(false);
     });
 
@@ -200,6 +220,34 @@ describe('executeTokenRequest — DPoP', () => {
         expect(fetchFn).toHaveBeenCalledTimes(2);
     });
 
+    it('re-runs addClientAuthentication for the nonce retry so a private_key_jwt client_assertion is not replayed', async () => {
+        const addClientAuthentication = createPrivateKeyJwtAuth({
+            issuer: 'client-1',
+            subject: 'client-1',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            alg: 'HS256'
+        });
+        const assertions: string[] = [];
+        fetchFn.mockImplementation(async (_url: URL, init: RequestInit) => {
+            assertions.push((init.body as URLSearchParams).get('client_assertion')!);
+            return assertions.length === 1
+                ? Response.json({ error: 'use_dpop_nonce' }, { status: 400, headers: { 'DPoP-Nonce': 'as-nonce-1' } })
+                : Response.json({ access_token: 'tok', token_type: 'DPoP' });
+        });
+
+        await executeTokenRequest('https://as.example.com', {
+            tokenRequestParams: new URLSearchParams({ grant_type: 'client_credentials' }),
+            addClientAuthentication,
+            dpop: session,
+            fetchFn
+        });
+
+        expect(assertions).toHaveLength(2);
+        // RFC 7521 §5.2 / RFC 7523 §3: an AS MAY enforce one-time use of assertions keyed on jti.
+        const [first, second] = assertions.map(a => decodeJwtPart(a.split('.')[1]!));
+        expect(second!.jti).not.toBe(first!.jti);
+    });
+
     it('is unaffected when no dpop session is supplied (plain OAuth token requests keep working)', async () => {
         fetchFn.mockResolvedValueOnce({
             ok: true,
@@ -215,6 +263,77 @@ describe('executeTokenRequest — DPoP', () => {
 
         const [, init] = fetchFn.mock.calls[0]!;
         expect((init.headers as Headers).has('DPoP')).toBe(false);
+    });
+});
+
+describe('auth() refresh — DPoP', () => {
+    const mockFetch = vi.fn();
+    let session: DpopSession;
+    let provider: OAuthClientProvider;
+    let tokenResponse: () => Response;
+
+    beforeEach(async () => {
+        mockFetch.mockReset();
+        vi.stubGlobal('fetch', mockFetch);
+        session = await DpopSession.create();
+        const tokens = vi.fn().mockResolvedValue({ access_token: 'old', token_type: 'DPoP', refresh_token: 'rt-1' });
+        provider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn().mockResolvedValue({ client_id: 'client-1' }),
+            tokens,
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            invalidateCredentials: vi.fn(async scope => {
+                if (scope === 'tokens' || scope === 'all') tokens.mockResolvedValue(undefined);
+            }),
+            dpop: () => session
+        };
+        mockFetch.mockImplementation(async (url: URL | string) => {
+            const urlString = url.toString();
+            if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                return Response.json({
+                    issuer: 'https://api.example.com',
+                    authorization_endpoint: 'https://api.example.com/authorize',
+                    token_endpoint: 'https://api.example.com/token',
+                    response_types_supported: ['code'],
+                    dpop_signing_alg_values_supported: ['ES256']
+                });
+            }
+            if (urlString === 'https://api.example.com/token') return tokenResponse();
+            return new Response(null, { status: 404 });
+        });
+    });
+
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
+    it('signs a DPoP proof into the refresh_token grant request', async () => {
+        tokenResponse = () => Response.json({ access_token: 'new', token_type: 'DPoP', refresh_token: 'rt-2' });
+
+        await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp' })).resolves.toBe('AUTHORIZED');
+
+        const [, init] = mockFetch.mock.calls.find(c => c[0].toString() === 'https://api.example.com/token')!;
+        expect((init.body as URLSearchParams).get('grant_type')).toBe('refresh_token');
+        const proof = new Headers(init.headers).get('DPoP');
+        expect(decodeJwtPart(proof!.split('.')[1]!).htu).toBe('https://api.example.com/token');
+    });
+
+    it('falls back to a fresh authorization when the AS rejects the refresh with invalid_dpop_proof', async () => {
+        // e.g. the (non-extractable) DPoP key was regenerated across a restart while the persisted
+        // refresh token is still bound to the old key (RFC 9449 §5) — refreshing can never succeed.
+        tokenResponse = () => Response.json({ error: 'invalid_dpop_proof', error_description: 'key mismatch' }, { status: 400 });
+
+        await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp' })).resolves.toBe('REDIRECT');
+        expect(provider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(provider.redirectToAuthorization).toHaveBeenCalledTimes(1);
     });
 });
 

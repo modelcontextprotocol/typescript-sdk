@@ -101,6 +101,17 @@ describe('withDpop', () => {
         expect(response.status).toBe(401);
         expect(mockFetch).toHaveBeenCalledTimes(1);
     });
+
+    it('does not retry a use_dpop_nonce challenge that carries no fresh DPoP-Nonce (nothing new to retry with)', async () => {
+        session.rememberNonce('https://mcp.example.com/mcp', 'stale-nonce');
+        mockFetch.mockResolvedValue(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } }));
+        const enhancedFetch = withDpop(session, getToken)(mockFetch);
+
+        const response = await enhancedFetch('https://mcp.example.com/mcp');
+
+        expect(response.status).toBe(401);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
 });
 
 describe('withOAuth — DPoP-aware', () => {

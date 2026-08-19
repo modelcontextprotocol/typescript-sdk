@@ -33,7 +33,7 @@ describe('StreamableHTTPClientTransport — DPoP', () => {
 
     afterEach(async () => {
         await transport.close().catch(() => {});
-        vi.clearAllMocks();
+        vi.resetAllMocks();
     });
 
     it('presents DPoP Authorization + a per-request proof on POST, keyed to the request', async () => {
@@ -66,6 +66,28 @@ describe('StreamableHTTPClientTransport — DPoP', () => {
         await transport.terminateSession();
 
         expect(authProvider.authorizeRequest).toHaveBeenCalledWith({ method: 'DELETE', url: new URL('http://localhost:1234/mcp') });
+    });
+
+    it('retries session termination (DELETE) once on a use_dpop_nonce challenge', async () => {
+        (transport as unknown as { _sessionId?: string })._sessionId = 'sess-1';
+        authProvider.consumeChallenge.mockImplementation(async (res: Response) => res.status === 401 && res.headers.has('dpop-nonce'));
+        (globalThis.fetch as Mock)
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                headers: new Headers({ 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', 'DPoP-Nonce': 'rs-nonce-1' }),
+                text: async () => ''
+            })
+            .mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), text: async () => '' });
+
+        await expect(transport.terminateSession()).resolves.toBeUndefined();
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+        expect(authProvider.consumeChallenge).toHaveBeenCalledWith(expect.anything(), {
+            method: 'DELETE',
+            url: new URL('http://localhost:1234/mcp')
+        });
+        expect(authProvider.authorizeRequest).toHaveBeenCalledTimes(2);
     });
 
     it("a caller-supplied per-request 'dpop' header cannot override the transport's own proof (reserved header name)", async () => {
