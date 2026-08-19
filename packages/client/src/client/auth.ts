@@ -2187,9 +2187,7 @@ export async function executeTokenRequest(
         tokenRequestParams.set('resource', resource.href);
     }
 
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
-    } else if (clientInformation) {
+    if (!addClientAuthentication && clientInformation) {
         const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
         const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
@@ -2197,6 +2195,11 @@ export async function executeTokenRequest(
 
     const requestOnce = async (): Promise<Response> => {
         const requestHeaders = new Headers(headers);
+        // Per attempt, not once up front: a `private_key_jwt` client_assertion carries a one-time
+        // `jti` (RFC 7521 §5.2), so the DPoP nonce retry below must mint a fresh one, not replay it.
+        if (addClientAuthentication) {
+            await addClientAuthentication(requestHeaders, tokenRequestParams, tokenUrl, metadata);
+        }
         if (dpop) {
             // No `ath`: RFC 9449 §4.3 step 12a only binds a proof to an access token when one is
             // presented, and the token request is presenting credentials to *obtain* one.
