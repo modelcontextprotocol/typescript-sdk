@@ -376,7 +376,7 @@ export class SSEClientTransport implements Transport {
         }
 
         try {
-            const headers = await this._commonHeaders('POST', this._url);
+            const headers = await this._commonHeaders('POST', this._endpoint);
             headers.set('content-type', 'application/json');
             const init = {
                 ...this._requestInit,
@@ -392,7 +392,7 @@ export class SSEClientTransport implements Transport {
                     // RFC 9449 §9: see the matching comment in StreamableHTTPClientTransport._send.
                     if (
                         dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
-                        (await this._authProvider.consumeChallenge?.(response, { method: 'POST', url: this._url }))
+                        (await this._authProvider.consumeChallenge?.(response, { method: 'POST', url: this._endpoint }))
                     ) {
                         await response.text?.().catch(() => {});
                         return this._send(message, isAuthRetry, dpopNonceRetries + 1);
