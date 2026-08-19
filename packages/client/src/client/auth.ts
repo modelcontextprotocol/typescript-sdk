@@ -122,6 +122,15 @@ export interface AuthProvider {
     consumeChallenge?(response: Response, ctx: AuthRequestContext): Promise<boolean> | boolean;
 
     /**
+     * Called with every response the transport receives for an authenticated request, before any
+     * status handling. Lets a proof-of-possession scheme capture server-supplied state that can
+     * ride on *any* response — for DPoP, a `DPoP-Nonce` header on a 2xx (RFC 9449 §8.2) — so the
+     * next {@linkcode authorizeRequest} already carries it instead of paying a `use_dpop_nonce`
+     * round trip. Must not consume the body.
+     */
+    observeResponse?(response: Response, ctx: AuthRequestContext): void | Promise<void>;
+
+    /**
      * Called when the server responds with 401. If provided, the transport will
      * await this, then retry the request once. If the retry also gets 401, or if
      * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
@@ -285,6 +294,10 @@ export function adaptOAuthProvider(
             if (!session || !isDpopNonceChallenge(response) || !response.headers.has('dpop-nonce')) return false;
             session.observeNonce(response, ctx.url);
             return true;
+        },
+        observeResponse: async (response, ctx) => {
+            const session = await provider.dpop?.();
+            session?.observeNonce(response, ctx.url);
         },
         onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, extraAuthOptions)
     };

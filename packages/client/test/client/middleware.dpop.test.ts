@@ -92,6 +92,20 @@ describe('withDpop', () => {
         expect(decodeJwtPart((secondProof.get('DPoP') as string).split('.')[1]!).nonce).toBe('rs-nonce-1');
     });
 
+    it('carries a DPoP-Nonce received on a 2xx response in the next request’s proof (RFC 9449 §8.2)', async () => {
+        mockFetch
+            .mockResolvedValueOnce(new Response(null, { status: 200, headers: { 'DPoP-Nonce': 'rs-nonce-1' } }))
+            .mockResolvedValueOnce(new Response(null, { status: 200 }));
+        const enhancedFetch = withDpop(session, getToken)(mockFetch);
+
+        await enhancedFetch('https://mcp.example.com/mcp', { method: 'POST' });
+        await enhancedFetch('https://mcp.example.com/mcp', { method: 'POST' });
+
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        const secondProof = (mockFetch.mock.calls[1]![1]!.headers as Headers).get('DPoP') as string;
+        expect(decodeJwtPart(secondProof.split('.')[1]!).nonce).toBe('rs-nonce-1');
+    });
+
     it('does not retry on an ordinary (non-nonce) 401', async () => {
         mockFetch.mockResolvedValue(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="invalid_token"' } }));
         const enhancedFetch = withDpop(session, getToken)(mockFetch);

@@ -1,15 +1,25 @@
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AuthProvider, AuthRequestContext } from '../../src/client/auth';
+import type { AuthProvider, AuthRequestContext, OAuthClientProvider } from '../../src/client/auth';
+import { DpopSession } from '../../src/client/dpop';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
+
+function decodeJwtPart(part: string): Record<string, unknown> {
+    return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
+}
 
 /**
  * A minimal `AuthProvider` (not `OAuthClientProvider`) so these tests exercise the transport's own
  * `_commonHeaders`/401-handling wiring directly, independent of `adaptOAuthProvider` (covered by
  * `auth.dpop.test.ts`) and `withDpop` (covered by `middleware.dpop.test.ts`).
  */
-function createDpopAuthProvider(): AuthProvider & { authorizeRequest: Mock; consumeChallenge: Mock; onUnauthorized: Mock } {
+function createDpopAuthProvider(): AuthProvider & {
+    authorizeRequest: Mock;
+    consumeChallenge: Mock;
+    observeResponse: Mock;
+    onUnauthorized: Mock;
+} {
     return {
         token: vi.fn().mockResolvedValue(undefined),
         authorizeRequest: vi.fn(async (ctx: AuthRequestContext) => ({
@@ -17,6 +27,7 @@ function createDpopAuthProvider(): AuthProvider & { authorizeRequest: Mock; cons
             DPoP: `proof-for-${ctx.method}-${ctx.url.pathname}`
         })),
         consumeChallenge: vi.fn().mockResolvedValue(false),
+        observeResponse: vi.fn(),
         onUnauthorized: vi.fn().mockResolvedValue(undefined)
     };
 }
@@ -88,6 +99,25 @@ describe('StreamableHTTPClientTransport — DPoP', () => {
             url: new URL('http://localhost:1234/mcp')
         });
         expect(authProvider.authorizeRequest).toHaveBeenCalledTimes(2);
+    });
+
+    it('hands every response (POST, GET, DELETE) to observeResponse before status handling', async () => {
+        const url = new URL('http://localhost:1234/mcp');
+        const post = { ok: true, status: 202, headers: new Headers() };
+        const get = { ok: false, status: 405, headers: new Headers(), text: async () => '' };
+        const del = { ok: true, status: 200, headers: new Headers(), text: async () => '' };
+        (globalThis.fetch as Mock).mockResolvedValueOnce(post).mockResolvedValueOnce(get).mockResolvedValueOnce(del);
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+        await (transport as unknown as { _startOrAuthSse: (o: object) => Promise<void> })._startOrAuthSse({});
+        (transport as unknown as { _sessionId?: string })._sessionId = 'sess-1';
+        await transport.terminateSession();
+
+        expect(authProvider.observeResponse.mock.calls).toEqual([
+            [post, { method: 'POST', url }],
+            [get, { method: 'GET', url }],
+            [del, { method: 'DELETE', url }]
+        ]);
     });
 
     it("a caller-supplied per-request 'dpop' header cannot override the transport's own proof (reserved header name)", async () => {
@@ -190,5 +220,44 @@ describe('StreamableHTTPClientTransport — DPoP', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(3);
         expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
         expect(authProvider.consumeChallenge).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe('StreamableHTTPClientTransport — DPoP via OAuthClientProvider', () => {
+    it('carries a DPoP-Nonce received on a 2xx response in the next request’s proof (RFC 9449 §8.2)', async () => {
+        const session = await DpopSession.create();
+        const provider: OAuthClientProvider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn(),
+            tokens: vi.fn().mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' }),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            dpop: () => session
+        };
+        const transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: provider });
+        const fetchSpy = vi
+            .spyOn(globalThis, 'fetch')
+            .mockResolvedValueOnce(new Response(null, { status: 202, headers: { 'DPoP-Nonce': 'rs-nonce-1' } }))
+            .mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+        try {
+            await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+            await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-2' });
+
+            const secondProof = new Headers((fetchSpy.mock.calls[1]![1] as RequestInit).headers).get('DPoP')!;
+            // Without this the RS's pre-emptive nonce is ignored and the next request against a
+            // nonce-requiring RS costs a guaranteed 401 + retry.
+            expect(decodeJwtPart(secondProof.split('.')[1]!).nonce).toBe('rs-nonce-1');
+        } finally {
+            await transport.close();
+            fetchSpy.mockRestore();
+        }
     });
 });

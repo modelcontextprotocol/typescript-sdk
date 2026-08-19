@@ -434,6 +434,15 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
+    /** Hands every response to {@linkcode AuthProvider.observeResponse} (e.g. DPoP-Nonce capture, RFC 9449 §8.2). */
+    private async _observeAuthResponse(response: Response, method: string): Promise<void> {
+        try {
+            await this._authProvider?.observeResponse?.(response, { method, url: this._url });
+        } catch (error) {
+            throw markAuthSeamEscape(error);
+        }
+    }
+
     /**
      * @param method HTTP method of the outgoing request — passed to
      *   {@linkcode AuthProvider.authorizeRequest} so a proof-of-possession scheme (DPoP) can bind
@@ -560,6 +569,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers,
                 signal
             });
+            await this._observeAuthResponse(response, 'GET');
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
@@ -1030,6 +1040,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
+            await this._observeAuthResponse(response, 'POST');
 
             // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
             // Clients include only an id "returned by the server during initialization", so a sessionless handshake clears any stale id.
@@ -1248,6 +1259,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
+            await this._observeAuthResponse(response, 'DELETE');
             await response.text?.().catch(() => {});
 
             // RFC 9449 §9: see the matching comment in _send.

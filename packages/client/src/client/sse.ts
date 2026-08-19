@@ -160,6 +160,15 @@ export class SSEClientTransport implements Transport {
 
     private _last401Response?: Response;
 
+    /** Hands every response to {@linkcode AuthProvider.observeResponse} (e.g. DPoP-Nonce capture, RFC 9449 §8.2). */
+    private async _observeAuthResponse(response: Response, method: string, url: URL): Promise<void> {
+        try {
+            await this._authProvider?.observeResponse?.(response, { method, url });
+        } catch (error) {
+            throw markAuthSeamEscape(error);
+        }
+    }
+
     /**
      * @param method HTTP method of the outgoing request — passed to
      *   {@linkcode AuthProvider.authorizeRequest} so a proof-of-possession scheme (DPoP) can bind
@@ -207,6 +216,7 @@ export class SSEClientTransport implements Transport {
                 ...this._eventSourceInit,
                 fetch: async (url, init) => {
                     let response = await fetchImpl(url, { ...init, headers: await this._sseStreamHeaders() });
+                    await this._observeAuthResponse(response, 'GET', this._url);
 
                     // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential failure
                     // — retry inline, once, with a fresh proof carrying the nonce the provider
@@ -217,6 +227,7 @@ export class SSEClientTransport implements Transport {
                         if (shouldRetry) {
                             await response.text?.().catch(() => {});
                             response = await fetchImpl(url, { ...init, headers: await this._sseStreamHeaders() });
+                            await this._observeAuthResponse(response, 'GET', this._url);
                         }
                     }
 
@@ -387,6 +398,7 @@ export class SSEClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._endpoint, init);
+            await this._observeAuthResponse(response, 'POST', this._endpoint);
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
                     // RFC 9449 §9: see the matching comment in StreamableHTTPClientTransport._send.

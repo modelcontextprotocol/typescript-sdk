@@ -177,6 +177,8 @@ export const withDpop =
                 session.observeNonce(response, url);
                 response = await makeRequest();
             }
+            // RFC 9449 §8.2: a fresh nonce may ride on any response, success included.
+            session.observeNonce(response, url);
 
             return response;
         };

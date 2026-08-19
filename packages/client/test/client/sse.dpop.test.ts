@@ -9,7 +9,12 @@ import type { AuthProvider, AuthRequestContext } from '../../src/client/auth';
 import { SSEClientTransport } from '../../src/client/sse';
 
 /** Same shape as the StreamableHTTP DPoP test's fake — see streamableHttp.dpop.test.ts. */
-function createDpopAuthProvider(): AuthProvider & { authorizeRequest: Mock; consumeChallenge: Mock; onUnauthorized: Mock } {
+function createDpopAuthProvider(): AuthProvider & {
+    authorizeRequest: Mock;
+    consumeChallenge: Mock;
+    observeResponse: Mock;
+    onUnauthorized: Mock;
+} {
     return {
         token: vi.fn().mockResolvedValue(undefined),
         authorizeRequest: vi.fn(async (ctx: AuthRequestContext) => ({
@@ -17,6 +22,7 @@ function createDpopAuthProvider(): AuthProvider & { authorizeRequest: Mock; cons
             DPoP: `proof-for-${ctx.method}-${ctx.url.pathname}`
         })),
         consumeChallenge: vi.fn().mockResolvedValue(false),
+        observeResponse: vi.fn(),
         onUnauthorized: vi.fn().mockResolvedValue(undefined)
     };
 }
@@ -91,6 +97,21 @@ describe('SSEClientTransport — DPoP', () => {
             url: new URL(`${resourceBaseUrl.origin}/messages?sessionId=s1`)
         });
         expect(receivedProof).toBe('proof-for-POST-/messages');
+    });
+
+    it('hands the GET stream response and each POST response to observeResponse', async () => {
+        // GET was observed during transport.start() in beforeEach.
+        expect(authProvider.observeResponse).toHaveBeenCalledWith(expect.objectContaining({ status: 200 }), {
+            method: 'GET',
+            url: resourceBaseUrl
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+
+        expect(authProvider.observeResponse).toHaveBeenLastCalledWith(expect.objectContaining({ status: 200 }), {
+            method: 'POST',
+            url: new URL(`${resourceBaseUrl.origin}/messages?sessionId=s1`)
+        });
     });
 
     it('retries once on a use_dpop_nonce challenge from the POST endpoint', async () => {

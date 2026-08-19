@@ -115,6 +115,20 @@ describe('adaptOAuthProvider — DPoP', () => {
         await expect(authProvider.consumeChallenge?.(challenge, { method: 'POST', url })).resolves.toBe(false);
     });
 
+    it('observeResponse captures a DPoP-Nonce from any response so the next proof carries it (RFC 9449 §8.2)', async () => {
+        const authProvider = adaptOAuthProvider(provider);
+        const url = new URL('https://mcp.example.com/mcp');
+        (provider.tokens as Mock).mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' });
+
+        await authProvider.observeResponse?.(new Response(null, { status: 200, headers: { 'DPoP-Nonce': 'rs-nonce-1' } }), {
+            method: 'POST',
+            url
+        });
+
+        const headers = await authProvider.authorizeRequest?.({ method: 'POST', url });
+        expect(decodeJwtPart(headers!.DPoP!.split('.')[1]!).nonce).toBe('rs-nonce-1');
+    });
+
     it('consumeChallenge returns false when the provider has no dpop() session', async () => {
         provider.dpop = undefined;
         const authProvider = adaptOAuthProvider(provider);
