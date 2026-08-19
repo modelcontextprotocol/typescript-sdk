@@ -1,5 +1,5 @@
 import type { FetchLike } from '@modelcontextprotocol/core-internal';
-import type { Mocked, MockedFunction } from 'vitest';
+import type { Mock, Mocked, MockedFunction } from 'vitest';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
@@ -15,7 +15,7 @@ vi.mock('../../src/client/auth', async () => {
 });
 
 import { auth } from '../../src/client/auth';
-import { withDpop, withOAuth } from '../../src/client/middleware';
+import { withDpop, withDpopFromProvider, withOAuth } from '../../src/client/middleware';
 
 const mockAuth = auth as MockedFunction<typeof auth>;
 
@@ -64,11 +64,12 @@ describe('withDpop', () => {
         mockFetch.mockResolvedValue(new Response(null, { status: 200 }));
         const enhancedFetch = withDpop(session, getToken)(mockFetch);
 
-        await enhancedFetch('https://mcp.example.com/mcp');
+        await enhancedFetch('https://mcp.example.com/mcp', { headers: { Accept: 'application/json' } });
 
-        const headers = mockFetch.mock.calls[0]![1]!.headers as Headers;
+        const headers = new Headers(mockFetch.mock.calls[0]![1]!.headers);
         expect(headers.has('Authorization')).toBe(false);
         expect(headers.has('DPoP')).toBe(false);
+        expect(headers.get('Accept')).toBe('application/json');
     });
 
     it('retries once, with a fresh proof carrying the nonce, on a use_dpop_nonce challenge', async () => {
@@ -92,6 +93,20 @@ describe('withDpop', () => {
         expect(decodeJwtPart((secondProof.get('DPoP') as string).split('.')[1]!).nonce).toBe('rs-nonce-1');
     });
 
+    it('carries a DPoP-Nonce received on a 2xx response in the next request’s proof (RFC 9449 §8.2)', async () => {
+        mockFetch
+            .mockResolvedValueOnce(new Response(null, { status: 200, headers: { 'DPoP-Nonce': 'rs-nonce-1' } }))
+            .mockResolvedValueOnce(new Response(null, { status: 200 }));
+        const enhancedFetch = withDpop(session, getToken)(mockFetch);
+
+        await enhancedFetch('https://mcp.example.com/mcp', { method: 'POST' });
+        await enhancedFetch('https://mcp.example.com/mcp', { method: 'POST' });
+
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        const secondProof = (mockFetch.mock.calls[1]![1]!.headers as Headers).get('DPoP') as string;
+        expect(decodeJwtPart(secondProof.split('.')[1]!).nonce).toBe('rs-nonce-1');
+    });
+
     it('does not retry on an ordinary (non-nonce) 401', async () => {
         mockFetch.mockResolvedValue(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="invalid_token"' } }));
         const enhancedFetch = withDpop(session, getToken)(mockFetch);
@@ -100,6 +115,131 @@ describe('withDpop', () => {
 
         expect(response.status).toBe(401);
         expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not retry a use_dpop_nonce challenge that carries no fresh DPoP-Nonce (nothing new to retry with)', async () => {
+        session.rememberNonce('https://mcp.example.com/mcp', 'stale-nonce');
+        mockFetch.mockResolvedValue(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } }));
+        const enhancedFetch = withDpop(session, getToken)(mockFetch);
+
+        const response = await enhancedFetch('https://mcp.example.com/mcp');
+
+        expect(response.status).toBe(401);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe('withDpop — session/token sources', () => {
+    it('passes the request through untouched when the session source resolves to undefined', async () => {
+        const mockFetch = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 200 }));
+        const init = { method: 'POST', headers: { Authorization: 'Bearer tok' } };
+
+        const noSession = vi.fn<() => Promise<DpopSession | undefined>>().mockResolvedValue(undefined);
+        await withDpop(noSession, async () => 'tok')(mockFetch)('https://mcp.example.com/mcp', init);
+
+        expect(mockFetch).toHaveBeenCalledWith('https://mcp.example.com/mcp', init);
+    });
+
+    it('leaves an existing Authorization header alone when getToken resolves to undefined', async () => {
+        const session = await DpopSession.create();
+        const mockFetch = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 200 }));
+        const init = { method: 'POST', headers: { Authorization: 'Bearer tok' } };
+
+        const noToken = vi.fn<() => Promise<string | undefined>>().mockResolvedValue(undefined);
+        await withDpop(session, noToken)(mockFetch)('https://mcp.example.com/mcp', init);
+
+        expect(mockFetch).toHaveBeenCalledWith('https://mcp.example.com/mcp', init);
+    });
+
+    it('accepts a lazily-resolved session', async () => {
+        const session = await DpopSession.create();
+        const mockFetch = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 200 }));
+
+        await withDpop(
+            async () => session,
+            async () => 'tok'
+        )(mockFetch)('https://mcp.example.com/mcp', { method: 'POST' });
+
+        expect((mockFetch.mock.calls[0]![1]!.headers as Headers).get('Authorization')).toBe('DPoP tok');
+    });
+});
+
+describe('withDpopFromProvider', () => {
+    let session: DpopSession;
+    let provider: Mocked<OAuthClientProvider>;
+    let mockFetch: MockedFunction<FetchLike>;
+    const bearerInit = { method: 'POST', headers: { Authorization: 'Bearer tok-1' } };
+
+    beforeEach(async () => {
+        session = await DpopSession.create();
+        provider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            tokens: vi.fn().mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' }),
+            saveTokens: vi.fn(),
+            clientInformation: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            dpop: vi.fn().mockResolvedValue(session)
+        };
+        mockFetch = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 200 }));
+    });
+
+    it('upgrades a token_type=DPoP token to the DPoP scheme with a proof bound to the request', async () => {
+        await withDpopFromProvider(provider)(mockFetch)('https://mcp.example.com/mcp?x=1', bearerInit);
+
+        const headers = mockFetch.mock.calls[0]![1]!.headers as Headers;
+        expect(headers.get('Authorization')).toBe('DPoP tok-1');
+        const payload = decodeJwtPart(headers.get('DPoP')!.split('.')[1]!);
+        expect(payload).toMatchObject({ htm: 'POST', htu: 'https://mcp.example.com/mcp' });
+        expect(payload.ath).toBeDefined();
+    });
+
+    it('leaves a token_type=Bearer token on the Bearer scheme with no proof, even though dpop() resolves (RFC 9449 §7.1)', async () => {
+        // An AS that ignored the DPoP proof (or does not support DPoP) issues token_type=Bearer;
+        // presenting that with the DPoP scheme to a Bearer-only resource server is a guaranteed 401.
+        provider.tokens.mockResolvedValue({ access_token: 'tok-1', token_type: 'Bearer' });
+
+        await withDpopFromProvider(provider)(mockFetch)('https://mcp.example.com/mcp', bearerInit);
+
+        expect(mockFetch).toHaveBeenCalledWith('https://mcp.example.com/mcp', bearerInit);
+    });
+
+    it('is a pass-through when dpop() resolves to undefined', async () => {
+        (provider.dpop as Mock).mockResolvedValue(undefined);
+
+        await withDpopFromProvider(provider)(mockFetch)('https://mcp.example.com/mcp', bearerInit);
+
+        expect(mockFetch).toHaveBeenCalledWith('https://mcp.example.com/mcp', bearerInit);
+    });
+
+    it('retries once with the server nonce on a use_dpop_nonce challenge, and not when the challenge carries no fresh DPoP-Nonce', async () => {
+        mockFetch
+            .mockResolvedValueOnce(
+                new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', 'DPoP-Nonce': 'n1' } })
+            )
+            .mockResolvedValueOnce(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"' } }));
+
+        const response = await withDpopFromProvider(provider)(mockFetch)('https://mcp.example.com/mcp', bearerInit);
+
+        expect(response.status).toBe(401);
+        expect(mockFetch).toHaveBeenCalledTimes(2);
+        expect(decodeJwtPart((mockFetch.mock.calls[1]![1]!.headers as Headers).get('DPoP')!.split('.')[1]!).nonce).toBe('n1');
+    });
+
+    it('stamps a throwing tokens()/dpop() as an auth-seam failure (not a network error)', async () => {
+        const { isAuthSeamEscape } = await import('../../src/client/authSeam');
+        provider.tokens.mockRejectedValue(new Error('storage unavailable'));
+
+        const error = await withDpopFromProvider(provider)(mockFetch)('https://mcp.example.com/mcp', bearerInit).catch(error_ => error_);
+
+        expect(isAuthSeamEscape(error)).toBe(true);
+        expect(mockFetch).not.toHaveBeenCalled();
     });
 });
 
@@ -181,7 +321,7 @@ describe('withOAuth — DPoP-aware', () => {
         // server reveal its nonce requirement. Regression test for a bug where the nonce check
         // only ran *before* the credential retry, never after it — real conformance servers
         // (auth/dpop-nonce) hit exactly this ordering.
-        mockProvider.tokens.mockResolvedValueOnce(undefined).mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' });
+        mockProvider.tokens.mockResolvedValue(undefined);
         mockAuth.mockImplementation(async () => {
             mockProvider.tokens.mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' });
             return 'AUTHORIZED';

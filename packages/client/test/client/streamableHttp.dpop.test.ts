@@ -1,172 +1,206 @@
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AuthProvider, AuthRequestContext } from '../../src/client/auth';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import { DpopSession } from '../../src/client/dpop';
+import { withDpop } from '../../src/client/middleware';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
-/**
- * A minimal `AuthProvider` (not `OAuthClientProvider`) so these tests exercise the transport's own
- * `_commonHeaders`/401-handling wiring directly, independent of `adaptOAuthProvider` (covered by
- * `auth.dpop.test.ts`) and `withDpop` (covered by `middleware.dpop.test.ts`).
- */
-function createDpopAuthProvider(): AuthProvider & { authorizeRequest: Mock; consumeChallenge: Mock; onUnauthorized: Mock } {
-    return {
-        token: vi.fn().mockResolvedValue(undefined),
-        authorizeRequest: vi.fn(async (ctx: AuthRequestContext) => ({
-            Authorization: 'DPoP the-access-token',
-            DPoP: `proof-for-${ctx.method}-${ctx.url.pathname}`
-        })),
-        consumeChallenge: vi.fn().mockResolvedValue(false),
-        onUnauthorized: vi.fn().mockResolvedValue(undefined)
-    };
+function decodeJwtPart(part: string): Record<string, unknown> {
+    return JSON.parse(Buffer.from(part, 'base64url').toString('utf8'));
 }
 
-describe('StreamableHTTPClientTransport — DPoP', () => {
-    let transport: StreamableHTTPClientTransport;
-    let authProvider: ReturnType<typeof createDpopAuthProvider>;
+function proofOf(call: unknown[]): Record<string, unknown> {
+    return decodeJwtPart(new Headers((call[1] as RequestInit).headers).get('DPoP')!.split('.')[1]!);
+}
 
-    beforeEach(() => {
-        authProvider = createDpopAuthProvider();
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
-        vi.spyOn(globalThis, 'fetch');
+const nonceChallenge = (nonce?: string) =>
+    new Response(null, {
+        status: 401,
+        headers: { 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', ...(nonce ? { 'DPoP-Nonce': nonce } : {}) }
+    });
+
+/**
+ * These tests drive the transport with a real {@linkcode DpopSession} behind an
+ * {@linkcode OAuthClientProvider} and assert on what reaches `fetch` — the transport applies DPoP by
+ * wrapping its resource-server fetch with `withDpopFromProvider`, so the wire is the contract.
+ */
+describe('StreamableHTTPClientTransport — DPoP', () => {
+    const url = new URL('http://localhost:1234/mcp');
+    let session: DpopSession;
+    let provider: OAuthClientProvider & { tokens: Mock };
+    let transport: StreamableHTTPClientTransport;
+    let fetchSpy: Mock<typeof fetch>;
+
+    const authProviderOf = (t: StreamableHTTPClientTransport) => (t as unknown as { _authProvider: AuthProvider })._authProvider;
+
+    beforeEach(async () => {
+        session = await DpopSession.create();
+        provider = {
+            get redirectUrl() {
+                return 'http://localhost/callback';
+            },
+            get clientMetadata() {
+                return { redirect_uris: ['http://localhost/callback'] };
+            },
+            clientInformation: vi.fn(),
+            tokens: vi.fn().mockResolvedValue({ access_token: 'tok-1', token_type: 'DPoP' }),
+            saveTokens: vi.fn(),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn(),
+            dpop: () => session
+        };
+        fetchSpy = vi.spyOn(globalThis, 'fetch');
+        transport = new StreamableHTTPClientTransport(url, { authProvider: provider });
     });
 
     afterEach(async () => {
         await transport.close().catch(() => {});
-        vi.clearAllMocks();
+        vi.restoreAllMocks();
     });
 
-    it('presents DPoP Authorization + a per-request proof on POST, keyed to the request', async () => {
-        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+    it('presents Authorization: DPoP + a proof bound to POST and the MCP URL', async () => {
+        fetchSpy.mockResolvedValueOnce(new Response(null, { status: 202 }));
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
 
-        expect(authProvider.authorizeRequest).toHaveBeenCalledWith({ method: 'POST', url: new URL('http://localhost:1234/mcp') });
-        const [, init] = (globalThis.fetch as Mock).mock.calls[0]!;
-        const headers = init.headers as Headers;
-        expect(headers.get('Authorization')).toBe('DPoP the-access-token');
-        expect(headers.get('DPoP')).toBe('proof-for-POST-/mcp');
+        const headers = new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers);
+        expect(headers.get('Authorization')).toBe('DPoP tok-1');
+        expect(proofOf(fetchSpy.mock.calls[0]!)).toMatchObject({ htm: 'POST', htu: url.href });
+        expect(proofOf(fetchSpy.mock.calls[0]!).ath).toBeDefined();
     });
 
-    it('presents a proof on the GET SSE stream, keyed to GET (not POST)', async () => {
-        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: false, status: 405, headers: new Headers(), text: async () => '' });
+    it('binds the GET SSE stream proof to GET', async () => {
+        fetchSpy.mockResolvedValueOnce(new Response(null, { status: 405 }));
 
         await (transport as unknown as { _startOrAuthSse: (o: object) => Promise<void> })._startOrAuthSse({});
 
-        expect(authProvider.authorizeRequest).toHaveBeenCalledWith({ method: 'GET', url: new URL('http://localhost:1234/mcp') });
-        const [, init] = (globalThis.fetch as Mock).mock.calls[0]!;
-        expect((init.headers as Headers).get('DPoP')).toBe('proof-for-GET-/mcp');
+        expect(proofOf(fetchSpy.mock.calls[0]!)).toMatchObject({ htm: 'GET', htu: url.href });
     });
 
-    it('presents a proof on session termination (DELETE)', async () => {
-        // A session id is required for terminateSession to send anything.
+    it('binds the session-termination proof to DELETE, and retries DELETE once on a use_dpop_nonce challenge', async () => {
         (transport as unknown as { _sessionId?: string })._sessionId = 'sess-1';
-        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 200, headers: new Headers(), text: async () => '' });
+        fetchSpy.mockResolvedValueOnce(nonceChallenge('rs-nonce-1')).mockResolvedValueOnce(new Response(null, { status: 200 }));
 
-        await transport.terminateSession();
+        await expect(transport.terminateSession()).resolves.toBeUndefined();
 
-        expect(authProvider.authorizeRequest).toHaveBeenCalledWith({ method: 'DELETE', url: new URL('http://localhost:1234/mcp') });
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(proofOf(fetchSpy.mock.calls[0]!)).toMatchObject({ htm: 'DELETE', htu: url.href });
+        expect(proofOf(fetchSpy.mock.calls[1]!)).toMatchObject({ htm: 'DELETE', nonce: 'rs-nonce-1' });
+    });
+
+    it('presents a token_type=Bearer token with the Bearer scheme and no proof, even though dpop() resolves (RFC 9449 §7.1)', async () => {
+        provider.tokens.mockResolvedValue({ access_token: 'tok-1', token_type: 'Bearer' });
+        fetchSpy.mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+
+        const headers = new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers);
+        expect(headers.get('Authorization')).toBe('Bearer tok-1');
+        expect(headers.has('DPoP')).toBe(false);
     });
 
     it("a caller-supplied per-request 'dpop' header cannot override the transport's own proof (reserved header name)", async () => {
-        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+        fetchSpy.mockResolvedValueOnce(new Response(null, { status: 202 }));
 
         await transport.send(
             { jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' },
             { headers: { dpop: 'attacker-supplied-proof', DPoP: 'attacker-supplied-proof-2' } }
         );
 
-        const [, init] = (globalThis.fetch as Mock).mock.calls[0]!;
-        expect((init.headers as Headers).get('DPoP')).toBe('proof-for-POST-/mcp');
+        expect(proofOf(fetchSpy.mock.calls[0]!).htm).toBe('POST');
     });
 
-    it('falls back to Bearer + token() when the provider has no authorizeRequest (plain AuthProvider back-compat)', async () => {
-        const bearerProvider: AuthProvider = { token: vi.fn().mockResolvedValue('bearer-tok') };
-        const bearerTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: bearerProvider });
-        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
-
-        await bearerTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
-
-        const [, init] = (globalThis.fetch as Mock).mock.calls[0]!;
-        expect((init.headers as Headers).get('Authorization')).toBe('Bearer bearer-tok');
-        expect((init.headers as Headers).has('DPoP')).toBe(false);
-        await bearerTransport.close();
-    });
-
-    it('retries once on a use_dpop_nonce challenge, independent of the (already-spent) auth retry budget', async () => {
-        const nonceChallenge = {
-            ok: false,
-            status: 401,
-            statusText: 'Unauthorized',
-            headers: new Headers({ 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', 'DPoP-Nonce': 'rs-nonce-1' }),
-            text: async () => ''
-        };
-        // consumeChallenge is only "retry-worthy" (true) on this specific 401; the credential-401
-        // path (onUnauthorized) must never see it.
-        authProvider.consumeChallenge.mockImplementation(async (res: Response) => res.status === 401 && res.headers.has('dpop-nonce'));
-
-        (globalThis.fetch as Mock)
-            .mockResolvedValueOnce(nonceChallenge) // first attempt: nonce challenge
-            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() }); // retry: succeeds
+    it('retries once on a use_dpop_nonce challenge with a fresh proof carrying the nonce, without re-authorizing', async () => {
+        const onUnauthorized = vi.spyOn(authProviderOf(transport), 'onUnauthorized');
+        fetchSpy.mockResolvedValueOnce(nonceChallenge('rs-nonce-1')).mockResolvedValueOnce(new Response(null, { status: 202 }));
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
-        expect(authProvider.consumeChallenge).toHaveBeenCalledTimes(1);
-        expect(authProvider.onUnauthorized).not.toHaveBeenCalled();
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        const [first, second] = fetchSpy.mock.calls.map(c => proofOf(c));
+        expect(second!.nonce).toBe('rs-nonce-1');
+        expect(second!.jti).not.toBe(first!.jti); // RFC 9449 §4.2: never replay the original proof
+        expect(onUnauthorized).not.toHaveBeenCalled();
     });
 
-    it('bounds retries when the nonce challenge never clears (no infinite loop)', async () => {
-        const nonceChallenge = {
-            ok: false,
-            status: 401,
-            statusText: 'Unauthorized',
-            headers: new Headers({ 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', 'DPoP-Nonce': 'rs-nonce-1' }),
-            text: async () => ''
-        };
-        authProvider.consumeChallenge.mockResolvedValue(true); // always "retry-worthy" — must still be bounded
-        (globalThis.fetch as Mock).mockResolvedValue(nonceChallenge);
+    it('does not spend the nonce retry on a use_dpop_nonce challenge that carries no fresh DPoP-Nonce', async () => {
+        session.rememberNonce(url, 'stale-nonce');
+        const onUnauthorized = vi.spyOn(authProviderOf(transport), 'onUnauthorized').mockResolvedValue();
+        fetchSpy.mockResolvedValueOnce(nonceChallenge()).mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+
+        // Straight to the credential path: challenge → onUnauthorized → one retry.
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        expect(onUnauthorized).toHaveBeenCalledTimes(1);
+    });
+
+    it('bounds retries when the nonce challenge never clears: a nonce retry per attempt, one credential retry, then throws', async () => {
+        const onUnauthorized = vi.spyOn(authProviderOf(transport), 'onUnauthorized').mockResolvedValue();
+        fetchSpy.mockImplementation(async () => nonceChallenge('rs-nonce-1'));
 
         await expect(transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' })).rejects.toThrow();
 
-        // The nonce-retry budget (1) is spent after the 2nd attempt; the 3rd attempt falls through
-        // to the ordinary credential-retry path (onUnauthorized, isAuthRetry) since a persistent
-        // nonce challenge is indistinguishable from a broken server at that point — that path's
-        // own single-retry budget is what finally throws. Total: initial + nonce retry + auth
-        // retry = 3, not unbounded.
-        expect(globalThis.fetch).toHaveBeenCalledTimes(3);
-        expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+        // attempt 1 (+ its nonce retry) → onUnauthorized → attempt 2 (+ its nonce retry) → give up.
+        expect(fetchSpy).toHaveBeenCalledTimes(4);
+        expect(onUnauthorized).toHaveBeenCalledTimes(1);
     });
 
-    it('the nonce-challenge leg runs before, and does not consume, onUnauthorized on the post-auth-retry leg', async () => {
-        // Sequence: first request -> ordinary 401 (credential failure) -> onUnauthorized runs ->
-        // retried request -> a *nonce* 401 this time (server now demands a nonce) -> nonce retry -> success.
-        // This is exactly the auth/dpop-nonce conformance scenario's shape.
-        const credentialChallenge = {
-            ok: false,
-            status: 401,
-            statusText: 'Unauthorized',
-            headers: new Headers({ 'WWW-Authenticate': 'DPoP error="invalid_token"' }),
-            text: async () => ''
-        };
-        const nonceChallenge = {
-            ok: false,
-            status: 401,
-            statusText: 'Unauthorized',
-            headers: new Headers({ 'WWW-Authenticate': 'DPoP error="use_dpop_nonce"', 'DPoP-Nonce': 'rs-nonce-1' }),
-            text: async () => ''
-        };
-        authProvider.consumeChallenge.mockImplementation(async (res: Response) => res.headers.has('dpop-nonce'));
-
-        (globalThis.fetch as Mock)
-            .mockResolvedValueOnce(credentialChallenge)
-            .mockResolvedValueOnce(nonceChallenge)
-            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+    it('handles a credential 401 first and a nonce challenge on the re-authorized retry (auth/dpop-nonce shape)', async () => {
+        const onUnauthorized = vi.spyOn(authProviderOf(transport), 'onUnauthorized').mockResolvedValue();
+        fetchSpy
+            .mockResolvedValueOnce(new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'DPoP error="invalid_token"' } }))
+            .mockResolvedValueOnce(nonceChallenge('rs-nonce-1'))
+            .mockResolvedValueOnce(new Response(null, { status: 202 }));
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
 
-        expect(globalThis.fetch).toHaveBeenCalledTimes(3);
-        expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
-        expect(authProvider.consumeChallenge).toHaveBeenCalledTimes(2);
+        expect(fetchSpy).toHaveBeenCalledTimes(3);
+        expect(onUnauthorized).toHaveBeenCalledTimes(1);
+        expect(proofOf(fetchSpy.mock.calls[2]!).nonce).toBe('rs-nonce-1');
+    });
+
+    it('carries a DPoP-Nonce received on a 2xx response into the next request’s proof (RFC 9449 §8.2)', async () => {
+        fetchSpy
+            .mockResolvedValueOnce(new Response(null, { status: 202, headers: { 'DPoP-Nonce': 'rs-nonce-1' } }))
+            .mockResolvedValueOnce(new Response(null, { status: 202 }));
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-2' });
+
+        expect(proofOf(fetchSpy.mock.calls[1]!).nonce).toBe('rs-nonce-1');
+    });
+
+    it('wraps a caller-supplied fetch (it still runs, and sees the DPoP headers)', async () => {
+        const customFetch = vi.fn<FetchLike>().mockResolvedValue(new Response(null, { status: 202 }));
+        const t = new StreamableHTTPClientTransport(url, { authProvider: provider, fetch: customFetch });
+
+        await t.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(new Headers(customFetch.mock.calls[0]![1]!.headers).get('Authorization')).toBe('DPoP tok-1');
+        await t.close();
+    });
+
+    it('leaves a plain AuthProvider untouched (Bearer via token()); DPoP there is opt-in via fetch: withDpop(...)', async () => {
+        fetchSpy.mockResolvedValue(new Response(null, { status: 202 }));
+
+        const bearer = new StreamableHTTPClientTransport(url, { authProvider: { token: async () => 'bearer-tok' } });
+        await bearer.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-1' });
+        expect(new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers).get('Authorization')).toBe('Bearer bearer-tok');
+        expect(new Headers((fetchSpy.mock.calls[0]![1] as RequestInit).headers).has('DPoP')).toBe(false);
+        await bearer.close();
+
+        const explicit = new StreamableHTTPClientTransport(url, {
+            authProvider: { token: async () => 'pop-tok' },
+            fetch: withDpop(session, () => 'pop-tok')(fetch)
+        });
+        await explicit.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'id-2' });
+        expect(new Headers((fetchSpy.mock.calls[1]![1] as RequestInit).headers).get('Authorization')).toBe('DPoP pop-tok');
+        expect(proofOf(fetchSpy.mock.calls[1]!)).toMatchObject({ htm: 'POST', htu: url.href });
+        await explicit.close();
     });
 });
