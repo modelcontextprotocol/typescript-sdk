@@ -1094,7 +1094,11 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('client');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
-            } else if (error.code === OAuthErrorCode.InvalidGrant) {
+            } else if (error.code === OAuthErrorCode.InvalidGrant || error.code === OAuthErrorCode.InvalidDpopProof) {
+                // invalid_dpop_proof on refresh typically means the stored refresh token is bound
+                // (RFC 9449 §5) to a DPoP key this process no longer holds — e.g. a non-extractable
+                // key regenerated across a restart. Like invalid_grant, the token set is unusable;
+                // drop it and fall through to a fresh authorization.
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             }
@@ -2224,7 +2228,7 @@ export async function executeTokenRequest(
             .clone()
             .json()
             .catch(() => {})) as { error?: string } | undefined;
-        if (challenge?.error === 'use_dpop_nonce') {
+        if (challenge?.error === OAuthErrorCode.UseDpopNonce) {
             dpop.observeNonce(response, tokenUrl);
             response = await requestOnce();
         }
