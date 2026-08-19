@@ -279,11 +279,12 @@ export function adaptOAuthProvider(
         },
         consumeChallenge: async (response, ctx) => {
             const session = await provider.dpop?.();
-            if (!session || !isDpopNonceChallenge(response)) return false;
+            // A challenge without a fresh DPoP-Nonce teaches nothing new to retry with (a nonce
+            // remembered from earlier is exactly what the server just rejected), so don't spend
+            // the transport's retry on it.
+            if (!session || !isDpopNonceChallenge(response) || !response.headers.has('dpop-nonce')) return false;
             session.observeNonce(response, ctx.url);
-            // observeNonce is a no-op when the challenge carried no DPoP-Nonce header — in that
-            // case there is nothing new to retry with, so don't spend the transport's retry on it.
-            return session.nonceFor(ctx.url) !== undefined;
+            return true;
         },
         onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx, extraAuthOptions)
     };

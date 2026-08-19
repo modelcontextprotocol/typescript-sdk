@@ -171,7 +171,9 @@ export const withDpop =
 
             let response = await makeRequest();
 
-            if (response.status === 401 && isDpopNonceChallenge(response)) {
+            // Only retry when the challenge carries a fresh DPoP-Nonce — otherwise the retry
+            // would re-send the nonce the server just rejected.
+            if (isDpopNonceChallenge(response) && response.headers.has('dpop-nonce')) {
                 session.observeNonce(response, url);
                 response = await makeRequest();
             }
