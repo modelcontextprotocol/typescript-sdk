@@ -1,7 +1,7 @@
 import type { OAuthMetadata } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import type { AuthMetadataOptions } from '../../src/server/middleware/oauthMetadata';
+import type { AuthMetadataOptions, OAuthProtectedResourceMetadataOptions } from '../../src/server/middleware/oauthMetadata';
 import {
     buildOAuthProtectedResourceMetadata,
     getOAuthProtectedResourceMetadataUrl,
@@ -32,6 +32,18 @@ describe('buildOAuthProtectedResourceMetadata', () => {
             scopes_supported: ['mcp'],
             resource_name: 'Example Server',
             resource_documentation: 'https://docs.example.com/'
+        });
+    });
+
+    it('accepts issuer-only authorization server metadata', () => {
+        const prmOptions: OAuthProtectedResourceMetadataOptions = {
+            oauthMetadata: { issuer: 'https://auth.example.com/' },
+            resourceServerUrl: new URL('https://api.example.com/mcp')
+        };
+
+        expect(buildOAuthProtectedResourceMetadata(prmOptions)).toMatchObject({
+            resource: 'https://api.example.com/mcp',
+            authorization_servers: ['https://auth.example.com/']
         });
     });
 

@@ -2,16 +2,16 @@ import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontex
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 
 /**
- * Options for {@link oauthMetadataResponse} and
- * {@link buildOAuthProtectedResourceMetadata}.
+ * Options for {@link buildOAuthProtectedResourceMetadata}. The RFC 9728
+ * Protected Resource Metadata document only needs to advertise the issuer of
+ * the Authorization Server, so callers that do not also serve AS metadata do
+ * not need to construct a full RFC 8414 metadata document.
  */
-export interface AuthMetadataOptions {
+export interface OAuthProtectedResourceMetadataOptions {
     /**
-     * Authorization Server metadata (RFC 8414) for the AS this MCP server
-     * relies on. Served at `/.well-known/oauth-authorization-server` so
-     * legacy clients that probe the resource origin still discover the AS.
+     * Authorization Server issuer this MCP server relies on.
      */
-    oauthMetadata: OAuthMetadata;
+    oauthMetadata: Pick<OAuthMetadata, 'issuer'>;
 
     /**
      * The public URL of this MCP server, used as the `resource` value in the
@@ -44,6 +44,16 @@ export interface AuthMetadataOptions {
     dangerouslyAllowInsecureIssuerUrl?: boolean;
 }
 
+/**
+ * Options for {@link oauthMetadataResponse}. This includes the full
+ * Authorization Server metadata (RFC 8414), because the response helper serves
+ * it at `/.well-known/oauth-authorization-server` so legacy clients that probe
+ * the resource origin still discover the AS.
+ */
+export interface AuthMetadataOptions extends OAuthProtectedResourceMetadataOptions {
+    oauthMetadata: OAuthMetadata;
+}
+
 function checkIssuerUrl(issuer: URL, allowInsecure: boolean | undefined): void {
     // RFC 8414 technically does not permit a localhost HTTPS exemption, but it is necessary for local testing.
     if (issuer.protocol !== 'https:' && issuer.hostname !== 'localhost' && issuer.hostname !== '127.0.0.1' && !allowInsecure) {
@@ -59,15 +69,15 @@ function checkIssuerUrl(issuer: URL, allowInsecure: boolean | undefined): void {
 
 /**
  * Derive the RFC 9728 Protected Resource Metadata document from
- * {@link AuthMetadataOptions}, validating the Authorization Server issuer URL
- * (HTTPS required outside localhost) in the process.
+ * {@link OAuthProtectedResourceMetadataOptions}, validating the Authorization
+ * Server issuer URL (HTTPS required outside localhost) in the process.
  *
  * `oauthMetadataResponse` and the Express `mcpAuthMetadataRouter` both build
  * on this; use it directly when serving the document through your own
  * routing — or call it once at startup to fail fast on a misconfigured
  * issuer before any request arrives.
  */
-export function buildOAuthProtectedResourceMetadata(options: AuthMetadataOptions): OAuthProtectedResourceMetadata {
+export function buildOAuthProtectedResourceMetadata(options: OAuthProtectedResourceMetadataOptions): OAuthProtectedResourceMetadata {
     checkIssuerUrl(new URL(options.oauthMetadata.issuer), options.dangerouslyAllowInsecureIssuerUrl);
     return {
         resource: options.resourceServerUrl.href,

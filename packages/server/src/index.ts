@@ -41,7 +41,7 @@ export type { HostHeaderValidationResult } from './server/middleware/hostHeaderV
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
 // OAuth discovery documents (RFC 9728 / RFC 8414) for web-standard hosts; the
 // Express metadata router in @modelcontextprotocol/express adapts the same core.
-export type { AuthMetadataOptions } from './server/middleware/oauthMetadata';
+export type { AuthMetadataOptions, OAuthProtectedResourceMetadataOptions } from './server/middleware/oauthMetadata';
 export {
     buildOAuthProtectedResourceMetadata,
     getOAuthProtectedResourceMetadataUrl,
