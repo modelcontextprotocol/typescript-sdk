@@ -283,6 +283,6 @@ describe('stamped-seam fault injection (identity-preserving auth outcomes, never
         expect(out.settled).toBe('rejected');
         expect(out.error).toBeInstanceOf(SdkError);
         expect((out.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
-        expect(((out.error as SdkError).data as { cause?: unknown }).cause).toBe(netError);
+        expect((out.error as SdkError).cause).toBe(netError);
     });
 });
