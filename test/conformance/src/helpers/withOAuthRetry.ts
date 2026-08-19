@@ -1,11 +1,11 @@
-import type { AuthRequestContext, FetchLike, Middleware } from '@modelcontextprotocol/client';
+import type { FetchLike, Middleware } from '@modelcontextprotocol/client';
 import {
-    adaptOAuthProvider,
     auth,
     computeScopeUnion,
     extractWWWAuthenticateParams,
     isStrictScopeSuperset,
-    UnauthorizedError
+    UnauthorizedError,
+    withDpopFromProvider
 } from '@modelcontextprotocol/client';
 
 import { ConformanceOAuthProvider } from './conformanceOAuthProvider';
@@ -95,57 +95,41 @@ export const withOAuthRetry = (
             },
             clientMetadataUrl
         );
-    // Delegates request-signing to the same authorizeRequest/consumeChallenge logic the SDK's
-    // transports use, so a provider with a `dpop()` session (see helpers/dpopClient.ts) presents
-    // the token with the DPoP scheme plus a per-request proof instead of Bearer — with no other
-    // change to this middleware. A provider without `dpop()` keeps the exact prior Bearer behavior.
-    const authProvider = adaptOAuthProvider(provider);
-    return (next: FetchLike) => {
-        return async (input: string | URL, init?: RequestInit): Promise<Response> => {
-            const ctx: AuthRequestContext = {
-                method: (init?.method ?? 'GET').toUpperCase(),
-                url: new URL(input.toString())
-            };
+    return (baseNext: FetchLike) => {
+        // Same composition as the SDK's withOAuth: DPoP request-signing sits *below* this
+        // Bearer/re-auth layer so it binds proofs to the real request and retries use_dpop_nonce
+        // challenges on every attempt. It is a pass-through unless the provider implements dpop()
+        // (helpers/dpopClient.ts). auth() keeps the unwrapped fetch — token-endpoint DPoP is the
+        // SDK's executeTokenRequest's job.
+        const next = withDpopFromProvider(provider)(baseNext);
 
+        return async (input: string | URL, init?: RequestInit): Promise<Response> => {
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
-                const authHeaders = await authProvider.authorizeRequest?.(ctx);
-                for (const [name, value] of Object.entries(authHeaders ?? {})) {
-                    headers.set(name, value);
+
+                // Add authorization header if tokens are available
+                const tokens = await provider.tokens();
+                if (tokens) {
+                    headers.set('Authorization', `Bearer ${tokens.access_token}`);
                 }
+
                 return await next(input, { ...init, headers });
             };
 
             let response = await makeRequest();
 
-            // Two independent, single-shot retry budgets — a DPoP nonce retry and a credential
-            // re-authorization (401 or 403 step-up) — tried in *whichever order the server
-            // actually challenges them*. Both orders are real: a not-yet-authenticated request
-            // gets the credential retry first and only discovers the RS's nonce requirement once
-            // it presents a valid token (auth/dpop-nonce's shape); a request that already holds a
-            // valid token but stale nonce state gets the nonce retry first. Neither retry is
-            // spent more than once, so this loop runs at most twice before falling through to the
-            // final check below — see the matching comment in the SDK's `withOAuth`
-            // (packages/client/src/client/middleware.ts), which has the identical shape.
-            let usedNonceRetry = false;
-            let usedCredentialRetry = false;
-            while ((response.status === 401 || response.status === 403) && (!usedNonceRetry || !usedCredentialRetry)) {
-                // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential failure.
-                if (!usedNonceRetry && (await authProvider.consumeChallenge?.(response, ctx))) {
-                    usedNonceRetry = true;
-                    response = await makeRequest();
-                    continue;
-                }
-                if (usedCredentialRetry) break;
-                usedCredentialRetry = true;
-                const serverUrl = baseUrl || ctx.url.origin;
-                await handle401Fn(response, provider, next, serverUrl);
+            // Handle 401/403 responses by attempting re-authentication
+            if (response.status === 401 || response.status === 403) {
+                const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
+                await handle401Fn(response, provider, baseNext, serverUrl);
+
                 response = await makeRequest();
             }
 
-            // If we still have a 401/403 after both retry budgets are spent, throw an error
+            // If we still have a 401/403 after re-auth attempt, throw an error
             if (response.status === 401 || response.status === 403) {
-                throw new UnauthorizedError(`Authentication failed for ${ctx.url}`);
+                const url = typeof input === 'string' ? input : input.toString();
+                throw new UnauthorizedError(`Authentication failed for ${url}`);
             }
 
             return response;

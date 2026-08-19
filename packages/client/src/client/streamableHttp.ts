@@ -35,7 +35,7 @@ import {
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
-import { MAX_DPOP_NONCE_RETRIES } from './dpop';
+import { withDpopFromProvider } from './middleware';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -348,15 +348,22 @@ export class StreamableHTTPClientTransport implements Transport {
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
+        this._fetch = opts?.fetch;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
             this._authProvider = adaptOAuthProvider(opts.authProvider, {
                 skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
             });
+            // SEP-1932 / RFC 9449: sign resource-server requests with DPoP at the fetch layer, where
+            // the real method/URL/response of every request (POST, GET stream, DELETE) is in hand.
+            // `_fetchWithInit` below (handed to `auth()`) stays unwrapped — token-endpoint DPoP is
+            // executeTokenRequest's job.
+            if (opts.authProvider.dpop) {
+                this._fetch = withDpopFromProvider(opts.authProvider)(opts.fetch ?? fetch);
+            }
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
@@ -434,35 +441,18 @@ export class StreamableHTTPClientTransport implements Transport {
         });
     }
 
-    /** Hands every response to {@linkcode AuthProvider.observeResponse} (e.g. DPoP-Nonce capture, RFC 9449 §8.2). */
-    private async _observeAuthResponse(response: Response, method: string): Promise<void> {
-        try {
-            await this._authProvider?.observeResponse?.(response, { method, url: this._url });
-        } catch (error) {
-            throw markAuthSeamEscape(error);
-        }
-    }
-
-    /**
-     * @param method HTTP method of the outgoing request — passed to
-     *   {@linkcode AuthProvider.authorizeRequest} so a proof-of-possession scheme (DPoP) can bind
-     *   its proof to this exact request (RFC 9449 §4.2 `htm`).
-     * @param url Target URL of the outgoing request — same purpose, RFC 9449 §4.2 `htu`.
-     */
-    private async _commonHeaders(method: string, url: URL): Promise<Headers> {
+    private async _commonHeaders(): Promise<Headers> {
         const headers: RequestInit['headers'] & Record<string, string> = {};
+        let token: string | undefined;
         try {
-            if (this._authProvider?.authorizeRequest) {
-                const authHeaders = await this._authProvider.authorizeRequest({ method, url });
-                if (authHeaders) Object.assign(headers, authHeaders);
-            } else {
-                const token = await this._authProvider?.token();
-                if (token) headers['Authorization'] = `Bearer ${token}`;
-            }
+            token = await this._authProvider?.token();
         } catch (error) {
-            // Auth-seam stamp: a throwing token()/authorizeRequest() is an auth failure, never a
+            // Auth-seam stamp: a throwing token() is an auth failure, never a
             // network failure.
             throw markAuthSeamEscape(error);
+        }
+        if (token) {
+            headers['Authorization'] = `Bearer ${token}`;
         }
 
         if (this._sessionId) {
@@ -536,7 +526,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0, dpopNonceRetries = 0): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -548,7 +538,7 @@ export class StreamableHTTPClientTransport implements Transport {
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
-            const headers = await this._commonHeaders('GET', this._url);
+            const headers = await this._commonHeaders();
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
@@ -569,24 +559,9 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers,
                 signal
             });
-            await this._observeAuthResponse(response, 'GET');
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
-                    // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential
-                    // failure — the token and proof key are still valid, only the proof needs
-                    // re-signing with the nonce the provider just captured. Handled before the
-                    // WWW-Authenticate scope bookkeeping and `onUnauthorized` below (neither
-                    // applies here), and independent of `isAuthRetry` so it still fires on the
-                    // post-authorization retry leg, where that budget is already spent.
-                    if (
-                        dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
-                        (await this._authProvider.consumeChallenge?.(response, { method: 'GET', url: this._url }))
-                    ) {
-                        await response.text?.().catch(() => {});
-                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries, dpopNonceRetries + 1);
-                    }
-
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
@@ -609,7 +584,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true, stepUpRetries, dpopNonceRetries);
+                        return this._startOrAuthSse(options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -634,7 +609,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
-                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1, dpopNonceRetries);
+                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
                     }
                 }
 
@@ -977,8 +952,7 @@ export class StreamableHTTPClientTransport implements Transport {
               }
             | undefined,
         isAuthRetry: boolean,
-        stepUpRetries = 0,
-        dpopNonceRetries = 0
+        stepUpRetries = 0
     ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
@@ -997,7 +971,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 return;
             }
 
-            const headers = await this._commonHeaders('POST', this._url);
+            const headers = await this._commonHeaders();
             this._applyBodyDerivedHeaders(headers, message);
             // A new session starts "without a session ID attached" (2025-11-25 transports §Session Management).
             const isHandshake = Array.isArray(message) ? message.some(m => isInitializeRequest(m)) : isInitializeRequest(message);
@@ -1040,7 +1014,6 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
-            await this._observeAuthResponse(response, 'POST');
 
             // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
             // Clients include only an id "returned by the server during initialization", so a sessionless handshake clears any stale id.
@@ -1050,20 +1023,6 @@ export class StreamableHTTPClientTransport implements Transport {
 
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
-                    // RFC 9449 §9: a DPoP `use_dpop_nonce` challenge is not a credential
-                    // failure — the token and proof key are still valid, only the proof needs
-                    // re-signing with the nonce the provider just captured. Handled before the
-                    // WWW-Authenticate scope bookkeeping and `onUnauthorized` below (neither
-                    // applies here), and independent of `isAuthRetry` so it still fires on the
-                    // post-authorization retry leg, where that budget is already spent.
-                    if (
-                        dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
-                        (await this._authProvider.consumeChallenge?.(response, { method: 'POST', url: this._url }))
-                    ) {
-                        await response.text?.().catch(() => {});
-                        return this._send(message, options, isAuthRetry, stepUpRetries, dpopNonceRetries + 1);
-                    }
-
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -1087,7 +1046,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, options, true, stepUpRetries, dpopNonceRetries);
+                        return this._send(message, options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -1114,7 +1073,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (result !== 'AUTHORIZED') {
                             throw markAuthSeamEscape(new UnauthorizedError());
                         }
-                        return this._send(message, options, isAuthRetry, stepUpRetries + 1, dpopNonceRetries);
+                        return this._send(message, options, isAuthRetry, stepUpRetries + 1);
                     }
                 }
 
@@ -1240,16 +1199,12 @@ export class StreamableHTTPClientTransport implements Transport {
      * the server does not allow clients to terminate sessions.
      */
     async terminateSession(): Promise<void> {
-        return this._terminateSession(0);
-    }
-
-    private async _terminateSession(dpopNonceRetries: number): Promise<void> {
         if (!this._sessionId) {
             return; // No session to terminate
         }
 
         try {
-            const headers = await this._commonHeaders('DELETE', this._url);
+            const headers = await this._commonHeaders();
 
             const init = {
                 ...this._requestInit,
@@ -1259,18 +1214,7 @@ export class StreamableHTTPClientTransport implements Transport {
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
-            await this._observeAuthResponse(response, 'DELETE');
             await response.text?.().catch(() => {});
-
-            // RFC 9449 §9: see the matching comment in _send.
-            if (
-                response.status === 401 &&
-                this._authProvider &&
-                dpopNonceRetries < MAX_DPOP_NONCE_RETRIES &&
-                (await this._authProvider.consumeChallenge?.(response, { method: 'DELETE', url: this._url }))
-            ) {
-                return this._terminateSession(dpopNonceRetries + 1);
-            }
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination

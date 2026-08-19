@@ -10,7 +10,6 @@ export type {
     AddClientAuthentication,
     AuthOptions,
     AuthProvider,
-    AuthRequestContext,
     AuthResult,
     ClientAuthMethod,
     OAuthClientInformationContext,
@@ -19,7 +18,6 @@ export type {
     OAuthServerInfo
 } from './client/auth';
 export {
-    adaptOAuthProvider,
     assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
@@ -79,8 +77,8 @@ export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthori
 // the transports' authProvider option, or use `withDpop` directly when you manage tokens yourself.
 export type { DpopAlg, DpopKeyPair, DpopProofRequest, GenerateDpopKeyPairOptions } from './client/dpop';
 export { accessTokenHash, DPOP_SUPPORTED_ALGS, DpopSession, generateDpopKeyPair, isDpopNonceChallenge } from './client/dpop';
-export type { DpopTokenSource, LoggingOptions, Middleware, RequestLogger } from './client/middleware';
-export { applyMiddlewares, createMiddleware, withDpop, withLogging, withOAuth } from './client/middleware';
+export type { DpopSessionSource, DpopTokenSource, LoggingOptions, Middleware, RequestLogger } from './client/middleware';
+export { applyMiddlewares, createMiddleware, withDpop, withDpopFromProvider, withLogging, withOAuth } from './client/middleware';
 export type { PriorDiscovery } from './client/probeClassifier';
 export type {
     CacheEntry,
