@@ -117,6 +117,27 @@ export enum SdkErrorCode {
  * }
  * ```
  */
+/**
+ * Peel a mistaken `{ cause }` off the `data` bag so it can be forwarded to
+ * `Error`'s options. Call sites historically passed `{ cause }` as the third
+ * argument because TypeScript accepts any `data`; without this peel the
+ * underlying error lands in `.data.cause` and never on `.cause`, which breaks
+ * pino / Sentry cause-chain walkers.
+ */
+function splitSdkErrorData(data: unknown): { data?: unknown; cause?: unknown } {
+    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+        return { data };
+    }
+    if (!('cause' in data)) {
+        return { data };
+    }
+    const { cause, ...rest } = data as Record<string, unknown>;
+    return {
+        cause,
+        data: Object.keys(rest).length > 0 ? rest : undefined
+    };
+}
+
 export class SdkError extends Error {
     static {
         Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkError' });
@@ -144,12 +165,18 @@ export class SdkError extends Error {
         return brandedHasInstance(this, value);
     }
 
-    constructor(
-        public readonly code: SdkErrorCode,
-        message: string,
-        public readonly data?: unknown
-    ) {
-        super(message);
+    /**
+     * Optional structured payload (HTTP status fields, timeout ms, etc.).
+     * Distinct from {@link Error.cause} — pass causes via `options` or as a
+     * `{ cause }` key inside `data` (peeled into `.cause` for back-compat).
+     */
+    public readonly data?: unknown;
+
+    constructor(public readonly code: SdkErrorCode, message: string, data?: unknown, options?: ErrorOptions) {
+        const split = splitSdkErrorData(data);
+        const cause = options?.cause ?? split.cause;
+        super(message, cause !== undefined ? { ...options, cause } : options);
+        this.data = split.data;
         this.name = 'SdkError';
         stampErrorBrands(this, new.target);
     }
@@ -187,8 +214,8 @@ export class SdkHttpError extends SdkError {
 
     declare readonly data: SdkHttpErrorData;
 
-    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {
-        super(code, message, data);
+    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData, options?: ErrorOptions) {
+        super(code, message, data, options);
         this.name = 'SdkHttpError';
     }
 
