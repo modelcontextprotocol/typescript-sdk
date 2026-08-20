@@ -985,6 +985,27 @@ export interface AuthOptions {
 }
 
 /**
+ * Recovering from a recoverable OAuth error discards stored credentials and silently starts a
+ * fresh authorization. On a headless client whose `redirectToAuthorization()` is a no-op that
+ * recovery is indistinguishable from nothing happening at all, so name the cause. The most
+ * common case is `invalid_grant` — an expired, revoked, or rotation-reuse-detected refresh
+ * token. See issue #2034.
+ */
+function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthError, invalidated: string): void {
+    // `invalidateCredentials` is optional. When a provider omits it nothing is actually
+    // discarded, so do not claim otherwise — the stale credential is still in storage and
+    // will be replayed on the next call, which is the thing worth telling the operator.
+    const action =
+        provider.invalidateCredentials === undefined
+            ? `retrying authorization without discarding the stored ${invalidated} (provider implements no invalidateCredentials())`
+            : `invalidating the stored ${invalidated} and retrying authorization`;
+    // JSON-stringify the AS-supplied values so attacker-supplied control characters cannot
+    // forge log lines — the authorization server is resolved from the resource server's
+    // metadata, and both `code` and `message` are echoed from its response verbatim.
+    console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -997,6 +1018,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
         // Handle recoverable error types by invalidating credentials and retrying
         if (error instanceof OAuthError) {
             if (error.code === OAuthErrorCode.InvalidClient || error.code === OAuthErrorCode.UnauthorizedClient) {
+                warnCredentialInvalidation(provider, error, 'client credentials and tokens');
                 // Not 'all' — preserve discoveryState so the callback-leg gate on retry doesn't
                 // fire a false 'discoveryState was not available on the callback leg' AuthorizationServerMismatchError that masks the
                 // real invalid_client.
@@ -1004,6 +1026,7 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             } else if (error.code === OAuthErrorCode.InvalidGrant) {
+                warnCredentialInvalidation(provider, error, 'tokens');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
             }
@@ -1303,9 +1326,10 @@ async function authInternal(
     // current token's granted scope — refreshing would not widen it (RFC 6749
     // §6), so skip straight to a fresh authorization request.
     if (tokens?.refresh_token && !forceReauthorization) {
+        let newTokens: OAuthTokens | undefined;
         try {
             // Attempt to refresh the token
-            const newTokens = await refreshAuthorization(authorizationServerUrl, {
+            newTokens = await refreshAuthorization(authorizationServerUrl, {
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
@@ -1313,9 +1337,6 @@ async function authInternal(
                 addClientAuthentication: provider.addClientAuthentication,
                 fetchFn
             });
-
-            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
-            return 'AUTHORIZED';
         } catch (error) {
             // A non-TLS token endpoint is a configuration error — re-authorizing cannot
             // fix it. Surface it so the consumer sees the misconfiguration instead of an
@@ -1325,11 +1346,28 @@ async function authInternal(
             }
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
-                // Could not refresh OAuth tokens
+                // Could not refresh OAuth tokens. The fallthrough to a fresh authorization
+                // request is deliberate, but it is invisible on a headless client whose
+                // redirectToAuthorization() is a no-op — so say why it happened.
+                // JSON-stringify the cause: on the non-OAuth-shaped path it carries the raw
+                // response body, so it is arbitrary attacker-supplied bytes.
+                console.warn(
+                    `[mcp-sdk] Could not refresh OAuth tokens; falling back to a new authorization request. ` +
+                        `Cause: ${JSON.stringify(error instanceof Error ? error.message : String(error))}`
+                );
             } else {
                 // Refresh failed for another reason, re-throw
                 throw error;
             }
+        }
+
+        // Persist any newly minted tokens. Persistence failures must always
+        // propagate: the authorization server may have rotated the refresh
+        // token, so silently dropping the new tokens would leave the client
+        // with credentials that are already invalid server-side.
+        if (newTokens) {
+            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
+            return 'AUTHORIZED';
         }
     }
 
