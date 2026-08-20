@@ -352,16 +352,21 @@ export function validateMcpParamHeaders(
             continue;
         }
         const bodyString = mcpParamPrimitiveToString(bodyRaw);
-        if (bodyString === undefined) {
-            // Body carries a non-primitive where the schema declares one;
-            // params validation owns that fault. Skip the header check.
+        const numericBody = typeof bodyRaw === 'number' && (decl.type === 'integer' || decl.type === 'number');
+        // The codec also refuses a number it cannot represent (non-finite, or outside the safe
+        // integer range). That is still a valid JSON Schema `integer`/`number`, so params
+        // validation never faults it and skipping would disable the check entirely. A genuine
+        // non-primitive keeps skipping — `-32602` owns that.
+        if (bodyString === undefined && !numericBody) {
             continue;
         }
+        // `JSON.stringify(Infinity)` is `'null'` — the one value these checks let through.
+        const bodyForMessage = typeof bodyRaw === 'number' && !Number.isFinite(bodyRaw) ? String(bodyRaw) : JSON.stringify(bodyRaw);
         if (headerValue === null) {
             return paramHeaderMismatchRejection(
                 'param-header-missing',
                 headerKey,
-                `the body carries ${pathName(decl.path)}=${JSON.stringify(bodyRaw)} but the ${headerKey} header is absent`
+                `the body carries ${pathName(decl.path)}=${bodyForMessage} but the ${headerKey} header is absent`
             );
         }
         const decoded = decodeMcpParamValue(headerValue);
@@ -382,14 +387,15 @@ export function validateMcpParamHeaders(
         // body-vs-schema fault that params validation owns; fall back to
         // string comparison and let dispatch emit `-32602` instead so an
         // identical non-numeric pair never reports a mismatch.
-        const numericComparable =
-            (decl.type === 'integer' || decl.type === 'number') && CANONICAL_DECIMAL.test(decoded) && typeof bodyRaw === 'number';
-        const equal = numericComparable ? Number(decoded) === bodyRaw : decoded === bodyString;
+        const numericComparable = numericBody && CANONICAL_DECIMAL.test(decoded);
+        // `bodyString` is undefined only for a refused number; fall back to `String(bodyRaw)` so an
+        // agreeing pair still matches when its spelling is not plain decimal (`1e21` → `'1e+21'`).
+        const equal = numericComparable ? Number(decoded) === bodyRaw : decoded === (bodyString ?? String(bodyRaw));
         if (!equal) {
             return paramHeaderMismatchRejection(
                 'param-header-mismatch',
                 headerKey,
-                `the ${headerKey} header decodes to ${JSON.stringify(decoded)} but the body carries ${pathName(decl.path)}=${JSON.stringify(bodyRaw)}`
+                `the ${headerKey} header decodes to ${JSON.stringify(decoded)} but the body carries ${pathName(decl.path)}=${bodyForMessage}`
             );
         }
     }
