@@ -2,9 +2,16 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.10). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.11). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
+#
+# alpha.10 -> alpha.11 reconciliation: the referee added two scenarios, both
+# passing, so neither is baselined — `json-schema-2020-12-preservation`
+# (client; SEP-1613/SEP-2106 keyword round-trip, driven by everythingClient.ts)
+# and `server-session-lifecycle` (server; Streamable HTTP session teardown).
+# The referee now also sends HTTP DELETE after every session-bound scenario
+# (conformance#316); the everything server already answers it.
 #
 # NOTE: the SDK's modern-path rejection codes are aligned with what this
 # referee asserts — both sides have adopted the spec#2907 / conformance#353
