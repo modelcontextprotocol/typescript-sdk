@@ -411,6 +411,10 @@ export class McpServer {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
         }
 
+        if (!template.enabled) {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} disabled`);
+        }
+
         const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
@@ -448,6 +452,7 @@ export class McpServer {
 
             const templateResources: Resource[] = [];
             for (const template of Object.values(this._registeredResourceTemplates)) {
+                if (!template.enabled) continue;
                 if (!template.resourceTemplate.listCallback) {
                     continue;
                 }
@@ -466,11 +471,13 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/templates/list', async () => {
-            const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
-                name,
-                uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
-            }));
+            const resourceTemplates = Object.entries(this._registeredResourceTemplates)
+                .filter(([_, t]) => t.enabled)
+                .map(([name, template]) => ({
+                    name,
+                    uriTemplate: template.resourceTemplate.uriTemplate.toString(),
+                    ...template.metadata
+                }));
 
             return { resourceTemplates };
         });
@@ -502,6 +509,9 @@ export class McpServer {
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
+                    if (!template.enabled) {
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${uri} disabled`);
+                    }
                     return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }

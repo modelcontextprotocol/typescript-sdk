@@ -2386,6 +2386,52 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Disabled Resource Templates Are Omitted from resources/templates/list
+         */
+        test('should omit disabled resource templates from resources/templates/list', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register resource template
+            const resourceTemplate = mcpServer.registerResource(
+                'template',
+                new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Template content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Verify template is registered
+            const result = await client.request({ method: 'resources/templates/list' });
+
+            expect(result.resourceTemplates).toHaveLength(1);
+
+            // Disable the template
+            resourceTemplate.disable();
+
+            // Verify the template was disabled
+            const result2 = await client.request({ method: 'resources/templates/list' });
+
+            expect(result2.resourceTemplates).toHaveLength(0);
+        });
+
+        /***
          * Test: Resource Registration with Metadata
          */
         test('should register resource with metadata', async () => {
@@ -2527,6 +2573,52 @@ describe('Zod v4', () => {
             expect(result.resources[0]!.uri).toBe('test://resource/1');
             expect(result.resources[1]!.name).toBe('Resource 2');
             expect(result.resources[1]!.uri).toBe('test://resource/2');
+        });
+
+        /***
+         * Test: Disabled Resources and Resource Templates Are Omitted from resources/list
+         */
+        test('should omit disabled resources and resource template listings from resources/list', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const disabledResource = mcpServer.registerResource('inactive', 'test://static/inactive', {}, async uri => ({
+                contents: [{ uri: uri.href, text: 'Inactive content' }]
+            }));
+
+            mcpServer.registerResource(
+                'active-template',
+                new ResourceTemplate('test://active/{id}', {
+                    list: async () => ({ resources: [{ name: 'Active 1', uri: 'test://active/1' }] })
+                }),
+                {},
+                async uri => ({ contents: [{ uri: uri.href, text: 'Active template content' }] })
+            );
+            const disabledTemplate = mcpServer.registerResource(
+                'inactive-template',
+                new ResourceTemplate('test://inactive/{id}', {
+                    list: async () => ({ resources: [{ name: 'Inactive 1', uri: 'test://inactive/1' }] })
+                }),
+                {},
+                async uri => ({ contents: [{ uri: uri.href, text: 'Inactive template content' }] })
+            );
+
+            disabledResource.disable();
+            disabledTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'resources/list' });
+
+            expect(result.resources.map(resource => resource.uri)).toEqual(['test://active/1']);
         });
 
         /***
@@ -2850,6 +2942,112 @@ describe('Zod v4', () => {
                     method: 'resources/read',
                     params: {
                         uri: 'test://resource'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Disabled Resource Template
+         */
+        test('should throw ProtocolError for disabled resource template', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resourceTemplate = mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Template content'
+                        }
+                    ]
+                })
+            );
+
+            resourceTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource/1'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
+        });
+
+        /***
+         * Test: ProtocolError for Completion on a Disabled Resource Template
+         */
+        test('should throw ProtocolError for completion of a disabled resource template', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resourceTemplate = mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('test://resource/{category}', {
+                    list: undefined,
+                    complete: {
+                        category: () => ['books', 'movies', 'music']
+                    }
+                }),
+                {},
+                async () => ({
+                    contents: [
+                        {
+                            uri: 'test://resource/test',
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            resourceTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'test://resource/{category}'
+                        },
+                        argument: {
+                            name: 'category',
+                            value: ''
+                        }
                     }
                 })
             ).rejects.toMatchObject({
