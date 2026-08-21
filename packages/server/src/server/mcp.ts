@@ -467,11 +467,13 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/templates/list', async () => {
-            const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
-                name,
-                uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
-            }));
+            const resourceTemplates = Object.entries(this._registeredResourceTemplates)
+                .filter(([_, t]) => t.enabled)
+                .map(([name, template]) => ({
+                    name,
+                    uriTemplate: template.resourceTemplate.uriTemplate.toString(),
+                    ...template.metadata
+                }));
 
             return { resourceTemplates };
         });
