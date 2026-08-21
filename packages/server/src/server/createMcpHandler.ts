@@ -63,7 +63,7 @@ import { invoke } from './invoke';
 import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
-import { readRequestBody, REQUEST_BODY_TOO_LARGE_MESSAGE } from './requestBody';
+import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -202,6 +202,16 @@ export interface CreateMcpHandlerOptions {
      * @default 15000
      */
     keepAliveMs?: number;
+    /**
+     * Upper bound, in bytes, on a POST body the handler reads itself (the
+     * classification step and the stateless legacy leg). A body over the bound
+     * is answered `413` before anything is parsed or any server instance is
+     * created. Not applied to a body supplied as `parsedBody`. Must be a
+     * positive number. Hand-wired compositions routing on
+     * {@linkcode isLegacyRequest} pass the same value to the predicate.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -312,7 +322,8 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
 function createLegacyStatelessFallback(
     factory: McpServerFactory,
     onerror?: (error: Error) => void,
-    keepAliveMs?: number
+    keepAliveMs?: number,
+    maxRequestBodySize?: number
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
@@ -326,7 +337,8 @@ function createLegacyStatelessFallback(
             });
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
-                ...(keepAliveMs !== undefined && { keepAliveMs })
+                ...(keepAliveMs !== undefined && { keepAliveMs }),
+                ...(maxRequestBodySize !== undefined && { maxRequestBodySize })
             });
             await product.connect(transport);
 
@@ -400,8 +412,22 @@ function createLegacyStatelessFallback(
     };
 }
 
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
-    return createLegacyStatelessFallback(factory, onerror);
+/** Options for {@linkcode legacyStatelessFallback}. */
+export interface LegacyStatelessFallbackOptions {
+    /**
+     * Upper bound, in bytes, on a POST body the leg reads itself (not applied
+     * to a body supplied as `parsedBody`). Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
+}
+
+export function legacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    options?: LegacyStatelessFallbackOptions
+): LegacyHttpHandler {
+    return createLegacyStatelessFallback(factory, onerror, undefined, resolveMaxRequestBodySize(options?.maxRequestBodySize));
 }
 
 /* ------------------------------------------------------------------------ *
@@ -449,7 +475,12 @@ type EntryClassification =
  * the body-preserving clone is then skipped and `forwardRequest` is the
  * (consumed) input request.
  */
-async function classifyEntryRequest(request: Request, providedParsedBody?: unknown, needsForward = true): Promise<EntryClassification> {
+async function classifyEntryRequest(
+    request: Request,
+    providedParsedBody?: unknown,
+    needsForward = true,
+    maxRequestBodySize: number = DEFAULT_MAX_REQUEST_BODY_SIZE
+): Promise<EntryClassification> {
     const httpMethod = request.method.toUpperCase();
 
     let body: unknown;
@@ -467,7 +498,7 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
             }
             let bodyText: string;
             try {
-                const read = await readRequestBody(request);
+                const read = await readRequestBody(request, maxRequestBodySize);
                 if (read.tooLarge) {
                     return { step: 'body-too-large' };
                 }
@@ -498,6 +529,17 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
         ...(body !== undefined && { body })
     });
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
+}
+
+/** Options for {@linkcode isLegacyRequest}. */
+export interface IsLegacyRequestOptions {
+    /**
+     * The same `maxRequestBodySize` the handler the predicate routes for was
+     * created with, so the two read the body under one bound (a body over it
+     * classifies `false`; the modern handler answers `413`).
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -569,13 +611,14 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   a method named `server/discover` has no claim and classifies legacy,
  *   exactly as the entry itself routes it.
  */
-export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
+export async function isLegacyRequest(request: Request, parsedBody?: unknown, options?: IsLegacyRequestOptions): Promise<boolean> {
+    const maxRequestBodySize = resolveMaxRequestBodySize(options?.maxRequestBodySize);
     // Classify a clone so the caller's request body stays readable; with a
     // pre-parsed body (or a body-less method) nothing is read and no clone is
     // needed. The predicate never reads forwardRequest, so the classification
     // step's own forwarding clone is skipped.
     const probe = parsedBody === undefined && request.method.toUpperCase() === 'POST' ? request.clone() : request;
-    const classified = await classifyEntryRequest(probe, parsedBody, false);
+    const classified = await classifyEntryRequest(probe, parsedBody, false, maxRequestBodySize);
     return classified.step === 'no-json-body' || (classified.step === 'classified' && classified.outcome.kind === 'legacy');
 }
 
@@ -629,6 +672,7 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
+    const maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
 
     // Construction-time guard for JavaScript callers passing a handler as the
     // legacy value: the option only selects a posture ('stateless' | 'reject').
@@ -671,7 +715,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined =
-        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -874,13 +918,13 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
         }
 
-        const classified = await classifyEntryRequest(request, requestOptions?.parsedBody);
+        const classified = await classifyEntryRequest(request, requestOptions?.parsedBody, true, maxRequestBodySize);
 
         if (classified.step === 'unreadable-body') {
             return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body could not be read');
         }
         if (classified.step === 'body-too-large') {
-            return jsonRpcErrorResponse(413, -32_000, REQUEST_BODY_TOO_LARGE_MESSAGE);
+            return jsonRpcErrorResponse(413, -32_000, requestBodyTooLargeMessage(maxRequestBodySize));
         }
         if (classified.step === 'no-json-body') {
             // No JSON body to classify: there is no envelope claim, so this is

@@ -1,4 +1,4 @@
-import { isJsonContentType } from '@modelcontextprotocol/server';
+import { DEFAULT_MAX_REQUEST_BODY_SIZE, isJsonContentType, readRequestBody } from '@modelcontextprotocol/server';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
@@ -36,42 +36,28 @@ export interface CreateMcpHonoAppOptions {
      * is rejected with `403`.
      */
     allowedOrigins?: string[];
+
+    /**
+     * Upper bound, in bytes, on a JSON request body the app's body-parsing
+     * middleware reads. A larger body is answered `413` before being parsed.
+     * Must be a positive number. The counterpart of `createMcpExpressApp`'s
+     * `jsonLimit`.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
-/** Same limit the Streamable HTTP transport applies to request bodies. */
-const MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
-
 /**
- * Reads a request body as text, up to MAX_REQUEST_BODY_SIZE — the same bounded read the Streamable
- * HTTP transport performs. A declared Content-Length over the limit is refused without reading.
+ * Reads (bounded, via the transport's own reader) and parses a JSON body from a
+ * clone of the request, so the original stream stays readable. Returning only the
+ * parsed value keeps the decoded text from outliving the parse.
  */
-async function readRequestBody(request: Request): Promise<{ tooLarge: true } | { tooLarge: false; text: string }> {
-    if (Number(request.headers.get('content-length')) > MAX_REQUEST_BODY_SIZE) {
+async function parseJsonBody(request: Request, maxBytes: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+    const body = await readRequestBody(request, maxBytes);
+    if (body.tooLarge) {
         return { tooLarge: true };
     }
-    if (request.body === null) {
-        return { tooLarge: false, text: '' };
-    }
-    const reader = request.body.getReader();
-    const decoder = new TextDecoder();
-    let received = 0;
-    let text = '';
-    try {
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-            received += value.byteLength;
-            if (received > MAX_REQUEST_BODY_SIZE) {
-                return { tooLarge: true };
-            }
-            text += decoder.decode(value, { stream: true });
-        }
-    } finally {
-        reader.releaseLock();
-    }
-    return { tooLarge: false, text: text + decoder.decode() };
+    return { tooLarge: false, value: JSON.parse(body.text) };
 }
 
 /**
@@ -84,13 +70,17 @@ async function readRequestBody(request: Request): Promise<{ tooLarge: true } | {
  * This also installs a small JSON body parsing middleware (similar to `express.json()`)
  * that stashes the parsed body into `c.set('parsedBody', ...)` when the `Content-Type`
  * media type is `application/json`. It runs after the Host/Origin validation, and JSON
- * bodies over 4 MiB are answered `413` before being parsed.
+ * bodies over `maxRequestBodySize` (4 MiB by default) are answered `413` before being parsed.
  *
  * @param options - Configuration options
  * @returns A configured Hono application
  */
 export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     const { host = '127.0.0.1', allowedHosts, allowedOrigins } = options;
+    const maxRequestBodySize = options.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE;
+    if (typeof maxRequestBodySize !== 'number' || !Number.isFinite(maxRequestBodySize) || maxRequestBodySize <= 0) {
+        throw new RangeError(`maxRequestBodySize must be a positive number of bytes, got ${String(maxRequestBodySize)}`);
+    }
 
     const app = new Hono();
 
@@ -122,7 +112,7 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
         app.use('*', localhostOriginValidation());
     }
 
-    // Similar to `express.json()`: parse JSON bodies (up to MAX_REQUEST_BODY_SIZE; larger ones are
+    // Similar to `express.json()`: parse JSON bodies (up to maxRequestBodySize; larger ones are
     // answered 413) and make them available to MCP adapters via `parsedBody`.
     app.use('*', async (c: Context, next) => {
         // If an upstream middleware already set parsedBody, keep it.
@@ -139,18 +129,18 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
 
         try {
             // Parse from a clone so we don't consume the original request stream.
-            const body = await readRequestBody(c.req.raw.clone());
-            if (body.tooLarge) {
+            const parsed = await parseJsonBody(c.req.raw.clone(), maxRequestBodySize);
+            if (parsed.tooLarge) {
                 return c.json(
                     {
                         jsonrpc: '2.0',
-                        error: { code: -32_000, message: `Payload Too Large: Request body must not exceed ${MAX_REQUEST_BODY_SIZE} bytes` },
+                        error: { code: -32_000, message: `Payload Too Large: Request body must not exceed ${maxRequestBodySize} bytes` },
                         id: null
                     },
                     413
                 );
             }
-            c.set('parsedBody', JSON.parse(body.text));
+            c.set('parsedBody', parsed.value);
         } catch {
             // Mirror express.json() behavior loosely: reject invalid JSON.
             return c.text('Invalid JSON', 400);

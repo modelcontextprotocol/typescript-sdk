@@ -195,4 +195,28 @@ describe('@modelcontextprotocol/hono', () => {
         expect(streamed.status).toBe(413);
         expect(((await streamed.json()) as { error: { code: number } }).error.code).toBe(-32_000);
     });
+
+    test('createMcpHonoApp maxRequestBodySize moves the pre-parse bound and is validated', async () => {
+        const strict = createMcpHonoApp({ maxRequestBodySize: 1024 });
+        strict.post('/echo', (c: Context) => c.text('ok'));
+        const refused = await strict.request('http://localhost/echo', {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: JSON.stringify({ pad: 'x'.repeat(2048) })
+        });
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/must not exceed 1024 bytes/);
+
+        const roomy = createMcpHonoApp({ maxRequestBodySize: 8 * 1024 * 1024 });
+        roomy.post('/echo', (c: Context) => c.json({ keys: Object.keys(c.get('parsedBody') as object) }));
+        const served = await roomy.request('http://localhost/echo', {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: JSON.stringify({ pad: 'x'.repeat(5 * 1024 * 1024) })
+        });
+        expect(served.status).toBe(200);
+        expect(await served.json()).toEqual({ keys: ['pad'] });
+
+        expect(() => createMcpHonoApp({ maxRequestBodySize: 0 })).toThrow(RangeError);
+    });
 });

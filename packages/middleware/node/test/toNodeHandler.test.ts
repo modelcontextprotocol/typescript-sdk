@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { NodeServerResponseLike } from '../src/toNodeHandler';
-import { toNodeHandler } from '../src/toNodeHandler';
+import { toNodeHandler, toWebRequest } from '../src/toNodeHandler';
 
 const MODERN_REVISION = '2026-07-28';
 
@@ -374,6 +374,44 @@ describe('toNodeHandler', () => {
         expect(res.statusCode).toBe(413);
         expect(fetch).not.toHaveBeenCalled();
         expect(next).not.toHaveBeenCalled();
+    });
+
+    it('maxRequestBodySize moves the adapter bound, and the toWebRequest rejection is recognisable by name and status', async () => {
+        const fetch = vi.fn(async () => new Response(null, { status: 200 }));
+        const { req, res } = nodeRequestResponse(undefined);
+        const twoKiB = Object.assign(Readable.from([new Uint8Array(2048)]), { method: req.method, url: req.url, headers: req.headers });
+        await toNodeHandler({ fetch }, { maxRequestBodySize: 1024 })(twoKiB, res);
+        expect(res.statusCode).toBe(413);
+        expect(fetch).not.toHaveBeenCalled();
+
+        const roomy = nodeRequestResponse(undefined);
+        const fiveMiB = Object.assign(Readable.from(Array.from({ length: 5 }, () => new Uint8Array(1024 * 1024).fill(0x20))), {
+            method: 'POST',
+            url: roomy.req.url,
+            headers: roomy.req.headers
+        });
+        await toNodeHandler({ fetch }, { maxRequestBodySize: 8 * 1024 * 1024 })(fiveMiB, roomy.res);
+        expect(roomy.res.statusCode).toBe(200);
+        expect(fetch).toHaveBeenCalledTimes(1);
+
+        const rejection = await toWebRequest(
+            {
+                [Symbol.asyncIterator]: () => ({ next: async () => ({ done: false, value: new Uint8Array(2048) }) }),
+                method: 'POST',
+                url: '/mcp',
+                headers: {}
+            },
+            undefined,
+            { maxRequestBodySize: 1024 }
+        ).catch((error: unknown) => error);
+        expect(rejection).toBeInstanceOf(Error);
+        expect(rejection).toMatchObject({
+            name: 'RequestBodyTooLargeError',
+            status: 413,
+            message: expect.stringMatching(/must not exceed 1024 bytes/)
+        });
+
+        expect(() => toNodeHandler({ fetch }, { maxRequestBodySize: 0 })).toThrow(RangeError);
     });
 });
 
