@@ -411,6 +411,10 @@ export class McpServer {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} not found`);
         }
 
+        if (!template.enabled) {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${request.params.ref.uri} disabled`);
+        }
+
         const completer = template.resourceTemplate.completeCallback(request.params.argument.name);
         if (!completer) {
             return EMPTY_COMPLETION_RESULT;
