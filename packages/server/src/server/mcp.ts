@@ -47,6 +47,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
@@ -146,6 +148,9 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        if (supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
+        }
         return await this.server.connect(transport);
     }
 
@@ -155,6 +160,16 @@ export class McpServer {
     async close(): Promise<void> {
         await this.server.close();
     }
+
+    /** @internal */
+    resolveScopeChallenge: ScopeChallengeHandler = context => {
+        if (context.request.method !== 'tools/call') return;
+        const toolName = (context.request.params as { name?: unknown } | undefined)?.name;
+        if (typeof toolName !== 'string') return;
+        const tool = this._registeredTools[toolName];
+        if (tool === undefined || !tool.enabled) return;
+        return tool.scopeChallenge?.(context);
+    };
 
     private _toolHandlersInitialized = false;
 
@@ -811,6 +826,7 @@ export class McpServer {
         annotations: ToolAnnotations | undefined,
         icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -856,6 +872,7 @@ export class McpServer {
             annotations,
             icons,
             execution,
+            scopeChallenge,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -911,6 +928,9 @@ export class McpServer {
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredTool.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -959,6 +979,8 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            /** Determines whether this tool call needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -973,6 +995,7 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -986,6 +1009,7 @@ export class McpServer {
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -994,8 +1018,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
-
+        const { title, description, inputSchema, outputSchema, annotations, icons, scopeChallenge, _meta } = config;
         return this._createRegisteredTool(
             name,
             title,
@@ -1005,6 +1028,7 @@ export class McpServer {
             annotations,
             icons,
             undefined,
+            scopeChallenge,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1278,6 +1302,7 @@ export type RegisteredTool = {
     annotations?: ToolAnnotations;
     icons?: Icon[];
     execution?: ToolExecution;
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1293,6 +1318,7 @@ export type RegisteredTool = {
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;

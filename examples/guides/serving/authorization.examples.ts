@@ -22,7 +22,8 @@ import {
 } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, requireScopes } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const mcpServerUrl = new URL('https://api.example.com/mcp');
 const verifier: OAuthTokenVerifier = { verifyAccessToken };
@@ -34,7 +35,13 @@ const auth = requireBearerAuth({
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
-const node = toNodeHandler(createMcpHandler(buildServer));
+const node = toNodeHandler(
+    createMcpHandler(buildServer, {
+        scopeChallenge: {
+            resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        }
+    })
+);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 //#endregion requireBearerAuth_basic
 
@@ -72,14 +79,28 @@ function buildServer(): McpServer {
     });
     //#endregion authInfo_handler
 
-    //#region perToolScopes_handler
-    server.registerTool('purge-notes', { description: 'Delete every note' }, async ctx => {
-        if (!ctx.http?.authInfo?.scopes.includes('notes:write')) {
-            return { content: [{ type: 'text', text: 'insufficient_scope: purge-notes requires notes:write' }], isError: true };
-        }
-        return { content: [{ type: 'text', text: 'All notes deleted' }] };
-    });
-    //#endregion perToolScopes_handler
+    //#region perToolScopes_challenge
+    server.registerTool('purge-notes', { scopeChallenge: requireScopes('notes:write') }, async () => ({
+        content: [{ type: 'text', text: 'All notes deleted' }]
+    }));
+
+    server.registerTool(
+        'read-repository',
+        {
+            inputSchema: z.object({ visibility: z.enum(['public', 'private']) }),
+            scopeChallenge: ({ request, authInfo }) => {
+                const visibility = (request.params as { arguments?: { visibility?: unknown } }).arguments?.visibility;
+                if (visibility !== 'public' && visibility !== 'private') return;
+
+                const scopes = visibility === 'private' ? (['repo:read'] as const) : (['public_repo'] as const);
+                return scopes.every(scope => authInfo?.scopes.includes(scope))
+                    ? undefined
+                    : { scopes, errorDescription: `${visibility} repository access is required` };
+            }
+        },
+        async ({ visibility }) => ({ content: [{ type: 'text', text: `Read ${visibility} repository` }] })
+    );
+    //#endregion perToolScopes_challenge
 
     return server;
 }

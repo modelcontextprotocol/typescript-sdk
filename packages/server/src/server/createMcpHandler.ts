@@ -64,6 +64,8 @@ import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import type { ScopeChallengeConfig } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -212,6 +214,8 @@ export interface CreateMcpHandlerOptions {
      * @default 4194304 (4 MiB)
      */
     maxRequestBodySize?: number;
+    /** Enables per-operation OAuth scope challenges. */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -323,7 +327,8 @@ function createLegacyStatelessFallback(
     factory: McpServerFactory,
     onerror?: (error: Error) => void,
     keepAliveMs?: number,
-    maxRequestBodySize?: number
+    maxRequestBodySize?: number,
+    scopeChallenge?: ScopeChallengeConfig
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
@@ -338,7 +343,8 @@ function createLegacyStatelessFallback(
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
                 ...(keepAliveMs !== undefined && { keepAliveMs }),
-                ...(maxRequestBodySize !== undefined && { maxRequestBodySize })
+                ...(maxRequestBodySize !== undefined && { maxRequestBodySize }),
+                ...(scopeChallenge !== undefined && { scopeChallenge })
             });
             await product.connect(transport);
 
@@ -715,7 +721,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined =
-        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
+        legacy === 'reject'
+            ? undefined
+            : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize, options.scopeChallenge);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -827,6 +835,21 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                         reportError(new Error(`Rejected inbound request (${rejection.cell}): ${rejection.message}`));
                         return rejectionResponse(rejection, route.message.id);
                     }
+                }
+            }
+
+            // Run scope preflight after Mcp-Param headers have been checked against the body.
+            if (options.scopeChallenge !== undefined) {
+                try {
+                    const result = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
+                    if (result !== undefined) {
+                        void product.close().catch(reportError);
+                        return createScopeChallengeResponse(options.scopeChallenge, result.challenge, result.requestId);
+                    }
+                } catch (error) {
+                    void product.close().catch(reportError);
+                    reportError(toError(error));
+                    return internalServerErrorResponse(route.message.id);
                 }
             }
         }

@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -20,6 +20,8 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import type { ScopeChallengeConfig, ScopeChallengeHandler } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -177,6 +179,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /** Enables OAuth scope challenges. `McpServer.connect()` supplies the resolver. */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -267,6 +272,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
     private _maxRequestBodySize: number;
+    private _scopeChallenge?: ScopeChallengeConfig;
+    private _scopeChallengeResolver?: ScopeChallengeHandler;
 
     sessionId?: string;
     onclose?: () => void;
@@ -286,6 +293,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
         this._maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
+        this._scopeChallenge = options.scopeChallenge;
     }
 
     private startKeepAlive(
@@ -302,6 +310,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         });
         return timer;
+    }
+
+    /** Sets the scope challenge resolver for parsed JSON-RPC requests. */
+    setScopeChallengeResolver(resolver: ScopeChallengeHandler): void {
+        this._scopeChallengeResolver = resolver;
     }
 
     /**
@@ -350,6 +363,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
+        if (!this._scopeChallenge || !this._scopeChallengeResolver) {
+            return undefined;
+        }
+        const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
+        const result = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
+        return result === undefined
+            ? undefined
+            : createScopeChallengeResponse(this._scopeChallenge, result.challenge, messages.length === 1 ? result.requestId : null);
     }
 
     /**
@@ -854,6 +878,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (this._closed) {
                 return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            // Check before opening SSE so an insufficient token can receive HTTP 403.
+            let scopeChallengeResponse: Response | undefined;
+            try {
+                scopeChallengeResponse = await this._checkScopeChallenge(messages, options?.authInfo);
+            } catch (error) {
+                this.onerror?.(error as Error);
+                return this.createJsonErrorResponse(500, -32_603, 'Internal server error');
+            }
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests

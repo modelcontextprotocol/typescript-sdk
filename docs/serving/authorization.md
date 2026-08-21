@@ -21,7 +21,8 @@ import {
 } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, requireScopes } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const mcpServerUrl = new URL('https://api.example.com/mcp');
 const verifier: OAuthTokenVerifier = { verifyAccessToken };
@@ -33,7 +34,13 @@ const auth = requireBearerAuth({
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
-const node = toNodeHandler(createMcpHandler(buildServer));
+const node = toNodeHandler(
+    createMcpHandler(buildServer, {
+        scopeChallenge: {
+            resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        }
+    })
+);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 ```
 
@@ -118,22 +125,34 @@ The per-request factory itself receives the same value as `ctx.authInfo`, so it 
 
 ## Enforce per-tool scopes
 
-`requiredScopes` gates the whole endpoint. For a scope only some tools need, check inside the handler — the handler is the only place that knows which tool is executing.
+`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool, set its `scopeChallenge` callback and configure `scopeChallenge.resourceMetadataUrl` on `createMcpHandler` (or a directly constructed Streamable HTTP transport). The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
 
-```ts source="../../examples/guides/serving/authorization.examples.ts#perToolScopes_handler"
-server.registerTool('purge-notes', { description: 'Delete every note' }, async ctx => {
-    if (!ctx.http?.authInfo?.scopes.includes('notes:write')) {
-        return { content: [{ type: 'text', text: 'insufficient_scope: purge-notes requires notes:write' }], isError: true };
-    }
-    return { content: [{ type: 'text', text: 'All notes deleted' }] };
-});
+Use `requireScopes` for a static exact all-of check. Use a callback when the required scope set depends on the request:
+
+```ts source="../../examples/guides/serving/authorization.examples.ts#perToolScopes_challenge"
+server.registerTool('purge-notes', { scopeChallenge: requireScopes('notes:write') }, async () => ({
+    content: [{ type: 'text', text: 'All notes deleted' }]
+}));
+
+server.registerTool(
+    'read-repository',
+    {
+        inputSchema: z.object({ visibility: z.enum(['public', 'private']) }),
+        scopeChallenge: ({ request, authInfo }) => {
+            const visibility = (request.params as { arguments?: { visibility?: unknown } }).arguments?.visibility;
+            if (visibility !== 'public' && visibility !== 'private') return;
+
+            const scopes = visibility === 'private' ? (['repo:read'] as const) : (['public_repo'] as const);
+            return scopes.every(scope => authInfo?.scopes.includes(scope))
+                ? undefined
+                : { scopes, errorDescription: `${visibility} repository access is required` };
+        }
+    },
+    async ({ visibility }) => ({ content: [{ type: 'text', text: `Read ${visibility} repository` }] })
+);
 ```
 
-A caller holding only `mcp` gets an ordinary tool result with `isError: true`, so the model reads the refusal and moves on instead of losing the connection.
-
-::: info
-Responding `403 insufficient_scope` at the HTTP layer instead triggers the client transport's automatic scope step-up (SEP-2350) — see [Authenticate a user with OAuth](../clients/oauth.md).
-:::
+Scope interpretation belongs to your callback; the SDK does not infer hierarchies, alternatives, or missing scopes. Challenged tools remain visible in `tools/list`.
 
 ## Recap
 
@@ -141,5 +160,5 @@ Responding `403 insufficient_scope` at the HTTP layer instead triggers the clien
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
 - Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
-- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-tool scopes are a check inside the handler that returns `isError: true`.
+- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-tool callbacks can trigger HTTP `403` scope step-up before invocation.
 - The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.
