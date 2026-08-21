@@ -2951,6 +2951,53 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: ProtocolError for Disabled Resource Template
+         */
+        test('should throw ProtocolError for disabled resource template', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resourceTemplate = mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Template content'
+                        }
+                    ]
+                })
+            );
+
+            resourceTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: 'test://resource/1'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
+        });
+
+        /***
          * Test: Registering a resource template without a complete callback should not update server capabilities to advertise support for completion
          */
         test('should not advertise support for completion when a resource template without a complete callback is defined', async () => {
