@@ -44,6 +44,8 @@ export type AddClientAuthentication = (
     metadata?: AuthorizationServerMetadata
 ) => void | Promise<void>;
 
+export type OAuthResource = string | URL;
+
 /**
  * Context passed to {@linkcode AuthProvider.onUnauthorized} when the server
  * responds with 401. Provides everything needed to refresh credentials.
@@ -348,7 +350,7 @@ export interface OAuthClientProvider {
      *
      * Implementations must verify the returned resource matches the MCP server.
      */
-    validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+    validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<OAuthResource | undefined>;
 
     /**
      * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
@@ -1208,7 +1210,7 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: OAuthResource | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
@@ -1428,7 +1430,7 @@ export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
-): Promise<URL | undefined> {
+): Promise<OAuthResource | undefined> {
     const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
     // If provider has custom validation, delegate to it
@@ -1446,7 +1448,7 @@ export async function selectResourceURL(
         throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
     }
     // Prefer the resource from metadata since it's what the server is telling us to request
-    return new URL(resourceMetadata.resource);
+    return resourceMetadata.resource;
 }
 
 /**
@@ -2006,7 +2008,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: OAuthResource;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2054,7 +2056,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', String(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2102,7 +2104,7 @@ export async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: OAuthResource;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2114,7 +2116,7 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', String(resource));
     }
 
     if (addClientAuthentication) {
@@ -2185,7 +2187,7 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: OAuthResource;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2233,7 +2235,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: OAuthResource;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2295,7 +2297,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: OAuthResource;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**
