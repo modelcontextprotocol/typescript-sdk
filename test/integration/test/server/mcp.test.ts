@@ -2386,6 +2386,52 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Disabled Resource Templates Are Omitted from resources/templates/list
+         */
+        test('should omit disabled resource templates from resources/templates/list', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register resource template
+            const resourceTemplate = mcpServer.registerResource(
+                'template',
+                new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Template content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Verify template is registered
+            const result = await client.request({ method: 'resources/templates/list' });
+
+            expect(result.resourceTemplates).toHaveLength(1);
+
+            // Disable the template
+            resourceTemplate.disable();
+
+            // Verify the template was disabled
+            const result2 = await client.request({ method: 'resources/templates/list' });
+
+            expect(result2.resourceTemplates).toHaveLength(0);
+        });
+
+        /***
          * Test: Resource Registration with Metadata
          */
         test('should register resource with metadata', async () => {
