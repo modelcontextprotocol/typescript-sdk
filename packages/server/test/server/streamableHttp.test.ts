@@ -1370,6 +1370,70 @@ describe('Zod v4', () => {
         });
     });
 
+    describe('close() with a JSON-mode request in flight', () => {
+        // In JSON response mode handleRequest() returns a promise that only
+        // send() resolves; cleanup() drops the mapping without settling it, so
+        // close() during an in-flight POST left the HTTP request hanging.
+        async function createUnansweringTransport(): Promise<WebStandardStreamableHTTPServerTransport> {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                enableJsonResponse: true
+            });
+            // No server attached: every request stays in flight forever.
+            transport.onmessage = () => {};
+            await transport.start();
+            return transport;
+        }
+
+        it('resolves the pending response with a JSON-RPC error', async () => {
+            const transport = await createUnansweringTransport();
+
+            const pending = transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            // Give handleRequest a turn to register the stream before closing.
+            await new Promise(resolve => setImmediate(resolve));
+
+            await transport.close();
+
+            const response = await pending;
+            expect(response.status).toBe(200);
+            const data = (await response.json()) as JSONRPCErrorResponse;
+            expect(data.id).toBe('init-1');
+            expectErrorResponse(data, -32_000, /Connection closed/);
+        });
+
+        it('resolves every id of an in-flight batch', async () => {
+            // Stateless: no initialize handshake to await, which in JSON mode
+            // would itself never resolve without a server attached.
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                enableJsonResponse: true
+            });
+            transport.onmessage = () => {};
+            await transport.start();
+
+            const batch: JSONRPCMessage[] = [
+                { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'batch-1' },
+                { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'batch-2' }
+            ];
+            const pending = transport.handleRequest(createRequest('POST', batch));
+            await new Promise(resolve => setImmediate(resolve));
+
+            await transport.close();
+
+            const data = (await (await pending).json()) as JSONRPCErrorResponse[];
+            expect(data.map(entry => entry.id)).toEqual(['batch-1', 'batch-2']);
+        });
+
+        it('is a no-op when nothing is in flight', async () => {
+            const transport = await createUnansweringTransport();
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.close()).resolves.toBeUndefined();
+            expect(onerror).not.toHaveBeenCalled();
+        });
+    });
+
     describe('close() re-entrancy guard', () => {
         it('should not recurse when onclose triggers a second close()', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
