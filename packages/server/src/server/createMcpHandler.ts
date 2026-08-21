@@ -63,6 +63,8 @@ import { invoke } from './invoke';
 import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
+import type { ScopeChallengeConfig } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -201,6 +203,8 @@ export interface CreateMcpHandlerOptions {
      * @default 15000
      */
     keepAliveMs?: number;
+    /** Enables per-tool OAuth scope challenges. */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -311,7 +315,8 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
 function createLegacyStatelessFallback(
     factory: McpServerFactory,
     onerror?: (error: Error) => void,
-    keepAliveMs?: number
+    keepAliveMs?: number,
+    scopeChallenge?: ScopeChallengeConfig
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
@@ -325,7 +330,8 @@ function createLegacyStatelessFallback(
             });
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
-                ...(keepAliveMs !== undefined && { keepAliveMs })
+                ...(keepAliveMs !== undefined && { keepAliveMs }),
+                ...(scopeChallenge !== undefined && { scopeChallenge })
             });
             await product.connect(transport);
 
@@ -663,7 +669,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined =
-        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs);
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, options.scopeChallenge);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -775,6 +781,24 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                         reportError(new Error(`Rejected inbound request (${rejection.cell}): ${rejection.message}`));
                         return rejectionResponse(rejection, route.message.id);
                     }
+                }
+            }
+
+            // Run selectors after Mcp-Param headers have been checked against the body.
+            if (options.scopeChallenge !== undefined) {
+                try {
+                    const challenge = findScopeChallenge([route.message], authInfo, requestMessage => {
+                        const toolName = (requestMessage.params as { name?: unknown } | undefined)?.name;
+                        return typeof toolName === 'string' ? product.getToolScopes(toolName) : undefined;
+                    });
+                    if (challenge !== undefined) {
+                        void product.close().catch(reportError);
+                        return createScopeChallengeResponse(options.scopeChallenge, challenge);
+                    }
+                } catch (error) {
+                    void product.close().catch(reportError);
+                    reportError(toError(error));
+                    return internalServerErrorResponse(route.message.id);
                 }
             }
         }

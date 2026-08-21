@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -19,6 +19,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { ScopeChallengeConfig, ScopeResolver } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -167,6 +169,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /** Enables per-tool OAuth scope challenges. `McpServer.connect()` supplies the resolver. */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -256,6 +261,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
+    private _scopeChallenge?: ScopeChallengeConfig;
+    private _scopeResolver?: ScopeResolver;
 
     sessionId?: string;
     onclose?: () => void;
@@ -274,6 +281,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+        this._scopeChallenge = options.scopeChallenge;
     }
 
     private startKeepAlive(
@@ -290,6 +298,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         });
         return timer;
+    }
+
+    /** Sets the scope resolver for full parsed JSON-RPC requests. */
+    setScopeResolver(resolver: ScopeResolver): void {
+        this._scopeResolver = resolver;
     }
 
     /**
@@ -338,6 +351,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    private _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Response | undefined {
+        if (!this._scopeChallenge || !this._scopeResolver || !authInfo) {
+            return undefined;
+        }
+        const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
+        const challenge = findScopeChallenge(requests, authInfo, this._scopeResolver);
+        return challenge === undefined
+            ? undefined
+            : createScopeChallengeResponse(this._scopeChallenge, challenge, messages.length === 1 ? challenge.requestId : null);
     }
 
     /**
@@ -832,6 +856,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (this._closed) {
                 return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            // Check before opening SSE so an insufficient token can receive HTTP 403.
+            let scopeChallengeResponse: Response | undefined;
+            try {
+                scopeChallengeResponse = this._checkScopeChallenge(messages, options?.authInfo);
+            } catch (error) {
+                this.onerror?.(error as Error);
+                return this.createJsonErrorResponse(500, -32_603, 'Internal server error');
+            }
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests

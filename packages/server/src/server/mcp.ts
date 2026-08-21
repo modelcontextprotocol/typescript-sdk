@@ -47,6 +47,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ToolScopeConfig, ToolScopePolicy } from './scopeChallenge';
+import { normalizeToolScopePolicy, supportsScopeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
@@ -146,6 +148,13 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        if (supportsScopeResolver(transport)) {
+            transport.setScopeResolver(request => {
+                if (request.method !== 'tools/call') return;
+                const toolName = (request.params as { name?: unknown } | undefined)?.name;
+                return typeof toolName === 'string' ? this.getToolScopes(toolName) : undefined;
+            });
+        }
         return await this.server.connect(transport);
     }
 
@@ -154,6 +163,15 @@ export class McpServer {
      */
     async close(): Promise<void> {
         await this.server.close();
+    }
+
+    /**
+     * Returns the scope policy for an enabled tool.
+     */
+    getToolScopes(toolName: string): ToolScopePolicy | undefined {
+        const tool = this._registeredTools[toolName];
+        if (tool === undefined || !tool.enabled) return undefined;
+        return tool.scopes;
     }
 
     private _toolHandlersInitialized = false;
@@ -811,6 +829,7 @@ export class McpServer {
         annotations: ToolAnnotations | undefined,
         icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
+        scopes: ToolScopePolicy | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -856,6 +875,7 @@ export class McpServer {
             annotations,
             icons,
             execution,
+            scopes,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -911,6 +931,9 @@ export class McpServer {
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
+                if (updates.scopes !== undefined) {
+                    registeredTool.scopes = updates.scopes === null ? undefined : normalizeToolScopePolicy(updates.scopes);
+                }
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -959,6 +982,11 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            /**
+             * OAuth scopes accepted by this tool. A string array requires every
+             * listed scope; use a policy for alternative or request-specific paths.
+             */
+            scopes?: ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -973,6 +1001,7 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopes?: ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -986,6 +1015,7 @@ export class McpServer {
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopes?: ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -994,8 +1024,9 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, icons, scopes, _meta } = config;
 
+        const scopePolicy = scopes === undefined ? undefined : normalizeToolScopePolicy(scopes);
         return this._createRegisteredTool(
             name,
             title,
@@ -1005,6 +1036,7 @@ export class McpServer {
             annotations,
             icons,
             undefined,
+            scopePolicy,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1278,6 +1310,7 @@ export type RegisteredTool = {
     annotations?: ToolAnnotations;
     icons?: Icon[];
     execution?: ToolExecution;
+    scopes?: ToolScopePolicy;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1293,6 +1326,7 @@ export type RegisteredTool = {
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         icons?: Icon[];
+        scopes?: ToolScopeConfig | null;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
