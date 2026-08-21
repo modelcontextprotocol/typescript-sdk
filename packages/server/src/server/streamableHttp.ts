@@ -19,6 +19,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -157,6 +158,15 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     keepAliveMs?: number;
 
     /**
+     * Upper bound, in bytes, on a POST body the transport reads itself. A body
+     * over the bound (declared `Content-Length`, or observed while streaming)
+     * is answered `413` before anything is parsed. Not applied when the caller
+     * supplies `parsedBody`. Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
+
+    /**
      * List of protocol versions that this transport will accept.
      * Used to validate the `mcp-protocol-version` header in incoming requests.
      *
@@ -174,7 +184,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
  */
 export interface HandleRequestOptions {
     /**
-     * Pre-parsed request body. If provided, the transport will use this instead of parsing `req.json()`.
+     * Pre-parsed request body. If provided, the transport will use this instead of reading and parsing the request body.
      * Useful when using body-parser middleware that has already parsed the body.
      */
     parsedBody?: unknown;
@@ -256,6 +266,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
+    private _maxRequestBodySize: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -274,6 +285,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+        this._maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
     }
 
     private startKeepAlive(
@@ -763,13 +775,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
+                    const body = await readRequestBody(req, this._maxRequestBodySize);
+                    if (body.tooLarge) {
+                        const message = requestBodyTooLargeMessage(this._maxRequestBodySize);
+                        this.onerror?.(new Error(message));
+                        return this.createJsonErrorResponse(413, -32_000, message);
+                    }
+                    rawMessage = JSON.parse(body.text);
                 } catch (error) {
                     this.onerror?.(error as Error);
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
                 rawMessage = options.parsedBody;
+            }
+            if (Array.isArray(rawMessage) && rawMessage.length > MAX_BATCH_SIZE) {
+                this.onerror?.(new Error(`Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`));
+                return this.createJsonErrorResponse(400, -32_600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
             }
 
             let messages: JSONRPCMessage[];
