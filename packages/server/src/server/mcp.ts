@@ -448,6 +448,7 @@ export class McpServer {
 
             const templateResources: Resource[] = [];
             for (const template of Object.values(this._registeredResourceTemplates)) {
+                if (!template.enabled) continue;
                 if (!template.resourceTemplate.listCallback) {
                     continue;
                 }
