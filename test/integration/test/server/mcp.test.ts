@@ -2998,6 +2998,65 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: ProtocolError for Completion on a Disabled Resource Template
+         */
+        test('should throw ProtocolError for completion of a disabled resource template', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resourceTemplate = mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('test://resource/{category}', {
+                    list: undefined,
+                    complete: {
+                        category: () => ['books', 'movies', 'music']
+                    }
+                }),
+                {},
+                async () => ({
+                    contents: [
+                        {
+                            uri: 'test://resource/test',
+                            text: 'Test content'
+                        }
+                    ]
+                })
+            );
+
+            resourceTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'test://resource/{category}'
+                        },
+                        argument: {
+                            name: 'category',
+                            value: ''
+                        }
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('disabled')
+            });
+        });
+
+        /***
          * Test: Registering a resource template without a complete callback should not update server capabilities to advertise support for completion
          */
         test('should not advertise support for completion when a resource template without a complete callback is defined', async () => {
