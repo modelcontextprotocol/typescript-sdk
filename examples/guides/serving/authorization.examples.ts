@@ -23,6 +23,7 @@ import {
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 const mcpServerUrl = new URL('https://api.example.com/mcp');
 const verifier: OAuthTokenVerifier = { verifyAccessToken };
@@ -34,7 +35,13 @@ const auth = requireBearerAuth({
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
-const node = toNodeHandler(createMcpHandler(buildServer));
+const node = toNodeHandler(
+    createMcpHandler(buildServer, {
+        scopeChallenge: {
+            resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        }
+    })
+);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 //#endregion requireBearerAuth_basic
 
@@ -72,14 +79,32 @@ function buildServer(): McpServer {
     });
     //#endregion authInfo_handler
 
-    //#region perToolScopes_handler
-    server.registerTool('purge-notes', { description: 'Delete every note' }, async ctx => {
-        if (!ctx.http?.authInfo?.scopes.includes('notes:write')) {
-            return { content: [{ type: 'text', text: 'insufficient_scope: purge-notes requires notes:write' }], isError: true };
-        }
-        return { content: [{ type: 'text', text: 'All notes deleted' }] };
-    });
-    //#endregion perToolScopes_handler
+    //#region perToolScopes_policy
+    server.registerTool(
+        'read-repository',
+        {
+            inputSchema: z.object({ visibility: z.enum(['public', 'private']) }),
+            scopes: {
+                anyOf: [
+                    {
+                        name: 'public',
+                        allOf: [{ challenge: 'public_repo', anyOf: [] }]
+                    },
+                    {
+                        name: 'private',
+                        allOf: [{ challenge: 'repo:read', anyOf: ['repo'] }]
+                    }
+                ],
+                select: request => {
+                    const visibility = (request.params as { arguments?: { visibility?: unknown } }).arguments?.visibility;
+                    if (visibility === 'public' || visibility === 'private') return [visibility];
+                    return;
+                }
+            }
+        },
+        async ({ visibility }) => ({ content: [{ type: 'text', text: `Read ${visibility} repository` }] })
+    );
+    //#endregion perToolScopes_policy
 
     return server;
 }

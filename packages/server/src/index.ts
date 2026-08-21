@@ -64,6 +64,15 @@ export { InMemoryServerEventBus } from './server/serverEventBus';
 // has only type-level Node imports (erased at compile time), but matching the client's `./stdio` subpath
 // gives consumers a consistent shape across packages.
 export type {
+    ScopeChallengeConfig,
+    ScopePath,
+    ScopePathSelector,
+    ScopeRequirement,
+    ScopeResolver,
+    ToolScopeConfig,
+    ToolScopePolicy
+} from './server/scopeChallenge';
+export type {
     EventId,
     EventStore,
     HandleRequestOptions,
