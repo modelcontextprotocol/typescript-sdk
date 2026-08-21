@@ -505,6 +505,9 @@ export class McpServer {
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
+                    if (!template.enabled) {
+                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource template ${uri} disabled`);
+                    }
                     return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
