@@ -149,10 +149,23 @@ export class SdkError extends Error {
         message: string,
         public readonly data?: unknown
     ) {
-        super(message);
+        // If a call site passes an underlying error via the `data` slot as
+        // `{ cause }`, forward it to `Error` so the standard `.cause` chain
+        // stays unbroken — loggers and error trackers (pino, Sentry, …) walk
+        // `.cause` to reach the root cause. The full `data` object is still
+        // retained on `this.data`. See modelcontextprotocol/typescript-sdk#2657.
+        super(message, dataHasCause(data) ? { cause: data.cause } : undefined);
         this.name = 'SdkError';
         stampErrorBrands(this, new.target);
     }
+}
+
+/**
+ * Narrow an {@linkcode SdkError.data | data} value to one that carries a
+ * `cause`, so it can be forwarded to the `Error` constructor's `ErrorOptions`.
+ */
+function dataHasCause(data: unknown): data is { cause: unknown } {
+    return typeof data === 'object' && data !== null && 'cause' in data;
 }
 
 /**
