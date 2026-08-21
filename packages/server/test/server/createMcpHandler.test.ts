@@ -538,6 +538,20 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(body.error.code).toBe(-32_700);
     });
 
+    it('answers 413 for a request body over the size limit before creating a server', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const streamed = postRequest('x'.repeat(4 * 1024 * 1024 + 1));
+        const declared = postRequest('{}', { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        for (const request of [streamed, declared]) {
+            const response = await handler.fetch(request);
+            expect(response.status).toBe(413);
+            expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_000);
+        }
+        expect(state.contexts).toHaveLength(0);
+    });
+
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {
         const { factory, state } = testFactory();
         const handler = createMcpHandler(factory);

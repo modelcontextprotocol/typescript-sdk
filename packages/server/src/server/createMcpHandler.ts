@@ -63,6 +63,7 @@ import { invoke } from './invoke';
 import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
+import { readRequestBody, REQUEST_BODY_TOO_LARGE_MESSAGE } from './requestBody';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -430,6 +431,8 @@ function standardHeadersOf(request: Request): Omit<InboundHttpRequest, 'httpMeth
 type EntryClassification =
     /** The body bytes could not be read at all (a failing stream, not malformed JSON). */
     | { step: 'unreadable-body' }
+    /** A POST body over the size limit; nothing past the limit was read. */
+    | { step: 'body-too-large' }
     /** A POST with an empty or non-JSON body: nothing to classify, so there is no envelope claim. */
     | { step: 'no-json-body'; forwardRequest: Request }
     /** A classifiable request, with the classifier's routing outcome. */
@@ -464,7 +467,11 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
             }
             let bodyText: string;
             try {
-                bodyText = await request.text();
+                const read = await readRequestBody(request);
+                if (read.tooLarge) {
+                    return { step: 'body-too-large' };
+                }
+                bodyText = read.text;
             } catch {
                 return { step: 'unreadable-body' };
             }
@@ -553,7 +560,8 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   answers it with the unsupported-protocol-version error), a malformed
  *   envelope behind a present claim (answered `-32602`), a request whose
  *   `MCP-Protocol-Version` header names a modern revision but that lacks the
- *   envelope (`-32602`), and header/body mismatches (`-32020`). Consumers
+ *   envelope (`-32602`), header/body mismatches (`-32020`), and a POST body
+ *   over the size limit (413). Consumers
  *   routing on the predicate must send `false` traffic to the modern handler,
  *   never to a legacy handler — the modern path owns those error answers.
  * - `server/discover` probes sent by negotiating clients always carry the
@@ -870,6 +878,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
         if (classified.step === 'unreadable-body') {
             return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body could not be read');
+        }
+        if (classified.step === 'body-too-large') {
+            return jsonRpcErrorResponse(413, -32_000, REQUEST_BODY_TOO_LARGE_MESSAGE);
         }
         if (classified.step === 'no-json-body') {
             // No JSON body to classify: there is no envelope claim, so this is

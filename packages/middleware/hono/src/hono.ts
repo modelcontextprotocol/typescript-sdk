@@ -38,6 +38,42 @@ export interface CreateMcpHonoAppOptions {
     allowedOrigins?: string[];
 }
 
+/** Same limit the Streamable HTTP transport applies to request bodies. */
+const MAX_REQUEST_BODY_SIZE = 4 * 1024 * 1024;
+
+/**
+ * Reads a request body as text, up to MAX_REQUEST_BODY_SIZE — the same bounded read the Streamable
+ * HTTP transport performs. A declared Content-Length over the limit is refused without reading.
+ */
+async function readRequestBody(request: Request): Promise<{ tooLarge: true } | { tooLarge: false; text: string }> {
+    if (Number(request.headers.get('content-length')) > MAX_REQUEST_BODY_SIZE) {
+        return { tooLarge: true };
+    }
+    if (request.body === null) {
+        return { tooLarge: false, text: '' };
+    }
+    const reader = request.body.getReader();
+    const decoder = new TextDecoder();
+    let received = 0;
+    let text = '';
+    try {
+        for (;;) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+            received += value.byteLength;
+            if (received > MAX_REQUEST_BODY_SIZE) {
+                return { tooLarge: true };
+            }
+            text += decoder.decode(value, { stream: true });
+        }
+    } finally {
+        reader.releaseLock();
+    }
+    return { tooLarge: false, text: text + decoder.decode() };
+}
+
 /**
  * Creates a Hono application pre-configured for MCP servers.
  *
@@ -47,7 +83,8 @@ export interface CreateMcpHonoAppOptions {
  *
  * This also installs a small JSON body parsing middleware (similar to `express.json()`)
  * that stashes the parsed body into `c.set('parsedBody', ...)` when the `Content-Type`
- * media type is `application/json`.
+ * media type is `application/json`. It runs after the Host/Origin validation, and JSON
+ * bodies over 4 MiB are answered `413` before being parsed.
  *
  * @param options - Configuration options
  * @returns A configured Hono application
@@ -56,32 +93,6 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     const { host = '127.0.0.1', allowedHosts, allowedOrigins } = options;
 
     const app = new Hono();
-
-    // Similar to `express.json()`: parse JSON bodies and make them available to MCP adapters via `parsedBody`.
-    app.use('*', async (c: Context, next) => {
-        // If an upstream middleware already set parsedBody, keep it.
-        if (c.get('parsedBody') !== undefined) {
-            return await next();
-        }
-
-        // Parsed media type, never a substring match — see isJsonContentType.
-        // A body left unparsed here is answered 415 by the transport's own
-        // Content-Type check downstream.
-        if (!isJsonContentType(c.req.header('content-type'))) {
-            return await next();
-        }
-
-        try {
-            // Parse from a clone so we don't consume the original request stream.
-            const parsed = await c.req.raw.clone().json();
-            c.set('parsedBody', parsed);
-        } catch {
-            // Mirror express.json() behavior loosely: reject invalid JSON.
-            return c.text('Invalid JSON', 400);
-        }
-
-        return await next();
-    });
 
     // If allowedHosts is explicitly provided, use that for validation.
     if (allowedHosts) {
@@ -110,6 +121,43 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     } else if (['127.0.0.1', 'localhost', '::1'].includes(host)) {
         app.use('*', localhostOriginValidation());
     }
+
+    // Similar to `express.json()`: parse JSON bodies (up to MAX_REQUEST_BODY_SIZE; larger ones are
+    // answered 413) and make them available to MCP adapters via `parsedBody`.
+    app.use('*', async (c: Context, next) => {
+        // If an upstream middleware already set parsedBody, keep it.
+        if (c.get('parsedBody') !== undefined) {
+            return await next();
+        }
+
+        // Parsed media type, never a substring match — see isJsonContentType.
+        // A body left unparsed here is answered 415 by the transport's own
+        // Content-Type check downstream.
+        if (!isJsonContentType(c.req.header('content-type'))) {
+            return await next();
+        }
+
+        try {
+            // Parse from a clone so we don't consume the original request stream.
+            const body = await readRequestBody(c.req.raw.clone());
+            if (body.tooLarge) {
+                return c.json(
+                    {
+                        jsonrpc: '2.0',
+                        error: { code: -32_000, message: `Payload Too Large: Request body must not exceed ${MAX_REQUEST_BODY_SIZE} bytes` },
+                        id: null
+                    },
+                    413
+                );
+            }
+            c.set('parsedBody', JSON.parse(body.text));
+        } catch {
+            // Mirror express.json() behavior loosely: reject invalid JSON.
+            return c.text('Invalid JSON', 400);
+        }
+
+        return await next();
+    });
 
     return app;
 }

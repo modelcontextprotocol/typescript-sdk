@@ -19,6 +19,7 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { MAX_BATCH_SIZE, readRequestBody, REQUEST_BODY_TOO_LARGE_MESSAGE } from './requestBody';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -174,7 +175,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
  */
 export interface HandleRequestOptions {
     /**
-     * Pre-parsed request body. If provided, the transport will use this instead of parsing `req.json()`.
+     * Pre-parsed request body. If provided, the transport will use this instead of reading and parsing the request body.
      * Useful when using body-parser middleware that has already parsed the body.
      */
     parsedBody?: unknown;
@@ -763,13 +764,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
+                    const body = await readRequestBody(req);
+                    if (body.tooLarge) {
+                        this.onerror?.(new Error(REQUEST_BODY_TOO_LARGE_MESSAGE));
+                        return this.createJsonErrorResponse(413, -32_000, REQUEST_BODY_TOO_LARGE_MESSAGE);
+                    }
+                    rawMessage = JSON.parse(body.text);
                 } catch (error) {
                     this.onerror?.(error as Error);
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
                 rawMessage = options.parsedBody;
+            }
+            if (Array.isArray(rawMessage) && rawMessage.length > MAX_BATCH_SIZE) {
+                this.onerror?.(new Error(`Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`));
+                return this.createJsonErrorResponse(400, -32_600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
             }
 
             let messages: JSONRPCMessage[];
