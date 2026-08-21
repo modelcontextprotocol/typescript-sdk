@@ -8,6 +8,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
 import { declaredDialect } from './dialects';
+import { canonicalJson, createBoundedCache, VALIDATOR_CACHE_LIMIT } from './schemaCache';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /** Structural subset of the AJV interface used by {@link AjvJsonSchemaValidator}. */
@@ -81,6 +82,15 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajvDraft7: AjvLike | undefined;
     /** Lazy 2019-09 engine, built on the first 2019-09-declared schema. */
     private _ajv2019: AjvLike | undefined;
+    /**
+     * Compiled validators for schemas without a usable `$id`, keyed by the
+     * schema's canonical serialization and bounded to {@link VALIDATOR_CACHE_LIMIT}
+     * distinct schemas. AJV only deduplicates compilations by `$id`; without
+     * this cache every `getValidator` call recompiles the same schema and the
+     * engine retains each compiled validator forever, so long-running clients
+     * that refresh their tool catalogue grow the heap without bound (#2605).
+     */
+    private readonly _compiledBySource = createBoundedCache<AjvValidateFunction>(VALIDATOR_CACHE_LIMIT);
     /** True iff the constructor received a caller-supplied engine; the `$schema` dispatch is skipped. */
     private readonly _userAjv: boolean;
 
@@ -133,7 +143,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
         const ajvValidator =
             '$id' in schema && typeof schema.$id === 'string'
                 ? (engine.getSchema(schema.$id) ?? engine.compile(schema))
-                : engine.compile(schema);
+                : this._compiledValidator(engine, schema);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
@@ -150,6 +160,30 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
                       errorMessage: engine.errorsText(ajvValidator.errors)
                   };
         };
+    }
+
+    /** Compile a schema, reusing the previous compilation for identical schemas. */
+    private _compiledValidator(engine: AjvLike, schema: JsonSchemaType): AjvValidateFunction {
+        const key = canonicalJson(schema);
+        if (key === undefined) {
+            // Non-serializable schema (e.g. cyclic): skip the content cache and
+            // let the engine compile it as before.
+            return engine.compile(schema);
+        }
+
+        const cached = this._compiledBySource.get(key);
+        if (cached !== undefined) {
+            return cached;
+        }
+
+        // Compile a snapshot derived from the key, never the caller's object.
+        // AJV caches compiled schemas by object identity, so if a caller
+        // mutates its schema in place, compiling the live object could return
+        // a stale validator that we would then store under the fresh key
+        // (#2605).
+        const compiled = engine.compile(JSON.parse(key) as JsonSchemaType);
+        this._compiledBySource.set(key, compiled);
+        return compiled;
     }
 }
 
