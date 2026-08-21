@@ -1,7 +1,7 @@
 ---
-'@modelcontextprotocol/server': minor
-'@modelcontextprotocol/node': minor
-'@modelcontextprotocol/hono': minor
+'@modelcontextprotocol/server': patch
+'@modelcontextprotocol/node': patch
+'@modelcontextprotocol/hono': patch
 '@modelcontextprotocol/express': patch
 ---
 
