@@ -2530,6 +2530,52 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Disabled Resources and Resource Templates Are Omitted from resources/list
+         */
+        test('should omit disabled resources and resource template listings from resources/list', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const disabledResource = mcpServer.registerResource('inactive', 'test://static/inactive', {}, async uri => ({
+                contents: [{ uri: uri.href, text: 'Inactive content' }]
+            }));
+
+            mcpServer.registerResource(
+                'active-template',
+                new ResourceTemplate('test://active/{id}', {
+                    list: async () => ({ resources: [{ name: 'Active 1', uri: 'test://active/1' }] })
+                }),
+                {},
+                async uri => ({ contents: [{ uri: uri.href, text: 'Active template content' }] })
+            );
+            const disabledTemplate = mcpServer.registerResource(
+                'inactive-template',
+                new ResourceTemplate('test://inactive/{id}', {
+                    list: async () => ({ resources: [{ name: 'Inactive 1', uri: 'test://inactive/1' }] })
+                }),
+                {},
+                async uri => ({ contents: [{ uri: uri.href, text: 'Inactive template content' }] })
+            );
+
+            disabledResource.disable();
+            disabledTemplate.disable();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'resources/list' });
+
+            expect(result.resources.map(resource => resource.uri)).toEqual(['test://active/1']);
+        });
+
+        /***
          * Test: Template Variables to Read Callback
          */
         test('should pass template variables to readCallback', async () => {
