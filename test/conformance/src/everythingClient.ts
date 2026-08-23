@@ -803,6 +803,62 @@ async function runJsonSchemaRefNoDerefClient(serverUrl: string): Promise<void> {
 registerScenario('json-schema-ref-no-deref', runJsonSchemaRefNoDerefClient);
 
 // ============================================================================
+// JSON Schema 2020-12 keyword preservation scenario (SEP-1613, SEP-2106)
+// ============================================================================
+
+/** The tool whose `inputSchema` carries the full JSON Schema 2020-12 fixture. */
+const JSON_SCHEMA_2020_12_TOOL = 'json_schema_2020_12_tool';
+/** The permissive echo tool that hands the observed schema back to the referee. */
+const JSON_SCHEMA_ECHO_TOOL = 'json_schema_echo';
+
+/**
+ * The scenario advertises a focal tool whose inputSchema uses `$schema`,
+ * `$defs` (with `$anchor`), `additionalProperties`, composition
+ * (`allOf`/`anyOf`) and conditional (`if`/`then`/`else`) keywords. The client
+ * lists tools and passes that inputSchema back verbatim — exactly as
+ * `listTools()` exposes it — through `tools/call json_schema_echo`, so the
+ * referee can diff what survived the SDK's parsing against its fixture.
+ *
+ * The scenario spans both eras: under a 2026-07-28 run the client negotiates
+ * the modern lifecycle via server/discover (as tools_call does) and drives the
+ * same list → echo flow.
+ */
+async function runJsonSchema2020_12PreservationClient(serverUrl: string): Promise<void> {
+    const client = new Client(
+        { name: 'json-schema-2020-12-preservation-client', version: '1.0.0' },
+        isModernConformanceRun() ? { capabilities: {}, versionNegotiation: { mode: 'auto' } } : { capabilities: {} }
+    );
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Successfully connected to MCP server');
+
+    const tools = await client.listTools();
+    logger.debug(
+        'Available tools:',
+        tools.tools.map(t => t.name)
+    );
+
+    const focal = tools.tools.find(t => t.name === JSON_SCHEMA_2020_12_TOOL);
+    if (!focal) {
+        throw new Error(`Tool '${JSON_SCHEMA_2020_12_TOOL}' not advertised by the server`);
+    }
+    logger.debug('Observed inputSchema:', JSON.stringify(focal.inputSchema, null, 2));
+
+    const result = await client.callTool({
+        name: JSON_SCHEMA_ECHO_TOOL,
+        arguments: { schema: focal.inputSchema }
+    });
+    logger.debug('Echo result:', JSON.stringify(result, null, 2));
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('json-schema-2020-12-preservation', runJsonSchema2020_12PreservationClient);
+
+// ============================================================================
 // Main entry point
 // ============================================================================
 
