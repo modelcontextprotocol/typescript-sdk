@@ -309,12 +309,14 @@ function classifyNetworkError(error: unknown, context: ProbeClassifierContext): 
         // where the probe's 2026 headers could not.
         return { kind: 'legacy' };
     }
-    return {
-        kind: 'error',
-        error: new SdkError(SdkErrorCode.EraNegotiationFailed, `Version negotiation probe failed: ${describeError(error)}`, {
-            cause: error
-        })
-    };
+    // `SdkError`'s third parameter is `data`, not `ErrorOptions` — passing
+    // `{ cause: error }` there strands the underlying network failure at
+    // `error.data.cause`, where nothing walking the standard `.cause` chain
+    // will find it. Set `cause` on the instance instead, matching the
+    // non-enumerable descriptor the `Error` constructor would have produced.
+    const sdkError = new SdkError(SdkErrorCode.EraNegotiationFailed, `Version negotiation probe failed: ${describeError(error)}`);
+    Object.defineProperty(sdkError, 'cause', { value: error, writable: true, configurable: true });
+    return { kind: 'error', error: sdkError };
 }
 
 function isOpaqueFetchTypeError(error: unknown): boolean {
