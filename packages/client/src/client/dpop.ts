@@ -27,13 +27,6 @@ export type DpopAlg = (typeof DPOP_SUPPORTED_ALGS)[number];
 const DEFAULT_DPOP_ALG: DpopAlg = 'ES256';
 const DPOP_TYP = 'dpop+jwt';
 
-/**
- * Cap on `use_dpop_nonce` retries (RFC 9449 §9) within a single transport send/stream-open. Not
- * configurable: RFC 9449 models exactly one challenge-then-retry round trip per request, not a
- * tunable re-authorization budget.
- */
-export const MAX_DPOP_NONCE_RETRIES = 1;
-
 async function importJose(): Promise<typeof import('jose')> {
     if (globalThis.crypto === undefined) {
         throw new TypeError(

@@ -7,8 +7,8 @@ import { DpopSession } from '../../src/client/dpop';
 
 // `auth` is mocked (not exercised for real — it would attempt real network discovery) so the
 // "credential retry happens before a nonce challenge is discovered" test below can simulate a
-// successful re-authorization without a real OAuth flow. Everything else — importantly
-// `adaptOAuthProvider`, which is what makes `withOAuth` DPoP-aware — stays the real implementation.
+// successful re-authorization without a real OAuth flow. Everything else — including
+// `withDpopFromProvider`, which is what makes `withOAuth` DPoP-aware — stays the real implementation.
 vi.mock('../../src/client/auth', async () => {
     const actual = await vi.importActual<typeof import('../../src/client/auth')>('../../src/client/auth');
     return { ...actual, auth: vi.fn() };

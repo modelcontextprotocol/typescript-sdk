@@ -18,6 +18,7 @@ export type {
     OAuthServerInfo
 } from './client/auth';
 export {
+    adaptOAuthProvider,
     assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
