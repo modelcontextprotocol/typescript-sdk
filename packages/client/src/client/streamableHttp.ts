@@ -727,7 +727,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // caller just tore down.
         const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
-        let lastEventId: string | undefined;
+        let lastEventId: string | undefined = options.resumptionToken;
         // Track whether we've received a priming event (event with ID)
         // Per spec, server SHOULD send a priming event with ID before closing
         let hasPrimingEvent = false;
@@ -973,9 +973,11 @@ export class StreamableHTTPClientTransport implements Transport {
                 const resumedRequestId = isJSONRPCRequest(message) ? message.id : undefined;
                 this._startOrAuthSse({
                     resumptionToken,
+                    onresumptiontoken,
                     replayMessageId: resumedRequestId,
                     relatedRequestId: resumedRequestId,
-                    requestSignal: options?.requestSignal
+                    requestSignal: options?.requestSignal,
+                    onRequestStreamEnd: options?.onRequestStreamEnd
                 }).catch(error => this.onerror?.(error));
                 return;
             }
@@ -1138,8 +1140,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Get original message(s) for detecting request IDs
             const messages = Array.isArray(message) ? message : [message];
 
-            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
-            const relatedRequestId = messages.length === 1 && isJSONRPCRequest(messages[0]) ? messages[0].id : undefined;
+            const requests = messages.filter(msg => isJSONRPCRequest(msg));
+            const hasRequests = requests.length > 0;
+            const relatedRequestId = messages.length === 1 && requests.length === 1 ? requests[0]!.id : undefined;
 
             // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');

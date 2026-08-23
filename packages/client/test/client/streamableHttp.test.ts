@@ -565,7 +565,7 @@ describe('StreamableHTTPClientTransport', () => {
             start(controller) {
                 controller.enqueue(
                     encoder.encode(
-                        'event: message\ndata: {"jsonrpc":"2.0","id":"elicitation-1","method":"elicitation/create","params":{}}\n\n'
+                        'id: event-43\nevent: message\ndata: {"jsonrpc":"2.0","id":"elicitation-1","method":"elicitation/create","params":{}}\n\n'
                     )
                 );
             }
@@ -581,15 +581,47 @@ describe('StreamableHTTPClientTransport', () => {
         const messageSpy = vi.fn();
         transport.onmessage = messageSpy;
 
+        const resumptionTokenSpy = vi.fn();
         await transport.send(
             { jsonrpc: '2.0', id: 'tool-call-1', method: 'tools/call', params: { name: 'route' } },
-            { resumptionToken: 'event-42' }
+            { resumptionToken: 'event-42', onresumptiontoken: resumptionTokenSpy }
         );
         await new Promise(resolve => setTimeout(resolve, 50));
 
         expect(messageSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 'elicitation-1', method: 'elicitation/create' }), {
             relatedRequestId: 'tool-call-1'
         });
+        expect(resumptionTokenSpy).toHaveBeenCalledWith('event-43');
+    });
+
+    it('keeps the original resumption token when a resumed GET closes before receiving a new event ID', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 5,
+                maxReconnectionDelay: 100,
+                reconnectionDelayGrowFactor: 1,
+                maxRetries: 1
+            }
+        });
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream({
+                start(controller) {
+                    controller.close();
+                }
+            })
+        });
+        fetchMock.mockResolvedValueOnce({ ok: false, status: 405, headers: new Headers() });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({ resumptionToken: 'event-42', relatedRequestId: 'tool-call-1' });
+        await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2), { timeout: 250 });
+
+        const reconnectHeaders = fetchMock.mock.calls[1]![1]?.headers as Headers;
+        expect(reconnectHeaders.get('last-event-id')).toBe('event-42');
     });
 
     it('does not attribute server requests received on the standalone GET stream', async () => {
