@@ -1,3 +1,5 @@
+import type { Writable } from 'node:stream';
+
 import type { JSONRPCMessage } from '../types/index';
 import { JSONRPCMessageSchema } from '../types/index';
 
@@ -59,4 +61,46 @@ export function deserializeMessage(line: string): JSONRPCMessage {
 
 export function serializeMessage(message: JSONRPCMessage): string {
     return JSON.stringify(message) + '\n';
+}
+
+/**
+ * Shared backpressure wait for a writable stream.
+ *
+ * Registers at most one 'drain' listener at a time no matter how many writes
+ * are waiting for the stream to drain. Node and Bun emit
+ * MaxListenersExceededWarning once more than 10 listeners pile up on a single
+ * event, which previously happened whenever several messages were written
+ * while the pipe was backed up (e.g. a slow-starting child process, or bulk
+ * notifications like sendToolListChanged).
+ */
+export class DrainWait {
+    private _pending: Promise<void> | null = null;
+
+    /**
+     * Returns a promise that resolves when the stream emits 'drain'. All
+     * callers that overlap share one listener and one promise. Rejects if the
+     * stream emits 'error' before draining.
+     */
+    wait(stream: Writable): Promise<void> {
+        if (!this._pending) {
+            this._pending = new Promise<void>((resolve, reject) => {
+                const onDrain = () => {
+                    cleanup();
+                    resolve();
+                };
+                const onError = (error: Error) => {
+                    cleanup();
+                    reject(error);
+                };
+                const cleanup = () => {
+                    stream.off('drain', onDrain);
+                    stream.off('error', onError);
+                    this._pending = null;
+                };
+                stream.once('drain', onDrain);
+                stream.once('error', onError);
+            });
+        }
+        return this._pending;
+    }
 }

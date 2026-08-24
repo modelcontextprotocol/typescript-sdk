@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
+import { DrainWait, ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
@@ -20,6 +20,7 @@ export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer;
     private _started = false;
     private _closed = false;
+    private _drainWait = new DrainWait();
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -123,31 +124,12 @@ export class StdioServerTransport implements Transport {
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);
 
-            let settled = false;
-            const onError = (error: Error) => {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
-                this._stdout.off('drain', onDrain);
-                reject(error);
-            };
-            const onDrain = () => {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
-                this._stdout.off('drain', onDrain);
-                resolve();
-            };
-
-            this._stdout.once('error', onError);
-
             if (this._stdout.write(json)) {
-                if (settled) return;
-                settled = true;
-                this._stdout.off('error', onError);
                 resolve();
-            } else if (!settled) {
-                this._stdout.once('drain', onDrain);
+            } else {
+                // Backpressure: wait on a shared drain so concurrent writes
+                // don't stack up 'drain' listeners on stdout.
+                this._drainWait.wait(this._stdout).then(resolve, reject);
             }
         });
     }
