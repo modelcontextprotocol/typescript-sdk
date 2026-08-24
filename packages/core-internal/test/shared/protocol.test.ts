@@ -619,6 +619,68 @@ describe('protocol tests', () => {
         });
     });
 
+    describe('maxTotalTimeout cap enforcement', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        test('should enforce maxTotalTimeout without progress notifications', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 150,
+                resetTimeoutOnProgress: false
+            });
+
+            vi.advanceTimersByTime(1001);
+            const error = await requestPromise.catch((caught: unknown) => caught);
+            const cap = (error as SdkError | undefined)?.data as { maxTotalTimeout?: number } | undefined;
+            expect(cap?.maxTotalTimeout ?? -1).toBe(150);
+        });
+
+        test('should re-arm against remaining maxTotalTimeout budget after progress', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 200,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            });
+
+            vi.advanceTimersByTime(50);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+            expect(onProgressMock).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(1001);
+            const error = await requestPromise.catch((caught: unknown) => caught);
+            const cap = (error as SdkError | undefined)?.data as { maxTotalTimeout?: number } | undefined;
+            expect(cap?.maxTotalTimeout ?? -1).toBe(200);
+        });
+    });
+
     describe('Debounced Notifications', () => {
         // We need to flush the microtask queue to test the debouncing logic.
         // This helper function does that.
