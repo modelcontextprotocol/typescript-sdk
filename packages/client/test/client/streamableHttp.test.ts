@@ -594,6 +594,24 @@ describe('StreamableHTTPClientTransport', () => {
         expect(resumptionTokenSpy).toHaveBeenCalledWith('event-43');
     });
 
+    it('keeps per-request stream callbacks when a resumption-token GET is started directly', async () => {
+        const fetchMock = globalThis.fetch as Mock;
+        const onresumptiontoken = vi.fn();
+        const onRequestStreamEnd = vi.fn();
+        fetchMock.mockResolvedValueOnce({ ok: false, status: 405, headers: new Headers() });
+
+        await transport.start();
+        await transport.send(
+            { jsonrpc: '2.0', id: 'tool-call-1', method: 'tools/call', params: { name: 'route' } },
+            { resumptionToken: 'event-42', onresumptiontoken, onRequestStreamEnd }
+        );
+        await vi.waitFor(() => expect(onRequestStreamEnd).toHaveBeenCalledTimes(1));
+
+        expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+        expect((fetchMock.mock.calls[0]![1]?.headers as Headers).get('last-event-id')).toBe('event-42');
+        expect(onresumptiontoken).not.toHaveBeenCalled();
+    });
+
     it('keeps the original resumption token when a resumed GET closes before receiving a new event ID', async () => {
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             reconnectionOptions: {
