@@ -45,6 +45,34 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * - No Session ID is included in any responses
  * - No session validation is performed
  *
+ * **Security:** this transport does not validate the `Host`/`Origin` headers on its own.
+ * If the server has no other authentication (a common setup for local development), a
+ * malicious website can reach it via DNS rebinding and invoke its tools as the local user
+ * — see CVE-2025-66414 / GHSA-w48q-cv73-mx4w. Apply `localhostHostValidation()` and
+ * `localhostOriginValidation()` (or the underlying `hostHeaderValidation()` /
+ * `originValidation()` for a custom allowlist) as shown below whenever the server isn't
+ * otherwise authenticated.
+ *
+ * @example Unauthenticated localhost setup, with DNS rebinding protection
+ * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_secure"
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
+ * const transport = new NodeStreamableHTTPServerTransport({
+ *     sessionIdGenerator: () => randomUUID()
+ * });
+ *
+ * await server.connect(transport);
+ *
+ * const validateHost = localhostHostValidation();
+ * const validateOrigin = localhostOriginValidation();
+ *
+ * http.createServer((req, res) => {
+ *     if (!validateHost(req, res)) return;
+ *     if (!validateOrigin(req, res)) return;
+ *     void transport.handleRequest(req, res);
+ * });
+ * ```
+ *
  * @example Stateful setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateful"
  * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
