@@ -743,8 +743,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ) {
         // Arm for whichever limit comes first so maxTotalTimeout is a hard
         // ceiling even when no progress notifications arrive (#2695).
-        const initialDelay =
-            maxTotalTimeout === undefined ? timeout : Math.min(timeout, maxTotalTimeout);
+        const initialDelay = maxTotalTimeout === undefined ? timeout : Math.min(timeout, maxTotalTimeout);
         this._timeoutInfo.set(messageId, {
             timeoutId: setTimeout(onTimeout, initialDelay),
             startTime: Date.now(),
@@ -768,10 +767,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             });
         }
 
-        const remainingBudget =
-            info.maxTotalTimeout === undefined ? undefined : info.maxTotalTimeout - totalElapsed;
-        const nextDelay =
-            remainingBudget === undefined ? info.timeout : Math.min(info.timeout, remainingBudget);
+        const remainingBudget = info.maxTotalTimeout === undefined ? undefined : info.maxTotalTimeout - totalElapsed;
+        const nextDelay = remainingBudget === undefined ? info.timeout : Math.min(info.timeout, remainingBudget);
 
         clearTimeout(info.timeoutId);
         info.timeoutId = setTimeout(info.onTimeout, nextDelay);
