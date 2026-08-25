@@ -4324,3 +4324,112 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
         expect(oncloseCalls).toBe(1);
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport request body limits', () => {
+    /** A fresh stateless transport per request (a stateless transport serves one request). */
+    function stateless(maxRequestBodySize?: number): WebStandardStreamableHTTPServerTransport {
+        return new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize });
+    }
+
+    function post(body: unknown, headers: Record<string, string> = {}): Request {
+        return new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', ...headers },
+            body: JSON.stringify(body)
+        });
+    }
+
+    /** A POST whose body yields up to `chunks` 1 MiB chunks on demand, counting pulls. */
+    function streamedPost(chunks: number, headers: Record<string, string> = {}): { request: Request; pulls: () => number } {
+        let pulled = 0;
+        const body = new ReadableStream<Uint8Array>(
+            {
+                pull(controller) {
+                    if (pulled >= chunks) {
+                        return controller.close();
+                    }
+                    pulled++;
+                    controller.enqueue(new Uint8Array(1024 * 1024).fill(32));
+                }
+            },
+            { highWaterMark: 0 }
+        );
+        const request = new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', ...headers },
+            body,
+            duplex: 'half'
+        } as RequestInit);
+        return { request, pulls: () => pulled };
+    }
+
+    it('answers 413 when Content-Length exceeds the body size limit without reading the body', async () => {
+        const { request, pulls } = streamedPost(1, { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        const response = await stateless().handleRequest(request);
+        expect(response.status).toBe(413);
+        expectErrorResponse(await response.json(), -32000, /Payload Too Large/);
+        expect(pulls()).toBe(0);
+    });
+
+    it('answers 413 once a streamed body without Content-Length exceeds the limit', async () => {
+        const { request, pulls } = streamedPost(8);
+        const response = await stateless().handleRequest(request);
+        expect(response.status).toBe(413);
+        expect(pulls()).toBeLessThan(8);
+    });
+
+    it('maxRequestBodySize sets the bound on both read paths and is validated at construction', async () => {
+        const declared = await stateless(1024).handleRequest(streamedPost(1, { 'Content-Length': '1025' }).request);
+        expect(declared.status).toBe(413);
+        expectErrorResponse(await declared.json(), -32000, /must not exceed 1024 bytes/);
+        const streamed = streamedPost(2);
+        const overLimit = await stateless(1024).handleRequest(streamed.request);
+        expect(overLimit.status).toBe(413);
+        expect(streamed.pulls()).toBe(1);
+
+        const roomy = stateless(8 * 1024 * 1024);
+        const onmessage = vi.fn();
+        roomy.onmessage = onmessage;
+        const padded: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'notifications/initialized',
+            params: { pad: 'x'.repeat(5 * 1024 * 1024) }
+        };
+        const accepted = await roomy.handleRequest(post(padded));
+        expect(accepted.status).toBe(202);
+        expect(onmessage).toHaveBeenCalledTimes(1);
+
+        for (const invalid of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            expect(() => stateless(invalid)).toThrow(RangeError);
+        }
+    });
+
+    it('answers 400 for a JSON-RPC batch longer than 100 messages and dispatches none of it', async () => {
+        const batch = Array.from({ length: 101 }, (_, i): JSONRPCMessage => ({ jsonrpc: '2.0', method: 'ping', id: i }));
+        const onmessage = vi.fn();
+        const [reading, preParsing] = [stateless(), stateless()];
+        reading.onmessage = preParsing.onmessage = onmessage;
+        const read = await reading.handleRequest(post(batch));
+        const preParsed = await preParsing.handleRequest(post(batch), { parsedBody: batch });
+        for (const response of [read, preParsed]) {
+            expect(response.status).toBe(400);
+            expectErrorResponse(await response.json(), -32600, /Batch must not exceed 100 messages/);
+        }
+        expect(onmessage).not.toHaveBeenCalled();
+    });
+
+    it('StreamableHTTPServerTransport applies maxRequestBodySize to the Node request body', async () => {
+        const nodeTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: 1024 });
+        const server = createServer((req, res) => void nodeTransport.handleRequest(req, res));
+        const baseUrl = await listenOnRandomPort(server);
+        try {
+            const padded = { jsonrpc: '2.0', method: 'notifications/initialized', params: { pad: 'x'.repeat(2048) } } as JSONRPCMessage;
+            const response = await sendPostRequest(baseUrl, padded);
+            expect(response.status).toBe(413);
+            expectErrorResponse(await response.json(), -32000, /must not exceed 1024 bytes/);
+        } finally {
+            await nodeTransport.close();
+            server.close();
+        }
+    });
+});

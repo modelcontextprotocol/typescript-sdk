@@ -2062,6 +2062,35 @@ describe('createMcpExpressApp', () => {
         expect(app).toBeDefined();
     });
 
+    test('validates the Host header before the JSON body parser runs', async () => {
+        const app = createMcpExpressApp();
+        app.post('/mcp', (req, res) => {
+            res.json({ parsed: req.body });
+        });
+
+        const disallowedHost = await supertest(app)
+            .post('/mcp')
+            .set('Host', 'evil.example.com')
+            .set('Content-Type', 'application/json')
+            .send('{not json');
+        expect(disallowedHost.status).toBe(403);
+
+        const invalidJson = await supertest(app)
+            .post('/mcp')
+            .set('Host', 'localhost:3000')
+            .set('Content-Type', 'application/json')
+            .send('{not json');
+        expect(invalidJson.status).toBe(400);
+
+        const allowed = await supertest(app)
+            .post('/mcp')
+            .set('Host', 'localhost:3000')
+            .set('Content-Type', 'application/json')
+            .send({ ok: true });
+        expect(allowed.status).toBe(200);
+        expect(allowed.body).toEqual({ parsed: { ok: true } });
+    });
+
     test('should parse JSON bodies', async () => {
         const app = createMcpExpressApp({ host: '0.0.0.0' }); // Disable host validation for this test
         app.post('/test', (req, res) => {
