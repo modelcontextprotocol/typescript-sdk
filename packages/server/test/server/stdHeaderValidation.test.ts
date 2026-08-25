@@ -4,7 +4,8 @@
  *
  * The presence and `Mcp-Name` cross-check half of the standard-header rung,
  * evaluated by the entry on a modern-classified request immediately after the
- * body-primary classifier returns a modern route. A missing `Mcp-Method`
+ * body-primary classifier returns a modern route. A missing
+ * `MCP-Protocol-Version` header, a missing `Mcp-Method`
  * header, a missing `Mcp-Name` header on a `tools/call` / `prompts/get` /
  * `resources/read` request, an `Mcp-Name` value disagreeing with
  * `params.name` / `params.uri`, and an invalid `Mcp-Name` Base64 sentinel are
@@ -72,6 +73,93 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         expect(response.status).toBe(200);
         const body = (await response.json()) as { result: { content: Array<{ text: string }> } };
         expect(body.result.content[0]?.text).toBe('hi');
+    });
+
+    it('a missing MCP-Protocol-Version header is rejected 400/-32020', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const error = await expectHeaderMismatch(
+            await handler.fetch(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-method': 'tools/list'
+                    },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/list', params: { _meta: ENVELOPE } })
+                })
+            )
+        );
+        expect(error.message).toContain('MCP-Protocol-Version header is absent');
+    });
+
+    it('a missing MCP-Protocol-Version header is rejected under the strict (legacy: reject) posture', async () => {
+        // The spec's "MAY treat a header-less request as 2025-03-26" allowance
+        // is available only to a server that also serves pre-2025-06-18
+        // clients; a modern-only endpoint MUST reject.
+        const handler = createMcpHandler(makeFactory(), { legacy: 'reject' });
+        await expectHeaderMismatch(
+            await handler.fetch(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-method': 'tools/list'
+                    },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'tools/list', params: { _meta: ENVELOPE } })
+                })
+            )
+        );
+    });
+
+    it('a tools/call missing the MCP-Protocol-Version header never reaches the handler', async () => {
+        let ran = false;
+        const handler = createMcpHandler(() => {
+            const s = new McpServer({ name: 'std-header-server', version: '1.0.0' });
+            s.registerTool('echo', { inputSchema: z.object({ text: z.string().optional() }) }, async ({ text }) => {
+                ran = true;
+                return { content: [{ type: 'text', text: text ?? 'ok' }] };
+            });
+            return s;
+        });
+        await expectHeaderMismatch(
+            await handler.fetch(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-method': 'tools/call',
+                        'mcp-name': 'echo'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 5,
+                        method: 'tools/call',
+                        params: { name: 'echo', arguments: { text: 'ran' }, _meta: ENVELOPE }
+                    })
+                })
+            )
+        );
+        expect(ran).toBe(false);
+    });
+
+    it('a present and matching MCP-Protocol-Version header still dispatches', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(modernRequest('tools/list', {}, { 'mcp-method': 'tools/list' }));
+        expect(response.status).toBe(200);
+    });
+
+    it('a present-but-disagreeing MCP-Protocol-Version header is still rejected 400/-32020', async () => {
+        // The absence cell added above must not displace the pre-existing
+        // disagreement cell, which the classifier still answers on its edge
+        // `era-classification` rung before serveModern runs this rung at all.
+        const handler = createMcpHandler(makeFactory());
+        const error = await expectHeaderMismatch(
+            await handler.fetch(modernRequest('tools/list', {}, { 'mcp-protocol-version': '2025-11-25', 'mcp-method': 'tools/list' }))
+        );
+        expect(error.message).toContain('MCP-Protocol-Version header names 2025-11-25');
     });
 
     it('a missing Mcp-Method header is rejected 400/-32020', async () => {
@@ -165,5 +253,17 @@ describe('SEP-2243 standard-header validation is era-gated', () => {
         );
         // The default 'stateless' legacy posture answers initialize.
         expect(response.status).toBe(200);
+    });
+
+    it.each(['GET', 'DELETE'])('a body-less %s is method-routed, never standard-header validated', async httpMethod => {
+        // The modern era is POST-only, so a body-less session operation never
+        // reaches a modern route and the presence rung cannot fire on it —
+        // whatever it lacks in standard headers. It is answered by the
+        // http-method rung instead: 405 / -32000, never 400 / -32020.
+        const handler = createMcpHandler(makeFactory());
+        const response = await handler.fetch(new Request('http://localhost/mcp', { method: httpMethod }));
+        expect(response.status).toBe(405);
+        const body = (await response.json()) as { error: { code: number } };
+        expect(body.error.code).toBe(-32_000);
     });
 });
