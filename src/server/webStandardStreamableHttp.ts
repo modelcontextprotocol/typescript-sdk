@@ -10,6 +10,7 @@
 import { isJsonContentType } from '../shared/mediaType.js';
 import { Transport } from '../shared/transport.js';
 import { AuthInfo } from './auth/types.js';
+import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody.js';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive.js';
 import {
     MessageExtraInfo,
@@ -159,6 +160,15 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Defaults to `15000`; values below 1 (including `0`) disable keep-alive.
      */
     keepAliveMs?: number;
+
+    /**
+     * Upper bound, in bytes, on a POST body the transport reads itself. A body
+     * over the bound (declared `Content-Length`, or observed while streaming)
+     * is answered `413` before anything is parsed. Not applied when the caller
+     * supplies `parsedBody`. Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -166,7 +176,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
  */
 export interface HandleRequestOptions {
     /**
-     * Pre-parsed request body. If provided, the transport will use this instead of parsing req.json().
+     * Pre-parsed request body. If provided, the transport will use this instead of reading and parsing the request body.
      * Useful when using body-parser middleware that has already parsed the body.
      */
     parsedBody?: unknown;
@@ -245,6 +255,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _keepAliveMs: number;
+    private _maxRequestBodySize: number;
     private _closed = false;
 
     sessionId?: string;
@@ -263,6 +274,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+        this._maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
     }
 
     /**
@@ -735,11 +747,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 rawMessage = options.parsedBody;
             } else {
                 try {
-                    rawMessage = await req.json();
+                    const body = await readRequestBody(req, this._maxRequestBodySize);
+                    if (body.tooLarge) {
+                        const message = requestBodyTooLargeMessage(this._maxRequestBodySize);
+                        this.onerror?.(new Error(message));
+                        return this.createJsonErrorResponse(413, -32000, message);
+                    }
+                    rawMessage = JSON.parse(body.text);
                 } catch {
                     this.onerror?.(new Error('Parse error: Invalid JSON'));
                     return this.createJsonErrorResponse(400, -32700, 'Parse error: Invalid JSON');
                 }
+            }
+            if (Array.isArray(rawMessage) && rawMessage.length > MAX_BATCH_SIZE) {
+                this.onerror?.(new Error(`Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`));
+                return this.createJsonErrorResponse(400, -32600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
             }
 
             let messages: JSONRPCMessage[];
