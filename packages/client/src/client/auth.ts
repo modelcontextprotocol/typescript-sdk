@@ -1334,13 +1334,16 @@ async function authInternal(
                 clientInformation,
                 refreshToken: tokens.refresh_token,
                 // RFC 6749 §6: the refresh-request scope must not exceed the originally
-                // granted scope, so prefer the scope the AS recorded on the token
-                // response (RFC 6749 §5.1) and fall back to the scope this flow
-                // resolves for authorization requests. Sending it keeps refresh working
-                // on servers that require the parameter — e.g. Microsoft Entra ID
-                // rejects a scope-less refresh with AADSTS90009 when the client
+                // granted scope, so send exactly the scope the AS recorded on the token
+                // response (RFC 6749 §5.1) and nothing else — a recomputed value (e.g.
+                // determineScope()'s output) could have widened since the grant and a
+                // strict AS would reject the refresh with invalid_scope. When no granted
+                // scope is recorded (absent or empty), omit the parameter, which the AS
+                // treats as the originally granted scope. Sending the granted scope keeps
+                // refresh working on servers that require the parameter — e.g. Microsoft
+                // Entra ID rejects a scope-less refresh with AADSTS90009 when the client
                 // application is also the resource (#2718).
-                scope: tokens.scope ?? resolvedScope,
+                scope: tokens.scope || undefined,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
                 fetchFn
@@ -2244,14 +2247,14 @@ export async function refreshAuthorization(
         refreshToken: string;
         /**
          * Scope to request on the refresh, per RFC 6749 §6. MUST NOT include any scope
-         * not originally granted by the resource owner; when omitted, the authorization
-         * server treats the request as asking for the originally granted scope.
+         * not originally granted by the resource owner; when omitted (or empty), the
+         * authorization server treats the request as asking for the originally granted
+         * scope, so pass only the granted scope recorded on the token response
+         * (RFC 6749 §5.1) — never a recomputed or widened value.
          *
          * Some authorization servers require the parameter on refresh requests — e.g.
          * Microsoft Entra ID (AAD) rejects a scope-less refresh with `AADSTS90009` when
-         * the client application is also the resource (#2718) — so callers should pass
-         * the scope recorded on the token response (or the one used for the original
-         * authorization request) when they have it.
+         * the client application is also the resource (#2718).
          */
         scope?: string;
         resource?: URL;
@@ -2264,7 +2267,11 @@ export async function refreshAuthorization(
         refresh_token: refreshToken
     });
 
-    if (scope !== undefined) {
+    // Truthiness deliberate: an empty scope string means "the originally granted
+    // scope" exactly like an absent one, and a literal empty `scope=` parameter is
+    // syntactically invalid per RFC 6749 §3.3 (some ASes, e.g. GitHub, do record
+    // `"scope": ""` on token responses).
+    if (scope) {
         tokenRequestParams.set('scope', scope);
     }
 
@@ -2277,8 +2284,11 @@ export async function refreshAuthorization(
         fetchFn
     });
 
-    // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    // Preserve the original refresh token if the server didn't return a new one, and
+    // the granted scope when the response omits it — RFC 6749 §5.1 lets the AS omit
+    // `scope` when it is identical to the requested scope, and dropping it here would
+    // strand the next refresh without the granted scope to send.
+    return { refresh_token: refreshToken, ...(scope ? { scope } : {}), ...tokens };
 }
 
 /**
