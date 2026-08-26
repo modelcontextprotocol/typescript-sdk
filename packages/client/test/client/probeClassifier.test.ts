@@ -270,6 +270,15 @@ describe('row: network outage → typed connect error (Node)', () => {
         const verdict = classify({ kind: 'network-error', error: new TypeError('fetch failed') }, { environment: 'node' });
         expect(verdict.kind).toBe('error');
     });
+
+    test('the underlying network error is reachable via Error.cause (#2657)', () => {
+        const cause = Object.assign(new Error('fetch failed'), { code: 'ECONNREFUSED' });
+        const verdict = classify({ kind: 'network-error', error: cause });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error.cause).toBe(cause);
+        }
+    });
 });
 
 describe('row: timeout — transport-aware verdict', () => {
