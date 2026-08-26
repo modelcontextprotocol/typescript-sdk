@@ -2257,6 +2257,40 @@ describe('OAuth Authorization', () => {
             expect(tokens).toEqual({ refresh_token: refreshToken, ...validTokens });
         });
 
+        it('includes scope in the refresh request when provided (RFC 6749 §6, #2718)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validTokensWithNewRefreshToken
+            });
+
+            await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'openid profile offline_access api://client123/access_as_user'
+            });
+
+            const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
+            expect(body.get('grant_type')).toBe('refresh_token');
+            expect(body.get('scope')).toBe('openid profile offline_access api://client123/access_as_user');
+        });
+
+        it('omits the scope parameter when none is provided', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validTokensWithNewRefreshToken
+            });
+
+            await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123'
+            });
+
+            const body = mockFetch.mock.calls[0]![1].body as URLSearchParams;
+            expect(body.get('scope')).toBeNull();
+        });
+
         it('validates token response schema', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -3033,6 +3067,80 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
+            // No granted scope was stored and none is resolvable — the parameter stays off the wire
+            expect(body.get('scope')).toBeNull();
+        });
+
+        it('sends the granted scope from the stored tokens on refresh (#2718)', async () => {
+            mockDiscoveryWithTokenEndpoint(() => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-access123',
+                    token_type: 'Bearer',
+                    expires_in: 3600
+                })
+            }));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123',
+                scope: 'api://test-client/access_as_user'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('grant_type')).toBe('refresh_token');
+            expect(body.get('scope')).toBe('api://test-client/access_as_user');
+        });
+
+        it('falls back to the resolved requested scope on refresh when the stored tokens carry none (#2718)', async () => {
+            mockDiscoveryWithTokenEndpoint(() => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-access123',
+                    token_type: 'Bearer',
+                    expires_in: 3600
+                })
+            }));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123'
+            });
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server',
+                scope: 'mcp:tools'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('grant_type')).toBe('refresh_token');
+            expect(body.get('scope')).toBe('mcp:tools');
         });
 
         // The #2034 tests below differ only in how the token endpoint answers, so the

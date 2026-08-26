@@ -1333,6 +1333,14 @@ async function authInternal(
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
+                // RFC 6749 §6: the refresh-request scope must not exceed the originally
+                // granted scope, so prefer the scope the AS recorded on the token
+                // response (RFC 6749 §5.1) and fall back to the scope this flow
+                // resolves for authorization requests. Sending it keeps refresh working
+                // on servers that require the parameter — e.g. Microsoft Entra ID
+                // rejects a scope-less refresh with AADSTS90009 when the client
+                // application is also the resource (#2718).
+                scope: tokens.scope ?? resolvedScope,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
                 fetchFn
@@ -2226,6 +2234,7 @@ export async function refreshAuthorization(
         metadata,
         clientInformation,
         refreshToken,
+        scope,
         resource,
         addClientAuthentication,
         fetchFn
@@ -2233,6 +2242,18 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
+        /**
+         * Scope to request on the refresh, per RFC 6749 §6. MUST NOT include any scope
+         * not originally granted by the resource owner; when omitted, the authorization
+         * server treats the request as asking for the originally granted scope.
+         *
+         * Some authorization servers require the parameter on refresh requests — e.g.
+         * Microsoft Entra ID (AAD) rejects a scope-less refresh with `AADSTS90009` when
+         * the client application is also the resource (#2718) — so callers should pass
+         * the scope recorded on the token response (or the one used for the original
+         * authorization request) when they have it.
+         */
+        scope?: string;
         resource?: URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
@@ -2242,6 +2263,10 @@ export async function refreshAuthorization(
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
+
+    if (scope !== undefined) {
+        tokenRequestParams.set('scope', scope);
+    }
 
     const tokens = await executeTokenRequest(authorizationServerUrl, {
         metadata,
