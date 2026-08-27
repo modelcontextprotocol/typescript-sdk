@@ -50,7 +50,7 @@ export interface DpopRequest {
     /** Raw `Authorization` header value. */
     authorization: string | null | undefined;
     /**
-     * Raw `DPoP` header value(s) — see {@linkcode VerifyDpopProofOptions.proof} in `dpop.ts` for
+     * Raw `DPoP` header value(s) — see {@linkcode server/middleware/dpop.VerifyDpopProofOptions.proof | VerifyDpopProofOptions.proof} in `dpop.ts` for
      * why this is `string | string[] | undefined` rather than always a single string.
      */
     dpop: string | string[] | undefined;
@@ -64,7 +64,7 @@ export interface DpopRequest {
  * Validate a DPoP-bound request — the `Authorization: DPoP <token>` header and the accompanying
  * `DPoP` proof header, together — and return the verified {@linkcode AuthInfo}.
  *
- * The runtime-neutral core of DPoP authentication, mirroring {@linkcode verifyBearerToken}: parses
+ * The runtime-neutral core of DPoP authentication, mirroring {@linkcode server/middleware/bearerAuth.verifyBearerToken | verifyBearerToken}: parses
  * the `Authorization` header (requiring the `DPoP` scheme, not `Bearer`), runs `options.verifier`,
  * verifies the proof against the request's method/URL via {@linkcode verifyDpopProof}, then checks
  * that the proof key's RFC 7638 thumbprint matches the verified token's `cnf.jkt` (RFC 9449 §4.3
