@@ -2367,9 +2367,9 @@ export async function fetchToken(
  * feature lifecycle policy (SEP-2596), so 2027-07-28 is the earliest possible
  * removal date. Prefer a CIMD URL `client_id` when the authorization server
  * advertises `client_id_metadata_document_supported`: the built-in `auth()` flow
- * checks that capability and skips registration for you, but `registerClient`
- * itself does not gate — calling it directly always sends the registration
- * request.
+ * skips registration for you when that capability is advertised AND your
+ * provider supplies `clientMetadataUrl`, but `registerClient` itself does not
+ * gate — calling it directly always sends the registration request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
