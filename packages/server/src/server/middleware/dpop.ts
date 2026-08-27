@@ -25,7 +25,7 @@ export const DPOP_SUPPORTED_ALGS = ['ES256', 'ES384', 'ES512', 'RS256', 'RS384',
 export type DpopAlg = (typeof DPOP_SUPPORTED_ALGS)[number];
 
 /** Minimal JWK shape this module reads — not a full RFC 7517 type, only the members DPoP proof verification and thumbprinting need. */
-interface DpopJwk {
+export interface DpopJwk {
     kty?: unknown;
     crv?: unknown;
     x?: unknown;
@@ -260,7 +260,7 @@ export interface VerifiedDpopProof {
 /**
  * Validate a DPoP proof presented alongside an access token, per RFC 9449 §4.3. Throws an
  * {@linkcode OAuthError} (`invalid_dpop_proof` or, when a nonce is required and missing/wrong,
- * `use_dpop_nonce`) on any failure; {@linkcode dpopAuthChallengeResponse} maps that to the HTTP
+ * `use_dpop_nonce`) on any failure; {@linkcode server/middleware/dpopAuth.dpopAuthChallengeResponse | dpopAuthChallengeResponse} maps that to the HTTP
  * response.
  *
  * Checks, in RFC 9449 §4.3 order: exactly one well-formed `dpop+jwt` proof header → asymmetric
@@ -270,7 +270,7 @@ export interface VerifiedDpopProof {
  * server-provided nonce, if required. Does **not** compare the proof key's thumbprint against an
  * access token's `cnf.jkt` — that requires the verified token claims, which only the caller (the
  * `OAuthTokenVerifier`) has; compare the returned {@linkcode VerifiedDpopProof.jkt} yourself (see
- * {@linkcode verifyDpopToken} for the composed version).
+ * {@linkcode server/middleware/dpopAuth.verifyDpopToken | verifyDpopToken} for the composed version).
  */
 export async function verifyDpopProof(options: VerifyDpopProofOptions): Promise<VerifiedDpopProof> {
     const { proof, method, url, accessToken, iatSkewSeconds = 300, nonce } = options;
