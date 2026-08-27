@@ -484,8 +484,10 @@ instead.
   `ToolChoice`, `ToolUseContent`/`ToolResultContent`, the `includeContext` enum values),
   and the full Roots stack (`Root`, `ListRootsRequest`/`Result`,
   `RootsListChangedNotification`).
-- **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
-  Documents per SEP-991.
+- **`registerClient`** (Dynamic Client Registration) — deprecated via spec PR
+  [modelcontextprotocol#2858](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858)
+  rather than SEP-2577 (listed here because the `@deprecated` annotations landed in
+  the same sweep); prefer Client ID Metadata Documents per SEP-991.
 
 The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
 else: every deprecated runtime API keeps its v1 call signature (e.g.
