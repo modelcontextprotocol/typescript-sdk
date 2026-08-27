@@ -278,7 +278,7 @@ describe('row: network outage → typed connect error (Node)', () => {
         if (verdict.kind === 'error') {
             expect(verdict.error.cause).toBe(cause);
             // The legacy data.cause slot stays populated too.
-            expect((verdict.error.data as { cause?: unknown }).cause).toBe(cause);
+            expect(((verdict.error as SdkError).data as { cause?: unknown }).cause).toBe(cause);
         }
     });
 });
