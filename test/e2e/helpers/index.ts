@@ -367,7 +367,7 @@ export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, 
  * HTTP requests on the wire. `MCP-Protocol-Version` and `Mcp-Method` are
  * required on every modern *request* POST (notification POSTs are exempt);
  * `Mcp-Name` is additionally required for the methods that mirror
- * `params.name` / `params.uri`, and carries the `=?base64?…?=` sentinel
+ * `params.name` / `params.uri` / `params.taskId`, and carries the `=?base64?…?=` sentinel
  * encoding the shipped client applies to it, so a name that is not a safe
  * plain-ASCII field value reaches the server exactly as that client would
  * send it rather than throwing in `Headers` construction.
