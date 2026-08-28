@@ -1882,42 +1882,49 @@ export async function discoverAuthorizationServerMetadata(
         let json: unknown;
         try {
             json = await response.json();
-        } catch {
+        } catch (error) {
             // A 200 whose body is not JSON (e.g. an SPA catch-all serving HTML at the
             // well-known path) is not authorization server metadata: try the next candidate.
-            continue;
+            // Anything other than a body-parse failure (a network error reading the body,
+            // an abort from the caller's fetchFn) still propagates.
+            if (error instanceof SyntaxError) {
+                continue;
+            }
+            throw error;
         }
         const [primarySchema, siblingSchema] =
             type === 'oauth'
                 ? [OAuthMetadataSchema, OpenIdProviderDiscoveryMetadataSchema]
                 : [OpenIdProviderDiscoveryMetadataSchema, OAuthMetadataSchema];
-        const primary = primarySchema.safeParse(json);
-        const sibling = siblingSchema.safeParse(json);
+        // Invalid values in optional fields drop the field rather than the document — a
+        // relative revocation_endpoint or an unsafe introspection_endpoint must not abort
+        // an auth flow that never uses those fields. Invalid required fields still fail
+        // the parse.
+        const primary = parseMetadataDroppingInvalidOptionalFields(primarySchema, json);
         let parsed: AuthorizationServerMetadata;
+        let acceptingSchema: typeof primarySchema;
         if (primary.success) {
-            // Even on a successful parse, a top-level field the SIBLING schema declares and
-            // rejected must not ride through this schema's looseObject passthrough
-            // unvalidated (e.g. a mixed document with an unsafe jwks_uri served at the
-            // oauth-authorization-server path) — sanitization must not depend on which
-            // well-known path served the document.
-            parsed = dropFieldsRejectedByOtherSchema(primary.data, sibling);
+            parsed = primary.data;
+            acceptingSchema = primarySchema;
         } else {
-            if (!sibling.success) {
+            const fallback = parseMetadataDroppingInvalidOptionalFields(siblingSchema, json);
+            if (!fallback.success) {
                 schemaFailure ??= {
                     url: endpointUrl,
-                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(sibling.error.issues)})`
+                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(fallback.error.issues)})`
                 };
                 continue;
             }
-            // The document failed the schema its fields are declared by, so any top-level
-            // field the primary parse rejected must not ride through the fallback schema's
-            // looseObject passthrough unvalidated (e.g. an OIDC document with an unsafe
-            // jwks_uri would otherwise be returned via the OAuth schema, which does not
-            // declare that field): drop the fields that failed instead. Fields both
-            // schemas declare identically fail together, so this can only remove fields
-            // the fallback schema either does not declare or declares more loosely.
-            parsed = dropFieldsRejectedByOtherSchema(sibling.data, primary);
+            parsed = fallback.data;
+            acceptingSchema = siblingSchema;
         }
+        // A top-level field the accepting schema does NOT declare must not ride through its
+        // looseObject passthrough unvalidated when the sibling schema declares and rejects
+        // it (e.g. a document with an unsafe jwks_uri accepted via the OAuth schema, on
+        // either well-known path). Fields the accepting schema itself declared and
+        // validated are never removed.
+        const siblingSanitizer = acceptingSchema === primarySchema ? siblingSchema : primarySchema;
+        parsed = dropPassthroughFieldsRejectedBySibling(parsed, acceptingSchema, siblingSanitizer.safeParse(json));
 
         if (!skipIssuerValidation) {
             // RFC 8414 §3.3 / OIDC Discovery §4.3: the `issuer` value in the document MUST be
@@ -1955,25 +1962,58 @@ function summarizeMetadataIssues(issues: ReadonlyArray<{ path: ReadonlyArray<Pro
     return issues.map(issue => `${issue.path.map(String).join('.') || '(document)'}: ${issue.message}`).join('; ');
 }
 
+type AuthorizationServerMetadataSchema = typeof OAuthMetadataSchema | typeof OpenIdProviderDiscoveryMetadataSchema;
+
+/**
+ * Parses authorization server metadata, retrying once with the top-level fields the first
+ * parse rejected removed. An invalid value in an optional field (e.g. a relative
+ * `revocation_endpoint`) therefore drops that field instead of failing the whole document,
+ * while an invalid or missing required field still fails the parse (removing it just turns
+ * the failure into a missing-field failure).
+ */
+function parseMetadataDroppingInvalidOptionalFields(schema: AuthorizationServerMetadataSchema, json: unknown) {
+    const first = schema.safeParse(json);
+    if (first.success || typeof json !== 'object' || json === null) {
+        return first;
+    }
+    const failedPresentKeys = new Set<string>();
+    for (const issue of first.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === 'string' && key in json) {
+            failedPresentKeys.add(key);
+        }
+    }
+    if (failedPresentKeys.size === 0) {
+        return first;
+    }
+    const stripped: Record<string, unknown> = { ...(json as Record<string, unknown>) };
+    for (const key of failedPresentKeys) {
+        delete stripped[key];
+    }
+    const second = schema.safeParse(stripped);
+    return second.success ? second : first;
+}
+
 /**
  * Drops the top-level fields of a parsed authorization server metadata document that the
- * OTHER discovery schema declared and rejected, so a value that failed its declared
- * validator (e.g. `SafeUrlSchema` on `jwks_uri` or `service_documentation`) can never ride
- * through the accepting schema's looseObject passthrough unvalidated. Fields both schemas
- * declare identically fail together — this can only remove fields the accepting schema
- * either does not declare or declares more loosely, never one it requires.
+ * accepting schema does NOT declare (looseObject passthrough keys) when the sibling schema
+ * declares and rejected them, so a value that failed its declared validator (e.g.
+ * `SafeUrlSchema` on `jwks_uri`) can never reach callers unvalidated. Fields the accepting
+ * schema itself declared and validated are never removed.
  */
-function dropFieldsRejectedByOtherSchema(
+function dropPassthroughFieldsRejectedBySibling(
     data: AuthorizationServerMetadata,
-    other: { success: true } | { success: false; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey> }> } }
+    acceptingSchema: AuthorizationServerMetadataSchema,
+    sibling: { success: true } | { success: false; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey> }> } }
 ): AuthorizationServerMetadata {
-    if (other.success) {
+    if (sibling.success) {
         return data;
     }
+    const declaredByAcceptingSchema = acceptingSchema.shape;
     const result: Record<string, unknown> = { ...data };
-    for (const issue of other.error.issues) {
+    for (const issue of sibling.error.issues) {
         const key = issue.path[0];
-        if (typeof key === 'string') {
+        if (typeof key === 'string' && !(key in declaredByAcceptingSchema)) {
             delete result[key];
         }
     }

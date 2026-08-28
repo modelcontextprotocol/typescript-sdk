@@ -1187,10 +1187,11 @@ describe('OAuth Authorization', () => {
             expect(metadata).toHaveProperty('subject_types_supported', ['public']);
         });
 
-        it('rejects unsafe RFC 8414 endpoint values on OIDC discovery documents', async () => {
+        it('drops unsafe RFC 8414 endpoint values from OIDC discovery documents without failing the document', async () => {
             // revocation_endpoint and introspection_endpoint are declared on the discovery
-            // schema with their OAuth validators (SafeUrlSchema), so an unsafe value fails
-            // both parses instead of riding through the loose object's passthrough.
+            // schema with their OAuth validators (SafeUrlSchema). An unsafe value in these
+            // optional, client-unused fields drops the field — it must neither ride through
+            // the loose object's passthrough nor abort the auth flow.
             for (const field of ['revocation_endpoint', 'introspection_endpoint']) {
                 mockFetch.mockReset();
                 mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
@@ -1200,8 +1201,28 @@ describe('OAuth Authorization', () => {
                     json: async () => ({ ...validOpenIdMetadata, [field]: 'javascript:alert(1)' })
                 });
 
-                await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(new RegExp(field));
+                const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+                expect(metadata).toBeDefined();
+                expect(metadata).not.toHaveProperty(field);
+                expect(metadata?.issuer).toBe('https://auth.example.com');
             }
+        });
+
+        it('drops an invalid optional field instead of failing an OAuth metadata document', async () => {
+            // A document whose only flaw is a relative URL in an optional, client-unused
+            // field must not abort discovery (on base this hard-failed the OAuth path).
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOAuthMetadata, revocation_endpoint: '/oauth/revoke' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('revocation_endpoint');
+            expect(metadata?.token_endpoint).toBe('https://auth.example.com/token');
         });
 
         it('sanitizes fields the sibling schema rejects even when the path-implied schema accepts the document', async () => {
@@ -1222,22 +1243,21 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1);
         });
 
-        it('drops an unsafe service_documentation from OIDC discovery documents', async () => {
+        it('keeps fields the accepting schema itself validated even when the sibling schema rejects them', async () => {
             // The OIDC shape declares service_documentation as a plain string; the OAuth
-            // schema requires a safe URL. The sibling-schema sanitization drops the unsafe
-            // value without rejecting the otherwise valid document.
+            // schema requires a URL. A value that passed the accepting schema's own
+            // declared validator must never be removed by the sibling sanitization.
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'javascript:alert(1)' })
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'Ask the operations team for the docs portal' })
             });
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
 
             expect(metadata).toBeDefined();
-            expect(metadata).not.toHaveProperty('service_documentation');
-            expect(metadata?.issuer).toBe('https://auth.example.com');
+            expect(metadata).toHaveProperty('service_documentation', 'Ask the operations team for the docs portal');
         });
 
         it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {
