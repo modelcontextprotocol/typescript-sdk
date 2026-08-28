@@ -1243,21 +1243,33 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(1);
         });
 
-        it('keeps fields the accepting schema itself validated even when the sibling schema rejects them', async () => {
-            // The OIDC shape declares service_documentation as a plain string; the OAuth
-            // schema requires a URL. A value that passed the accepting schema's own
-            // declared validator must never be removed by the sibling sanitization.
+        it('applies the URL scheme guard to service_documentation on OIDC discovery documents', async () => {
+            // service_documentation is a URL in both RFC 8414 and OIDC Discovery; the
+            // discovery schema takes the OAuth validator (SafeUrlSchema) so an unsafe value
+            // is dropped like any other invalid optional field, while a valid URL survives.
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'Ask the operations team for the docs portal' })
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'javascript:alert(1)' })
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+            const dropped = await discoverAuthorizationServerMetadata('https://auth.example.com');
 
-            expect(metadata).toBeDefined();
-            expect(metadata).toHaveProperty('service_documentation', 'Ask the operations team for the docs portal');
+            expect(dropped).toBeDefined();
+            expect(dropped).not.toHaveProperty('service_documentation');
+
+            mockFetch.mockReset();
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'https://auth.example.com/docs' })
+            });
+
+            const kept = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(kept).toHaveProperty('service_documentation', 'https://auth.example.com/docs');
         });
 
         it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {

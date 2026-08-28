@@ -1823,8 +1823,11 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
  * @param options.skipIssuerValidation - Skip the RFC 8414 §3.3 `issuer` echo check. **Security-weakening.**
- * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
+ * @returns Promise resolving to authorization server metadata, or undefined when no candidate URL
+ *          yielded a metadata document (404s, CORS failures, non-JSON bodies)
  * @throws {IssuerMismatchError} when the metadata's `issuer` does not match `authorizationServerUrl`
+ * @throws {Error} when a candidate returns an HTTP 5xx other than 502, or when every candidate that
+ *         returned a JSON document failed schema validation (the error names the schema issues)
  */
 export async function discoverAuthorizationServerMetadata(
     authorizationServerUrl: string | URL,
@@ -1964,6 +1967,10 @@ function summarizeMetadataIssues(issues: ReadonlyArray<{ path: ReadonlyArray<Pro
 
 type AuthorizationServerMetadataSchema = typeof OAuthMetadataSchema | typeof OpenIdProviderDiscoveryMetadataSchema;
 
+type MetadataParseResult =
+    | { success: true; data: AuthorizationServerMetadata }
+    | { success: false; data?: undefined; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> } };
+
 /**
  * Parses authorization server metadata, retrying once with the top-level fields the first
  * parse rejected removed. An invalid value in an optional field (e.g. a relative
@@ -1971,7 +1978,7 @@ type AuthorizationServerMetadataSchema = typeof OAuthMetadataSchema | typeof Ope
  * while an invalid or missing required field still fails the parse (removing it just turns
  * the failure into a missing-field failure).
  */
-function parseMetadataDroppingInvalidOptionalFields(schema: AuthorizationServerMetadataSchema, json: unknown) {
+function parseMetadataDroppingInvalidOptionalFields(schema: AuthorizationServerMetadataSchema, json: unknown): MetadataParseResult {
     const first = schema.safeParse(json);
     if (first.success || typeof json !== 'object' || json === null) {
         return first;
