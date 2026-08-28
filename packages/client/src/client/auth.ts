@@ -1887,16 +1887,25 @@ export async function discoverAuthorizationServerMetadata(
             // well-known path) is not authorization server metadata: try the next candidate.
             continue;
         }
-        const primary = type === 'oauth' ? OAuthMetadataSchema.safeParse(json) : OpenIdProviderDiscoveryMetadataSchema.safeParse(json);
+        const [primarySchema, siblingSchema] =
+            type === 'oauth'
+                ? [OAuthMetadataSchema, OpenIdProviderDiscoveryMetadataSchema]
+                : [OpenIdProviderDiscoveryMetadataSchema, OAuthMetadataSchema];
+        const primary = primarySchema.safeParse(json);
+        const sibling = siblingSchema.safeParse(json);
         let parsed: AuthorizationServerMetadata;
         if (primary.success) {
-            parsed = primary.data;
+            // Even on a successful parse, a top-level field the SIBLING schema declares and
+            // rejected must not ride through this schema's looseObject passthrough
+            // unvalidated (e.g. a mixed document with an unsafe jwks_uri served at the
+            // oauth-authorization-server path) — sanitization must not depend on which
+            // well-known path served the document.
+            parsed = dropFieldsRejectedByOtherSchema(primary.data, sibling);
         } else {
-            const fallback = type === 'oauth' ? OpenIdProviderDiscoveryMetadataSchema.safeParse(json) : OAuthMetadataSchema.safeParse(json);
-            if (!fallback.success) {
+            if (!sibling.success) {
                 schemaFailure ??= {
                     url: endpointUrl,
-                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(fallback.error.issues)})`
+                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(sibling.error.issues)})`
                 };
                 continue;
             }
@@ -1905,16 +1914,9 @@ export async function discoverAuthorizationServerMetadata(
             // looseObject passthrough unvalidated (e.g. an OIDC document with an unsafe
             // jwks_uri would otherwise be returned via the OAuth schema, which does not
             // declare that field): drop the fields that failed instead. Fields both
-            // schemas declare validate identically, so this can only remove fields the
-            // fallback schema does not know about.
-            const data: Record<string, unknown> = { ...fallback.data };
-            for (const issue of primary.error.issues) {
-                const key = issue.path[0];
-                if (typeof key === 'string') {
-                    delete data[key];
-                }
-            }
-            parsed = data as AuthorizationServerMetadata;
+            // schemas declare identically fail together, so this can only remove fields
+            // the fallback schema either does not declare or declares more loosely.
+            parsed = dropFieldsRejectedByOtherSchema(sibling.data, primary);
         }
 
         if (!skipIssuerValidation) {
@@ -1951,6 +1953,31 @@ export async function discoverAuthorizationServerMetadata(
  */
 function summarizeMetadataIssues(issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
     return issues.map(issue => `${issue.path.map(String).join('.') || '(document)'}: ${issue.message}`).join('; ');
+}
+
+/**
+ * Drops the top-level fields of a parsed authorization server metadata document that the
+ * OTHER discovery schema declared and rejected, so a value that failed its declared
+ * validator (e.g. `SafeUrlSchema` on `jwks_uri` or `service_documentation`) can never ride
+ * through the accepting schema's looseObject passthrough unvalidated. Fields both schemas
+ * declare identically fail together — this can only remove fields the accepting schema
+ * either does not declare or declares more loosely, never one it requires.
+ */
+function dropFieldsRejectedByOtherSchema(
+    data: AuthorizationServerMetadata,
+    other: { success: true } | { success: false; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey> }> } }
+): AuthorizationServerMetadata {
+    if (other.success) {
+        return data;
+    }
+    const result: Record<string, unknown> = { ...data };
+    for (const issue of other.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === 'string') {
+            delete result[key];
+        }
+    }
+    return result as AuthorizationServerMetadata;
 }
 
 /**

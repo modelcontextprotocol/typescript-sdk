@@ -1188,17 +1188,56 @@ describe('OAuth Authorization', () => {
         });
 
         it('rejects unsafe RFC 8414 endpoint values on OIDC discovery documents', async () => {
-            // revocation_endpoint is declared on the discovery schema with its OAuth
-            // validator (SafeUrlSchema), so an unsafe value fails both parses instead of
-            // riding through the loose object's passthrough.
+            // revocation_endpoint and introspection_endpoint are declared on the discovery
+            // schema with their OAuth validators (SafeUrlSchema), so an unsafe value fails
+            // both parses instead of riding through the loose object's passthrough.
+            for (const field of ['revocation_endpoint', 'introspection_endpoint']) {
+                mockFetch.mockReset();
+                mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOpenIdMetadata, [field]: 'javascript:alert(1)' })
+                });
+
+                await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(new RegExp(field));
+            }
+        });
+
+        it('sanitizes fields the sibling schema rejects even when the path-implied schema accepts the document', async () => {
+            // A mixed OIDC document served at the oauth-authorization-server path parses
+            // successfully with the (loose) OAuth schema — the OIDC-declared jwks_uri must
+            // still be validated, not passed through because of which path served it.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('drops an unsafe service_documentation from OIDC discovery documents', async () => {
+            // The OIDC shape declares service_documentation as a plain string; the OAuth
+            // schema requires a safe URL. The sibling-schema sanitization drops the unsafe
+            // value without rejecting the otherwise valid document.
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => ({ ...validOpenIdMetadata, revocation_endpoint: 'javascript:alert(1)' })
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'javascript:alert(1)' })
             });
 
-            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(/revocation_endpoint/);
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('service_documentation');
+            expect(metadata?.issuer).toBe('https://auth.example.com');
         });
 
         it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {
