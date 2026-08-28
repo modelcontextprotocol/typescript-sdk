@@ -1846,6 +1846,11 @@ export async function discoverAuthorizationServerMetadata(
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
 
+    // First candidate whose 200 response was valid JSON but fit neither metadata schema —
+    // surfaced when every candidate fails, so a near-miss published document stays
+    // diagnosable instead of silently degrading into default-endpoint guessing.
+    let schemaFailure: { url: URL; detail: string } | undefined;
+
     // Try each URL in order
     for (const { url: endpointUrl, type } of urlsToTry) {
         const response = await fetchWithCorsRetry(endpointUrl, headers, fetchFn);
@@ -1874,7 +1879,14 @@ export async function discoverAuthorizationServerMetadata(
         // schema the document must satisfy. A document that fits neither schema is treated
         // like the other per-candidate failures above (4xx, 502, CORS): try the next
         // candidate URL instead of aborting discovery.
-        const json: unknown = await response.json();
+        let json: unknown;
+        try {
+            json = await response.json();
+        } catch {
+            // A 200 whose body is not JSON (e.g. an SPA catch-all serving HTML at the
+            // well-known path) is not authorization server metadata: try the next candidate.
+            continue;
+        }
         const primary = type === 'oauth' ? OAuthMetadataSchema.safeParse(json) : OpenIdProviderDiscoveryMetadataSchema.safeParse(json);
         let parsed: AuthorizationServerMetadata;
         if (primary.success) {
@@ -1882,9 +1894,27 @@ export async function discoverAuthorizationServerMetadata(
         } else {
             const fallback = type === 'oauth' ? OpenIdProviderDiscoveryMetadataSchema.safeParse(json) : OAuthMetadataSchema.safeParse(json);
             if (!fallback.success) {
+                schemaFailure ??= {
+                    url: endpointUrl,
+                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(fallback.error.issues)})`
+                };
                 continue;
             }
-            parsed = fallback.data;
+            // The document failed the schema its fields are declared by, so any top-level
+            // field the primary parse rejected must not ride through the fallback schema's
+            // looseObject passthrough unvalidated (e.g. an OIDC document with an unsafe
+            // jwks_uri would otherwise be returned via the OAuth schema, which does not
+            // declare that field): drop the fields that failed instead. Fields both
+            // schemas declare validate identically, so this can only remove fields the
+            // fallback schema does not know about.
+            const data: Record<string, unknown> = { ...fallback.data };
+            for (const issue of primary.error.issues) {
+                const key = issue.path[0];
+                if (typeof key === 'string') {
+                    delete data[key];
+                }
+            }
+            parsed = data as AuthorizationServerMetadata;
         }
 
         if (!skipIssuerValidation) {
@@ -1907,7 +1937,20 @@ export async function discoverAuthorizationServerMetadata(
         return parsed;
     }
 
+    if (schemaFailure) {
+        throw new Error(
+            `Authorization server metadata from ${schemaFailure.url} matched neither the OAuth 2.0 (RFC 8414) nor the OpenID Connect Discovery metadata schema: ${schemaFailure.detail}`
+        );
+    }
+
     return undefined;
+}
+
+/**
+ * Formats schema issues from a failed authorization server metadata parse for error messages.
+ */
+function summarizeMetadataIssues(issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
+    return issues.map(issue => `${issue.path.map(String).join('.') || '(document)'}: ${issue.message}`).join('; ');
 }
 
 /**

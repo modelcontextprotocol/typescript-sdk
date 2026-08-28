@@ -1131,6 +1131,76 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(3);
         });
 
+        it('skips a candidate whose 200 body is not JSON', async () => {
+            // e.g. an SPA catch-all serving HTML at the well-known path
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => {
+                    throw new SyntaxError('Unexpected token < in JSON');
+                }
+            });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validOpenIdMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws a diagnosable error when every candidate document fails validation', async () => {
+            // The AS publishes a near-miss document (200, valid JSON, fits neither schema):
+            // discovery must not silently return undefined and degrade to endpoint guessing.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ issuer: 'https://auth.example.com', token_endpoint: 'https://auth.example.com/token' })
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(
+                /matched neither the OAuth 2\.0 \(RFC 8414\) nor the OpenID Connect Discovery metadata schema/
+            );
+        });
+
+        it('drops fields that failed the path-implied schema instead of passing them through the fallback parse', async () => {
+            // An OIDC-shaped document whose jwks_uri fails SafeUrlSchema: the OIDC parse
+            // fails, the OAuth fallback succeeds — but the unsafe value must not ride
+            // through the OAuth schema's looseObject passthrough unvalidated.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            // Fields that passed validation are kept
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+            expect(metadata).toHaveProperty('subject_types_supported', ['public']);
+        });
+
+        it('rejects unsafe RFC 8414 endpoint values on OIDC discovery documents', async () => {
+            // revocation_endpoint is declared on the discovery schema with its OAuth
+            // validator (SafeUrlSchema), so an unsafe value fails both parses instead of
+            // riding through the loose object's passthrough.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, revocation_endpoint: 'javascript:alert(1)' })
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(/revocation_endpoint/);
+        });
+
         it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
