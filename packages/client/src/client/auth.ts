@@ -1734,12 +1734,18 @@ export async function discoverOAuthMetadata(
 
     // Same field policy as discoverAuthorizationServerMetadata: an invalid value in an
     // optional field drops the field instead of failing the document; invalid or missing
-    // required fields still reject.
-    const result = parseMetadataDroppingInvalidOptionalFields(OAuthMetadataSchema, await response.json());
+    // required fields still reject; OIDC-declared fields the OAuth schema only passes
+    // through are sanitized rather than returned unvalidated.
+    const json: unknown = await response.json();
+    const result = parseMetadataDroppingInvalidOptionalFields(OAuthMetadataSchema, json);
     if (!result.success) {
         throw result.error;
     }
-    return result.data as OAuthMetadata;
+    return dropPassthroughFieldsRejectedBySibling(
+        result.data,
+        OAuthMetadataSchema,
+        OpenIdProviderDiscoveryMetadataSchema.safeParse(json)
+    ) as OAuthMetadata;
 }
 
 /**

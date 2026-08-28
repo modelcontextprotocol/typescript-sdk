@@ -1209,6 +1209,23 @@ describe('OAuth Authorization', () => {
             }
         });
 
+        it('legacy discoverOAuthMetadata sanitizes OIDC-declared fields it only passes through', async () => {
+            // Same sanitization as discoverAuthorizationServerMetadata: jwks_uri is not
+            // declared by the OAuth schema, so an unsafe value must be dropped, not
+            // returned via the looseObject passthrough.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+        });
+
         it('legacy discoverOAuthMetadata drops an invalid optional field instead of throwing', async () => {
             // The deprecated path shares the field policy: base returned this document
             // (introspection_endpoint was a plain string then), so the tightened validator
