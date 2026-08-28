@@ -1209,6 +1209,23 @@ describe('OAuth Authorization', () => {
             }
         });
 
+        it('legacy discoverOAuthMetadata drops an invalid optional field instead of throwing', async () => {
+            // The deprecated path shares the field policy: base returned this document
+            // (introspection_endpoint was a plain string then), so the tightened validator
+            // must drop the field, not reject the document.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOAuthMetadata, introspection_endpoint: '/oauth/introspect' })
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('introspection_endpoint');
+            expect(metadata?.token_endpoint).toBe('https://auth.example.com/token');
+        });
+
         it('drops an invalid optional field instead of failing an OAuth metadata document', async () => {
             // A document whose only flaw is a relative URL in an optional, client-unused
             // field must not abort discovery (on base this hard-failed the OAuth path).

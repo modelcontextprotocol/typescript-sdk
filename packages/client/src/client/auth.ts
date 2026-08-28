@@ -1732,7 +1732,14 @@ export async function discoverOAuthMetadata(
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
-    return OAuthMetadataSchema.parse(await response.json());
+    // Same field policy as discoverAuthorizationServerMetadata: an invalid value in an
+    // optional field drops the field instead of failing the document; invalid or missing
+    // required fields still reject.
+    const result = parseMetadataDroppingInvalidOptionalFields(OAuthMetadataSchema, await response.json());
+    if (!result.success) {
+        throw result.error;
+    }
+    return result.data as OAuthMetadata;
 }
 
 /**
@@ -1969,7 +1976,7 @@ type AuthorizationServerMetadataSchema = typeof OAuthMetadataSchema | typeof Ope
 
 type MetadataParseResult =
     | { success: true; data: AuthorizationServerMetadata }
-    | { success: false; data?: undefined; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> } };
+    | { success: false; data?: undefined; error: Error & { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> } };
 
 /**
  * Parses authorization server metadata, retrying once with the top-level fields the first
