@@ -121,8 +121,12 @@ export const OpenIdProviderMetadataSchema = z.looseObject({
  * OpenID Connect Discovery metadata that may include OAuth 2.0 fields
  * This schema represents the real-world scenario where OIDC providers
  * return a mix of OpenID Connect and OAuth 2.0 metadata fields
+ *
+ * Loose like its component schemas so that RFC 8414 fields the OIDC shape
+ * does not declare (e.g. `revocation_endpoint`, `introspection_endpoint`)
+ * survive a successful parse instead of being stripped.
  */
-export const OpenIdProviderDiscoveryMetadataSchema = z.object({
+export const OpenIdProviderDiscoveryMetadataSchema = z.looseObject({
     ...OpenIdProviderMetadataSchema.shape,
     ...OAuthMetadataSchema.pick({
         code_challenge_methods_supported: true

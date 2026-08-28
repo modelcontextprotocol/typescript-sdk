@@ -1022,9 +1022,9 @@ describe('OAuth Authorization', () => {
 
         it('preserves authorization_response_iss_parameter_supported through OIDC discovery parse', async () => {
             // OAuth well-known 404s; OIDC well-known returns metadata advertising RFC 9207 support.
-            // Regression-guard: OpenIdProviderDiscoveryMetadataSchema is a plain z.object(), so the
-            // field must be declared on the underlying schemas or it gets stripped — making the
-            // RFC 9207 §2.4 advertised-but-missing reject inert on the OIDC-only discovery path.
+            // Regression-guard: the field must be declared on the underlying schemas so its typed
+            // value is visible to the RFC 9207 §2.4 advertised-but-missing reject on the OIDC-only
+            // discovery path.
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -1056,6 +1056,95 @@ describe('OAuth Authorization', () => {
 
             expect(metadata).toEqual(validOpenIdMetadata);
             expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('accepts RFC 8414 OAuth metadata served at the openid-configuration path', async () => {
+            // A plain OAuth 2.0 AS (no jwks_uri / subject_types_supported /
+            // id_token_signing_alg_values_supported) publishing RFC 8414 metadata only at the
+            // OIDC well-known path — explicitly permitted by RFC 8414 §5.
+            const rfc8414Metadata = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token',
+                response_types_supported: ['code'],
+                grant_types_supported: ['authorization_code', 'refresh_token'],
+                code_challenge_methods_supported: ['S256'],
+                revocation_endpoint: 'https://auth.example.com/oauth/revoke',
+                introspection_endpoint: 'https://auth.example.com/oauth/introspect'
+            };
+
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => rfc8414Metadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(rfc8414Metadata);
+        });
+
+        it('preserves RFC 8414 fields on OIDC discovery documents', async () => {
+            // OIDC providers commonly mix in OAuth 2.0 metadata fields; a successful OIDC parse
+            // must not strip them (the discovery schema is a loose object).
+            const mixedMetadata = {
+                ...validOpenIdMetadata,
+                revocation_endpoint: 'https://auth.example.com/revoke',
+                introspection_endpoint: 'https://auth.example.com/introspect'
+            };
+
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => mixedMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(mixedMetadata);
+        });
+
+        it('skips a candidate whose document fits neither schema and tries the next URL', async () => {
+            const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
+
+            // First OAuth URL 404s
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            // Second URL (RFC 8414-style OIDC path) returns a document that is not
+            // authorization server metadata at all
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ hello: 'world' })
+            });
+            // Third URL (OIDC Discovery 1.0-style path) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => tenantOidcMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toEqual(tenantOidcMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(3);
+        });
+
+        it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://evil.example.com',
+                    authorization_endpoint: 'https://auth.example.com/authorize',
+                    token_endpoint: 'https://auth.example.com/token',
+                    response_types_supported: ['code']
+                })
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(IssuerMismatchError);
         });
 
         it('throws on non-502 5xx errors', async () => {

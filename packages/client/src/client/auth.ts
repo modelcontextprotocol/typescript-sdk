@@ -1803,8 +1803,12 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  * specifications.
  *
  * This function implements a fallback strategy for authorization server discovery:
- * 1. Attempts RFC 8414 OAuth metadata discovery first
- * 2. If OAuth discovery fails, falls back to OpenID Connect Discovery
+ * 1. Tries RFC 8414 OAuth metadata discovery URLs first, then OpenID Connect Discovery URLs
+ * 2. Validates each response by its document shape rather than by the well-known path it was
+ *    found under: the schema implied by the path is tried first, then the other one —
+ *    RFC 8414 §5 explicitly permits plain OAuth 2.0 authorization server metadata to be
+ *    served at the `openid-configuration` path. A document that fits neither schema is
+ *    skipped and the next candidate URL is tried.
  *
  * @param authorizationServerUrl - The authorization server URL obtained from the MCP Server's
  *                                 protected resource metadata, or the MCP server's URL if the
@@ -1864,11 +1868,24 @@ export async function discoverAuthorizationServerMetadata(
             );
         }
 
-        // Parse and validate based on type
-        const parsed =
-            type === 'oauth'
-                ? OAuthMetadataSchema.parse(await response.json())
-                : OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+        // Validate by document shape, preferring the schema implied by the well-known path.
+        // RFC 8414 §5 explicitly permits plain OAuth 2.0 authorization server metadata to be
+        // served at the openid-configuration path, so the path alone cannot decide which
+        // schema the document must satisfy. A document that fits neither schema is treated
+        // like the other per-candidate failures above (4xx, 502, CORS): try the next
+        // candidate URL instead of aborting discovery.
+        const json: unknown = await response.json();
+        const primary = type === 'oauth' ? OAuthMetadataSchema.safeParse(json) : OpenIdProviderDiscoveryMetadataSchema.safeParse(json);
+        let parsed: AuthorizationServerMetadata;
+        if (primary.success) {
+            parsed = primary.data;
+        } else {
+            const fallback = type === 'oauth' ? OpenIdProviderDiscoveryMetadataSchema.safeParse(json) : OAuthMetadataSchema.safeParse(json);
+            if (!fallback.success) {
+                continue;
+            }
+            parsed = fallback.data;
+        }
 
         if (!skipIssuerValidation) {
             // RFC 8414 §3.3 / OIDC Discovery §4.3: the `issuer` value in the document MUST be
