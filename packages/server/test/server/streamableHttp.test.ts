@@ -321,6 +321,17 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(200);
             });
 
+            it('should reject Accept media types with q=0', async () => {
+                const request = createRequest('POST', TEST_MESSAGES.initialize, {
+                    accept: 'application/json; q=0, text/event-stream'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(406);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
             it('should reject request with wrong Content-Type header', async () => {
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
@@ -395,6 +406,17 @@ describe('Zod v4', () => {
                 sessionId = await initializeServer();
 
                 const request = createRequest('GET', undefined, { sessionId, accept: 'text/event-stream-bogus' });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(406);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
+            it('should reject GET when text/event-stream has q=0', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('GET', undefined, { sessionId, accept: 'text/event-stream; q=0' });
                 const response = await transport.handleRequest(request);
 
                 expect(response.status).toBe(406);

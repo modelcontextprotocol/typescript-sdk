@@ -72,6 +72,7 @@ describe('listsMediaType', () => {
         expect(listsMediaType('application/json, text/event-stream', 'application/json')).toBe(true);
         expect(listsMediaType('application/json, text/event-stream', 'text/event-stream')).toBe(true);
         expect(listsMediaType('Application/JSON; q=0.9, text/event-stream; charset=utf-8', 'application/json')).toBe(true);
+        expect(listsMediaType('application/json; q=0.001, text/event-stream', 'application/json')).toBe(true);
         expect(listsMediaType('text/plain; note="a,b", application/json', 'application/json')).toBe(true);
     });
 
@@ -80,6 +81,13 @@ describe('listsMediaType', () => {
         expect(listsMediaType('application/jsonx, text/event-stream-bogus', 'text/event-stream')).toBe(false);
         expect(listsMediaType('text/plain; note=application/json', 'application/json')).toBe(false);
         expect(listsMediaType('*/*, application/*', 'application/json')).toBe(false);
+    });
+
+    it('rejects media ranges with zero or invalid quality values', () => {
+        expect(listsMediaType('application/json; q=0, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=0.000, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=bogus, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=1.1, text/event-stream', 'application/json')).toBe(false);
     });
 
     it('rejects missing or empty Accept values', () => {

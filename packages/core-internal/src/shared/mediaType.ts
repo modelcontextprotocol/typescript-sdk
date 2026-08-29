@@ -56,38 +56,51 @@ export function isJsonContentType(header: string | null | undefined): boolean {
     return mediaTypeEssence(header) === 'application/json';
 }
 
-function splitHttpList(header: string): string[] {
+function splitOutsideQuotes(value: string, separator: string): string[] {
     const values: string[] = [];
     let start = 0;
     let quoted = false;
     let escaped = false;
 
-    for (let index = 0; index < header.length; index += 1) {
-        const char = header[index];
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index];
         if (escaped) {
             escaped = false;
         } else if (quoted && char === '\\') {
             escaped = true;
         } else if (char === '"') {
             quoted = !quoted;
-        } else if (char === ',' && !quoted) {
-            values.push(header.slice(start, index));
+        } else if (char === separator && !quoted) {
+            values.push(value.slice(start, index));
             start = index + 1;
         }
     }
 
-    values.push(header.slice(start));
+    values.push(value.slice(start));
     return values;
 }
 
+const QVALUE_PATTERN = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/;
+
+function hasPositiveQuality(mediaRange: string): boolean {
+    try {
+        const quality = contentType.parse(mediaRange).parameters.q;
+        return quality === undefined || (QVALUE_PATTERN.test(quality) && Number(quality) > 0);
+    } catch {
+        // Keep the existing tolerant behavior for malformed non-quality
+        // parameters, but do not treat a malformed q parameter as support.
+        return !splitOutsideQuotes(mediaRange, ';')
+            .slice(1)
+            .some(parameter => parameter.split('=', 1)[0]?.trim().toLowerCase() === 'q');
+    }
+}
+
 /**
- * Whether an `Accept` header lists a concrete media type. Parameters and
- * quality values are ignored; wildcards intentionally do not match because MCP
- * transport requirements name exact response media types.
+ * Whether an `Accept` header lists a concrete media type with a positive
+ * quality value. Other parameters are ignored; wildcards intentionally do not
+ * match because MCP transport requirements name exact response media types.
  */
 export function listsMediaType(header: string | null | undefined, mediaType: string): boolean {
     const expected = mediaType.toLowerCase();
-    return splitHttpList(header ?? '')
-        .map(part => mediaTypeEssence(part))
-        .includes(expected);
+    return splitOutsideQuotes(header ?? '', ',').some(part => mediaTypeEssence(part) === expected && hasPositiveQuality(part));
 }
