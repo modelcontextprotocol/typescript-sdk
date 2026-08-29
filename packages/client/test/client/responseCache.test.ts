@@ -326,6 +326,7 @@ interface ScriptOptions {
     listHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     readHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     serverInfo?: { name: string; version: string };
+    nextCursors?: (string | undefined)[];
 }
 
 async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): Promise<Scripted> {
@@ -353,7 +354,9 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
             params.push(r.params as { cursor?: string; _meta?: unknown } | undefined);
             const cursor = (r.params as { cursor?: string } | undefined)?.cursor;
             const idx = cursor === undefined ? 0 : Number(cursor);
-            const next = idx + 1 < pages.length ? String(idx + 1) : undefined;
+            const next = opts.nextCursors && lists - 1 < opts.nextCursors.length
+                ? opts.nextCursors[lists - 1]
+                : idx + 1 < pages.length ? String(idx + 1) : undefined;
             void serverTx.send({
                 jsonrpc: '2.0',
                 id: r.id,
@@ -434,6 +437,19 @@ describe('Client response-cache substrate', () => {
 
         const entry = store.get({ method: 'tools/list', partition: part() });
         expect((JSON.parse(entry!.value) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+    });
+
+    it('listTools() follows repeated opaque cursors until the page limit or server termination', async () => {
+        const { clientTx, listParams } = await scriptedModernServer(
+            [[TOOL_A], [TOOL_B], [TOOL_A]],
+            { nextCursors: ['same', 'same', undefined] }
+        );
+        const client = modernClient();
+        await client.connect(clientTx);
+
+        const { tools } = await client.listTools();
+        expect(tools.map(t => t.name)).toEqual(['a', 'b', 'a']);
+        expect(listParams().map(p => p?.cursor)).toEqual([undefined, 'same', 'same']);
     });
 
     it('the auto-aggregate path threads caller params (e.g. _meta trace context) into every page request', async () => {

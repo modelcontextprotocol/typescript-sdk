@@ -1698,8 +1698,9 @@ export class Client extends Protocol<ClientContext> {
      * methods' no-`cursor` auto-aggregate path. Page 1's result object is
      * mutated in place (its items array is extended; `nextCursor` is
      * cleared); page-1 metadata (`ttlMs`, `cacheScope`, `_meta`) is preserved.
-     * A `nextCursor` that repeats stops the walk (defence against a
-     * non-converging server, mcp.d's `drainList` guard);
+     * The walk is bounded by `listMaxPages`, which prevents a non-converging
+     * server from keeping the aggregate request open without interpreting
+     * opaque cursor values.
      * {@linkcode ClientOptions.listMaxPages} is a hard cap — hitting it
      * throws, so a partial aggregate is never cached. The
      * captured-generation guard skips the write when a `list_changed` landed
@@ -1732,9 +1733,8 @@ export class Client extends Protocol<ClientContext> {
         const generation = this._cache.captureGeneration(method);
         const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
         let cursor = acc.nextCursor;
-        const seen = new Set<string>();
         let pages = 1;
-        while (cursor !== undefined && !seen.has(cursor)) {
+        while (cursor !== undefined) {
             if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
                 throw new SdkError(
                     SdkErrorCode.ListPaginationExceeded,
@@ -1742,7 +1742,6 @@ export class Client extends Protocol<ClientContext> {
                     { method, listMaxPages: this._listMaxPages }
                 );
             }
-            seen.add(cursor);
             const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
             append(acc, page);
             cursor = page.nextCursor;
