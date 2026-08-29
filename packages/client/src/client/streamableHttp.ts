@@ -11,6 +11,7 @@ import {
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     JSONRPCMessageSchema,
+    mcpNameSource,
     mediaTypeEssence,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
@@ -481,26 +482,23 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set('mcp-protocol-version', envelopeVersion);
         headers.set('mcp-method', message.method);
         // SEP-2243 standard headers, step 2 of the 5-step client algorithm:
-        // Mcp-Name mirrors `params.name` (tools/call, prompts/get) or
-        // `params.uri` (resources/read). The value is run through the same
+        // Mcp-Name mirrors `params.name` (tools/call, prompts/get),
+        // `params.uri` (resources/read), or — per SEP-2663's Streamable HTTP
+        // binding — `params.taskId` (tasks/get, tasks/update, tasks/cancel).
+        // `mcpNameSource` resolves the method → source-field mapping and the
+        // body value through the same `MCP_NAME_HEADER_SOURCE` table and
+        // extraction the SDK server validates with, so emission and
+        // validation cannot drift apart. The value is run through the same
         // `=?base64?…?=` sentinel encoding the `Mcp-Param-*` codec uses so a
-        // non-ASCII name/URI (or one with leading/trailing whitespace,
+        // non-ASCII name/URI/taskId (or one with leading/trailing whitespace,
         // control characters, or CR/LF) cannot make `Headers.set()` throw a
         // TypeError or silently normalize to a value that differs from the
         // body. The spec's value-encoding rules apply to `Mcp-Name`; the SDK
         // server's `validateStandardRequestHeaders` decodes the sentinel via
         // `decodeMcpParamValue` before the `Mcp-Name` ↔ body cross-check.
-        const params = message.params as { name?: unknown; uri?: unknown } | undefined;
-        const nameHeader =
-            message.method === 'resources/read'
-                ? typeof params?.uri === 'string'
-                    ? params.uri
-                    : undefined
-                : typeof params?.name === 'string'
-                  ? params.name
-                  : undefined;
-        if (nameHeader !== undefined) {
-            headers.set('mcp-name', encodeMcpParamValue(nameHeader));
+        const source = mcpNameSource(message.method, message.params);
+        if (source?.value !== undefined) {
+            headers.set('mcp-name', encodeMcpParamValue(source.value));
         }
     }
 
