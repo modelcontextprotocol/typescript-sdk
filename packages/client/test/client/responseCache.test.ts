@@ -357,9 +357,12 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
             // Cursor values are opaque: advance the scripted page by request
             // order instead of interpreting the cursor as a page number.
             const idx = cursor === undefined ? (pageIndex = 0) : ++pageIndex;
-            const next = opts.nextCursors && lists - 1 < opts.nextCursors.length
-                ? opts.nextCursors[lists - 1]
-                : idx + 1 < pages.length ? String(idx + 1) : undefined;
+            const next =
+                opts.nextCursors && lists - 1 < opts.nextCursors.length
+                    ? opts.nextCursors[lists - 1]
+                    : idx + 1 < pages.length
+                      ? String(idx + 1)
+                      : undefined;
             void serverTx.send({
                 jsonrpc: '2.0',
                 id: r.id,
@@ -443,10 +446,9 @@ describe('Client response-cache substrate', () => {
     });
 
     it('listTools() follows repeated opaque cursors until the page limit or server termination', async () => {
-        const { clientTx, listParams } = await scriptedModernServer(
-            [[TOOL_A], [TOOL_B], [TOOL_A]],
-            { nextCursors: ['same', 'same', undefined] }
-        );
+        const { clientTx, listParams } = await scriptedModernServer([[TOOL_A], [TOOL_B], [TOOL_A]], {
+            nextCursors: ['same', 'same', undefined]
+        });
         const client = modernClient();
         await client.connect(clientTx);
 
