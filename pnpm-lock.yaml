@@ -806,6 +806,43 @@ importers:
         specifier: catalog:devTools
         version: 4.21.0
 
+  examples/oauth-workload-identity:
+    dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/express':
+        specifier: workspace:*
+        version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
+      '@modelcontextprotocol/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      cors:
+        specifier: catalog:runtimeServerOnly
+        version: 2.8.6
+      express:
+        specifier: catalog:runtimeServerOnly
+        version: 5.2.1
+      jose:
+        specifier: catalog:runtimeClientOnly
+        version: 6.2.2
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      '@types/cors':
+        specifier: catalog:devTools
+        version: 2.8.19
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+
   examples/parallel-calls:
     dependencies:
       '@hono/node-server':

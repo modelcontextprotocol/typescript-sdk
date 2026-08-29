@@ -396,8 +396,10 @@ export interface OAuthClientProvider {
     prepareTokenRequest?(scope?: string): URLSearchParams | Promise<URLSearchParams | undefined> | undefined;
 
     /**
-     * Saves the resolved authorization-server **issuer**. Called after a successful
-     * token exchange (timing changed in v2: was post-discovery, now post-`saveTokens`).
+     * Saves the resolved authorization-server **issuer**. Called as soon as discovery
+     * resolves the issuer, before any token request; assertion-based providers
+     * (Cross-App Access, Workload Identity) rely on that timing to mint
+     * audience-correct assertions.
      *
      * @deprecated Superseded by the `issuer` stamp on stored tokens / client credentials
      * (SEP-2352). {@linkcode auth} still **writes** this for back-compat with providers
