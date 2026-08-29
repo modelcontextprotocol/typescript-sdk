@@ -332,6 +332,7 @@ interface ScriptOptions {
 async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): Promise<Scripted> {
     const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
     let lists = 0;
+    let pageIndex = 0;
     const wireCounts = new Map<string, number>();
     const params: ({ cursor?: string; _meta?: unknown } | undefined)[] = [];
     serverTx.onmessage = m => {
@@ -353,7 +354,9 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
             lists++;
             params.push(r.params as { cursor?: string; _meta?: unknown } | undefined);
             const cursor = (r.params as { cursor?: string } | undefined)?.cursor;
-            const idx = cursor === undefined ? 0 : Number(cursor);
+            // Cursor values are opaque: advance the scripted page by request
+            // order instead of interpreting the cursor as a page number.
+            const idx = cursor === undefined ? (pageIndex = 0) : ++pageIndex;
             const next = opts.nextCursors && lists - 1 < opts.nextCursors.length
                 ? opts.nextCursors[lists - 1]
                 : idx + 1 < pages.length ? String(idx + 1) : undefined;
