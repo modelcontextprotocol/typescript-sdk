@@ -1273,3 +1273,94 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         expect(errors.map(e => e.message)).toContain('redis down');
     });
 });
+
+describe('Client opaque-cursor pagination', () => {
+    /**
+     * A server that hands out `pages` in order on `tools/list`, tagging every
+     * page but the last with the same `cursor` token — the shape a server
+     * keeping its pagination position server side produces, and legal because
+     * cursors are opaque. Passing `convergeAfter` makes the server stop
+     * offering a cursor after that many requests; leaving it out makes the
+     * server cycle its last page forever (never converging).
+     */
+    async function scriptedConstantCursorServer(
+        pages: Tool[][],
+        cursor: string,
+        { convergeAfter }: { convergeAfter?: number } = {}
+    ): Promise<{ clientTx: InMemoryTransport; requestedCursors: (string | undefined)[] }> {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        const requestedCursors: (string | undefined)[] = [];
+        let index = 0;
+        serverTx.onmessage = (m: JSONRPCMessage) => {
+            const r = m as JSONRPCRequest;
+            if (r.id === undefined) return;
+            if (r.method === 'server/discover') {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: r.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: { tools: {} },
+                        _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'constant-cursor', version: '1.0.0' } }
+                    }
+                });
+            } else if (r.method === 'tools/list') {
+                requestedCursors.push((r.params as { cursor?: string } | undefined)?.cursor);
+                const page = convergeAfter === undefined ? pages[index % pages.length] : pages[Math.min(index, pages.length - 1)];
+                index += 1;
+                const nextCursor = convergeAfter !== undefined && index >= convergeAfter ? undefined : cursor;
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: r.id,
+                    result: {
+                        resultType: 'complete',
+                        ttlMs: 0,
+                        cacheScope: 'private',
+                        tools: page,
+                        ...(nextCursor !== undefined && { nextCursor })
+                    }
+                });
+            } else {
+                void serverTx.send({ jsonrpc: '2.0', id: r.id, result: { resultType: 'complete' } });
+            }
+        };
+        await serverTx.start();
+        return { clientTx, requestedCursors };
+    }
+
+    it('follows a repeated (empty-string) cursor until the server stops offering one', async () => {
+        // "" is the spec's own example of a valid cursor, and cursors are
+        // opaque: a server may return the same token for every page and still
+        // be making progress. Treating a repeated cursor as the end of the
+        // list silently truncated everything after page two (#2735).
+        const { clientTx, requestedCursors } = await scriptedConstantCursorServer(
+            [[TOOL_A], [TOOL_B], [{ name: 'c', inputSchema: { type: 'object', properties: {} } }]],
+            '',
+            { convergeAfter: 3 }
+        );
+        const client = modernClient();
+        await client.connect(clientTx);
+
+        const { tools, nextCursor } = await client.listTools();
+        expect(tools.map(t => t.name)).toEqual(['a', 'b', 'c']);
+        expect(nextCursor).toBeUndefined();
+        expect(requestedCursors).toEqual([undefined, '', '']);
+    });
+
+    it('still fails loudly via listMaxPages when a repeated cursor never converges', async () => {
+        const { clientTx } = await scriptedConstantCursorServer([[TOOL_A]], 'page');
+        const client = new Client(
+            { name: 'cache-client', version: '1.0.0' },
+            { versionNegotiation: { mode: { pin: MODERN } }, listMaxPages: 3 }
+        );
+        await client.connect(clientTx);
+
+        // The cap replaced the cursor-value dedupe as the non-convergence
+        // guard: it throws instead of returning a truncated aggregate that
+        // looks complete.
+        await expect(client.listTools()).rejects.toMatchObject({
+            code: SdkErrorCode.ListPaginationExceeded
+        });
+    });
+});
