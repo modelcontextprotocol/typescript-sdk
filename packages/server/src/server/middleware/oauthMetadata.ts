@@ -89,10 +89,7 @@ export function buildOAuthProtectedResourceMetadata(options: AuthMetadataOptions
  * ```
  */
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string {
-    const metadataUrl = new URL(serverUrl);
-    metadataUrl.pathname = protectedResourceMetadataPath(serverUrl);
-    metadataUrl.hash = '';
-    return metadataUrl.href;
+    return new URL(protectedResourceMetadataPath(serverUrl), serverUrl).href;
 }
 
 /** The RFC 9728 path-aware well-known path for a resource URL. */
