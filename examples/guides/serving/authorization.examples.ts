@@ -79,9 +79,17 @@ function buildServer(): McpServer {
     });
     //#endregion authInfo_handler
 
-    //#region perToolScopes_challenge
+    //#region perOperationScopes_challenge
     server.registerTool('purge-notes', { scopeChallenge: requireScopes('notes:write') }, async () => ({
         content: [{ type: 'text', text: 'All notes deleted' }]
+    }));
+
+    server.registerResource('private-notes', 'notes://private', { scopeChallenge: requireScopes('notes:read') }, async uri => ({
+        contents: [{ uri: uri.href, text: 'Private notes' }]
+    }));
+
+    server.registerPrompt('summarize-notes', { scopeChallenge: requireScopes('notes:read') }, async () => ({
+        messages: [{ role: 'user', content: { type: 'text', text: 'Summarize my private notes' } }]
     }));
 
     server.registerTool(
@@ -100,7 +108,7 @@ function buildServer(): McpServer {
         },
         async ({ visibility }) => ({ content: [{ type: 'text', text: `Read ${visibility} repository` }] })
     );
-    //#endregion perToolScopes_challenge
+    //#endregion perOperationScopes_challenge
 
     return server;
 }

@@ -837,20 +837,20 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     }
                 }
             }
+        }
 
-            // Run scope preflight after Mcp-Param headers have been checked against the body.
-            if (options.scopeChallenge !== undefined) {
-                try {
-                    const result = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
-                    if (result !== undefined) {
-                        void product.close().catch(reportError);
-                        return createScopeChallengeResponse(options.scopeChallenge, result.challenge, result.requestId);
-                    }
-                } catch (error) {
+        // Run scope preflight after Mcp-Param headers have been checked against the body.
+        if (route.messageKind === 'request' && product instanceof McpServer && options.scopeChallenge !== undefined) {
+            try {
+                const result = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
+                if (result !== undefined) {
                     void product.close().catch(reportError);
-                    reportError(toError(error));
-                    return internalServerErrorResponse(route.message.id);
+                    return createScopeChallengeResponse(options.scopeChallenge, result.challenge, result.requestId);
                 }
+            } catch (error) {
+                void product.close().catch(reportError);
+                reportError(toError(error));
+                return internalServerErrorResponse(route.message.id);
             }
         }
 

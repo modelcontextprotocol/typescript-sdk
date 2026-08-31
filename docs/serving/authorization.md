@@ -1,6 +1,6 @@
 ---
 shape: how-to
-description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-tool scopes.'
+description: 'Require a bearer token on a server you run: verification, protected-resource metadata, and per-operation scopes.'
 ---
 
 # Require authorization
@@ -123,15 +123,23 @@ server.registerTool('whoami', { description: 'Report the authenticated caller' }
 The per-request factory itself receives the same value as `ctx.authInfo`, so it can register a different tool set per caller before any handler runs.
 :::
 
-## Enforce per-tool scopes
+## Enforce per-operation scopes
 
-`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool, set its `scopeChallenge` callback and configure `scopeChallenge.resourceMetadataUrl` on `createMcpHandler` (or a directly constructed Streamable HTTP transport). The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
+`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool call, resource read, or prompt retrieval, set `scopeChallenge` on its registration and configure `scopeChallenge.resourceMetadataUrl` on `createMcpHandler` (or a directly constructed Streamable HTTP transport). The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
 
 Use `requireScopes` for a static exact all-of check. Use a callback when the required scope set depends on the request:
 
-```ts source="../../examples/guides/serving/authorization.examples.ts#perToolScopes_challenge"
+```ts source="../../examples/guides/serving/authorization.examples.ts#perOperationScopes_challenge"
 server.registerTool('purge-notes', { scopeChallenge: requireScopes('notes:write') }, async () => ({
     content: [{ type: 'text', text: 'All notes deleted' }]
+}));
+
+server.registerResource('private-notes', 'notes://private', { scopeChallenge: requireScopes('notes:read') }, async uri => ({
+    contents: [{ uri: uri.href, text: 'Private notes' }]
+}));
+
+server.registerPrompt('summarize-notes', { scopeChallenge: requireScopes('notes:read') }, async () => ({
+    messages: [{ role: 'user', content: { type: 'text', text: 'Summarize my private notes' } }]
 }));
 
 server.registerTool(
@@ -152,7 +160,11 @@ server.registerTool(
 );
 ```
 
-Scope interpretation belongs to your callback; the SDK does not infer hierarchies, alternatives, or missing scopes. Challenged tools remain visible in `tools/list`.
+Scope interpretation belongs to your callback; the SDK does not infer hierarchies, alternatives, or missing scopes. Challenged primitives remain visible in their list operations.
+
+::: warning
+The callback runs before the primitive's input schema is validated or transformed. Its `request` contains the JSON-parsed wire values, so dynamic authorization should validate or canonicalize any value whose schema changes its meaning before handler invocation. Scope names and `errorDescription` must use printable ASCII so they can be serialized safely in `WWW-Authenticate`.
+:::
 
 ## Recap
 
@@ -160,5 +172,5 @@ Scope interpretation belongs to your callback; the SDK does not infer hierarchie
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
 - Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
-- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-tool callbacks can trigger HTTP `403` scope step-up before invocation.
+- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-operation callbacks can trigger HTTP `403` scope step-up before invocation.
 - The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.

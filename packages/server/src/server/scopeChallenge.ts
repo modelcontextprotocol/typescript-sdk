@@ -2,9 +2,9 @@ import type { AuthInfo, JSONRPCRequest, RequestId } from '@modelcontextprotocol/
 
 /** OAuth scopes to request before handling an MCP request. */
 export interface ScopeChallenge {
-    /** The exact, complete scope set to include in the challenge. */
+    /** The exact, complete scope set to include in the challenge. Each scope must be printable ASCII without whitespace. */
     scopes: readonly [string, ...string[]];
-    /** Optional human-readable detail for the OAuth challenge. */
+    /** Optional printable-ASCII human-readable detail for the OAuth challenge. */
     errorDescription?: string;
 }
 
@@ -33,8 +33,8 @@ export function supportsScopeChallengeResolver(
 }
 
 function assertScope(scope: unknown, location: string): asserts scope is string {
-    if (typeof scope !== 'string' || scope.length === 0 || /\s/.test(scope)) {
-        throw new TypeError(`${location} must be a non-empty OAuth scope without whitespace`);
+    if (typeof scope !== 'string' || !/^[\u0021-\u007E]+$/.test(scope)) {
+        throw new TypeError(`${location} must be a non-empty printable ASCII OAuth scope without whitespace`);
     }
 }
 
@@ -47,6 +47,9 @@ function validateScopeChallenge(challenge: ScopeChallenge): ScopeChallenge {
     }
     if (challenge.errorDescription !== undefined && typeof challenge.errorDescription !== 'string') {
         throw new TypeError('scope challenge errorDescription must be a string');
+    }
+    if (challenge.errorDescription !== undefined && !/^[\u0020-\u007E]*$/.test(challenge.errorDescription)) {
+        throw new TypeError('scope challenge errorDescription must contain only printable ASCII characters');
     }
     return challenge;
 }

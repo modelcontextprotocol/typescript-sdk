@@ -45,6 +45,7 @@ describe('requireScopes', () => {
     it('rejects invalid static scope declarations', () => {
         expect(() => (requireScopes as (...scopes: string[]) => ScopeChallengeHandler)()).toThrow('at least one');
         expect(() => requireScopes('repo read')).toThrow('without whitespace');
+        expect(() => requireScopes('repo:read🚀')).toThrow('printable ASCII');
     });
 });
 
@@ -169,7 +170,9 @@ describe('legacy Streamable HTTP scope preflight', () => {
             vi.fn<ScopeChallengeHandler>(async () => {
                 throw new Error('scope lookup failed');
             }),
-            vi.fn<ScopeChallengeHandler>(() => ({ scopes: [] as unknown as [string, ...string[]] }))
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: [] as unknown as [string, ...string[]] })),
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read🚀'] })),
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read'], errorDescription: 'Need 🚀 access' }))
         ]) {
             const harness = await createLegacyHarness(callback);
             const onerror = vi.fn();

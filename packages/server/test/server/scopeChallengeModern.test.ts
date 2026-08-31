@@ -18,7 +18,8 @@ const ENVELOPE = {
 };
 
 function request(method: string, params: Record<string, unknown>, extraHeaders: Record<string, string> = {}): Request {
-    const name = typeof params.name === 'string' ? params.name : undefined;
+    const candidateName = method === 'resources/read' ? params.uri : params.name;
+    const name = typeof candidateName === 'string' ? candidateName : undefined;
     return new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
@@ -171,5 +172,35 @@ describe('createMcpHandler scope preflight', () => {
 
         expect(response.status).toBe(200);
         expect(onCall).toHaveBeenCalledOnce();
+    });
+
+    it('challenges resource and prompt primitives before dispatch', async () => {
+        const onRead = vi.fn(async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'secret' }] }));
+        const onPrompt = vi.fn(async () => ({
+            messages: [{ role: 'user' as const, content: { type: 'text' as const, text: 'secret' } }]
+        }));
+        const handler = createMcpHandler(
+            () => {
+                const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
+                server.registerResource('config', 'config://settings', { scopeChallenge: requireScopes('config:read') }, onRead);
+                server.registerPrompt('summarize', { scopeChallenge: requireScopes('prompt:read') }, onPrompt);
+                return server;
+            },
+            { scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL } }
+        );
+
+        const resourceResponse = await handler.fetch(request('resources/read', { uri: 'config://settings' }), {
+            authInfo: auth([])
+        });
+        const promptResponse = await handler.fetch(request('prompts/get', { name: 'summarize', arguments: {} }), {
+            authInfo: auth([])
+        });
+
+        expect(resourceResponse.status).toBe(403);
+        expect(resourceResponse.headers.get('WWW-Authenticate')).toContain('scope="config:read"');
+        expect(promptResponse.status).toBe(403);
+        expect(promptResponse.headers.get('WWW-Authenticate')).toContain('scope="prompt:read"');
+        expect(onRead).not.toHaveBeenCalled();
+        expect(onPrompt).not.toHaveBeenCalled();
     });
 });
