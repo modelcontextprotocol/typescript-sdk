@@ -1463,6 +1463,31 @@ describe('probe invalid-reply classification (stamped escapes from the transport
         expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
 
+    test('pin mode: an unparseable 2xx body surfaces its raw text on data.body — the transport stamp is not discarded', async () => {
+        // The exact stamp the Streamable HTTP transport produces when a 2xx
+        // application/json body fails JSON.parse: the raw body TEXT rides the
+        // stamp. A string body is not a readable JSON-RPC error member, so the
+        // verdict stays the conservative legacy default — pin mode converts it
+        // to the typed error, with the offending text on `data.body` as the
+        // troubleshooting doc promises.
+        const bodyText = '<html>gateway error page</html>';
+        const stamped = markInvalidReplyEscape(new SyntaxError('Unexpected token < in JSON'), bodyText);
+        const transport = new InvalidReplyTransport(stamped);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+
+        const rejection: unknown = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        const error = rejection as SdkError;
+        expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect(error.message).toContain('the probe reply was not a valid JSON-RPC message');
+        expect(error.data).toMatchObject({ body: bodyText });
+        expect((error.data as { cause?: unknown }).cause).toBe(stamped);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
     test('modern-only client: typed error instead of a fallback the client cannot run, same cause fidelity', async () => {
         const stamped = markInvalidReplyEscape(new Error('validation failed'), JSON.parse(OC39354_BODY));
         const transport = new InvalidReplyTransport(stamped);

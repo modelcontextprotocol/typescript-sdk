@@ -1201,8 +1201,11 @@ export class StreamableHTTPClientTransport implements Transport {
                     // network error. Only the fully received text proves a
                     // completed exchange; a body that then fails `JSON.parse`
                     // (empty, or not JSON at all) is a completed exchange with
-                    // no reply in it — that failure alone is stamped
-                    // (bodiless) for the probe's classifier.
+                    // no reply in it — that failure alone is stamped, carrying
+                    // the raw body text, for the probe's classifier (which
+                    // ignores non-object bodies — the verdict stays legacy)
+                    // and for the diagnostics the no-fallback modes surface on
+                    // `error.data.body`.
                     //
                     // A custom `fetch` (`StreamableHTTPClientTransportOptions.fetch`)
                     // may return a response-like that implements only `json()`
@@ -1217,7 +1220,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         try {
                             data = JSON.parse(bodyText);
                         } catch (error) {
-                            throw markInvalidReplyEscape(error, undefined);
+                            throw markInvalidReplyEscape(error, bodyText);
                         }
                     } else {
                         data = await response.json();
