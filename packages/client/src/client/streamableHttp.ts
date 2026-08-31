@@ -1203,12 +1203,24 @@ export class StreamableHTTPClientTransport implements Transport {
                     // (empty, or not JSON at all) is a completed exchange with
                     // no reply in it — that failure alone is stamped
                     // (bodiless) for the probe's classifier.
-                    const bodyText = await response.text();
+                    //
+                    // A custom `fetch` (`StreamableHTTPClientTransportOptions.fetch`)
+                    // may return a response-like that implements only `json()`
+                    // — the same tolerance this file extends elsewhere via
+                    // `response.text?.()`. In that case fall back to `json()`:
+                    // its rejection can't distinguish a parse failure from a
+                    // mid-body transport failure, so it propagates unstamped
+                    // (the base behavior).
                     let data: unknown;
-                    try {
-                        data = JSON.parse(bodyText);
-                    } catch (error) {
-                        throw markInvalidReplyEscape(error, undefined);
+                    if (typeof response.text === 'function') {
+                        const bodyText = await response.text();
+                        try {
+                            data = JSON.parse(bodyText);
+                        } catch (error) {
+                            throw markInvalidReplyEscape(error, undefined);
+                        }
+                    } else {
+                        data = await response.json();
                     }
                     const responseMessages = Array.isArray(data)
                         ? data.map(msg => parseJsonResponseMessage(msg))

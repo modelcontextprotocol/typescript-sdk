@@ -398,6 +398,42 @@ describe('StreamableHTTPClientTransport', () => {
         expect(messageSpy).toHaveBeenCalledWith(responseMessage);
     });
 
+    it('should handle non-streaming JSON response from a custom fetch response-like implementing only json()', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const responseMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            result: { success: true },
+            id: 'test-id'
+        };
+
+        // Partial response mock with `json()` but no `text()` — the transport
+        // must fall back to `json()` rather than throw `response.text is not a function`.
+        const customFetch = vi.fn().mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: () => Promise.resolve(responseMessage)
+        });
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            fetch: customFetch
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        await transport.send(message);
+
+        expect(messageSpy).toHaveBeenCalledWith(responseMessage);
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
     it('should attempt initial GET connection and handle 405 gracefully', async () => {
         // Mock the server not supporting GET for SSE (returning 405)
         (globalThis.fetch as Mock).mockResolvedValueOnce({
