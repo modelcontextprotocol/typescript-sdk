@@ -11,6 +11,7 @@ import {
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     JSONRPCMessageSchema,
+    mcpNameSource,
     mediaTypeEssence,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
@@ -36,6 +37,7 @@ import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
 import { markInvalidReplyEscape, SERVER_DISCOVER_PROBE_ID_PREFIX } from './invalidReplySeam';
+import { withDpopFromProvider } from './middleware';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -260,6 +262,7 @@ export type StreamableHTTPClientTransportOptions = {
  */
 const RESERVED_REQUEST_HEADER_NAMES: ReadonlySet<string> = new Set([
     'authorization',
+    'dpop',
     'content-type',
     'mcp-protocol-version',
     'mcp-method',
@@ -364,15 +367,22 @@ export class StreamableHTTPClientTransport implements Transport {
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
+        this._fetch = opts?.fetch;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
             this._authProvider = adaptOAuthProvider(opts.authProvider, {
                 skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
             });
+            // SEP-1932 / RFC 9449: sign resource-server requests with DPoP at the fetch layer, where
+            // the real method/URL/response of every request (POST, GET stream, DELETE) is in hand.
+            // `_fetchWithInit` below (handed to `auth()`) stays unwrapped — token-endpoint DPoP is
+            // executeTokenRequest's job.
+            if (opts.authProvider.dpop) {
+                this._fetch = withDpopFromProvider(opts.authProvider)(opts.fetch ?? fetch);
+            }
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
@@ -499,26 +509,23 @@ export class StreamableHTTPClientTransport implements Transport {
         headers.set('mcp-protocol-version', envelopeVersion);
         headers.set('mcp-method', message.method);
         // SEP-2243 standard headers, step 2 of the 5-step client algorithm:
-        // Mcp-Name mirrors `params.name` (tools/call, prompts/get) or
-        // `params.uri` (resources/read). The value is run through the same
+        // Mcp-Name mirrors `params.name` (tools/call, prompts/get),
+        // `params.uri` (resources/read), or — per SEP-2663's Streamable HTTP
+        // binding — `params.taskId` (tasks/get, tasks/update, tasks/cancel).
+        // `mcpNameSource` resolves the method → source-field mapping and the
+        // body value through the same `MCP_NAME_HEADER_SOURCE` table and
+        // extraction the SDK server validates with, so emission and
+        // validation cannot drift apart. The value is run through the same
         // `=?base64?…?=` sentinel encoding the `Mcp-Param-*` codec uses so a
-        // non-ASCII name/URI (or one with leading/trailing whitespace,
+        // non-ASCII name/URI/taskId (or one with leading/trailing whitespace,
         // control characters, or CR/LF) cannot make `Headers.set()` throw a
         // TypeError or silently normalize to a value that differs from the
         // body. The spec's value-encoding rules apply to `Mcp-Name`; the SDK
         // server's `validateStandardRequestHeaders` decodes the sentinel via
         // `decodeMcpParamValue` before the `Mcp-Name` ↔ body cross-check.
-        const params = message.params as { name?: unknown; uri?: unknown } | undefined;
-        const nameHeader =
-            message.method === 'resources/read'
-                ? typeof params?.uri === 'string'
-                    ? params.uri
-                    : undefined
-                : typeof params?.name === 'string'
-                  ? params.name
-                  : undefined;
-        if (nameHeader !== undefined) {
-            headers.set('mcp-name', encodeMcpParamValue(nameHeader));
+        const source = mcpNameSource(message.method, message.params);
+        if (source?.value !== undefined) {
+            headers.set('mcp-name', encodeMcpParamValue(source.value));
         }
     }
 
