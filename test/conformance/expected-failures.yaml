@@ -29,14 +29,12 @@ client:
     # (none: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
     # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
     #
-    # --- SEP-1932 (DPoP) / SEP-1933 (WIF) — extension-tagged auth scenarios, new in the alpha.10 referee ---
-    # The OAuth client implements neither DPoP proofs (RFC 9449) nor the
-    # urn:ietf:params:oauth:grant-type:jwt-bearer grant, so every check in
-    # these scenarios fails. Client-side extension scenarios are selected only
-    # by `--suite all`; the 2026 leg cannot flag them stale (extension
+    # --- SEP-1933 (WIF) — extension-tagged auth scenario, new in the alpha.10 referee ---
+    # The OAuth client does not implement the urn:ietf:params:oauth:grant-type:jwt-bearer
+    # grant, so every check in this scenario fails. Client-side extension scenarios are
+    # selected only by `--suite all`; the 2026 leg cannot flag it stale (extension
     # scenarios never match a --spec-version filter).
-    - auth/dpop
-    - auth/dpop-nonce
+    # (SEP-1932 DPoP burned by the auth/dpop + auth/dpop-nonce client implementation.)
     - auth/wif-jwt-bearer
 
 server:

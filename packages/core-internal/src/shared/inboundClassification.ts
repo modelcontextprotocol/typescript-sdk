@@ -329,7 +329,8 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
             'SEP-2243 standard `MCP-Protocol-Version` / `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and ' +
             '`Mcp-Name` ↔ body cross-check — are validated by the HTTP entry on a modern-classified request after the ' +
             'supported-revision gate and before dispatch. The spec requires `MCP-Protocol-Version` and `Mcp-Method` on every ' +
-            'modern *request* POST (`Mcp-Name` only for the methods that mirror `params.name` / `params.uri`) and names them ' +
+            'modern *request* POST (`Mcp-Name` only for the methods that mirror `params.name` / `params.uri` / `params.taskId`, ' +
+            'see `MCP_NAME_HEADER_SOURCE`) and names them ' +
             'in that order, so a request missing several is answered by the earliest. Notification POSTs are exempt: the ' +
             'presence half runs on requests only, so a modern-enveloped notification is dispatched even with no standard ' +
             'headers at all. The classifier’s own header-mismatch cells ' +
@@ -466,16 +467,55 @@ function crossCheckMismatch(
     );
 }
 
+/** The body field the `Mcp-Name` header mirrors for a method on {@linkcode MCP_NAME_HEADER_SOURCE}. */
+export type McpNameSourceField = 'name' | 'uri' | 'taskId';
+
 /**
- * The methods whose body carries a `params.name` / `params.uri` value the
- * `Mcp-Name` header must mirror, and which body field supplies it (SEP-2243
- * § Standard Request Headers, `Required For` column).
+ * The methods whose body carries a `params.name` / `params.uri` /
+ * `params.taskId` value the `Mcp-Name` header must mirror, and which body
+ * field supplies it. The core rows come from SEP-2243 § Standard Request
+ * Headers (`Required For` column); the `tasks/*` rows come from SEP-2663's
+ * Streamable HTTP binding ("the client MUST set the `Mcp-Name` header to the
+ * value of `params.taskId`" for `tasks/get` / `tasks/update` /
+ * `tasks/cancel`, so intermediaries can route every request for a task to the
+ * instance holding its state). Shared by the client transport (header
+ * emission) and the server ladder (validation) so both sides derive from one
+ * table.
  */
-export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = {
+export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, McpNameSourceField>> = {
     'tools/call': 'name',
     'prompts/get': 'name',
-    'resources/read': 'uri'
+    'resources/read': 'uri',
+    'tasks/get': 'taskId',
+    'tasks/update': 'taskId',
+    'tasks/cancel': 'taskId'
 };
+
+/**
+ * Resolve the `Mcp-Name` source for one request against
+ * {@linkcode MCP_NAME_HEADER_SOURCE}: which body field the header mirrors for
+ * `method`, and the string value that field carries in `params`.
+ *
+ * Returns `undefined` when `method` is off-table (no `Mcp-Name` is emitted or
+ * required). Otherwise `value` is the field's string value, or `undefined`
+ * when `params` is not a plain object or the field is absent / not a string —
+ * the client emits no header then, and the server leaves that body to the
+ * rungs further down the ladder.
+ *
+ * `method` is peer-supplied on the server and caller-supplied on the client,
+ * so the table lookup is `Object.hasOwn`-guarded against `Object.prototype`
+ * collisions (`constructor`, `toString`, …). Shared by the client transport
+ * (emission) and {@linkcode validateStandardRequestHeaders} (validation) so
+ * the extraction — not just the table — cannot drift between the two sides.
+ */
+export function mcpNameSource(method: string, params: unknown): { field: McpNameSourceField; value: string | undefined } | undefined {
+    const field = Object.hasOwn(MCP_NAME_HEADER_SOURCE, method) ? MCP_NAME_HEADER_SOURCE[method] : undefined;
+    if (field === undefined) {
+        return undefined;
+    }
+    const raw = isPlainObject(params) ? params[field] : undefined;
+    return { field, value: typeof raw === 'string' ? raw : undefined };
+}
 
 /** Strip RFC 9110 optional whitespace (SP / HTAB) around a field value in linear time. */
 function stripHttpOws(value: string): string {
@@ -513,11 +553,13 @@ function stripHttpOws(value: string): string {
  *   by this cell);
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
- *   `prompts/get`, or `resources/read` request whose body carries the
- *   `params.name` / `params.uri` value the header mirrors;
+ *   `prompts/get`, `resources/read`, or (per SEP-2663's Streamable HTTP
+ *   binding) `tasks/get` / `tasks/update` / `tasks/cancel` request whose
+ *   body carries the `params.name` / `params.uri` / `params.taskId` value
+ *   the header mirrors;
  * - the `Mcp-Name` header carries an invalid `=?base64?…?=` sentinel; or
  * - the (decoded) `Mcp-Name` value disagrees with the body's
- *   `params.name` / `params.uri`.
+ *   `params.name` / `params.uri` / `params.taskId`.
  *
  * Returns `undefined` (pass) for notifications (the spec table reads
  * "All requests"), for methods that have no `Mcp-Name` source, and when the
@@ -566,23 +608,18 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         );
     }
 
-    // `method` is the JSON-RPC method string from the body — peer-controlled,
-    // so guard the plain-object lookup against `Object.prototype` collisions
-    // (`constructor`, `toString`, …) the same way the client-capability table
-    // lookup does.
-    const sourceField = Object.hasOwn(MCP_NAME_HEADER_SOURCE, method) ? MCP_NAME_HEADER_SOURCE[method] : undefined;
-    if (sourceField === undefined) {
+    const source = mcpNameSource(method, route.message.params);
+    if (source === undefined) {
         return undefined;
     }
-    const params = route.message.params as Record<string, unknown> | undefined;
-    const sourceValue = params?.[sourceField];
-    const bodyValue = typeof sourceValue === 'string' ? sourceValue : undefined;
+    const { field: sourceField, value: bodyValue } = source;
 
     if (request.mcpNameHeader === undefined) {
         // The header is required for these methods whenever the body carries
-        // the source value. A body without `params.name`/`params.uri` is a
-        // params-validation failure further down the ladder; this rung only
-        // answers the missing-header case it can observe.
+        // the source value. A body without the source field (`params.name` /
+        // `params.uri` / `params.taskId`) is answered by the rungs further
+        // down the ladder; this rung only answers the missing-header case it
+        // can observe.
         if (bodyValue === undefined) {
             return undefined;
         }
