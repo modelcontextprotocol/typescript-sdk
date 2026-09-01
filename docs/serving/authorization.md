@@ -163,7 +163,7 @@ server.registerTool(
 Scope interpretation belongs to your callback; the SDK does not infer hierarchies, alternatives, or missing scopes. Challenged primitives remain visible in their list operations.
 
 ::: warning
-The callback runs before the primitive's input schema is validated or transformed. Its `request` contains the JSON-parsed wire values, so dynamic authorization should validate or canonicalize any value whose schema changes its meaning before handler invocation. Scope names and `errorDescription` must use printable ASCII so they can be serialized safely in `WWW-Authenticate`.
+The callback runs before the primitive's input schema is validated or transformed. Its `request` contains the JSON-parsed wire values, so dynamic authorization should validate or canonicalize any value whose schema changes its meaning before handler invocation. Scope names must follow the OAuth `scope-token` grammar; `errorDescription`, when provided, must follow RFC 6750's `error-description` grammar.
 :::
 
 ## Recap

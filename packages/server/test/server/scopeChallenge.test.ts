@@ -44,8 +44,9 @@ describe('requireScopes', () => {
 
     it('rejects invalid static scope declarations', () => {
         expect(() => (requireScopes as (...scopes: string[]) => ScopeChallengeHandler)()).toThrow('at least one');
-        expect(() => requireScopes('repo read')).toThrow('without whitespace');
-        expect(() => requireScopes('repo:read🚀')).toThrow('printable ASCII');
+        for (const scope of ['repo read', 'repo"read', String.raw`repo\read`, 'repo:read🚀']) {
+            expect(() => requireScopes(scope)).toThrow('scope-token grammar');
+        }
     });
 });
 
@@ -172,6 +173,9 @@ describe('legacy Streamable HTTP scope preflight', () => {
             }),
             vi.fn<ScopeChallengeHandler>(() => ({ scopes: [] as unknown as [string, ...string[]] })),
             vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read🚀'] })),
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read'], errorDescription: '' })),
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read'], errorDescription: 'Need "repo:read"' })),
+            vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read'], errorDescription: String.raw`Need repo\read` })),
             vi.fn<ScopeChallengeHandler>(() => ({ scopes: ['repo:read'], errorDescription: 'Need 🚀 access' }))
         ]) {
             const harness = await createLegacyHarness(callback);
@@ -211,17 +215,17 @@ describe('legacy Streamable HTTP scope preflight', () => {
         expect(await server.resolveScopeChallenge({ request: toolCall('mutable'), authInfo: auth([]) })).toBeUndefined();
     });
 
-    it('escapes optional challenge auth parameters', async () => {
+    it('serializes an optional challenge description', async () => {
         const harness = await createLegacyHarness(() => ({
             scopes: ['repo:read'],
-            errorDescription: String.raw`Needs "repo:read", path\to\thing`
+            errorDescription: 'Needs repo:read, path/to/thing'
         }));
         const sessionId = await initializeLegacy(harness.transport);
         const response = await harness.transport.handleRequest(legacyRequest(toolCall(), sessionId), {
             authInfo: auth([])
         });
 
-        expect(response.headers.get('WWW-Authenticate')).toContain(String.raw`error_description="Needs \"repo:read\", path\\to\\thing"`);
+        expect(response.headers.get('WWW-Authenticate')).toContain('error_description="Needs repo:read, path/to/thing"');
         await harness.transport.close();
     });
 });
