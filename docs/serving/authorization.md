@@ -34,13 +34,7 @@ const auth = requireBearerAuth({
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
-const node = toNodeHandler(
-    createMcpHandler(buildServer, {
-        scopeChallenge: {
-            resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
-        }
-    })
-);
+const node = toNodeHandler(createMcpHandler(buildServer));
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 ```
 
@@ -125,7 +119,9 @@ The per-request factory itself receives the same value as `ctx.authInfo`, so it 
 
 ## Enforce per-operation scopes
 
-`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool call, resource read, or prompt retrieval, set `scopeChallenge` on its registration and configure `scopeChallenge.resourceMetadataUrl` on `createMcpHandler` (or a directly constructed Streamable HTTP transport). The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
+`requiredScopes` gates the whole endpoint. For scope step-up on an individual tool call, resource read, or prompt retrieval, set `scopeChallenge` on its registration — no handler or transport configuration is needed. The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
+
+The challenge's `WWW-Authenticate` header is built by the same formatter as `requireBearerAuth`'s own `401`/`403` answers, and its `resource_metadata` parameter comes from the verified `AuthInfo`: the gate stamps its configured `resourceMetadataUrl` onto the `AuthInfo` it returns, so the metadata URL is configured exactly once — on `requireBearerAuth`. Without a stamped value the parameter falls back to the well-known location for the token's RFC 8707 `resource` identifier, or is omitted.
 
 Use `requireScopes` for a static exact all-of check. Use a callback when the required scope set depends on the request:
 
@@ -172,5 +168,5 @@ The callback runs before the primitive's input schema is validated or transforme
 - `requireBearerAuth` plus a `verifyAccessToken` you write turn an Express-mounted MCP route into an OAuth resource server; the SDK never issues tokens.
 - Missing, invalid, or expired tokens get `401 invalid_token`; a token missing a `requiredScopes` entry gets `403 insufficient_scope`; both carry a `WWW-Authenticate: Bearer` challenge.
 - `mcpAuthMetadataRouter` publishes the RFC 9728 document that challenge points at, plus a mirror of the AS metadata.
-- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-operation callbacks can trigger HTTP `403` scope step-up before invocation.
+- Verified auth flows `req.auth` → `ctx.http.authInfo`; per-operation callbacks can trigger HTTP `403` scope step-up before invocation, advertising the metadata URL the gate stamped onto `AuthInfo`.
 - The v1 Authorization Server helpers are frozen in `@modelcontextprotocol/server-legacy/auth`.

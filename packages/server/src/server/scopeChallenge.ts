@@ -1,5 +1,8 @@
 import type { AuthInfo, JSONRPCRequest, RequestId } from '@modelcontextprotocol/core-internal';
 
+import { buildWwwAuthenticateHeader } from './middleware/bearerAuth';
+import { getOAuthProtectedResourceMetadataUrl } from './middleware/oauthMetadata';
+
 /** OAuth scopes to request before handling an MCP request. */
 export interface ScopeChallenge {
     /** The exact, complete scope set to include in the challenge. Each scope must satisfy the OAuth `scope-token` grammar. */
@@ -13,12 +16,6 @@ export type ScopeChallengeHandler = (context: {
     request: JSONRPCRequest;
     authInfo?: AuthInfo;
 }) => ScopeChallenge | undefined | Promise<ScopeChallenge | undefined>;
-
-/** Configuration for HTTP `insufficient_scope` challenges. */
-export interface ScopeChallengeConfig {
-    /** URL of the RFC 9728 protected resource metadata. */
-    resourceMetadataUrl: string;
-}
 
 /** @internal */
 export function supportsScopeChallengeResolver(
@@ -90,22 +87,41 @@ export async function findScopeChallenge(
     return undefined;
 }
 
-function quoteAuthParam(value: string): string {
-    return value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`);
+/**
+ * The RFC 9728 Protected Resource Metadata URL to advertise on a scope
+ * challenge, derived from the verified {@link AuthInfo}: the URL the
+ * authentication gate stamped (`authInfo.resourceMetadataUrl`, set by the
+ * bearer-auth helpers from their `resourceMetadataUrl` option), falling back
+ * to the well-known location for the token's RFC 8707 `resource` identifier,
+ * or `undefined` when neither is available (the `resource_metadata` parameter
+ * is then omitted, matching the bearer-auth challenges).
+ *
+ * @internal
+ */
+export function scopeChallengeResourceMetadataUrl(authInfo: AuthInfo | undefined): string | undefined {
+    if (authInfo?.resourceMetadataUrl !== undefined) {
+        return authInfo.resourceMetadataUrl;
+    }
+    if (authInfo?.resource !== undefined) {
+        return getOAuthProtectedResourceMetadataUrl(authInfo.resource);
+    }
+    return undefined;
 }
 
 /** @internal */
 export function createScopeChallengeResponse(
-    config: ScopeChallengeConfig,
     challenge: ScopeChallenge,
-    responseId: RequestId | null
+    responseId: RequestId | null,
+    resourceMetadataUrl: string | undefined
 ): Response {
-    const wwwAuthenticate =
-        'Bearer' +
-        ' error="insufficient_scope"' +
-        `, scope="${quoteAuthParam(challenge.scopes.join(' '))}"` +
-        `, resource_metadata="${quoteAuthParam(config.resourceMetadataUrl)}"` +
-        (challenge.errorDescription === undefined ? '' : `, error_description="${quoteAuthParam(challenge.errorDescription)}"`);
+    // One formatter for every challenge this package emits: identical
+    // parameter order and quoting to the bearer-auth 401/403 answers.
+    const wwwAuthenticate = buildWwwAuthenticateHeader(
+        'insufficient_scope',
+        challenge.errorDescription ?? 'Insufficient scope',
+        challenge.scopes,
+        resourceMetadataUrl
+    );
 
     return Response.json(
         {

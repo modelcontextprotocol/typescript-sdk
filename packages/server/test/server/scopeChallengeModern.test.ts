@@ -6,6 +6,7 @@ import * as z from 'zod/v4';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { createMcpHandler } from '../../src/server/createMcpHandler';
 import { McpServer } from '../../src/server/mcp';
+import { requireBearerAuth } from '../../src/server/middleware/bearerAuth';
 import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
 import { requireScopes } from '../../src/server/scopeChallenge';
 
@@ -38,11 +39,13 @@ function call(name: string, args: Record<string, unknown>, headers?: Record<stri
     return request('tools/call', { name, arguments: args }, headers);
 }
 
-function auth(scopes: string[]): AuthInfo {
-    return { token: 'token', clientId: 'client', scopes };
+function auth(scopes: string[], resourceMetadataUrl?: string): AuthInfo {
+    return { token: 'token', clientId: 'client', scopes, ...(resourceMetadataUrl !== undefined && { resourceMetadataUrl }) };
 }
 
 function createHandler(scopeChallenge: ScopeChallengeHandler, onCall = vi.fn(), responseMode?: 'json' | 'sse') {
+    // No handler-level scope-challenge configuration exists: registering the
+    // callback on the primitive is all it takes to arm the preflight.
     return createMcpHandler(
         () => {
             const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
@@ -59,10 +62,7 @@ function createHandler(scopeChallenge: ScopeChallengeHandler, onCall = vi.fn(), 
             );
             return server;
         },
-        {
-            ...(responseMode !== undefined && { responseMode }),
-            scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL }
-        }
+        { ...(responseMode !== undefined && { responseMode }) }
     );
 }
 
@@ -80,8 +80,12 @@ describe('createMcpHandler scope preflight', () => {
         const response = await handler.fetch(incoming, { authInfo: auth(['repo:read']) });
 
         expect(response.status).toBe(403);
-        expect(response.headers.get('WWW-Authenticate')).toContain('scope="repo:write"');
-        expect(response.headers.get('WWW-Authenticate')).not.toContain('error_description');
+        // The bearer-auth formatter builds the header: error, then the default
+        // description, then the scope set; resource_metadata is omitted when
+        // the auth info carries no metadata URL.
+        expect(response.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="insufficient_scope", error_description="Insufficient scope", scope="repo:write"'
+        );
         expect(callback).toHaveBeenCalledWith({
             request: expect.objectContaining({
                 method: 'tools/call',
@@ -101,16 +105,13 @@ describe('createMcpHandler scope preflight', () => {
             properties: { region: { type: 'string', 'x-mcp-header': 'Region' } as Record<string, unknown> },
             required: ['region']
         });
-        const handler = createMcpHandler(
-            () => {
-                const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
-                server.registerTool('route', { inputSchema: routeSchema, scopeChallenge: callback }, async () => ({
-                    content: [{ type: 'text', text: 'ok' }]
-                }));
-                return server;
-            },
-            { scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL } }
-        );
+        const handler = createMcpHandler(() => {
+            const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
+            server.registerTool('route', { inputSchema: routeSchema, scopeChallenge: callback }, async () => ({
+                content: [{ type: 'text', text: 'ok' }]
+            }));
+            return server;
+        });
 
         const response = await handler.fetch(call('route', { region: 'us-west1' }, { 'Mcp-Param-Region': 'eu' }), {
             authInfo: auth([])
@@ -122,16 +123,13 @@ describe('createMcpHandler scope preflight', () => {
     });
 
     it('keeps challenged tools discoverable and uses exact static all-of checks', async () => {
-        const handler = createMcpHandler(
-            () => {
-                const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
-                server.registerTool('scoped', { scopeChallenge: requireScopes('repo:read', 'org:read') }, async () => ({
-                    content: []
-                }));
-                return server;
-            },
-            { scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL } }
-        );
+        const handler = createMcpHandler(() => {
+            const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
+            server.registerTool('scoped', { scopeChallenge: requireScopes('repo:read', 'org:read') }, async () => ({
+                content: []
+            }));
+            return server;
+        });
 
         const listResponse = await handler.fetch(request('tools/list', {}), { authInfo: auth([]) });
         expect(listResponse.status).toBe(200);
@@ -179,15 +177,12 @@ describe('createMcpHandler scope preflight', () => {
         const onPrompt = vi.fn(async () => ({
             messages: [{ role: 'user' as const, content: { type: 'text' as const, text: 'secret' } }]
         }));
-        const handler = createMcpHandler(
-            () => {
-                const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
-                server.registerResource('config', 'config://settings', { scopeChallenge: requireScopes('config:read') }, onRead);
-                server.registerPrompt('summarize', { scopeChallenge: requireScopes('prompt:read') }, onPrompt);
-                return server;
-            },
-            { scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL } }
-        );
+        const handler = createMcpHandler(() => {
+            const server = new McpServer({ name: 'modern-scope', version: '1.0.0' });
+            server.registerResource('config', 'config://settings', { scopeChallenge: requireScopes('config:read') }, onRead);
+            server.registerPrompt('summarize', { scopeChallenge: requireScopes('prompt:read') }, onPrompt);
+            return server;
+        });
 
         const resourceResponse = await handler.fetch(request('resources/read', { uri: 'config://settings' }), {
             authInfo: auth([])
@@ -202,5 +197,72 @@ describe('createMcpHandler scope preflight', () => {
         expect(promptResponse.headers.get('WWW-Authenticate')).toContain('scope="prompt:read"');
         expect(onRead).not.toHaveBeenCalled();
         expect(onPrompt).not.toHaveBeenCalled();
+    });
+});
+
+describe('scope challenge resource_metadata derivation', () => {
+    it('advertises the metadata URL stamped onto the auth info', async () => {
+        const handler = createHandler(requireScopes('repo:write'));
+
+        const response = await handler.fetch(call('operate', {}), {
+            authInfo: auth(['repo:read'], RESOURCE_METADATA_URL)
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="insufficient_scope", error_description="Insufficient scope", scope="repo:write"' +
+                `, resource_metadata="${RESOURCE_METADATA_URL}"`
+        );
+    });
+
+    it('carries the URL configured on requireBearerAuth through to the challenge header', async () => {
+        // The single configuration site: the bearer-auth gate stamps its
+        // resourceMetadataUrl onto the AuthInfo it returns, and the scope
+        // preflight reads it from there.
+        const gate = requireBearerAuth({
+            verifier: {
+                verifyAccessToken: async token => ({
+                    token,
+                    clientId: 'client',
+                    scopes: ['repo:read'],
+                    expiresAt: Math.floor(Date.now() / 1000) + 3600
+                })
+            },
+            resourceMetadataUrl: RESOURCE_METADATA_URL
+        });
+        const handler = createHandler(requireScopes('repo:write'));
+
+        const incoming = call('operate', {}, { Authorization: 'Bearer token-1' });
+        const gateResult = await gate(incoming);
+        expect(gateResult).not.toBeInstanceOf(Response);
+        const authInfo = gateResult as AuthInfo;
+        expect(authInfo.resourceMetadataUrl).toBe(RESOURCE_METADATA_URL);
+
+        const response = await handler.fetch(incoming, { authInfo });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toContain(`resource_metadata="${RESOURCE_METADATA_URL}"`);
+    });
+
+    it('falls back to the well-known location for the RFC 8707 resource identifier', async () => {
+        const handler = createHandler(requireScopes('repo:write'));
+
+        const response = await handler.fetch(call('operate', {}), {
+            authInfo: { ...auth(['repo:read']), resource: new URL('https://api.example.com/mcp') }
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toContain(
+            'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"'
+        );
+    });
+
+    it('omits resource_metadata entirely when the auth info offers no URL', async () => {
+        const handler = createHandler(requireScopes('repo:write'));
+
+        const response = await handler.fetch(call('operate', {}), { authInfo: auth(['repo:read']) });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).not.toContain('resource_metadata');
     });
 });

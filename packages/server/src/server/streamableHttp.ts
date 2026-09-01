@@ -20,8 +20,8 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
-import type { ScopeChallengeConfig, ScopeChallengeHandler } from './scopeChallenge';
-import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -179,9 +179,6 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
-
-    /** Enables OAuth scope challenges. `McpServer.connect()` supplies the resolver. */
-    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -272,7 +269,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
     private _maxRequestBodySize: number;
-    private _scopeChallenge?: ScopeChallengeConfig;
     private _scopeChallengeResolver?: ScopeChallengeHandler;
 
     sessionId?: string;
@@ -293,7 +289,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
         this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
         this._maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
-        this._scopeChallenge = options.scopeChallenge;
     }
 
     private startKeepAlive(
@@ -366,14 +361,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
-        if (!this._scopeChallenge || !this._scopeChallengeResolver) {
+        // Active whenever a connected McpServer supplied a resolver (it
+        // resolves per-primitive scopeChallenge callbacks); the challenge's
+        // resource_metadata parameter is derived from the verified AuthInfo
+        // and omitted when unavailable.
+        if (!this._scopeChallengeResolver) {
             return undefined;
         }
         const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
         const result = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
         return result === undefined
             ? undefined
-            : createScopeChallengeResponse(this._scopeChallenge, result.challenge, messages.length === 1 ? result.requestId : null);
+            : createScopeChallengeResponse(
+                  result.challenge,
+                  messages.length === 1 ? result.requestId : null,
+                  scopeChallengeResourceMetadataUrl(authInfo)
+              );
     }
 
     /**

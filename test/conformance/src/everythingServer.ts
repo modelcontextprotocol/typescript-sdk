@@ -1408,8 +1408,7 @@ function createMcpServer() {
 const PORT = process.env.PORT || 3000;
 const scopeChallengeResourceMetadataUrl = `http://localhost:${PORT}/.well-known/oauth-protected-resource/mcp`;
 const modernHandlerOptions = {
-    onerror: (error: Error) => console.error('Modern-era MCP handler error:', error),
-    scopeChallenge: { resourceMetadataUrl: scopeChallengeResourceMetadataUrl }
+    onerror: (error: Error) => console.error('Modern-era MCP handler error:', error)
 };
 const modernHandler = createMcpHandler(() => createMcpServer(), modernHandlerOptions);
 const modernNodeHandler = toNodeHandler(modernHandler);
@@ -1431,12 +1430,17 @@ app.use((req, _res, next) => {
         req.auth = {
             token,
             clientId: 'mcp-conformance-scope-challenge',
-            scopes: [SCOPE_CHALLENGE_BASELINE_SCOPE]
+            scopes: [SCOPE_CHALLENGE_BASELINE_SCOPE],
+            // Scope-challenge 403s derive their resource_metadata parameter
+            // from the verified AuthInfo (a real deployment's bearer-auth gate
+            // stamps this from its resourceMetadataUrl option).
+            resourceMetadataUrl: scopeChallengeResourceMetadataUrl
         };
     } else if (token === SCOPE_CHALLENGE_FULL_TOKEN) {
         req.auth = {
             token,
             clientId: 'mcp-conformance-scope-challenge',
+            resourceMetadataUrl: scopeChallengeResourceMetadataUrl,
             scopes: [
                 SCOPE_CHALLENGE_BASELINE_SCOPE,
                 ...new Set([
