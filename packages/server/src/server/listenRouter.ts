@@ -213,6 +213,15 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 );
                 writeNotification(ack.method, ack.params);
 
+                // A stream that honoured no notification types can never
+                // deliver an event. Acknowledge that outcome, then complete
+                // it instead of retaining a socket, bus subscription, and
+                // keep-alive timer indefinitely.
+                if (Object.keys(honored).length === 0) {
+                    teardown(true);
+                    return;
+                }
+
                 // Only after the ack frame is enqueued does delivery activate.
                 unsubscribe = bus.subscribe(event => {
                     if (closed || !listenFilterAccepts(honored, event)) return;
@@ -232,7 +241,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             }
         });
 
-        if (signal !== undefined) {
+        if (!closed && signal !== undefined) {
             if (signal.aborted) {
                 teardown(false);
             } else {

@@ -170,6 +170,32 @@ describe('createMcpHandler — subscriptions/listen', () => {
         await handler.close();
     });
 
+    it('acknowledges and completes an empty honored filter without opening a subscription', async () => {
+        vi.useFakeTimers();
+        try {
+            const subscribe = vi.fn(() => () => {});
+            const bus: ServerEventBus = { publish() {}, subscribe };
+            const handler = createMcpHandler(() => new McpServer({ name: 'no-listen-capabilities', version: '1.0.0' }), {
+                bus,
+                keepAliveMs: 1000
+            });
+
+            const response = await handler.fetch(listenRequest(12, { toolsListChanged: true }));
+            const text = await response.text();
+
+            expect(text).toContain('notifications/subscriptions/acknowledged');
+            expect(text).toContain('"notifications":{}');
+            expect(text).toContain('"resultType":"complete"');
+            expect(text.indexOf('notifications/subscriptions/acknowledged')).toBeLessThan(text.indexOf('"resultType":"complete"'));
+            expect(subscribe).not.toHaveBeenCalled();
+            expect(vi.getTimerCount()).toBe(0);
+
+            await handler.close();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('delivers only opted-in change types, each stamped with the subscription id', async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
         const response = await handler.fetch(listenRequest(7, { toolsListChanged: true, resourceSubscriptions: ['file:///a'] }));
