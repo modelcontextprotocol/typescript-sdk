@@ -222,6 +222,41 @@ export class UriTemplate {
             return patterns;
         }
 
+        // Multi-variable expressions like `{a,b}` or `{/a,b}` expand each value
+        // and join them with commas (see `expandPart`). Mirror that on the way
+        // back by emitting one capture per name with literal commas between
+        // them. Without this, only the first name was assigned and the rest of
+        // the path silently never matched (#2166).
+        if (part.names.length > 1) {
+            let firstPrefix: string;
+            switch (part.operator) {
+                case '/': {
+                    firstPrefix = '/';
+                    break;
+                }
+                case '.': {
+                    firstPrefix = String.raw`\.`;
+                    break;
+                }
+                case '#': {
+                    firstPrefix = '#';
+                    break;
+                }
+                default: {
+                    firstPrefix = '';
+                }
+            }
+            for (let i = 0; i < part.names.length; i++) {
+                const name = part.names[i]!;
+                const prefix = i === 0 ? firstPrefix : ',';
+                patterns.push({
+                    pattern: prefix + '([^/,]+)',
+                    name
+                });
+            }
+            return patterns;
+        }
+
         let pattern: string;
         const name = part.name;
 
