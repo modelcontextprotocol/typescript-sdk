@@ -101,7 +101,7 @@ describe('verifyDpopToken', () => {
         });
     });
 
-    it('rejects the Bearer scheme (RFC 9449 §7.1 — a DPoP-bound token must be presented as DPoP)', async () => {
+    it('rejects the Bearer scheme (RFC 9449 §7.2 — a DPoP-bound token must be presented as DPoP)', async () => {
         const proof = await buildProof(signer, 'POST', url, boundToken);
         await expect(
             verifyDpopToken({ authorization: `Bearer ${boundToken}`, dpop: proof, method: 'POST', url }, options)
@@ -188,6 +188,76 @@ describe('verifyDpopToken', () => {
             await expect(
                 verifyDpopToken({ authorization: `DPoP ${boundToken}`, dpop: proofWithNonce, method: 'POST', url }, nonceOptions)
             ).resolves.toMatchObject({ token: boundToken });
+        });
+    });
+});
+
+describe('verifyDpopToken with a JWT-shaped access token', () => {
+    // The tests above all use short opaque strings as the access token, matching an
+    // introspection-backed OAuthTokenVerifier. This proves the same flow when the access token is
+    // itself a signed JWT (header.payload.signature) whose own payload carries `cnf.jkt` — the
+    // shape a self-contained JWT-access-token verifier decodes instead of looking up.
+    function buildJwtAccessToken(payload: Record<string, unknown>): string {
+        const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString('base64url');
+        const header = encode({ alg: 'RS256', typ: 'JWT' });
+        const body = encode(payload);
+        // Verifying the access token's own signature is the OAuthTokenVerifier's job, not
+        // dpop.ts's, so a placeholder signature segment is enough to keep the token JWT-shaped.
+        return `${header}.${body}.${Buffer.from('sig').toString('base64url')}`;
+    }
+
+    function jwtDecodingVerifier(): OAuthTokenVerifier {
+        return {
+            verifyAccessToken: vi.fn(async (token: string) => {
+                const [, payloadSegment] = token.split('.');
+                if (!payloadSegment) throw new OAuthError(OAuthErrorCode.InvalidToken, 'not a JWT');
+                const claims = JSON.parse(Buffer.from(payloadSegment, 'base64url').toString('utf8')) as Record<string, unknown>;
+                return {
+                    token,
+                    clientId: claims.client_id as string,
+                    scopes: (claims.scope as string).split(' '),
+                    expiresAt: claims.exp as number,
+                    cnf: claims.cnf as { jkt?: string } | undefined
+                };
+            })
+        };
+    }
+
+    it('accepts a DPoP-bound token when the access token is a real JWT, decoded (not looked up) by the verifier', async () => {
+        const signer = await generateSigner();
+        const jwtAccessToken = buildJwtAccessToken({
+            client_id: 'client-1',
+            scope: 'mcp',
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            cnf: { jkt: signer.jkt }
+        });
+        const proof = await buildProof(signer, 'POST', url, jwtAccessToken);
+        const authInfo = await verifyDpopToken(
+            { authorization: `DPoP ${jwtAccessToken}`, dpop: proof, method: 'POST', url },
+            { verifier: jwtDecodingVerifier(), requiredScopes: ['mcp'] }
+        );
+        expect(authInfo.token).toBe(jwtAccessToken);
+        expect(authInfo.cnf?.jkt).toBe(signer.jkt);
+    });
+
+    it('rejects when the JWT access token is bound to a different proof key', async () => {
+        const signer = await generateSigner();
+        const otherSigner = await generateSigner();
+        const jwtAccessToken = buildJwtAccessToken({
+            client_id: 'client-1',
+            scope: 'mcp',
+            exp: Math.floor(Date.now() / 1000) + 3600,
+            cnf: { jkt: otherSigner.jkt }
+        });
+        const proof = await buildProof(signer, 'POST', url, jwtAccessToken);
+        await expect(
+            verifyDpopToken(
+                { authorization: `DPoP ${jwtAccessToken}`, dpop: proof, method: 'POST', url },
+                { verifier: jwtDecodingVerifier() }
+            )
+        ).rejects.toMatchObject({
+            code: OAuthErrorCode.InvalidToken,
+            message: 'Access token is not bound to this proof key (cnf.jkt mismatch)'
         });
     });
 });
