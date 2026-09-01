@@ -36,6 +36,7 @@ import {
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
+import { withDpopFromProvider } from './middleware';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;
@@ -260,6 +261,7 @@ export type StreamableHTTPClientTransportOptions = {
  */
 const RESERVED_REQUEST_HEADER_NAMES: ReadonlySet<string> = new Set([
     'authorization',
+    'dpop',
     'content-type',
     'mcp-protocol-version',
     'mcp-method',
@@ -347,15 +349,22 @@ export class StreamableHTTPClientTransport implements Transport {
         this._scope = undefined;
         this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
+        this._fetch = opts?.fetch;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
             this._authProvider = adaptOAuthProvider(opts.authProvider, {
                 skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
             });
+            // SEP-1932 / RFC 9449: sign resource-server requests with DPoP at the fetch layer, where
+            // the real method/URL/response of every request (POST, GET stream, DELETE) is in hand.
+            // `_fetchWithInit` below (handed to `auth()`) stays unwrapped — token-endpoint DPoP is
+            // executeTokenRequest's job.
+            if (opts.authProvider.dpop) {
+                this._fetch = withDpopFromProvider(opts.authProvider)(opts.fetch ?? fetch);
+            }
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;

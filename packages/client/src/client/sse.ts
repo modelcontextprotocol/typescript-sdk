@@ -24,6 +24,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
+import type { Middleware } from './middleware';
+import { withDpopFromProvider } from './middleware';
 
 export class SseError extends Error {
     static {
@@ -132,6 +134,7 @@ export class SSEClientTransport implements Transport {
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _dpop?: Middleware;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -145,15 +148,22 @@ export class SSEClientTransport implements Transport {
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
+        this._fetch = opts?.fetch;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
             this._authProvider = adaptOAuthProvider(opts.authProvider, {
                 skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
             });
+            // SEP-1932 / RFC 9449: see the matching comment in StreamableHTTPClientTransport. The
+            // EventSource stream's fetch is wrapped at use, since `eventSourceInit.fetch` may
+            // override `_fetch` there.
+            if (opts.authProvider.dpop) {
+                this._dpop = withDpopFromProvider(opts.authProvider);
+                this._fetch = this._dpop(opts.fetch ?? fetch);
+            }
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
@@ -185,7 +195,10 @@ export class SSEClientTransport implements Transport {
     }
 
     private _startOrAuth(): Promise<void> {
-        const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
+        const eventSourceFetch = this._eventSourceInit?.fetch;
+        const fetchImpl = (
+            eventSourceFetch ? (this._dpop?.(eventSourceFetch as FetchLike) ?? eventSourceFetch) : (this._fetch ?? fetch)
+        ) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
