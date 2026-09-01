@@ -64,8 +64,7 @@ import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
-import type { ScopeChallengeConfig } from './scopeChallenge';
-import { createScopeChallengeResponse, findScopeChallenge } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -214,8 +213,6 @@ export interface CreateMcpHandlerOptions {
      * @default 4194304 (4 MiB)
      */
     maxRequestBodySize?: number;
-    /** Enables per-operation OAuth scope challenges. */
-    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -327,8 +324,7 @@ function createLegacyStatelessFallback(
     factory: McpServerFactory,
     onerror?: (error: Error) => void,
     keepAliveMs?: number,
-    maxRequestBodySize?: number,
-    scopeChallenge?: ScopeChallengeConfig
+    maxRequestBodySize?: number
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
@@ -343,8 +339,7 @@ function createLegacyStatelessFallback(
             const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined,
                 ...(keepAliveMs !== undefined && { keepAliveMs }),
-                ...(maxRequestBodySize !== undefined && { maxRequestBodySize }),
-                ...(scopeChallenge !== undefined && { scopeChallenge })
+                ...(maxRequestBodySize !== undefined && { maxRequestBodySize })
             });
             await product.connect(transport);
 
@@ -721,9 +716,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined =
-        legacy === 'reject'
-            ? undefined
-            : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize, options.scopeChallenge);
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -839,13 +832,18 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             }
         }
 
-        // Run scope preflight after Mcp-Param headers have been checked against the body.
-        if (route.messageKind === 'request' && product instanceof McpServer && options.scopeChallenge !== undefined) {
+        // Run scope preflight after Mcp-Param headers have been checked against
+        // the body. Active whenever the factory's instance registers a
+        // per-primitive scopeChallenge callback — no handler-level
+        // configuration exists: the challenge's resource_metadata parameter is
+        // derived from the verified AuthInfo (stamped by the bearer-auth gate,
+        // or the token's RFC 8707 resource identifier) and omitted otherwise.
+        if (route.messageKind === 'request' && product instanceof McpServer) {
             try {
                 const result = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
                 if (result !== undefined) {
                     void product.close().catch(reportError);
-                    return createScopeChallengeResponse(options.scopeChallenge, result.challenge, result.requestId);
+                    return createScopeChallengeResponse(result.challenge, result.requestId, scopeChallengeResourceMetadataUrl(authInfo));
                 }
             } catch (error) {
                 void product.close().catch(reportError);

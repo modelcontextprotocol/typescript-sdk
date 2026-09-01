@@ -35,13 +35,7 @@ const auth = requireBearerAuth({
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
-const node = toNodeHandler(
-    createMcpHandler(buildServer, {
-        scopeChallenge: {
-            resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
-        }
-    })
-);
+const node = toNodeHandler(createMcpHandler(buildServer));
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 //#endregion requireBearerAuth_basic
 

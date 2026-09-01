@@ -20,8 +20,8 @@ function toolCall(name = 'operate', args: Record<string, unknown> = {}, id: stri
     };
 }
 
-function auth(scopes: string[]): AuthInfo {
-    return { token: 'token', clientId: 'client', scopes };
+function auth(scopes: string[], resourceMetadataUrl?: string): AuthInfo {
+    return { token: 'token', clientId: 'client', scopes, ...(resourceMetadataUrl !== undefined && { resourceMetadataUrl }) };
 }
 
 describe('requireScopes', () => {
@@ -73,8 +73,7 @@ async function createLegacyHarness(scopeChallenge: ScopeChallengeHandler): Promi
     server.registerTool('public', { inputSchema: z.object({}) }, async () => ({ content: [{ type: 'text', text: 'public' }] }));
     const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        enableJsonResponse: true,
-        scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL }
+        enableJsonResponse: true
     });
     await server.connect(transport);
     return { server, transport, calls };
@@ -125,7 +124,7 @@ describe('legacy Streamable HTTP scope preflight', () => {
         const sessionId = await initializeLegacy(harness.transport);
         const response = await harness.transport.handleRequest(
             legacyRequest(toolCall('operate', { mode: 'write', nested: { value: 42 } }), sessionId),
-            { authInfo: auth(['repo:read']) }
+            { authInfo: auth(['repo:read'], RESOURCE_METADATA_URL) }
         );
 
         expect(response.status).toBe(403);
@@ -138,7 +137,7 @@ describe('legacy Streamable HTTP scope preflight', () => {
                 method: 'tools/call',
                 params: { name: 'operate', arguments: { mode: 'write', nested: { value: 42 } } }
             }),
-            authInfo: auth(['repo:read'])
+            authInfo: auth(['repo:read'], RESOURCE_METADATA_URL)
         });
         expect(harness.calls).not.toHaveBeenCalled();
         await harness.transport.close();
@@ -226,6 +225,34 @@ describe('legacy Streamable HTTP scope preflight', () => {
         });
 
         expect(response.headers.get('WWW-Authenticate')).toContain('error_description="Needs repo:read, path/to/thing"');
+        await harness.transport.close();
+    });
+
+    it('omits resource_metadata when the auth info carries no metadata URL', async () => {
+        const harness = await createLegacyHarness(requireScopes('repo:write'));
+        const sessionId = await initializeLegacy(harness.transport);
+        const response = await harness.transport.handleRequest(legacyRequest(toolCall(), sessionId), {
+            authInfo: auth(['repo:read'])
+        });
+
+        expect(response.status).toBe(403);
+        const challenge = response.headers.get('WWW-Authenticate');
+        expect(challenge).toContain('scope="repo:write"');
+        expect(challenge).not.toContain('resource_metadata');
+        await harness.transport.close();
+    });
+
+    it('derives resource_metadata from the RFC 8707 resource identifier when no URL was stamped', async () => {
+        const harness = await createLegacyHarness(requireScopes('repo:write'));
+        const sessionId = await initializeLegacy(harness.transport);
+        const response = await harness.transport.handleRequest(legacyRequest(toolCall(), sessionId), {
+            authInfo: { ...auth(['repo:read']), resource: new URL('https://api.example.com/mcp') }
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toContain(
+            'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"'
+        );
         await harness.transport.close();
     });
 });

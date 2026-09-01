@@ -8,8 +8,6 @@ import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
 import { requireScopes } from '../../src/server/scopeChallenge';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
-const RESOURCE_METADATA_URL = 'https://auth.example.com/.well-known/oauth-protected-resource';
-
 function auth(scopes: string[]): AuthInfo {
     return { token: 'token', clientId: 'client', scopes };
 }
@@ -59,8 +57,7 @@ async function createHarness(server: McpServer): Promise<{
 }> {
     const transport = new WebStandardStreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
-        enableJsonResponse: true,
-        scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL }
+        enableJsonResponse: true
     });
     await server.connect(transport);
     return { transport, sessionId: await initialize(transport) };
