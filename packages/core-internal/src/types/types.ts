@@ -758,8 +758,9 @@ export interface AuthInfo {
      * own `cnf.jkt` claim; {@linkcode @modelcontextprotocol/server!server/middleware/dpopAuth.requireDpopAuth | requireDpopAuth} compares it against the presented proof.
      *
      * Also read by {@linkcode @modelcontextprotocol/server!server/middleware/bearerAuth.verifyBearerToken | verifyBearerToken}: a token with `cnf.jkt` set MUST NOT be accepted
-     * under the plain `Bearer` scheme (RFC 9449 §7.1) — a bound token presented without its proof
-     * would defeat the point of binding it.
+     * under the plain `Bearer` scheme (RFC 9449 §7.2, "Compatibility with the Bearer
+     * Authentication Scheme") — a bound token presented without its proof would defeat the point
+     * of binding it.
      */
     cnf?: { jkt?: string };
 
