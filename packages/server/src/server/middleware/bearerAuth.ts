@@ -151,8 +151,9 @@ export async function verifyBearerToken(
         throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
     }
 
-    // RFC 9449 §7.1: a DPoP-bound token (cnf.jkt set) MUST NOT be honored under the plain
-    // Bearer scheme — accepting it here would defeat the point of binding it to a proof key.
+    // RFC 9449 §7.2 ("Compatibility with the Bearer Authentication Scheme"): a DPoP-bound token
+    // (cnf.jkt set) MUST NOT be honored under the plain Bearer scheme — accepting it here would
+    // defeat the point of binding it to a proof key.
     // Only reachable when a verifier shared between bearerAuth and DPoP's requireDpopAuth
     // returns a bound token's AuthInfo to this (Bearer-only) gate.
     if (authInfo.cnf?.jkt) {
