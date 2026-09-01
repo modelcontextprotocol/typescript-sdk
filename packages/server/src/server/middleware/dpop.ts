@@ -314,6 +314,11 @@ export async function verifyDpopProof(options: VerifyDpopProofOptions): Promise<
     if (typeof payload.jti !== 'string' || payload.jti.length === 0) {
         throw invalidProof("DPoP proof is missing the 'jti' claim");
     }
+    // TODO: this only checks `jti` is present, not that it's unused — RFC 9449 §11.1 treats
+    // jti-replay tracking as a SHOULD, defense-in-depth measure, so a captured (proof, token) pair
+    // can be replayed for the rest of the `iatSkewSeconds` window. Left to the caller for now (the
+    // returned `claims.jti` is exactly for that); DpopAuthOptions.nonce has a first-class hook,
+    // jti-replay doesn't yet.
     if (typeof payload.htm !== 'string' || payload.htm.toUpperCase() !== method.toUpperCase()) {
         throw invalidProof("DPoP proof 'htm' does not match the request method");
     }

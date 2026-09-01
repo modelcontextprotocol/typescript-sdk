@@ -43,6 +43,10 @@ export interface DpopAuthOptions extends BearerAuthOptions {
         /** Mint the nonce to include in the next `use_dpop_nonce` challenge. */
         issue(): string;
     } & DpopNonceState;
+
+    // TODO: there's no equivalent hook here for jti-replay tracking (see the TODO on the `jti`
+    // check in dpop.ts) — nonce gets a first-class option, jti-uniqueness doesn't yet. A caller
+    // who wants both has to bypass requireDpopAuth/verifyDpopToken and re-implement this gate.
 }
 
 /** A raw incoming request's fields relevant to DPoP validation, framework-neutral. */
