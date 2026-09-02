@@ -246,13 +246,25 @@ describe('legacy Streamable HTTP scope preflight', () => {
         const harness = await createLegacyHarness(requireScopes('repo:write'));
         const sessionId = await initializeLegacy(harness.transport);
         const response = await harness.transport.handleRequest(legacyRequest(toolCall(), sessionId), {
-            authInfo: { ...auth(['repo:read']), resource: new URL('https://api.example.com/mcp') }
+            authInfo: { ...auth(['repo:read']), resource: new URL('https://api.example.com/mcp?tenant=acme') }
         });
 
         expect(response.status).toBe(403);
         expect(response.headers.get('WWW-Authenticate')).toContain(
-            'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp"'
+            'resource_metadata="https://api.example.com/.well-known/oauth-protected-resource/mcp?tenant=acme"'
         );
+        await harness.transport.close();
+    });
+
+    it('omits resource_metadata when an abstract RFC 8707 resource identifier cannot locate an RFC 9728 document', async () => {
+        const harness = await createLegacyHarness(requireScopes('repo:write'));
+        const sessionId = await initializeLegacy(harness.transport);
+        const response = await harness.transport.handleRequest(legacyRequest(toolCall(), sessionId), {
+            authInfo: { ...auth(['repo:read']), resource: new URL('urn:example:mcp') }
+        });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).not.toContain('resource_metadata');
         await harness.transport.close();
     });
 });

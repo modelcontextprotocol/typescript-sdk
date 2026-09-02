@@ -18,5 +18,5 @@ bearer-auth 401/403 answers, and its `resource_metadata` parameter is derived
 from the verified `AuthInfo`: `requireBearerAuth` / `verifyBearerToken` now
 stamp their configured `resourceMetadataUrl` onto the `AuthInfo` they return
 (new optional `AuthInfo.resourceMetadataUrl` field), with a fallback to the
-well-known location for the token's RFC 8707 `resource` identifier; the
+well-known location for an HTTP(S) RFC 8707 `resource` identifier; the
 parameter is omitted when neither is available.

@@ -92,9 +92,9 @@ export async function findScopeChallenge(
  * challenge, derived from the verified {@link AuthInfo}: the URL the
  * authentication gate stamped (`authInfo.resourceMetadataUrl`, set by the
  * bearer-auth helpers from their `resourceMetadataUrl` option), falling back
- * to the well-known location for the token's RFC 8707 `resource` identifier,
- * or `undefined` when neither is available (the `resource_metadata` parameter
- * is then omitted, matching the bearer-auth challenges).
+ * to the well-known location for an HTTP(S) RFC 8707 `resource` identifier, or
+ * `undefined` when neither is available (the `resource_metadata` parameter is
+ * then omitted, matching the bearer-auth challenges).
  *
  * @internal
  */
@@ -102,7 +102,7 @@ export function scopeChallengeResourceMetadataUrl(authInfo: AuthInfo | undefined
     if (authInfo?.resourceMetadataUrl !== undefined) {
         return authInfo.resourceMetadataUrl;
     }
-    if (authInfo?.resource !== undefined) {
+    if (authInfo?.resource?.protocol === 'https:' || authInfo?.resource?.protocol === 'http:') {
         return getOAuthProtectedResourceMetadataUrl(authInfo.resource);
     }
     return undefined;
