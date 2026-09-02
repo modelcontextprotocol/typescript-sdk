@@ -861,6 +861,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         resolveJson: resolve,
                         cleanup: () => {
                             this._streamMapping.delete(streamId);
+                            // Settle the pending POST as well as dropping the mapping.
+                            // close() runs every mapping's cleanup, so without this a
+                            // JSON-mode request whose handler is still in flight never
+                            // settles and the HTTP request hangs until the client gives
+                            // up. On the success path send() has already resolved by the
+                            // time it calls cleanup(), and resolving a settled promise is
+                            // a no-op, so this only fires when nothing was sent.
+                            resolve(
+                                this.createJsonErrorResponse(
+                                    503,
+                                    -32000,
+                                    'Service Unavailable: transport closed before a response was produced'
+                                )
+                            );
                         }
                     });
 
@@ -1255,6 +1269,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     } else {
                         stream.resolveJson(new Response(JSON.stringify(responses), { status: 200, headers }));
                     }
+                    // Release the stream mapping now that the HTTP response is settled;
+                    // leaving it in place leaks one entry per POST for the session's lifetime.
+                    stream.cleanup();
                 } else {
                     // End the SSE stream
                     stream.cleanup();
