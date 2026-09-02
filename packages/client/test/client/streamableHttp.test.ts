@@ -1246,6 +1246,119 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
         });
 
+        describe('resumption token preserved across an empty resumed stream', () => {
+            // Regression for #2499: a stream opened with `resumptionToken` that
+            // drops again BEFORE any id-bearing event arrives (LB idle timeout,
+            // server restart) must re-send the same Last-Event-ID on reconnect
+            // rather than silently downgrading to a fresh, non-resumed stream.
+            const sseResponse = (body: ReadableStream | null) => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body
+            });
+
+            const makeTransport = () =>
+                new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                    reconnectionOptions: {
+                        initialReconnectionDelay: 10,
+                        maxRetries: 1,
+                        maxReconnectionDelay: 1000,
+                        reconnectionDelayGrowFactor: 1
+                    }
+                });
+
+            const lastEventIdOf = (fetchMock: Mock, call: number): string | null =>
+                (fetchMock.mock.calls[call]![1]?.headers as Headers).get('last-event-id');
+
+            it('re-sends the same Last-Event-ID when the resumed stream closes gracefully before any id-bearing event', async () => {
+                // ARRANGE
+                transport = makeTransport();
+                const fetchMock = globalThis.fetch as Mock;
+                // Resumed GET: accepted, but closes cleanly with no events.
+                fetchMock.mockResolvedValueOnce(
+                    sseResponse(
+                        new ReadableStream({
+                            start(controller) {
+                                controller.close();
+                            }
+                        })
+                    )
+                );
+                // The reconnect GET.
+                fetchMock.mockResolvedValueOnce(sseResponse(new ReadableStream()));
+
+                // ACT
+                await transport.start();
+                await transport['_startOrAuthSse']({ resumptionToken: 'event-1' });
+                await vi.advanceTimersByTimeAsync(20);
+
+                // ASSERT
+                expect(fetchMock).toHaveBeenCalledTimes(2);
+                expect(lastEventIdOf(fetchMock, 0)).toBe('event-1');
+                expect(lastEventIdOf(fetchMock, 1)).toBe('event-1');
+            });
+
+            it('re-sends the same Last-Event-ID when the resumed stream errors before any id-bearing event', async () => {
+                // ARRANGE
+                transport = makeTransport();
+                transport.onerror = vi.fn();
+                const fetchMock = globalThis.fetch as Mock;
+                // Resumed GET: accepted, then the socket dies with no events.
+                fetchMock.mockResolvedValueOnce(
+                    sseResponse(
+                        new ReadableStream({
+                            start(controller) {
+                                controller.error(new Error('Network failure'));
+                            }
+                        })
+                    )
+                );
+                fetchMock.mockResolvedValueOnce(sseResponse(new ReadableStream()));
+
+                // ACT
+                await transport.start();
+                await transport['_startOrAuthSse']({ resumptionToken: 'event-1' });
+                await vi.advanceTimersByTimeAsync(20);
+
+                // ASSERT
+                expect(fetchMock).toHaveBeenCalledTimes(2);
+                expect(lastEventIdOf(fetchMock, 1)).toBe('event-1');
+            });
+
+            it('prefers a newer event id over the seeded token once one arrives', async () => {
+                // ARRANGE
+                transport = makeTransport();
+                const onresumptiontoken = vi.fn();
+                const fetchMock = globalThis.fetch as Mock;
+                const encoder = new TextEncoder();
+                // Resumed GET replays one id-bearing event, then closes.
+                fetchMock.mockResolvedValueOnce(
+                    sseResponse(
+                        new ReadableStream({
+                            start(controller) {
+                                controller.enqueue(encoder.encode('id: event-2\ndata: \n\n'));
+                                controller.close();
+                            }
+                        })
+                    )
+                );
+                fetchMock.mockResolvedValueOnce(sseResponse(new ReadableStream()));
+
+                // ACT
+                await transport.start();
+                await transport['_startOrAuthSse']({ resumptionToken: 'event-1', onresumptiontoken });
+                await vi.advanceTimersByTimeAsync(20);
+
+                // ASSERT
+                expect(fetchMock).toHaveBeenCalledTimes(2);
+                expect(lastEventIdOf(fetchMock, 1)).toBe('event-2');
+                // The seed is not re-announced; only genuinely new ids surface.
+                expect(onresumptiontoken).toHaveBeenCalledTimes(1);
+                expect(onresumptiontoken).toHaveBeenCalledWith('event-2');
+            });
+        });
+
         it('should NOT reconnect a POST-initiated stream that fails', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
