@@ -62,7 +62,6 @@
         "@modelcontextprotocol/server": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
-        "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@types/express": "catalog:devTools",
         "@types/express-serve-static-core": "catalog:devTools",
