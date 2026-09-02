@@ -1281,11 +1281,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * in which case the caller proceeds with a hard close and the stragglers
      * settle via {@linkcode Protocol._onclose | _onclose}. Never rejects.
      *
-     * Used by the opt-in graceful close ({@linkcode Protocol.close |
-     * close({ drainPendingRequests })}): without draining, the transport's
-     * teardown aborts in-flight HTTP requests that had already been answered,
-     * which instrumentation such as OpenTelemetry's undici instrumentation
-     * reports as aborted requests (modelcontextprotocol/typescript-sdk#1231).
+     * Used by the opt-in graceful close (`close({ drainPendingRequests })`):
+     * without draining, the transport's teardown aborts in-flight HTTP
+     * requests that had already been answered, which instrumentation such as
+     * OpenTelemetry's undici instrumentation reports as aborted requests
+     * (modelcontextprotocol/typescript-sdk#1231).
      */
     protected _drainPendingRequests(timeoutMs: number): Promise<boolean> {
         if (this._pendingRequestIds.size === 0) {
