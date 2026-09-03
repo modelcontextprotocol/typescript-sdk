@@ -720,7 +720,7 @@ export class StreamableHTTPClientTransport implements Transport {
             options.onRequestStreamEnd?.();
             return;
         }
-        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
+        const { resumptionToken, onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
         // An intentional abort — transport-wide close OR a per-request abort
         // (McpSubscription.close() aborting its `requestSignal`) — must read as
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
@@ -728,7 +728,12 @@ export class StreamableHTTPClientTransport implements Transport {
         // caller just tore down.
         const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
-        let lastEventId: string | undefined;
+        // Seed from the token this stream was opened with: if the stream drops
+        // again before any id-bearing event arrives (LB idle timeout, server
+        // restart), the reconnect must re-send the same Last-Event-ID rather
+        // than silently downgrade to a fresh, non-resumed stream. Replay from
+        // the same cursor is idempotent, so re-sending it is always safe.
+        let lastEventId: string | undefined = resumptionToken;
         // Track whether we've received a priming event (event with ID)
         // Per spec, server SHOULD send a priming event with ID before closing
         let hasPrimingEvent = false;
