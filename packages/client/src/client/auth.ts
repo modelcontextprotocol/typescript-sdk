@@ -22,7 +22,7 @@ import {
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema,
+    OAuthTokenResponseSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
     stampErrorBrands
@@ -1402,7 +1402,14 @@ async function authInternal(
         // token, so silently dropping the new tokens would leave the client
         // with credentials that are already invalid server-side.
         if (newTokens) {
-            await provider.saveTokens({ ...newTokens, issuer }, infoCtx);
+            // RFC 6749 §5.1/§6: the SDK sends no `scope` parameter on refresh, so a
+            // response without `scope` (including a null-stripped one) asserts the grant
+            // is unchanged — preserve the stored scope instead of erasing the recorded
+            // grant (the 403 insufficient_scope step-up unions it to avoid losing
+            // previously-granted permissions). The conditional spread keeps `scope`
+            // strictly absent when neither side has one — never present-but-undefined.
+            const preservedScope = newTokens.scope ?? tokens.scope;
+            await provider.saveTokens({ ...newTokens, ...(preservedScope !== undefined && { scope: preservedScope }), issuer }, infoCtx);
             return 'AUTHORIZED';
         }
     }
@@ -2221,7 +2228,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(json);
+        return OAuthTokenResponseSchema.parse(json);
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2344,7 +2351,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
 }
 
 /**
