@@ -173,6 +173,48 @@ describe('row: -32601 → legacy (never modern evidence on the probe, including 
     });
 });
 
+describe('row: completed 2xx exchange without a valid JSON-RPC reply (invalid-reply) → legacy', () => {
+    /** The exact wire shape from anomalyco/opencode#39354: HTTP 200 + the JSON-RPC 2.0 parse-error reply (`id: null`, -32700). */
+    const oc39354Body = JSON.parse('{"error":{"code":-32700,"message":"Parse Error"},"id":null,"jsonrpc":"2.0"}') as unknown;
+
+    test('the opencode#39354 shape: 200 + -32700 + id:null → legacy', () => {
+        expect(classify({ kind: 'invalid-reply', body: oc39354Body })).toEqual({ kind: 'legacy' });
+    });
+
+    test('an error reply with extra/unknown members → legacy', () => {
+        const body = {
+            jsonrpc: '2.0',
+            id: 'server-discover-probe-1',
+            error: { code: -32_601, message: 'Method not found' },
+            detail: 'extra member the strict schema rejects'
+        };
+        expect(classify({ kind: 'invalid-reply', body })).toEqual({ kind: 'legacy' });
+    });
+
+    test('an unreadable error member (missing/non-numeric code) is still a legacy signal — the unparseable-4xx rule', () => {
+        expect(classify({ kind: 'invalid-reply', body: { error: { message: 'no code' } } })).toEqual({ kind: 'legacy' });
+        expect(classify({ kind: 'invalid-reply', body: { error: 'oops' } })).toEqual({ kind: 'legacy' });
+    });
+
+    test('a readable -32022 error member keeps the corrective row (classified like an in-band error)', () => {
+        const body = {
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: -32_022, message: 'Unsupported protocol version', data: { supported: [MODERN] } }
+        };
+        expect(classify({ kind: 'invalid-reply', body })).toMatchObject({ kind: 'corrective', version: MODERN });
+    });
+
+    test('a schema-invalid reply WITHOUT an error member (malformed result) is the same completed-exchange legacy signal', () => {
+        expect(classify({ kind: 'invalid-reply', body: { jsonrpc: '2.0', id: null, result: 'garbage' } })).toEqual({ kind: 'legacy' });
+    });
+
+    test('bodiless invalid replies (empty/unparseable JSON, HTML/wrong content type, 202 accepted-without-reply) → legacy', () => {
+        expect(classify({ kind: 'invalid-reply' })).toEqual({ kind: 'legacy' });
+        expect(classify({ kind: 'invalid-reply', body: undefined })).toEqual({ kind: 'legacy' });
+    });
+});
+
 describe('row: 400 + -32000 "Unsupported protocol version" literal (deployed TS-SDK fleet, stateless) → legacy', () => {
     test('the byte-real literal body', () => {
         // Fixture mirrors server/streamableHttp.ts validateProtocolVersion — the

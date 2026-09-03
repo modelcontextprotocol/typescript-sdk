@@ -36,6 +36,7 @@ import {
 import type { IssuerMismatchError } from './authErrors';
 import { InsufficientScopeError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
+import { markInvalidReplyEscape, SERVER_DISCOVER_PROBE_ID_PREFIX } from './invalidReplySeam';
 import { withDpopFromProvider } from './middleware';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
@@ -304,6 +305,23 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
     a.addEventListener('abort', onA, { once: true });
     b.addEventListener('abort', onB, { once: true });
     return controller.signal;
+}
+
+/**
+ * Parse one 2xx JSON response-body value as a JSON-RPC message. A body that is
+ * valid JSON but fails the strict message schema still throws the validation
+ * error — stamped with the offending value at this boundary, so the
+ * version-negotiation probe can classify the invalid reply (deployed servers
+ * answer the unknown `server/discover` probe with off-spec error replies such
+ * as `{"error":{...},"id":null}`) instead of treating it as a network failure.
+ * Identity-preserving: every other caller keeps seeing the raw validation error.
+ */
+function parseJsonResponseMessage(value: unknown): JSONRPCMessage {
+    try {
+        return JSONRPCMessageSchema.parse(value);
+    } catch (error) {
+        throw markInvalidReplyEscape(error, value);
+    }
 }
 
 /**
@@ -1115,6 +1133,31 @@ export class StreamableHTTPClientTransport implements Transport {
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
                 await response.text?.().catch(() => {});
+                // A 202 to the version-negotiation probe REQUEST is a completed
+                // exchange that will never produce a reply (the spec reserves
+                // 202 for notifications and responses): surface it immediately,
+                // stamped for the probe's classifier, instead of letting the
+                // probe wait out its full timeout. Scoped to the connect-time
+                // probe by its reserved string id prefix (the probe never uses
+                // Protocol's numeric ids), so the public post-connect
+                // `Client.discover()` request can never match — a 202 answering
+                // it stays pending until the ordinary request timeout, and
+                // every other flow through this branch is unchanged.
+                if (
+                    !Array.isArray(message) &&
+                    isJSONRPCRequest(message) &&
+                    message.method === 'server/discover' &&
+                    typeof message.id === 'string' &&
+                    message.id.startsWith(SERVER_DISCOVER_PROBE_ID_PREFIX)
+                ) {
+                    throw markInvalidReplyEscape(
+                        new SdkError(
+                            SdkErrorCode.EraNegotiationFailed,
+                            'The server accepted the server/discover probe with HTTP 202 and will not reply'
+                        ),
+                        undefined
+                    );
+                }
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {
@@ -1148,11 +1191,43 @@ export class StreamableHTTPClientTransport implements Transport {
                         false
                     );
                 } else if (responseMediaType === 'application/json') {
-                    // For non-streaming servers, we might get direct JSON responses
-                    const data = await response.json();
+                    // For non-streaming servers, we might get direct JSON responses.
+                    //
+                    // Read the body as text first: a `text()` rejection is a
+                    // network failure mid-body-read (undici rejects with
+                    // `TypeError('terminated')` when the connection resets
+                    // after the 2xx headers arrived) — the exchange did NOT
+                    // complete, so it propagates unstamped and stays a typed
+                    // network error. Only the fully received text proves a
+                    // completed exchange; a body that then fails `JSON.parse`
+                    // (empty, or not JSON at all) is a completed exchange with
+                    // no reply in it — that failure alone is stamped, carrying
+                    // the raw body text, for the probe's classifier (which
+                    // ignores non-object bodies — the verdict stays legacy)
+                    // and for the diagnostics the no-fallback modes surface on
+                    // `error.data.body`.
+                    //
+                    // A custom `fetch` (`StreamableHTTPClientTransportOptions.fetch`)
+                    // may return a response-like that implements only `json()`
+                    // — the same tolerance this file extends elsewhere via
+                    // `response.text?.()`. In that case fall back to `json()`:
+                    // its rejection can't distinguish a parse failure from a
+                    // mid-body transport failure, so it propagates unstamped
+                    // (the base behavior).
+                    let data: unknown;
+                    if (typeof response.text === 'function') {
+                        const bodyText = await response.text();
+                        try {
+                            data = JSON.parse(bodyText);
+                        } catch (error) {
+                            throw markInvalidReplyEscape(error, bodyText);
+                        }
+                    } else {
+                        data = await response.json();
+                    }
                     const responseMessages = Array.isArray(data)
-                        ? data.map(msg => JSONRPCMessageSchema.parse(msg))
-                        : [JSONRPCMessageSchema.parse(data)];
+                        ? data.map(msg => parseJsonResponseMessage(msg))
+                        : [parseJsonResponseMessage(data)];
 
                     for (const msg of responseMessages) {
                         this.onmessage?.(msg);
