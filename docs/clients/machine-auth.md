@@ -40,7 +40,7 @@ const authProvider: AuthProvider = { token: async () => getStoredToken() };
 const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
 ```
 
-The transport calls `token()` before every request and sets the `Authorization` header from whatever it returns. Without `onUnauthorized`, a 401 throws `UnauthorizedError`. Add `onUnauthorized(ctx)` to refresh the credential and the transport retries the request once.
+The transport calls `token()` before every request and sets the `Authorization` header from whatever it returns. Without `onUnauthorized`, a 401 throws `UnauthorizedError`. Add `onUnauthorized(ctx)` to refresh the credential and the transport retries the request once. `ctx.signal` (when present) aborts once the caller or transport gives up on the request — forward it to your own fetches so the recovery work stops with it.
 
 ## Sign with a private key instead of a secret
 
