@@ -2497,7 +2497,7 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             // Verify no reconnection was scheduled
-            expect(transport['_cancelReconnection']).toBeUndefined();
+            expect(transport['_pendingReconnections'].size).toBe(0);
         });
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
@@ -2519,10 +2519,471 @@ describe('StreamableHTTPClientTransport', () => {
 
             // ASSERT - should schedule a reconnection, not report error yet
             expect(errorSpy).not.toHaveBeenCalled();
-            expect(transport['_cancelReconnection']).toBeDefined();
+            expect(transport['_pendingReconnections'].size).toBe(1);
 
             // Clean up the pending reconnection to avoid test pollution
-            transport['_cancelReconnection']?.();
+            for (const cancel of transport['_pendingReconnections']) {
+                cancel();
+            }
+            transport['_pendingReconnections'].clear();
+        });
+    });
+
+    describe('Reconnection attempt accounting (#2682)', () => {
+        let transport: StreamableHTTPClientTransport;
+
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        /** An SSE response whose stream delivers the given chunks and then closes gracefully. */
+        const sseResponse = (chunks: string[]) => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' }),
+            body: new ReadableStream({
+                start(controller) {
+                    const encoder = new TextEncoder();
+                    for (const chunk of chunks) {
+                        controller.enqueue(encoder.encode(chunk));
+                    }
+                    controller.close();
+                }
+            })
+        });
+
+        const notificationEvent = 'data: {"jsonrpc":"2.0","method":"notifications/message","params":{}}\n\n';
+
+        it('bounds repeated graceful idle-closes of the standby stream by maxRetries', async () => {
+            // Regression test for #2682: a server that gracefully idle-closes
+            // the standby GET/SSE stream on every (re)connect must not keep the
+            // transport reconnecting forever — the attempt count has to persist
+            // across successful-connect-then-idle-close cycles.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Every GET opens fine and closes gracefully without delivering anything.
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(500);
+
+            // Original stream + exactly maxRetries reconnection attempts.
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (2) exceeded.'
+                })
+            );
+
+            // And it stays stopped — no further reconnects are scheduled.
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(fetchMock).toHaveBeenCalledTimes(3);
+        });
+
+        it('does not count streams that delivered messages against maxRetries', async () => {
+            // A stream that delivers a message is genuinely working; when it
+            // later closes gracefully, reconnection accounting starts fresh.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => sseResponse([notificationEvent]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(200);
+
+            // Far more streams than maxRetries + 1 — every one delivered a
+            // message, so the reconnect loop keeps going by design.
+            expect(fetchMock.mock.calls.length).toBeGreaterThan(5);
+            expect(messageSpy).toHaveBeenCalled();
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('resets the attempt count after a productive stream, then bounds fruitless reconnects again', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const fetchMock = globalThis.fetch as Mock;
+            // GET 1: closes empty. GET 2: delivers a message (resets the
+            // count). GETs 3+: close empty until the limit trips again.
+            const bodies: string[][] = [[], [notificationEvent]];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(500);
+
+            // GET 1 (empty, attempt 0 scheduled) → GET 2 (productive, count
+            // resets) → GETs 3-4 (empty, attempts 0-1 of the fresh count) →
+            // limit trips. Without the reset this would stop after 3 fetches.
+            expect(fetchMock).toHaveBeenCalledTimes(4);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (2) exceeded.'
+                })
+            );
+
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(fetchMock).toHaveBeenCalledTimes(4);
+        });
+
+        it('treats a long-lived idle stream as progress, so periodic idle-closes reconnect indefinitely', async () => {
+            // A healthy-but-quiet session behind e.g. a load balancer with an
+            // idle timeout: the standby stream delivers nothing but stays open
+            // well past maxReconnectionDelay before each close. That must NOT
+            // count against maxRetries — the notification channel stays alive.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 2
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const controllers: ReadableStreamDefaultController<Uint8Array>[] = [];
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => ({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream<Uint8Array>({
+                    start(controller) {
+                        controllers.push(controller);
+                    }
+                })
+            }));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+
+            // Five cycles: each stream lives longer than maxReconnectionDelay
+            // (fake timers also drive performance.now), then idle-closes empty.
+            for (let cycle = 0; cycle < 5; cycle++) {
+                await vi.advanceTimersByTimeAsync(1500);
+                controllers[cycle]!.close();
+                await vi.advanceTimersByTimeAsync(50);
+            }
+
+            // Well past 1 + maxRetries fetches, and no exhaustion error.
+            expect(fetchMock.mock.calls.length).toBeGreaterThan(3);
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('carries the resumption token through reconnected streams that ended before any event', async () => {
+            // Stream 1 delivers a priming event (id only), so the first
+            // reconnect resumes from it. Stream 2 ends empty — the next
+            // attempt must still send the same Last-Event-ID instead of
+            // dropping it and starting a fresh stream.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 3
+                }
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            const bodies: string[][] = [['id: event-1\ndata: \n\n']];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(100);
+
+            expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers as Headers;
+            const thirdCallHeaders = fetchMock.mock.calls[2]![1]?.headers as Headers;
+            expect(secondCallHeaders.get('last-event-id')).toBe('event-1');
+            // Before the fix this was null: the empty second stream dropped the token.
+            expect(thirdCallHeaders.get('last-event-id')).toBe('event-1');
+        });
+
+        it('threads the stream callbacks through a resumed send(), settling the caller on exhaustion', async () => {
+            // A send() with a resumptionToken resumes via GET. New event IDs on
+            // the resumed stream must reach the caller's onresumptiontoken, and
+            // when reconnection attempts are exhausted the caller's
+            // onRequestStreamEnd must fire so the pending request settles
+            // instead of hanging until its timeout.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const tokenSpy = vi.fn();
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Resumed stream delivers a fresh priming event then idle-closes;
+            // every stream after that closes empty until exhaustion.
+            const bodies: string[][] = [['id: event-next\ndata: \n\n']];
+            fetchMock.mockImplementation(async () => sseResponse(bodies.shift() ?? []));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onresumptiontoken: tokenSpy,
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(200);
+
+            // The resume goes out as a GET with the caller's token.
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('GET');
+            expect((fetchMock.mock.calls[0]![1]?.headers as Headers).get('last-event-id')).toBe('event-0');
+            // The fresh priming event reached the caller's persistence hook.
+            expect(tokenSpy).toHaveBeenCalledWith('event-next');
+            // Exhaustion settled the caller instead of leaving it hanging.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (1) exceeded.'
+                })
+            );
+        });
+
+        it('does not double-fire exhaustion callbacks when a user onerror handler throws on graceful close', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 0 // exhaustion trips on the first graceful close
+                }
+            });
+            const errorSpy = vi.fn().mockImplementationOnce(() => {
+                throw new Error('user handler exploded');
+            });
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ onRequestStreamEnd: streamEndSpy });
+            await vi.advanceTimersByTimeAsync(100);
+
+            // The throwing handler is contained by the graceful branch's guard:
+            // the caller still settles exactly once, no reconnect is scheduled,
+            // and no misleading 'SSE stream disconnected' error is emitted.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            const messages = errorSpy.mock.calls.map(args => (args[0] as Error).message);
+            expect(messages.some(m => m.includes('SSE stream disconnected'))).toBe(false);
+        });
+
+        it('settles a resumed send() when the initial resume GET fails outright', async () => {
+            // If the resume GET itself rejects (network failure, session
+            // expired, auth failure) no stream ever exists, so none of the
+            // downstream settlement paths can run — the caller's
+            // onRequestStreamEnd must still fire or the pending request hangs
+            // until its timeout.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn();
+
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockRejectedValue(new Error('connection refused'));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(100);
+
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalled();
+        });
+
+        it('settles at most once when the user onRequestStreamEnd throws at a terminal 405 resume', async () => {
+            // The 405 settle site runs inside _startOrAuthSse's try: a
+            // throwing user callback propagates to its catch, which reports
+            // via onerror and rejects the resume promise — whose own catch
+            // then reaches its settlement call. The at-most-once wrapper
+            // applied in send() keeps the exactly-once contract.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const streamEndSpy = vi.fn().mockImplementation(() => {
+                throw new Error('user callback exploded');
+            });
+
+            const fetchMock = globalThis.fetch as Mock;
+            // The resume GET gets a 405: terminal non-resumable outcome.
+            fetchMock.mockResolvedValue({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed',
+                headers: new Headers(),
+                text: async () => ''
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport.send(requestMessage, {
+                resumptionToken: 'event-0',
+                onRequestStreamEnd: streamEndSpy
+            });
+            await vi.advanceTimersByTimeAsync(50);
+
+            // Exactly one settlement attempt reached the user callback.
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+        });
+
+        it('does not settle from the scheduler-throw catch when the scheduler dispatched before throwing', async () => {
+            // A pathological scheduler that synchronously invokes reconnect()
+            // and THEN throws leaves an attempt in flight. The scheduler-throw
+            // catch must not settle the caller then — reconnect()'s first
+            // action deletes the registry entry, so the catch settles only
+            // when its own delete succeeds (i.e. nothing was dispatched).
+            // Settlement instead arrives later from the in-flight chain when
+            // it exhausts.
+            const order: string[] = [];
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                },
+                reconnectionScheduler: reconnect => {
+                    reconnect();
+                    throw new Error('scheduler exploded after dispatch');
+                }
+            });
+            transport.onerror = e => order.push(`error:${(e as Error).message}`);
+            const streamEndSpy = vi.fn().mockImplementation(() => order.push('settled'));
+
+            const fetchMock = globalThis.fetch as Mock;
+            // Every GET opens fine and closes empty: the original stream
+            // schedules attempt 0 (sync-dispatched by the scheduler, which
+            // then throws); the dispatched stream closes empty and trips
+            // exhaustion at attempt 1 — the chain's own settlement.
+            fetchMock.mockImplementation(async () => sseResponse([]));
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ onRequestStreamEnd: streamEndSpy });
+            await vi.advanceTimersByTimeAsync(100);
+
+            // The dispatched attempt ran (two GETs), and the caller settled
+            // exactly once — from exhaustion, strictly AFTER the max-retries
+            // report, not from the scheduler-throw catch.
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(streamEndSpy).toHaveBeenCalledTimes(1);
+            const exhaustedAt = order.indexOf('error:Maximum reconnection attempts (1) exceeded.');
+            expect(exhaustedAt).toBeGreaterThanOrEqual(0);
+            expect(order.indexOf('settled')).toBeGreaterThan(exhaustedAt);
+        });
+
+        it('close() cancels every pending reconnection timer, not just the latest', async () => {
+            // Two concurrent reconnect chains (standby GET + a resumed
+            // per-request stream) each park a timer; close() must cancel both.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5000,
+                    maxReconnectionDelay: 30000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 3
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            // Every stream closes empty immediately, so each chain schedules
+            // a reconnection 5s out.
+            fetchMock.mockImplementation(async () => sseResponse(['id: keep-1\ndata: \n\n']));
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'long_running_tool',
+                id: 'request-1',
+                params: {}
+            };
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await transport.send(requestMessage, { resumptionToken: 'event-0' });
+            await vi.advanceTimersByTimeAsync(10);
+
+            expect(transport['_pendingReconnections'].size).toBe(2);
+            expect(vi.getTimerCount()).toBe(2);
+
+            await transport.close();
+
+            // Both parked timers were cancelled, not just the latest.
+            expect(transport['_pendingReconnections'].size).toBe(0);
+            expect(vi.getTimerCount()).toBe(0);
         });
     });
 
@@ -2717,7 +3178,10 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onerror).not.toHaveBeenCalled();
         });
 
-        it('still aborts and fires onclose if the cancel function throws', async () => {
+        it('contains a throwing cancel function: close() completes, aborts, and fires onclose', async () => {
+            // A user-supplied cancel that throws must not escape the shutdown
+            // path or skip the remaining pending cancels — it is surfaced via
+            // onerror instead.
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: () => () => {
@@ -2726,12 +3190,15 @@ describe('StreamableHTTPClientTransport', () => {
             });
             const onclose = vi.fn();
             transport.onclose = onclose;
+            const onerror = vi.fn();
+            transport.onerror = onerror;
 
             await transport.start();
             triggerReconnection(transport);
             const abortController = transport['_abortController'];
 
-            await expect(transport.close()).rejects.toThrow('cancel failed');
+            await expect(transport.close()).resolves.toBeUndefined();
+            expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'cancel failed' }));
             expect(abortController?.signal.aborted).toBe(true);
             expect(onclose).toHaveBeenCalledTimes(1);
         });

@@ -1527,11 +1527,18 @@ rewrite required unless noted.
   no `notifications/cancelled` goes on the wire — the spec forbids cancelling
   `initialize`, and v1 sent one anyway. v1 tests asserting that notification need
   re-baselining.
-- **Also unchanged: SSE reconnection exhaustion.** `StreamableHTTPClientTransport`'s
-  standalone GET-stream reconnection behavior and its exhaustion signal carry over from
-  v1: when retries run out, the transport emits `onerror` with a plain `Error` whose
-  message is `Maximum reconnection attempts (N) exceeded.` — there is no typed error
-  class for this condition, so monitors that match the message text keep working.
+- **Changed: SSE reconnection exhaustion accounting.** The exhaustion _signal_ carries
+  over from v1: when retries run out, `StreamableHTTPClientTransport` emits `onerror`
+  with a plain `Error` whose message is `Maximum reconnection attempts (N) exceeded.` —
+  there is no typed error class for this condition, so monitors that match the message
+  text keep working. The _accounting_ changed: v1 reset the retry counter every time a
+  stream closed, so a server that gracefully idle-closed the standby GET stream
+  immediately after each reconnect kept the client reconnecting forever and
+  `maxRetries` never fired. v2 counts consecutive reconnects that make no progress —
+  no message delivered and the connection lasted less than `maxReconnectionDelay` — so
+  such loops now stop with the error above after `maxRetries` attempts. Streams that
+  deliver a message or stay open at least `maxReconnectionDelay` reset the counter and
+  reconnect indefinitely, exactly as in v1.
 - **Also unchanged: elicitation response validation.** `elicitInput`'s local validation
   of elicitation responses against `requestedSchema`, the resulting `-32602` error
   message wording (`Elicitation response content does not match requested schema: …`),
