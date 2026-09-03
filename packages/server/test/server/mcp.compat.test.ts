@@ -135,15 +135,57 @@ describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () 
             content: [],
             structuredContent: [n, n + 1] satisfies number[]
         }));
-        // NOTE (SEP-2106 PR-B verification item): the OutputArgs generic on registerTool is
-        // captured but does NOT currently flow into the callback's return type — ToolCallback's
-        // SendResultT is `CallToolResult | InputRequiredResult` (structuredContent: unknown), so
-        // a wrong-typed structuredContent ALSO compiles. Runtime validation (validateToolOutput)
-        // is the guard. Tightening the generic is out of this commit's scope.
-        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, async () => ({
+        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, () => ({
             content: [],
-            structuredContent: 'not-an-array' // compiles: structuredContent is `unknown`
+            // @ts-expect-error structuredContent must match outputSchema when present
+            structuredContent: 'not-an-array'
         }));
         expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
+    });
+});
+
+describe('registerTool outputSchema typing', () => {
+    it('checks object structuredContent', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+        const outputSchema = z.object({ id: z.string() });
+
+        server.registerTool('object-ok', { inputSchema: z.object({}), outputSchema }, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }],
+            structuredContent: { id: 'abc' }
+        }));
+
+        server.registerTool('object-bad', { inputSchema: z.object({}), outputSchema }, () => ({
+            content: [{ type: 'text' as const, text: 'bad' }],
+            structuredContent: {
+                // @ts-expect-error structuredContent must match outputSchema when present
+                id: 123
+            }
+        }));
+    });
+
+    it('checks raw-shape structuredContent', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+
+        server.registerTool(
+            'raw-ok',
+            { inputSchema: { count: z.number() }, outputSchema: { id: z.string(), total: z.number().optional() } },
+            async ({ count }) => ({
+                content: [],
+                structuredContent: { id: String(count), total: count }
+            })
+        );
+
+        server.registerTool(
+            'raw-bad',
+            { inputSchema: { count: z.number() }, outputSchema: { id: z.string(), total: z.number().optional() } },
+            () => ({
+                content: [],
+                structuredContent: {
+                    id: 'abc',
+                    // @ts-expect-error structuredContent must match raw-shape outputSchema when present
+                    total: 'nope'
+                }
+            })
+        );
     });
 });
