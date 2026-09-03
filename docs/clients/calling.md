@@ -169,6 +169,25 @@ The updates stream in while the call is still pending; the return type does not 
 [ { type: 'text', text: '2 orders exported as csv' } ]
 ```
 
+## Check the connection
+
+`ping` sends a `ping` request and resolves with the empty result the server returns; the SDK answers a `ping` on both sides automatically, so neither side registers a handler.
+
+```ts source="../../examples/guides/clients/calling.examples.ts#ping_basic"
+const pong = await client.ping({ timeout: 5000 });
+console.log(pong);
+```
+
+The `orders` server answers at once:
+
+```
+{}
+```
+
+A server that stops answering rejects the call with an `SdkError` coded `REQUEST_TIMEOUT` once `timeout` elapses.
+
+`ping` is a 2025-era method — see [Protocol versions](../protocol-versions.md).
+
 ## Recap
 
 - `listTools`, `listResources`, `listResourceTemplates`, and `listPrompts` aggregate every page; `{ cursor }` fetches a single raw page and `listMaxPages` caps the walk.
@@ -176,3 +195,4 @@ The updates stream in while the call is still pending; the return type does not 
 - `readResource({ uri })` and `getPrompt({ name, arguments })` follow the same list-then-fetch shape as tools.
 - `complete()` returns the server's suggestions for a prompt or resource-template argument.
 - `onprogress` in the request options streams progress updates without changing the call's return type.
+- `ping()` checks that the server still answers; both sides answer pings automatically.

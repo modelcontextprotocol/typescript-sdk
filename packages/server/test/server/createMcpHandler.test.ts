@@ -48,8 +48,9 @@ function modernToolsCall(name: string, args: Record<string, unknown>, envelope: 
 function bodyDerivedStandardHeaders(body: unknown): Record<string, string> {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) return {};
     const b = body as { method?: unknown; params?: { name?: unknown; uri?: unknown; _meta?: Record<string, unknown> } };
-    if (typeof b.params?._meta?.[PROTOCOL_VERSION_META_KEY] !== 'string') return {};
-    const out: Record<string, string> = {};
+    const claimedVersion = b.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+    if (b.params === undefined || typeof claimedVersion !== 'string') return {};
+    const out: Record<string, string> = { 'mcp-protocol-version': claimedVersion };
     if (typeof b.method === 'string') out['mcp-method'] = b.method;
     const name = b.method === 'resources/read' ? b.params.uri : b.params.name;
     if (typeof name === 'string') out['mcp-name'] = name;
@@ -535,6 +536,44 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_700);
+    });
+
+    it('answers 413 for a request body over the size limit before creating a server', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const streamed = postRequest('x'.repeat(4 * 1024 * 1024 + 1));
+        const declared = postRequest('{}', { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        for (const request of [streamed, declared]) {
+            const response = await handler.fetch(request);
+            expect(response.status).toBe(413);
+            expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_000);
+        }
+        expect(state.contexts).toHaveLength(0);
+    });
+
+    it('maxRequestBodySize moves the bound for the entry, its stateless legacy leg, and isLegacyRequest', async () => {
+        const { factory, state } = testFactory();
+        const paddedPing = { jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(5 * 1024 * 1024) } };
+
+        const roomy = createMcpHandler(factory, { maxRequestBodySize: 8 * 1024 * 1024 });
+        const served = await roomy.fetch(postRequest(paddedPing));
+        expect(served.status).toBe(200);
+        expect(await served.text()).toContain('"result":{}');
+        expect(state.contexts).toHaveLength(1);
+
+        const strict = createMcpHandler(factory, { maxRequestBodySize: 1024 });
+        const refused = await strict.fetch(postRequest('x'.repeat(1025)));
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as JSONRPCErrorBody).error.message).toMatch(/must not exceed 1024 bytes/);
+        expect(state.contexts).toHaveLength(1);
+
+        expect(await isLegacyRequest(postRequest(paddedPing))).toBe(false);
+        expect(await isLegacyRequest(postRequest(paddedPing), undefined, { maxRequestBodySize: 8 * 1024 * 1024 })).toBe(true);
+
+        for (const invalid of [0, -1, Number.NaN]) {
+            expect(() => createMcpHandler(factory, { maxRequestBodySize: invalid })).toThrow(RangeError);
+        }
     });
 
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {

@@ -270,6 +270,25 @@ describe('row: network outage → typed connect error (Node)', () => {
         const verdict = classify({ kind: 'network-error', error: new TypeError('fetch failed') }, { environment: 'node' });
         expect(verdict.kind).toBe('error');
     });
+
+    test('the underlying network error is reachable via Error.cause (#2657)', () => {
+        // Node's fetch wraps the socket/DNS failure: `TypeError: fetch failed` with
+        // the error that actually names the failure (ENOTFOUND / ECONNREFUSED /
+        // ETIMEDOUT) on its own `cause`.
+        const dnsError = Object.assign(new Error('getaddrinfo ENOTFOUND unreachable.invalid'), { code: 'ENOTFOUND' });
+        const fetchError = new TypeError('fetch failed', { cause: dnsError });
+        const verdict = classify({ kind: 'network-error', error: fetchError });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            // Walking `.cause` (what loggers and error reporters do) must reach the
+            // error that names the failure instead of dead-ending on the SdkError.
+            expect(verdict.error.cause).toBe(fetchError);
+            expect((verdict.error.cause as Error).cause).toBe(dnsError);
+            // The legacy data.cause slot stays populated too (kept for compatibility,
+            // slated for removal).
+            expect(((verdict.error as SdkError).data as { cause?: unknown }).cause).toBe(fetchError);
+        }
+    });
 });
 
 describe('row: timeout — transport-aware verdict', () => {
