@@ -43,14 +43,14 @@ async function allRecordedBytes(wired: Wired): Promise<string> {
     return [...requests, ...responses].join('\n');
 }
 
-const CONFIRM_SCHEMA = { type: 'object' as const, properties: { confirm: { type: 'boolean' as const } }, required: ['confirm'] };
+const CONFIRM_SCHEMA = z.object({ confirm: z.boolean() });
 
 verifies('typescript:mrtr:tools-call:write-once-roundtrip', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const server = new McpServer({ name: 'mrtr-server', version: '1.0.0' }, { capabilities: { tools: {} } });
         server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
-            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
-            if (!confirmed?.confirm) {
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', CONFIRM_SCHEMA);
+            if (confirmed?.confirm !== true) {
                 return inputRequired({
                     inputRequests: { confirm: inputRequired.elicit({ message: `Deploy to ${env}?`, requestedSchema: CONFIRM_SCHEMA }) },
                     requestState: 'opaque-deploy-state'
@@ -487,8 +487,8 @@ verifies('typescript:mrtr:legacy-shim:write-once-on-2025', async ({ transport }:
         // legacy shim converts the embedded request into a real
         // elicitation/create over the session and re-enters the handler.
         server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
-            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
-            if (!confirmed?.confirm) {
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', CONFIRM_SCHEMA);
+            if (confirmed?.confirm !== true) {
                 return inputRequired({
                     inputRequests: { confirm: inputRequired.elicit({ message: `Deploy to ${env}?`, requestedSchema: CONFIRM_SCHEMA }) },
                     requestState: 'shim-opaque-state'
