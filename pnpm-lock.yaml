@@ -2070,6 +2070,10 @@ importers:
         version: 4.3.6
 
   test/helpers:
+    dependencies:
+      vitest:
+        specifier: catalog:devTools
+        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
     devDependencies:
       '@modelcontextprotocol/core-internal':
         specifier: workspace:^
@@ -2083,9 +2087,6 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
-      vitest:
-        specifier: catalog:devTools
-        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.6

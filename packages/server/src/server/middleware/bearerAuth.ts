@@ -1,6 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 
+import { buildWwwAuthenticateHeader as buildChallengeHeader } from './authChallenge';
+
 /**
  * Minimal token-verifier interface for MCP servers acting as an OAuth 2.0
  * Resource Server. Implementations introspect or locally validate an access
@@ -54,28 +56,13 @@ export interface BearerAuthOptions {
     resourceMetadataUrl?: string;
 }
 
-function headerQuotedValue(value: string): string {
-    // HTTP quoted-string per RFC 7235: escape backslash and double quote, and
-    // replace characters a header cannot carry (controls, anything beyond
-    // printable ASCII) so a verifier-authored message can never make the
-    // challenge Response constructor throw.
-    return value.replaceAll(/[\\"]/g, String.raw`\$&`).replaceAll(/[^\u0020-\u007E]/g, ' ');
-}
-
 function buildWwwAuthenticateHeader(
     errorCode: string,
     description: string,
     requiredScopes: string[],
     resourceMetadataUrl: string | undefined
 ): string {
-    let header = `Bearer error="${headerQuotedValue(errorCode)}", error_description="${headerQuotedValue(description)}"`;
-    if (requiredScopes.length > 0) {
-        header += `, scope="${requiredScopes.join(' ')}"`;
-    }
-    if (resourceMetadataUrl) {
-        header += `, resource_metadata="${resourceMetadataUrl}"`;
-    }
-    return header;
+    return buildChallengeHeader('Bearer', errorCode, description, requiredScopes, resourceMetadataUrl);
 }
 
 /**
@@ -104,6 +91,15 @@ export async function verifyBearerToken(authorizationHeader: string | null | und
     }
 
     const authInfo = await verifier.verifyAccessToken(token);
+
+    // RFC 9449 §7.2 ("Compatibility with the Bearer Authentication Scheme"): a DPoP-bound token
+    // (cnf.jkt set) MUST NOT be honored under the plain Bearer scheme — accepting it here would
+    // defeat the point of binding it to a proof key.
+    // Only reachable when a verifier shared between bearerAuth and DPoP's requireDpopAuth
+    // returns a bound token's AuthInfo to this (Bearer-only) gate.
+    if (authInfo.cnf?.jkt) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token is DPoP-bound and must be presented with the DPoP scheme, not Bearer');
+    }
 
     // Check if token has the required scopes (if any)
     if (requiredScopes.length > 0) {

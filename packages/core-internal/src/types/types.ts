@@ -752,6 +752,19 @@ export interface AuthInfo {
     resource?: URL;
 
     /**
+     * RFC 9449 §6 confirmation claim: when set, this token is DPoP-bound and MUST only be
+     * accepted alongside a DPoP proof whose public key's JWK thumbprint matches `cnf.jkt`
+     * (SEP-1932). A verifier that supports DPoP-bound tokens sets this from the access token's
+     * own `cnf.jkt` claim; {@linkcode @modelcontextprotocol/server!server/middleware/dpopAuth.requireDpopAuth | requireDpopAuth} compares it against the presented proof.
+     *
+     * Also read by {@linkcode @modelcontextprotocol/server!server/middleware/bearerAuth.verifyBearerToken | verifyBearerToken}: a token with `cnf.jkt` set MUST NOT be accepted
+     * under the plain `Bearer` scheme (RFC 9449 §7.2, "Compatibility with the Bearer
+     * Authentication Scheme") — a bound token presented without its proof would defeat the point
+     * of binding it.
+     */
+    cnf?: { jkt?: string };
+
+    /**
      * Additional data associated with the token.
      * This field should be used for any additional data that needs to be attached to the auth info.
      */
