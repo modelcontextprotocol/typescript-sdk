@@ -56,6 +56,53 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(mcpServer.server).toBeDefined();
         });
 
+        test('should preserve an explicitly disabled tool listChanged capability', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: { listChanged: false }
+                    }
+                }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test response' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            expect(client.getServerCapabilities()?.tools?.listChanged).toBe(false);
+        });
+
+        test('should enable the tool listChanged capability by default', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('test', {}, async () => ({
+                content: [{ type: 'text', text: 'Test response' }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
+        });
+
         /***
          * Test: Notification Sending via Server
          */
