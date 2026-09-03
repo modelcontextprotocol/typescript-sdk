@@ -181,7 +181,7 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: HeadersInit & Record<string, string> = {};
+        const headers: RequestInit['headers'] & Record<string, string> = {};
         if (this._authProvider) {
             const tokens = await this._authProvider.tokens();
             if (tokens) {
