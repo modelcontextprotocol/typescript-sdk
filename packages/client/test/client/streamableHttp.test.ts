@@ -883,6 +883,53 @@ describe('StreamableHTTPClientTransport', () => {
         expect(getDelay(10)).toBe(5000);
     });
 
+    it('should cap server-provided retry delay at maxReconnectionDelay', () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 100,
+                maxReconnectionDelay: 5000,
+                reconnectionDelayGrowFactor: 2,
+                maxRetries: 3
+            }
+        });
+
+        const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+
+        // A server-provided retry value within the limit is used as-is.
+        transport['_serverRetryMs'] = 1000;
+        expect(getDelay(0)).toBe(1000);
+
+        // A server-provided retry value above the limit is clamped.
+        transport['_serverRetryMs'] = 30_000;
+        expect(getDelay(0)).toBe(5000);
+
+        // An extreme value (e.g. 2^31-1 ms, ~24.8 days) is clamped too.
+        transport['_serverRetryMs'] = 2_147_483_647;
+        expect(getDelay(0)).toBe(5000);
+    });
+
+    it('should clear server-provided retry delay when a new stream is established', () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            reconnectionOptions: {
+                initialReconnectionDelay: 100,
+                maxReconnectionDelay: 5000,
+                reconnectionDelayGrowFactor: 2,
+                maxRetries: 3
+            }
+        });
+
+        const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+
+        // Simulate a server sending retry: 600000, then a successful reconnect.
+        transport['_serverRetryMs'] = 600_000;
+        transport['_handleSseStream'](null, {} as StartSSEOptions, false);
+
+        // After the stream is (re)established, the server-provided value no
+        // longer applies; backoff is used again.
+        expect(transport['_serverRetryMs']).toBeUndefined();
+        expect(getDelay(0)).toBe(100);
+    });
+
     it('attempts auth flow on 401 during POST request', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',

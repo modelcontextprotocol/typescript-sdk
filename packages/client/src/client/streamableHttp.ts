@@ -650,15 +650,17 @@ export class StreamableHTTPClientTransport implements Transport {
      * @returns Time to wait in milliseconds before next reconnection attempt
      */
     private _getNextReconnectionDelay(attempt: number): number {
-        // Use server-provided retry value if available
+        const maxDelay = this._reconnectionOptions.maxReconnectionDelay;
+
+        // Use server-provided retry value if available, but never exceed the
+        // configured maximum reconnection delay.
         if (this._serverRetryMs !== undefined) {
-            return this._serverRetryMs;
+            return Math.min(this._serverRetryMs, maxDelay);
         }
 
         // Fall back to exponential backoff
         const initialDelay = this._reconnectionOptions.initialReconnectionDelay;
         const growFactor = this._reconnectionOptions.reconnectionDelayGrowFactor;
-        const maxDelay = this._reconnectionOptions.maxReconnectionDelay;
 
         // Cap at maximum delay
         return Math.min(initialDelay * Math.pow(growFactor, attempt), maxDelay);
@@ -712,6 +714,11 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
+        // A new stream was established: the server-provided retry value from
+        // the previous stream was for that stream's next reconnection only
+        // (WHATWG HTML §9.2.4), so it must not persist across reconnects.
+        this._serverRetryMs = undefined;
+
         if (!stream) {
             // A null body on a per-request stream (or its GET resume) is the
             // same terminal non-resumable outcome as a 405 — fire the
