@@ -35,6 +35,11 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{var}');
             expect(template.expand({ var: 'value with spaces' })).toBe('value%20with%20spaces');
         });
+
+        it('should encode reserved characters in multiple variables', () => {
+            const template = new UriTemplate('{x,y}');
+            expect(template.expand({ x: 'value with spaces', y: 'a/b?c&d' })).toBe('value%20with%20spaces,a%2Fb%3Fc%26d');
+        });
     });
 
     describe('reserved expansion', () => {
@@ -42,6 +47,11 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{+path}/here');
             expect(template.expand({ path: '/foo/bar' })).toBe('/foo/bar/here');
             expect(template.variableNames).toEqual(['path']);
+        });
+
+        it('should keep reserved characters but encode spaces for multiple variables with + operator', () => {
+            const template = new UriTemplate('{+path,name}');
+            expect(template.expand({ path: '/foo/bar', name: 'a b' })).toBe('/foo/bar,a%20b');
         });
     });
 
