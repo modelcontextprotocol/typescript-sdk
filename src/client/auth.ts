@@ -503,7 +503,13 @@ async function authInternal(
         });
     }
 
-    const resource: URL | string | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    // Send the metadata's resource indicator verbatim: `selectResourceURL` returns a parsed
+    // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
+    // which exact-match authorization servers reject (#1968). A URL returned by the
+    // provider's own `validateResourceURL` is used as returned.
+    const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: string | URL | undefined =
+        selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
 
     // Apply scope selection strategy (SEP-835):
     // 1. WWW-Authenticate scope (passed via `scope` param)
@@ -629,11 +635,22 @@ export function isHttpsUrl(value?: string): boolean {
     }
 }
 
+/**
+ * Selects the RFC 8707 resource indicator for an MCP server: the provider's
+ * {@linkcode OAuthClientProvider.validateResourceURL | validateResourceURL} result when
+ * implemented, otherwise the protected resource metadata's `resource` (checked against the
+ * server URL with `checkResourceAllowed`), or `undefined` when there is no metadata.
+ *
+ * The result is a parsed `URL`, so a pathless indicator such as `https://example.com` has
+ * the `href` `https://example.com/`. {@linkcode auth} therefore sends the metadata string
+ * verbatim instead of this URL's `href` (#1968); callers that emit the `resource`
+ * parameter themselves should do the same.
+ */
 export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
-): Promise<URL | string | undefined> {
+): Promise<URL | undefined> {
     const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
     // If provider has custom validation, delegate to it
@@ -650,12 +667,8 @@ export async function selectResourceURL(
     if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
         throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
     }
-    // Prefer the resource from metadata since it's what the server is telling us to request.
-    // Return the original string verbatim so we don't re-serialize through `URL.href`, which
-    // appends a trailing slash to bare-origin URIs (e.g. `https://example.com` becomes
-    // `https://example.com/`) and breaks providers that require an exact match against the
-    // configured resource indicator (RFC 8707), such as Microsoft Entra ID.
-    return resourceMetadata.resource;
+    // Prefer the resource from metadata since it's what the server is telling us to request
+    return new URL(resourceMetadata.resource);
 }
 
 /**
@@ -1112,6 +1125,10 @@ export async function discoverOAuthServerInfo(
     };
 }
 
+function resourceIndicatorToString(resource: string | URL): string {
+    return typeof resource === 'string' ? resource : resource.href;
+}
+
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
@@ -1130,7 +1147,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL | string;
+        resource?: string | URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -1178,7 +1195,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', String(resource));
+        authorizationUrl.searchParams.set('resource', resourceIndicatorToString(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -1226,7 +1243,7 @@ async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL | string;
+        resource?: string | URL;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -1238,7 +1255,7 @@ async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', String(resource));
+        tokenRequestParams.set('resource', resourceIndicatorToString(resource));
     }
 
     if (addClientAuthentication) {
@@ -1291,7 +1308,7 @@ export async function exchangeAuthorization(
         authorizationCode: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL | string;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -1333,7 +1350,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL | string;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -1392,7 +1409,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL | string;
+        resource?: string | URL;
         /** Authorization code for the default authorization_code grant flow */
         authorizationCode?: string;
         fetchFn?: FetchLike;
