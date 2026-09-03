@@ -1776,7 +1776,20 @@ export async function discoverOAuthMetadata(
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth metadata`);
     }
 
-    return OAuthMetadataSchema.parse(await response.json());
+    // Same field policy as discoverAuthorizationServerMetadata: an invalid value in an
+    // optional field drops the field instead of failing the document; invalid or missing
+    // required fields still reject; OIDC-declared fields the OAuth schema only passes
+    // through are sanitized rather than returned unvalidated.
+    const json: unknown = await response.json();
+    const result = parseMetadataDroppingInvalidOptionalFields(OAuthMetadataSchema, json);
+    if (!result.success) {
+        throw result.error;
+    }
+    return dropPassthroughFieldsRejectedBySibling(
+        result.data,
+        OAuthMetadataSchema,
+        OpenIdProviderDiscoveryMetadataSchema.safeParse(json)
+    ) as OAuthMetadata;
 }
 
 /**
@@ -1847,8 +1860,12 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  * specifications.
  *
  * This function implements a fallback strategy for authorization server discovery:
- * 1. Attempts RFC 8414 OAuth metadata discovery first
- * 2. If OAuth discovery fails, falls back to OpenID Connect Discovery
+ * 1. Tries RFC 8414 OAuth metadata discovery URLs first, then OpenID Connect Discovery URLs
+ * 2. Validates each response by its document shape rather than by the well-known path it was
+ *    found under: the schema implied by the path is tried first, then the other one —
+ *    RFC 8414 §5 explicitly permits plain OAuth 2.0 authorization server metadata to be
+ *    served at the `openid-configuration` path. A document that fits neither schema is
+ *    skipped and the next candidate URL is tried.
  *
  * @param authorizationServerUrl - The authorization server URL obtained from the MCP Server's
  *                                 protected resource metadata, or the MCP server's URL if the
@@ -1863,8 +1880,11 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
  * @param options.skipIssuerValidation - Skip the RFC 8414 §3.3 `issuer` echo check. **Security-weakening.**
- * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
+ * @returns Promise resolving to authorization server metadata, or undefined when no candidate URL
+ *          yielded a metadata document (404s, CORS failures, non-JSON bodies)
  * @throws {IssuerMismatchError} when the metadata's `issuer` does not match `authorizationServerUrl`
+ * @throws {Error} when a candidate returns an HTTP 5xx other than 502, or when every candidate that
+ *         returned a JSON document failed schema validation (the error names the schema issues)
  */
 export async function discoverAuthorizationServerMetadata(
     authorizationServerUrl: string | URL,
@@ -1885,6 +1905,11 @@ export async function discoverAuthorizationServerMetadata(
 
     // Get the list of URLs to try
     const urlsToTry = buildDiscoveryUrls(authorizationServerUrl);
+
+    // First candidate whose 200 response was valid JSON but fit neither metadata schema —
+    // surfaced when every candidate fails, so a near-miss published document stays
+    // diagnosable instead of silently degrading into default-endpoint guessing.
+    let schemaFailure: { url: URL; detail: string } | undefined;
 
     // Try each URL in order
     for (const { url: endpointUrl, type } of urlsToTry) {
@@ -1908,11 +1933,58 @@ export async function discoverAuthorizationServerMetadata(
             );
         }
 
-        // Parse and validate based on type
-        const parsed =
+        // Validate by document shape, preferring the schema implied by the well-known path.
+        // RFC 8414 §5 explicitly permits plain OAuth 2.0 authorization server metadata to be
+        // served at the openid-configuration path, so the path alone cannot decide which
+        // schema the document must satisfy. A document that fits neither schema is treated
+        // like the other per-candidate failures above (4xx, 502, CORS): try the next
+        // candidate URL instead of aborting discovery.
+        let json: unknown;
+        try {
+            json = await response.json();
+        } catch (error) {
+            // A 200 whose body is not JSON (e.g. an SPA catch-all serving HTML at the
+            // well-known path) is not authorization server metadata: try the next candidate.
+            // Anything other than a body-parse failure (a network error reading the body,
+            // an abort from the caller's fetchFn) still propagates.
+            if (error instanceof SyntaxError) {
+                continue;
+            }
+            throw error;
+        }
+        const [primarySchema, siblingSchema] =
             type === 'oauth'
-                ? OAuthMetadataSchema.parse(await response.json())
-                : OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+                ? [OAuthMetadataSchema, OpenIdProviderDiscoveryMetadataSchema]
+                : [OpenIdProviderDiscoveryMetadataSchema, OAuthMetadataSchema];
+        // Invalid values in optional fields drop the field rather than the document — a
+        // relative revocation_endpoint or an unsafe introspection_endpoint must not abort
+        // an auth flow that never uses those fields. Invalid required fields still fail
+        // the parse.
+        const primary = parseMetadataDroppingInvalidOptionalFields(primarySchema, json);
+        let parsed: AuthorizationServerMetadata;
+        let acceptingSchema: typeof primarySchema;
+        if (primary.success) {
+            parsed = primary.data;
+            acceptingSchema = primarySchema;
+        } else {
+            const fallback = parseMetadataDroppingInvalidOptionalFields(siblingSchema, json);
+            if (!fallback.success) {
+                schemaFailure ??= {
+                    url: endpointUrl,
+                    detail: `${summarizeMetadataIssues(primary.error.issues)} (fallback schema: ${summarizeMetadataIssues(fallback.error.issues)})`
+                };
+                continue;
+            }
+            parsed = fallback.data;
+            acceptingSchema = siblingSchema;
+        }
+        // A top-level field the accepting schema does NOT declare must not ride through its
+        // looseObject passthrough unvalidated when the sibling schema declares and rejects
+        // it (e.g. a document with an unsafe jwks_uri accepted via the OAuth schema, on
+        // either well-known path). Fields the accepting schema itself declared and
+        // validated are never removed.
+        const siblingSanitizer = acceptingSchema === primarySchema ? siblingSchema : primarySchema;
+        parsed = dropPassthroughFieldsRejectedBySibling(parsed, acceptingSchema, siblingSanitizer.safeParse(json));
 
         if (!skipIssuerValidation) {
             // RFC 8414 §3.3 / OIDC Discovery §4.3: the `issuer` value in the document MUST be
@@ -1934,7 +2006,82 @@ export async function discoverAuthorizationServerMetadata(
         return parsed;
     }
 
+    if (schemaFailure) {
+        throw new Error(
+            `Authorization server metadata from ${schemaFailure.url} matched neither the OAuth 2.0 (RFC 8414) nor the OpenID Connect Discovery metadata schema: ${schemaFailure.detail}`
+        );
+    }
+
     return undefined;
+}
+
+/**
+ * Formats schema issues from a failed authorization server metadata parse for error messages.
+ */
+function summarizeMetadataIssues(issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }>): string {
+    return issues.map(issue => `${issue.path.map(String).join('.') || '(document)'}: ${issue.message}`).join('; ');
+}
+
+type AuthorizationServerMetadataSchema = typeof OAuthMetadataSchema | typeof OpenIdProviderDiscoveryMetadataSchema;
+
+type MetadataParseResult =
+    | { success: true; data: AuthorizationServerMetadata }
+    | { success: false; data?: undefined; error: Error & { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey>; message: string }> } };
+
+/**
+ * Parses authorization server metadata, retrying once with the top-level fields the first
+ * parse rejected removed. An invalid value in an optional field (e.g. a relative
+ * `revocation_endpoint`) therefore drops that field instead of failing the whole document,
+ * while an invalid or missing required field still fails the parse (removing it just turns
+ * the failure into a missing-field failure).
+ */
+function parseMetadataDroppingInvalidOptionalFields(schema: AuthorizationServerMetadataSchema, json: unknown): MetadataParseResult {
+    const first = schema.safeParse(json);
+    if (first.success || typeof json !== 'object' || json === null) {
+        return first;
+    }
+    const failedPresentKeys = new Set<string>();
+    for (const issue of first.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === 'string' && key in json) {
+            failedPresentKeys.add(key);
+        }
+    }
+    if (failedPresentKeys.size === 0) {
+        return first;
+    }
+    const stripped: Record<string, unknown> = { ...(json as Record<string, unknown>) };
+    for (const key of failedPresentKeys) {
+        delete stripped[key];
+    }
+    const second = schema.safeParse(stripped);
+    return second.success ? second : first;
+}
+
+/**
+ * Drops the top-level fields of a parsed authorization server metadata document that the
+ * accepting schema does NOT declare (looseObject passthrough keys) when the sibling schema
+ * declares and rejected them, so a value that failed its declared validator (e.g.
+ * `SafeUrlSchema` on `jwks_uri`) can never reach callers unvalidated. Fields the accepting
+ * schema itself declared and validated are never removed.
+ */
+function dropPassthroughFieldsRejectedBySibling(
+    data: AuthorizationServerMetadata,
+    acceptingSchema: AuthorizationServerMetadataSchema,
+    sibling: { success: true } | { success: false; error: { issues: ReadonlyArray<{ path: ReadonlyArray<PropertyKey> }> } }
+): AuthorizationServerMetadata {
+    if (sibling.success) {
+        return data;
+    }
+    const declaredByAcceptingSchema = acceptingSchema.shape;
+    const result: Record<string, unknown> = { ...data };
+    for (const issue of sibling.error.issues) {
+        const key = issue.path[0];
+        if (typeof key === 'string' && !(key in declaredByAcceptingSchema)) {
+            delete result[key];
+        }
+    }
+    return result as AuthorizationServerMetadata;
 }
 
 /**

@@ -1109,6 +1109,18 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
 - **Metadata discovery falls through on 502.** `discoverAuthorizationServerMetadata()`
   treats `502 Bad Gateway` like 4xx — fall through to the next candidate URL instead of
   throwing (fixes path-aware discovery behind reverse proxies). Other 5xx still throw.
+- **Metadata discovery validates by document shape, not well-known path.**
+  `discoverAuthorizationServerMetadata()` accepts conforming RFC 8414 metadata served at
+  the `openid-configuration` path (RFC 8414 §5) instead of rejecting it against the OIDC
+  schema. An invalid value in an _optional_ metadata field (including a
+  non-URL or `javascript:`-scheme `introspection_endpoint`/`service_documentation`, which
+  are now URL-validated like `revocation_endpoint`) drops that field instead of failing
+  the document; invalid or missing _required_ fields still reject it. A `200` document
+  that fits neither metadata schema falls through to the next candidate URL, and when
+  every candidate that returned JSON fails validation, discovery throws an `Error` naming
+  the schema issues instead of returning `undefined` (returning `undefined` is reserved
+  for "no metadata found": 404s, CORS failures, non-JSON bodies). The deprecated
+  `discoverOAuthMetadata()` applies the same drop-invalid-optional-fields policy.
 - **Scoped credential invalidation on `invalid_client` / `unauthorized_client`.** The
   `auth()` retry for these errors now issues two scoped calls —
   `invalidateCredentials('client')` then `invalidateCredentials('tokens')` — instead of
