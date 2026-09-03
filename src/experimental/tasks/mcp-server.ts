@@ -60,10 +60,10 @@ export class ExperimentalMcpServerTasks {
      *     startBackgroundWork(task.taskId, args);
      *     return { task };
      *   },
-     *   getTask: async (args, extra) => {
+     *   getTask: async (extra) => {
      *     return extra.taskStore.getTask(extra.taskId);
      *   },
-     *   getTaskResult: async (args, extra) => {
+     *   getTaskResult: async (extra) => {
      *     return extra.taskStore.getTaskResult(extra.taskId);
      *   }
      * });
