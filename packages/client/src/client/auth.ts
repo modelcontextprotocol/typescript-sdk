@@ -1243,6 +1243,10 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
+    // Send the metadata's resource indicator verbatim: `selectResourceURL` returns a parsed
+    // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
+    // which exact-match authorization servers reject (#1968). A URL returned by the
+    // provider's own `validateResourceURL` is used as returned.
     const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
     const resource: string | URL | undefined =
         selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
@@ -1462,6 +1466,17 @@ export function isHttpsUrl(value?: string): boolean {
     }
 }
 
+/**
+ * Selects the RFC 8707 resource indicator for an MCP server: the provider's
+ * {@linkcode OAuthClientProvider.validateResourceURL | validateResourceURL} result when
+ * implemented, otherwise the protected resource metadata's `resource` (checked against the
+ * server URL with `checkResourceAllowed`), or `undefined` when there is no metadata.
+ *
+ * The result is a parsed `URL`, so a pathless indicator such as `https://example.com` has
+ * the `href` `https://example.com/`. {@linkcode auth} therefore sends the metadata string
+ * verbatim instead of this URL's `href` (#1968); callers that emit the `resource`
+ * parameter themselves should do the same.
+ */
 export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,

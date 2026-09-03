@@ -3367,6 +3367,75 @@ describe('OAuth Authorization', () => {
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
         });
 
+        it('sends a pathless PRM resource verbatim on the authorization and token requests (#1968)', async () => {
+            // RFC 9728 publishes the resource identifier and RFC 8707 requires it to be
+            // sent unchanged. `new URL('https://example.com').href` is 'https://example.com/',
+            // and authorization servers that match the indicator exactly (Microsoft Entra
+            // ID: AADSTS9010010) reject the extra slash.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://example.com',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['https://example.com/mcp:tools']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ access_token: 'access123', token_type: 'bearer', expires_in: 3600 })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+            (mockProvider.codeVerifier as Mock).mockResolvedValue('verifier123');
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            // Authorization request: the redirect carries the metadata value byte for byte.
+            const redirectResult = await auth(mockProvider, { serverUrl: 'https://example.com/mcp' });
+            expect(redirectResult).toBe('REDIRECT');
+            const authUrl: URL = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]![0];
+            expect(authUrl.searchParams.get('resource')).toBe('https://example.com');
+
+            // Token request: the authorization-code exchange sends the same value.
+            const exchangeResult = await auth(mockProvider, {
+                serverUrl: 'https://example.com/mcp',
+                authorizationCode: 'code123'
+            });
+            expect(exchangeResult).toBe('AUTHORIZED');
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://example.com');
+        });
+
         it('excludes resource parameter when Protected Resource Metadata is not present', async () => {
             // Mock metadata discovery where protected resource metadata is not available (404)
             // but authorization server metadata is available
