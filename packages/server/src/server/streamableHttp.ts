@@ -996,6 +996,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Handles `DELETE` requests to terminate sessions
      */
     private async handleDeleteRequest(req: Request): Promise<Response> {
+        // Session termination requires session management. In stateless mode
+        // there is no session to terminate; rejecting the request also avoids
+        // closing the transport underneath a stateless deployment.
+        if (this.sessionIdGenerator === undefined) {
+            this.onerror?.(new Error('Method Not Allowed: session termination not supported in stateless mode'));
+            return this.createJsonErrorResponse(405, -32_000, 'Method Not Allowed: session termination not supported in stateless mode', {
+                headers: { Allow: 'GET, POST' }
+            });
+        }
         const sessionError = this.validateSession(req);
         if (sessionError) {
             return sessionError;
