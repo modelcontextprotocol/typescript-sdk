@@ -794,9 +794,26 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(400, -32_600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
             }
 
+            // JSON-RPC batches were removed from the MCP protocol in 2025-06-18;
+            // for that protocol version and later, a POST body must be a single
+            // JSON-RPC message. Older protocol versions (and version-less legacy
+            // traffic) keep the legacy batch behavior.
+            const batchProtocolVersion = (() => {
+                const initRequest = Array.isArray(rawMessage) ? undefined : isInitializeRequest(rawMessage) ? rawMessage : undefined;
+                return (
+                    (initRequest
+                        ? (initRequest.params as { protocolVersion?: string }).protocolVersion
+                        : req.headers.get('mcp-protocol-version')) ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION
+                );
+            })();
+
+            if (Array.isArray(rawMessage) && batchProtocolVersion >= '2025-06-18') {
+                this.onerror?.(new Error('Invalid Request: batch requests are not supported'));
+                return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: batch requests are not supported');
+            }
+
             let messages: JSONRPCMessage[];
 
-            // handle batch and single messages
             try {
                 messages = Array.isArray(rawMessage)
                     ? rawMessage.map(msg => JSONRPCMessageSchema.parse(msg))
