@@ -306,8 +306,7 @@ export class McpServer {
         }
 
         // if the tool has an output schema, validate structured content
-        const outputObj = normalizeObjectSchema(tool.outputSchema) as AnyObjectSchema;
-        const parseResult = await safeParseAsync(outputObj, result.structuredContent);
+        const parseResult = await safeParseAsync(tool.outputSchema, result.structuredContent);
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
