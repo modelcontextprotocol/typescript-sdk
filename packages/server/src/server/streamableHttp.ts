@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -20,6 +20,8 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -267,6 +269,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
     private _maxRequestBodySize: number;
+    private _scopeChallengeResolver?: ScopeChallengeHandler;
 
     sessionId?: string;
     onclose?: () => void;
@@ -302,6 +305,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         });
         return timer;
+    }
+
+    /** Sets the scope challenge resolver for parsed JSON-RPC requests. */
+    setScopeChallengeResolver(resolver: ScopeChallengeHandler): void {
+        this._scopeChallengeResolver = resolver;
     }
 
     /**
@@ -350,6 +358,19 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
+        // Active whenever a connected McpServer supplied a resolver (it
+        // resolves per-primitive scopeChallenge callbacks); the challenge's
+        // resource_metadata parameter is derived from the verified AuthInfo
+        // and omitted when unavailable.
+        if (!this._scopeChallengeResolver) {
+            return undefined;
+        }
+        const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
+        const challenge = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
+        return challenge === undefined ? undefined : createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));
     }
 
     /**
@@ -854,6 +875,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (this._closed) {
                 return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            // Check before opening SSE so an insufficient token can receive HTTP 403.
+            let scopeChallengeResponse: Response | undefined;
+            try {
+                scopeChallengeResponse = await this._checkScopeChallenge(messages, options?.authInfo);
+            } catch (error) {
+                this.onerror?.(error as Error);
+                return this.createJsonErrorResponse(500, -32_603, 'Internal server error');
+            }
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests
