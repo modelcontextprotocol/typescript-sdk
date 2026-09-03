@@ -4,6 +4,7 @@ import {
     InMemoryTransport,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
+    ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { Server } from '../../src/server/server';
@@ -81,6 +82,73 @@ describe('Server', () => {
             await responsePromise;
 
             expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+
+        it('rejects requests before initialize', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            server.setRequestHandler('tools/list', async () => ({ tools: [] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            const responses: JSONRPCMessage[] = [];
+            clientTransport.onmessage = message => responses.push(message);
+            await clientTransport.start();
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                method: 'notifications/initialized'
+            } as JSONRPCMessage);
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/list',
+                params: {}
+            } as JSONRPCMessage);
+
+            await vi.waitFor(() => expect(responses.some(message => 'id' in message && message.id === 1)).toBe(true));
+
+            const rejected = responses.find(message => 'id' in message && message.id === 1);
+            expect(rejected).toMatchObject({
+                error: {
+                    code: ProtocolErrorCode.InvalidRequest,
+                    message: 'Server not initialized'
+                }
+            });
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            } as JSONRPCMessage);
+            await vi.waitFor(() => expect(responses.some(message => 'id' in message && message.id === 2)).toBe(true));
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                method: 'notifications/initialized'
+            } as JSONRPCMessage);
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 3,
+                method: 'tools/list',
+                params: {}
+            } as JSONRPCMessage);
+
+            await vi.waitFor(() => expect(responses.some(message => 'id' in message && message.id === 3)).toBe(true));
+
+            expect(responses.find(message => 'id' in message && message.id === 3)).toMatchObject({
+                result: { tools: [] }
+            });
 
             await server.close();
         });
