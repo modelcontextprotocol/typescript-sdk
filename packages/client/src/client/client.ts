@@ -345,6 +345,40 @@ export type ClientOptions = ProtocolOptions & {
      * regardless. The spec defines absent-or-≤0 as "immediately stale".
      */
     defaultCacheTtlMs?: number;
+
+    /**
+     * Default close posture for {@linkcode Client.close | close()}.
+     *
+     * `true` (or an object with a `timeoutMs`) makes every parameterless
+     * `close()` call wait for in-flight requests to settle before the
+     * transport closes — useful for SIGINT-style shutdowns where the caller
+     * does not know what is in flight. `false` or absent keeps today's
+     * behavior: the transport closes immediately and in-flight requests
+     * settle with a connection-closed error.
+     *
+     * An explicit argument to `close()` always wins over this default.
+     */
+    gracefulClose?: boolean | { timeoutMs?: number };
+};
+
+/**
+ * Options for {@linkcode Client.close | Client.close()}.
+ */
+export type ClientCloseOptions = {
+    /**
+     * Wait for in-flight requests to settle before closing the transport.
+     * `true` uses the default drain timeout (2s); an object sets
+     * `timeoutMs` explicitly. `false` closes immediately (the default
+     * behavior when absent, unless {@linkcode ClientOptions.gracefulClose}
+     * was set at construction).
+     *
+     * Without draining, the transport's teardown aborts in-flight HTTP
+     * requests that the server may have already answered, which
+     * instrumentation such as OpenTelemetry's undici instrumentation reports
+     * as aborted requests (`UND_ERR_ABORTED` on 200 OK responses). Draining
+     * lets those responses land first so telemetry reflects the real outcome.
+     */
+    drainPendingRequests?: boolean | { timeoutMs?: number };
 };
 
 /**
@@ -555,6 +589,8 @@ export class Client extends Protocol<ClientContext> {
      */
     private readonly _listChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    /** The constructor `gracefulClose` posture applied when `close()` gets no explicit argument. */
+    private readonly _gracefulCloseDefault?: boolean | { timeoutMs?: number };
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
     private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
@@ -615,9 +651,13 @@ export class Client extends Protocol<ClientContext> {
         this._cache.resetForReconnect();
     }
 
-    override async close(): Promise<void> {
+    override async close(options?: ClientCloseOptions): Promise<void> {
+        // An explicit argument wins over the constructor default. `false`
+        // (or absent with no default) drains nothing — the historical
+        // immediate-close behavior.
+        const resolved = options?.drainPendingRequests ?? this._gracefulCloseDefault;
         try {
-            await super.close();
+            await super.close(resolved ? { drainPendingRequests: resolved } : undefined);
         } finally {
             // Per-connection state is cleared even when the transport's close
             // rejects, so a stale negotiated era / live listen state cannot
@@ -637,6 +677,7 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._gracefulCloseDefault = options?.gracefulClose;
         this._versionNegotiation = options?.versionNegotiation;
         this._supportedProtocolVersionsOption = options?.supportedProtocolVersions;
         // Multi-round-trip auto-fulfilment driver (2026-07-28): on by default,

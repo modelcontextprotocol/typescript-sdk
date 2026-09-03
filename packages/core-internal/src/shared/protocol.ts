@@ -522,6 +522,25 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
+/**
+ * Default wait before a graceful close gives up on in-flight requests and
+ * proceeds with the hard close (which settles them locally).
+ */
+const DEFAULT_DRAIN_TIMEOUT_MS = 2000;
+
+/**
+ * Options for {@linkcode Protocol.close | close()}.
+ */
+export type CloseOptions = {
+    /**
+     * Wait for in-flight requests to settle before closing the transport.
+     * `true` uses the default drain timeout (2s); an object sets `timeoutMs`
+     * explicitly. Absent or `false` closes immediately (the historical
+     * behavior).
+     */
+    drainPendingRequests?: boolean | { timeoutMs?: number };
+};
+
 /*
  * Package-internal write access to Protocol's negotiated-protocol-version state.
  *
@@ -562,6 +581,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
+    /**
+     * Message ids with a registered response handler whose request has not
+     * settled yet. Written by the request funnel before the message goes on
+     * the wire and deleted on every exit path (response, error, close). This
+     * is the drain set: {@linkcode Protocol._drainPendingRequests |
+     * _drainPendingRequests} waits on it so a graceful close can let
+     * in-flight requests finish before the transport goes down.
+     */
+    private _pendingRequestIds: Set<number> = new Set();
+    /**
+     * Wake hook for an active graceful-close drain. Set by
+     * {@linkcode Protocol._drainPendingRequests | _drainPendingRequests} and
+     * fired by {@linkcode Protocol._releasePendingRequest |
+     * _releasePendingRequest} when the pending set reaches empty.
+     */
+    private _drainNotify?: () => void;
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
@@ -829,6 +864,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
         this._pendingDebouncedNotifications.clear();
+        // The transport is down: every in-flight request is about to be
+        // settled with the connection-closed error below, so the drain set
+        // empties here and any graceful-close drain resolves immediately.
+        this._pendingRequestIds.clear();
+        this._drainNotify?.();
 
         for (const info of this._timeoutInfo.values()) {
             clearTimeout(info.timeoutId);
@@ -1222,9 +1262,68 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Closes the connection.
+     * Drops a message id from the pending set and wakes a graceful-close
+     * drain if that was the last outstanding request. All response-handler
+     * removal paths funnel through this.
      */
-    async close(): Promise<void> {
+    private _releasePendingRequest(messageId: number): void {
+        if (this._pendingRequestIds.delete(messageId) && this._pendingRequestIds.size === 0) {
+            this._drainNotify?.();
+        }
+    }
+
+    /**
+     * Waits for in-flight requests to settle before the transport closes.
+     *
+     * Resolves `true` once every pending request has left the pending set —
+     * it received its response or exited through its own cleanup path — and
+     * `false` if the drain timeout elapsed with requests still outstanding,
+     * in which case the caller proceeds with a hard close and the stragglers
+     * settle via {@linkcode Protocol._onclose | _onclose}. Never rejects.
+     *
+     * Used by the opt-in graceful close (`close({ drainPendingRequests })`):
+     * without draining, the transport's teardown aborts in-flight HTTP
+     * requests that had already been answered, which instrumentation such as
+     * OpenTelemetry's undici instrumentation reports as aborted requests
+     * (modelcontextprotocol/typescript-sdk#1231).
+     */
+    protected _drainPendingRequests(timeoutMs: number): Promise<boolean> {
+        if (this._pendingRequestIds.size === 0) {
+            return Promise.resolve(true);
+        }
+        return new Promise<boolean>(resolve => {
+            let settled = false;
+            const finish = (drained: boolean) => {
+                if (settled) {
+                    return;
+                }
+                settled = true;
+                clearTimeout(timer);
+                this._drainNotify = undefined;
+                resolve(drained);
+            };
+            const timer = setTimeout(() => finish(false), timeoutMs);
+            this._drainNotify = () => finish(true);
+        });
+    }
+
+    /**
+     * Closes the connection.
+     *
+     * With `drainPendingRequests`, in-flight requests are given the chance to
+     * finish before the transport closes; requests still outstanding after
+     * the drain timeout are abandoned to the normal close path, which settles
+     * them with a connection-closed error. Default behavior (no options) is
+     * unchanged: the transport closes immediately.
+     */
+    async close(options?: CloseOptions): Promise<void> {
+        if (options?.drainPendingRequests) {
+            const timeoutMs =
+                typeof options.drainPendingRequests === 'object'
+                    ? (options.drainPendingRequests.timeoutMs ?? DEFAULT_DRAIN_TIMEOUT_MS)
+                    : DEFAULT_DRAIN_TIMEOUT_MS;
+            await this._drainPendingRequests(timeoutMs);
+        }
         await this._transport?.close();
     }
 
@@ -1421,6 +1520,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             const messageId = this._requestMessageId++;
             cleanupMessageId = messageId;
+            // The request is now in flight for drain purposes: registered
+            // before the send so a concurrent graceful close sees it.
+            this._pendingRequestIds.add(messageId);
             const jsonrpcRequest: JSONRPCRequest = {
                 ...request,
                 jsonrpc: '2.0',
@@ -1585,6 +1687,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (cleanupMessageId !== undefined) {
                 this._responseHandlers.delete(cleanupMessageId);
                 this._cleanupTimeout(cleanupMessageId);
+                // Last: wakes a graceful-close drain waiting on this id.
+                this._releasePendingRequest(cleanupMessageId);
             }
         });
     }
