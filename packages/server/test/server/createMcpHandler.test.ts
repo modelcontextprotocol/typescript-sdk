@@ -832,6 +832,55 @@ describe('createMcpHandler — handler faces', () => {
     // pseudo-headers, write backpressure) are pinned at unit level there.
 });
 
+describe('createMcpHandler — in-flight bookkeeping', () => {
+    /**
+     * The factory contract is one fresh instance per request, but a factory that
+     * returns the same instance every time must still cost O(1): the in-flight
+     * `onclose` hook is installed once per instance, not stacked per request.
+     * Stacking it grew one closure layer per request and eventually died with
+     * `RangeError: Maximum call stack size exceeded` when the chain ran.
+     */
+    function sharedInstanceFactory(): McpServer {
+        const mcpServer = new McpServer({ name: 'shared-instance', version: '1.0.0' });
+        mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+        return mcpServer;
+    }
+
+    it('installs the in-flight onclose hook at most once per instance', async () => {
+        const shared = sharedInstanceFactory();
+        const handler = createMcpHandler(() => shared);
+
+        await handler.fetch(postRequest(modernToolsCall('echo', { text: 'first' })));
+        const hookAfterFirst = shared.server.onclose;
+        expect(hookAfterFirst).toBeTypeOf('function');
+
+        for (let i = 0; i < 20; i++) {
+            const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: `reuse-${i}` })));
+            expect(response.status).toBe(200);
+        }
+
+        // Same function object, so the chain is one layer deep rather than 21.
+        expect(shared.server.onclose).toBe(hookAfterFirst);
+    });
+
+    it("preserves the instance's own onclose behind the hook", async () => {
+        const shared = sharedInstanceFactory();
+        let ownOnCloseCalls = 0;
+        shared.server.onclose = () => {
+            ownOnCloseCalls += 1;
+        };
+        const handler = createMcpHandler(() => shared);
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'wrapped' })));
+        expect(response.status).toBe(200);
+        await shared.close();
+
+        expect(ownOnCloseCalls).toBe(1);
+    });
+});
+
 describe('createMcpHandler — close()', () => {
     it('aborts in-flight modern exchanges and refuses further requests', async () => {
         const { factory } = testFactory();
