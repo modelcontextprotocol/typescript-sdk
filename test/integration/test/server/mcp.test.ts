@@ -2386,6 +2386,93 @@ describe('Zod v4', () => {
         });
 
         /***
+         * Test: Changing a Resource URI Twice Leaves Only the Latest
+         */
+        test('should not leave the intermediate uri registered after two uri changes', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resource = mcpServer.registerResource('test', 'test://first', {}, async () => ({
+                contents: [
+                    {
+                        uri: 'test://first',
+                        text: 'Content'
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            resource.update({ uri: 'test://second' });
+            resource.update({ uri: 'test://third' });
+
+            const result = await client.request({ method: 'resources/list' });
+
+            expect(result.resources.map(r => r.uri)).toEqual(['test://third']);
+
+            // remove() must still find the resource under its current uri
+            resource.remove();
+
+            const result2 = await client.request({ method: 'resources/list' });
+
+            expect(result2.resources).toHaveLength(0);
+        });
+
+        /***
+         * Test: Renaming a Resource Template Twice Leaves Only the Latest
+         */
+        test('should not leave the intermediate name registered after two template renames', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const resourceTemplate = mcpServer.registerResource(
+                'first',
+                new ResourceTemplate('test://resource/{id}', { list: undefined }),
+                {},
+                async uri => ({
+                    contents: [
+                        {
+                            uri: uri.href,
+                            text: 'Template content'
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            resourceTemplate.update({ name: 'second' });
+            resourceTemplate.update({ name: 'third' });
+
+            const result = await client.request({ method: 'resources/templates/list' });
+
+            expect(result.resourceTemplates.map(t => t.name)).toEqual(['third']);
+
+            // remove() must still find the template under its current name
+            resourceTemplate.remove();
+
+            const result2 = await client.request({ method: 'resources/templates/list' });
+
+            expect(result2.resourceTemplates).toHaveLength(0);
+        });
+
+        /***
          * Test: Resource Registration with Metadata
          */
         test('should register resource with metadata', async () => {
@@ -3429,6 +3516,50 @@ describe('Zod v4', () => {
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('prompt2');
+        });
+
+        /***
+         * Test: Renaming a Prompt Twice Leaves Only the Latest
+         */
+        test('should not leave the intermediate name registered after two renames', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const prompt = mcpServer.registerPrompt('first', {}, async () => ({
+                messages: [
+                    {
+                        role: 'assistant',
+                        content: {
+                            type: 'text',
+                            text: 'Response'
+                        }
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            prompt.update({ name: 'second' });
+            prompt.update({ name: 'third' });
+
+            const result = await client.request({ method: 'prompts/list' });
+
+            expect(result.prompts.map(p => p.name)).toEqual(['third']);
+
+            // remove() must still find the prompt under its current name
+            prompt.remove();
+
+            const result2 = await client.request({ method: 'prompts/list' });
+
+            expect(result2.prompts).toHaveLength(0);
         });
 
         /***

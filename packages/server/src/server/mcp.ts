@@ -675,7 +675,10 @@ export class McpServer {
             update: updates => {
                 if (updates.uri !== undefined && updates.uri !== uri) {
                     delete this._registeredResources[uri];
-                    if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
+                    if (updates.uri) {
+                        this._registeredResources[updates.uri] = registeredResource;
+                        uri = updates.uri;
+                    }
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
                 if (updates.title !== undefined) registeredResource.title = updates.title;
@@ -708,7 +711,10 @@ export class McpServer {
             update: updates => {
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredResourceTemplates[name];
-                    if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                    if (updates.name) {
+                        this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                        name = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
@@ -757,7 +763,10 @@ export class McpServer {
             update: updates => {
                 if (updates.name !== undefined && updates.name !== name) {
                     delete this._registeredPrompts[name];
-                    if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
+                    if (updates.name) {
+                        this._registeredPrompts[updates.name] = registeredPrompt;
+                        name = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
