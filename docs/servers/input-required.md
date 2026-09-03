@@ -14,6 +14,9 @@ const confirmationSchema = z.object({
     confirm: z.boolean().meta({ title: 'Confirm deployment' })
 });
 
+const cacheConfirmationSchema = z.object({ confirm: z.boolean() });
+const cacheScopeSchema = z.object({ scope: z.string() });
+
 server.registerTool(
     'deploy',
     {
@@ -181,13 +184,13 @@ server.registerTool(
         const state = ctx.mcpReq.requestState<{ step: string }>();
 
         if (state?.step !== 'confirmed') {
-            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', cacheConfirmationSchema);
             if (confirmed?.confirm !== true) {
                 return inputRequired({
                     inputRequests: {
                         confirm: inputRequired.elicit({
                             message: 'Really wipe the cache?',
-                            requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
+                            requestedSchema: cacheConfirmationSchema
                         })
                     }
                 });
@@ -197,15 +200,23 @@ server.registerTool(
                 inputRequests: {
                     scope: inputRequired.elicit({
                         message: 'Which scope?',
-                        requestedSchema: { type: 'object', properties: { scope: { type: 'string' } }, required: ['scope'] }
+                        requestedSchema: cacheScopeSchema
                     })
                 },
                 requestState: await stateCodec.mint({ step: 'confirmed' })
             });
         }
 
-        const scope = acceptedContent<{ scope: string }>(ctx.mcpReq.inputResponses, 'scope');
-        return { content: [{ type: 'text', text: `Wiped ${scope?.scope ?? 'all'}` }] };
+        const scope = acceptedContent(ctx.mcpReq.inputResponses, 'scope', cacheScopeSchema);
+        if (scope === undefined) {
+            return inputRequired({
+                inputRequests: {
+                    scope: inputRequired.elicit({ message: 'Which scope?', requestedSchema: cacheScopeSchema })
+                },
+                requestState: await stateCodec.mint({ step: 'confirmed' })
+            });
+        }
+        return { content: [{ type: 'text', text: `Wiped ${scope.scope}` }] };
     }
 );
 ```

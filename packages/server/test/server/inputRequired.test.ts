@@ -125,7 +125,7 @@ describe('input-required returns on the 2026-07-28 era', () => {
             { inputSchema: z.object({ env: z.string() }), outputSchema: z.object({ deployed: z.boolean() }) },
             async ({ env }, ctx) => {
                 const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
-                if (!confirmed?.confirm) {
+                if (confirmed?.confirm !== true) {
                     return inputRequired({
                         inputRequests: {
                             confirm: inputRequired.elicit({

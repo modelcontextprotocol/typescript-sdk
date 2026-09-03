@@ -30,7 +30,7 @@ import { acceptedContent, createMcpHandler, createRequestStateCodec, inputRequir
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
-const CONFIRM_SCHEMA = { type: 'object' as const, properties: { confirm: { type: 'boolean' as const } }, required: ['confirm'] };
+const CONFIRM_SCHEMA = z.object({ confirm: z.boolean() });
 
 type DeployState = { step: 'confirm' | 'signed-in'; env: string };
 
@@ -67,8 +67,8 @@ function buildServer(): McpServer {
             console.error(`[server] tools/call deploy(${env}) step=${step}`);
 
             if (step === 'confirm') {
-                const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
-                if (!confirmed?.confirm) {
+                const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', CONFIRM_SCHEMA);
+                if (confirmed?.confirm !== true) {
                     return inputRequired({
                         inputRequests: {
                             confirm: inputRequired.elicit({ message: `Deploy to ${env}?`, requestedSchema: CONFIRM_SCHEMA })

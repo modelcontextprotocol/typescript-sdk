@@ -863,17 +863,14 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
-            const confirmation = acceptedContent<{ ok: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
-            if (confirmation === undefined) {
+            const confirmationSchema = z.object({ ok: z.boolean() });
+            const confirmation = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
+            if (confirmation?.ok !== true) {
                 return inputRequired({
                     inputRequests: {
                         confirm: inputRequired.elicit({
                             message: 'Please confirm',
-                            requestedSchema: {
-                                type: 'object',
-                                properties: { ok: { type: 'boolean' } },
-                                required: ['ok']
-                            }
+                            requestedSchema: confirmationSchema
                         })
                     },
                     requestState: await requestStateCodec.mint({ tool: 'request_state', nonce: randomUUID() })
