@@ -1263,7 +1263,9 @@ describe('Task-based execution', () => {
                     ttl: 60000,
                     pollInterval: 1000
                 });
-                return { result: 'success' };
+                return {
+                    content: [{ type: 'text' as const, text: 'success' }]
+                };
             });
 
             transport.onmessage?.({
@@ -2008,7 +2010,7 @@ describe('Task-based execution', () => {
                 });
 
                 return {
-                    content: [{ type: 'text', text: 'done' }]
+                    content: [{ type: 'text' as const, text: 'done' }]
                 };
             });
 
