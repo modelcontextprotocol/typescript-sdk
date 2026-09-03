@@ -191,6 +191,34 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['q', 'page']);
         });
 
+        it('should match omitted query parameters', () => {
+            const template = new UriTemplate('/search{?q,page}');
+            const match = template.match('/search');
+            expect(match).toEqual({});
+            expect(template.variableNames).toEqual(['q', 'page']);
+        });
+
+        it('should match a subset of query parameters', () => {
+            const template = new UriTemplate('/search{?q,page,limit}');
+            const match = template.match('/search?q=test&limit=10');
+            expect(match).toEqual({ q: 'test', limit: '10' });
+            expect(template.variableNames).toEqual(['q', 'page', 'limit']);
+        });
+
+        it('should match query parameters in any order', () => {
+            const template = new UriTemplate('/search{?q,page,limit}');
+            const match = template.match('/search?limit=10&page=1&q=test');
+            expect(match).toEqual({ q: 'test', page: '1', limit: '10' });
+            expect(template.variableNames).toEqual(['q', 'page', 'limit']);
+        });
+
+        it('should stop simple path variables before query parameters', () => {
+            const template = new UriTemplate('dom://{pageId}{?selector,includeText}');
+            const match = template.match('dom://page-1?includeText=true');
+            expect(match).toEqual({ pageId: 'page-1', includeText: 'true' });
+            expect(template.variableNames).toEqual(['pageId', 'selector', 'includeText']);
+        });
+
         it('should handle partial matches correctly', () => {
             const template = new UriTemplate('/users/{id}');
             expect(template.match('/users/123/extra')).toBeNull();
