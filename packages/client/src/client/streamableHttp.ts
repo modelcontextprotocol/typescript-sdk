@@ -526,12 +526,6 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
-        // Same guard as `_handleSseStream`: a resurrected listen stream (the
-        // POST-SSE → GET reconnect path threads `requestSignal` through
-        // `StartSSEOptions`) must honour the per-request abort exactly as the
-        // original POST did — both as a fetch signal and as a "do not surface
-        // onerror" gate.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
@@ -636,10 +630,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._handleSseStream(response.body, options, true);
         } catch (error) {
-            if (!isIntentionalAbort()) {
-                this.onerror?.(error as Error);
-            }
-            throw error;
+            throw error as Error;
         }
     }
 
@@ -1249,9 +1240,14 @@ export class StreamableHTTPClientTransport implements Transport {
      * @param options Optional callback to receive new resumption tokens
      */
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
-        await this._startOrAuthSse({
-            resumptionToken: lastEventId,
-            onresumptiontoken: options?.onresumptiontoken
-        });
+        try {
+            await this._startOrAuthSse({
+                resumptionToken: lastEventId,
+                onresumptiontoken: options?.onresumptiontoken
+            });
+        } catch (error) {
+            this.onerror?.(error as Error);
+            throw error;
+        }
     }
 }
