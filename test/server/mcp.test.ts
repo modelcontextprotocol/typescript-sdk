@@ -5218,6 +5218,183 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 }
             ]);
         });
+
+        test('should list correct JSON Schema properties for z.superRefine() schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // z.superRefine() wraps a ZodObject in ZodEffects, which lacks .shape
+            const superRefineSchema = z
+                .object({
+                    password: z.string(),
+                    confirmPassword: z.string()
+                })
+                .superRefine((data, ctx) => {
+                    if (data.password !== data.confirmPassword) {
+                        ctx.addIssue({
+                            code: z.ZodIssueCode.custom,
+                            message: 'Passwords do not match',
+                            path: ['confirmPassword']
+                        });
+                    }
+                });
+
+            server.registerTool('superrefine-test', { inputSchema: superRefineSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `Password set for ${args.password}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            // Verify tools/list returns correct JSON Schema (not empty)
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    password: { type: 'string' },
+                    confirmPassword: { type: 'string' }
+                }
+            });
+
+            // Also verify the tool still works (parsing path)
+            const callResult = await client.callTool({
+                name: 'superrefine-test',
+                arguments: { password: 'secret', confirmPassword: 'secret' }
+            });
+            expect(callResult.content).toEqual([{ type: 'text', text: 'Password set for secret' }]);
+        });
+
+        test('should list correct JSON Schema properties for z.refine() schemas', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const refineSchema = z
+                .object({
+                    min: z.number(),
+                    max: z.number()
+                })
+                .refine(data => data.max > data.min, {
+                    message: 'max must be greater than min'
+                });
+
+            server.registerTool('refine-test', { inputSchema: refineSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `Range: ${args.min}-${args.max}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    min: { type: 'number' },
+                    max: { type: 'number' }
+                }
+            });
+        });
+
+        test('should list correct JSON Schema for z.transform() schemas via tools/list', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            const transformSchema = z
+                .object({
+                    input: z.string()
+                })
+                .transform(data => ({ ...data, upper: data.input.toUpperCase() }));
+
+            server.registerTool('transform-list-test', { inputSchema: transformSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: args.upper }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    input: { type: 'string' }
+                }
+            });
+        });
+
+        test('should list correct JSON Schema for nested ZodEffects chains', async () => {
+            const server = new McpServer({
+                name: 'test',
+                version: '1.0.0'
+            });
+
+            const client = new Client({
+                name: 'test-client',
+                version: '1.0.0'
+            });
+
+            // Chain: ZodObject -> .superRefine() -> .transform() (nested ZodEffects)
+            const nestedSchema = z
+                .object({
+                    value: z.string()
+                })
+                .superRefine((data, ctx) => {
+                    if (data.value.length === 0) {
+                        ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Value required' });
+                    }
+                })
+                .transform(data => ({ ...data, validated: true }));
+
+            server.registerTool('nested-effects', { inputSchema: nestedSchema }, async args => {
+                return {
+                    content: [{ type: 'text' as const, text: `${args.value}: ${args.validated}` }]
+                };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await client.connect(clientTransport);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools).toHaveLength(1);
+            expect(result.tools[0].inputSchema).toMatchObject({
+                type: 'object',
+                properties: {
+                    value: { type: 'string' }
+                }
+            });
+        });
     });
 
     describe('resource()', () => {
