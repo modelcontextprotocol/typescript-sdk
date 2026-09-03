@@ -430,6 +430,31 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it('should reject a GET SSE response whose content-type is not text/event-stream', async () => {
+        // A proxy / captive portal / misconfigured server can answer the GET
+        // with 200 and a non-SSE body (e.g. text/html). The POST path already
+        // rejects this with ClientHttpUnexpectedContent; the GET/resume path
+        // must do the same instead of piping HTML through the SSE parser and
+        // silently yielding no events.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/html' }),
+            body: new ReadableStream({
+                start(controller) {
+                    controller.enqueue(new TextEncoder().encode('<html></html>'));
+                    controller.close();
+                }
+            }),
+            text: async () => '<html></html>'
+        });
+
+        await transport.start();
+        await expect(transport['_startOrAuthSse']({})).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpUnexpectedContent
+        });
+    });
+
     it('should handle successful initial GET connection for SSE', async () => {
         // Set up readable stream for SSE events
         const encoder = new TextEncoder();
