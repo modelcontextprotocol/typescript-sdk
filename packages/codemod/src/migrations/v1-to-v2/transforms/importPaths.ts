@@ -21,6 +21,43 @@ const REEXPORT_WARNINGS: Record<string, string> = {
         'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
 
+/**
+ * Detach a comment block anchored at byte 0 — a license/SPDX header or a file-level note.
+ *
+ * ts-morph positions an index-inserted import against the *full* start of the declaration at that
+ * index, i.e. ahead of that declaration's leading trivia. So a re-emitted import lands above the
+ * header (which then stops being the first thing in the file, and swallows the blank line below it,
+ * leaving the header attached to the next declaration as a doc comment), or — when the header is a
+ * multi-line `//` run and the SDK import is not the first import — between two of the header's own
+ * lines. Removing the block for the duration of the rewrite removes the trivia those positions are
+ * derived from, so neither can happen.
+ *
+ * Only a block starting at byte 0 is a file header. A comment above a mid-file import documents that
+ * import and must travel with it, which the leading-comment capture inside `apply` still handles.
+ *
+ * Returns the exact detached bytes, including the whitespace that followed the block so the blank
+ * line between header and code survives the round trip, or `''` when there is no leading block.
+ */
+function detachFileHeader(sourceFile: SourceFile): string {
+    const firstStatement = sourceFile.getStatements()[0];
+    if (!firstStatement) return '';
+
+    const ranges = firstStatement.getLeadingCommentRanges();
+    if (ranges.length === 0 || ranges[0]!.getPos() !== 0) return '';
+
+    const fullText = sourceFile.getFullText();
+    let end = ranges.at(-1)!.getEnd();
+    while (end < fullText.length && /\s/.test(fullText[end]!)) end++;
+
+    const header = fullText.slice(0, end);
+    sourceFile.removeText(0, end);
+    return header;
+}
+
+function reattachFileHeader(sourceFile: SourceFile, header: string): void {
+    if (header) sourceFile.insertText(0, header);
+}
+
 export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
     id: 'imports',
@@ -29,9 +66,14 @@ export const importPathsTransform: Transform = {
         const usedPackages = new Set<string>();
         let changesCount = 0;
 
+        // Detached before the AST is read: removeText() invalidates existing node references, so this
+        // cannot wait until after getSdkImports(). Restored at each of the three exits below.
+        const fileHeader = detachFileHeader(sourceFile);
+
         const sdkImports = getSdkImports(sourceFile);
         const sdkExports = getSdkExports(sourceFile);
         if (sdkImports.length === 0 && sdkExports.length === 0) {
+            reattachFileHeader(sourceFile, fileHeader);
             return { changesCount: 0, diagnostics: [] };
         }
 
@@ -40,6 +82,7 @@ export const importPathsTransform: Transform = {
         changesCount += rewriteExportDeclarations(sdkExports, sourceFile, filePath, context, diagnostics, usedPackages);
 
         if (sdkImports.length === 0) {
+            reattachFileHeader(sourceFile, fileHeader);
             return { changesCount, diagnostics, usedPackages };
         }
 
@@ -361,6 +404,8 @@ export const importPathsTransform: Transform = {
             const anchor = imports[Math.min(insertIndex, imports.length - 1)];
             sourceFile.insertText(anchor ? anchor.getStart() : 0, `${leadingCommentText}\n`);
         }
+
+        reattachFileHeader(sourceFile, fileHeader);
 
         return { changesCount, diagnostics, usedPackages };
     }
