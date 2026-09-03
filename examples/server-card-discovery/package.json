@@ -1,0 +1,26 @@
+{
+    "name": "@mcp-examples/server-card-discovery",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "modern",
+        "//": "Server Cards describe remote HTTP servers, so the story is HTTP-only: the client discovers the endpoint from the domain's AI Catalog instead of being told the /mcp URL."
+    }
+}
