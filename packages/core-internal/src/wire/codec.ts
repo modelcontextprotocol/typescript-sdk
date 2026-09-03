@@ -15,10 +15,10 @@
  *
  * REQUIRED DISCLOSURE (Q1-SD1, era granularity): "the negotiated version
  * determines which types are serialized/deserialized over the wire" cashes
- * out as "the negotiated wire ERA determines them". All five legacy protocol
- * versions (2024-10-07 … 2025-11-25) share one wire vocabulary and map to the
+ * out as "the negotiated wire ERA determines them". All four legacy protocol
+ * versions (2024-11-05 … 2025-11-25) share one wire vocabulary and map to the
  * single 2025-era codec — exactly how the single schema set already served
- * all five — and '2026-07-28' maps to the 2026-era codec. A new codec exists
+ * all four — and '2026-07-28' maps to the 2026-era codec. A new codec exists
  * only when wire vocabulary actually diverges; intra-era vocabulary is NOT
  * keyed by exact version.
  *
@@ -293,7 +293,7 @@ export interface WireCodec {
 
 /**
  * Era resolution, many-to-one (Q1-SD1): every modern-era revision
- * (`>= 2026-07-28`) → the 2026-era codec; every legacy revision (the five
+ * (`>= 2026-07-28`) → the 2026-era codec; every legacy revision (the four
  * `SUPPORTED_PROTOCOL_VERSIONS`) and `undefined`/unknown → the 2025-era
  * codec (the DV-13 default posture — hand-constructed instances and
  * unclassified traffic are legacy-era). This is the same era predicate the

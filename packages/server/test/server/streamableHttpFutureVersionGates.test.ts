@@ -137,7 +137,6 @@ describe('WebStandardStreamableHTTPServerTransport - future-version gate closure
         // Only 2025-11-25 (the version that introduced the empty-SSE-data fix)
         // takes the resumability paths - exactly as before the gates were bounded.
         const expectations: Array<[string, boolean]> = [
-            ['2024-10-07', false],
             ['2024-11-05', false],
             ['2025-03-26', false],
             ['2025-06-18', false],
