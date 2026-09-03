@@ -124,8 +124,10 @@ export class SSEServerTransport implements Transport {
 
         this._sseResponse = this.res;
         this.res.on('close', () => {
-            this._sseResponse = undefined;
-            this.onclose?.();
+            if (this._sseResponse !== undefined) {
+                this._sseResponse = undefined;
+                this.onclose?.();
+            }
         });
     }
 
