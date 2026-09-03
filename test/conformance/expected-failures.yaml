@@ -2,9 +2,16 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.10). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.11). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
+#
+# alpha.10 -> alpha.11 reconciliation: the referee added two scenarios, both
+# passing, so neither is baselined — `json-schema-2020-12-preservation`
+# (client; SEP-1613/SEP-2106 keyword round-trip, driven by everythingClient.ts)
+# and `server-session-lifecycle` (server; Streamable HTTP session teardown).
+# The referee now also sends HTTP DELETE after every session-bound scenario
+# (conformance#316); the everything server already answers it.
 #
 # NOTE: the SDK's modern-path rejection codes are aligned with what this
 # referee asserts — both sides have adopted the spec#2907 / conformance#353
@@ -22,14 +29,12 @@ client:
     # (none: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
     # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
     #
-    # --- SEP-1932 (DPoP) / SEP-1933 (WIF) — extension-tagged auth scenarios, new in the alpha.10 referee ---
-    # The OAuth client implements neither DPoP proofs (RFC 9449) nor the
-    # urn:ietf:params:oauth:grant-type:jwt-bearer grant, so every check in
-    # these scenarios fails. Client-side extension scenarios are selected only
-    # by `--suite all`; the 2026 leg cannot flag them stale (extension
+    # --- SEP-1933 (WIF) — extension-tagged auth scenario, new in the alpha.10 referee ---
+    # The OAuth client does not implement the urn:ietf:params:oauth:grant-type:jwt-bearer
+    # grant, so every check in this scenario fails. Client-side extension scenarios are
+    # selected only by `--suite all`; the 2026 leg cannot flag it stale (extension
     # scenarios never match a --spec-version filter).
-    - auth/dpop
-    - auth/dpop-nonce
+    # (SEP-1932 DPoP burned by the auth/dpop + auth/dpop-nonce client implementation.)
     - auth/wif-jwt-bearer
 
 server:
