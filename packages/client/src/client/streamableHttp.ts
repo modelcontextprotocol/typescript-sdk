@@ -1011,6 +1011,13 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal
             };
 
+            // Snapshot whether *this* request actually carried Mcp-Session-Id, before
+            // the fetch and before any response handling can mutate `_sessionId` — the
+            // 404 session-expiry check below is defined in terms of the request, not
+            // post-response state. A handshake request never carries the header (it's
+            // stripped above regardless of `_sessionId`), so it is never eligible.
+            const requestHadSessionId = !isHandshake && this._sessionId !== undefined;
+
             const response = await (this._fetch ?? fetch)(this._url, init);
 
             // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
@@ -1103,6 +1110,26 @@ export class StreamableHTTPClientTransport implements Transport {
                     } catch {
                         // not a JSON-RPC error body — fall through to the generic SdkHttpError below.
                     }
+                }
+
+                // Per the MCP spec (Streamable HTTP, Session Management): a 404 to a
+                // request that carried an Mcp-Session-Id means the session has expired
+                // or been terminated server-side, and the client must start a new
+                // session. Detected by status code alone (not the response body), since
+                // non-reference servers report expiry with varying bodies (a -32002
+                // JSON-RPC code, plain text, an HTML proxy page, etc). Clears the dead
+                // session ID so a subsequent connect() issues a fresh initialize, and
+                // surfaces a distinguishable error code rather than the generic one
+                // below. Scoped to requests that actually carried a session ID: a 404
+                // without one (e.g. a wrong URL on the initial connect) is unrelated to
+                // session state and still surfaces as ClientHttpNotImplemented.
+                if (response.status === 404 && requestHadSessionId) {
+                    this._sessionId = undefined;
+                    throw new SdkHttpError(SdkErrorCode.ClientHttpSessionExpired, `Session expired (HTTP 404): ${text}`, {
+                        status: 404,
+                        statusText: response.statusText,
+                        text
+                    });
                 }
 
                 throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
@@ -1214,9 +1241,12 @@ export class StreamableHTTPClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});
 
-            // We specifically handle 405 as a valid response according to the spec,
-            // meaning the server does not support explicit session termination
-            if (!response.ok && response.status !== 405) {
+            // 405 Method Not Allowed: per the spec the server does not support explicit
+            // session termination — treat as success.
+            // 404 Not Found: the session is already gone server-side, which is exactly
+            // what the caller asked for — treat as success rather than a failure. Both
+            // fall through to clear the local session ID below.
+            if (!response.ok && response.status !== 405 && response.status !== 404) {
                 throw new SdkHttpError(
                     SdkErrorCode.ClientHttpFailedToTerminateSession,
                     `Failed to terminate session: ${response.statusText}`,

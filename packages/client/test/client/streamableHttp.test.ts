@@ -340,7 +340,45 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(transport.terminateSession()).resolves.not.toThrow();
     });
 
-    it('should handle 404 response when session expires', async () => {
+    it('should treat a 404 response as success when terminating an already-gone session', async () => {
+        // First, simulate getting a session ID
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
+        });
+
+        await transport.send(message);
+
+        // Now terminate the session, but the server has already forgotten it (404) —
+        // this is exactly the caller's intent, not a failure.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers()
+        });
+
+        await expect(transport.terminateSession()).resolves.not.toThrow();
+        expect(transport.sessionId).toBeUndefined();
+    });
+
+    it('should surface a generic error for a 404 with no active session', async () => {
+        // No session has been established (no prior initialize), so this 404 is
+        // unrelated to session expiry per the MCP spec's scoping — it still surfaces as
+        // the pre-existing generic error, not ClientHttpSessionExpired. See the
+        // "session expires" tests below for the case where a session ID is present.
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -367,6 +405,105 @@ describe('StreamableHTTPClientTransport', () => {
             })
         );
         expect(errorSpy).toHaveBeenCalled();
+        expect(transport.sessionId).toBeUndefined();
+    });
+
+    it('should clear the session ID and throw ClientHttpSessionExpired on a 404 to a session-bound request', async () => {
+        // Establish a session first, exactly like the "should store session ID
+        // received during initialization" test above.
+        const initMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
+        });
+        await transport.send(initMessage);
+        expect(transport.sessionId).toBe('test-session-id');
+
+        // A later, session-bound request gets a 404: per the MCP spec (Streamable
+        // HTTP, Session Management), the session has expired server-side.
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Session not found'),
+            headers: new Headers()
+        });
+
+        const errorSpy = vi.fn();
+        transport.onerror = errorSpy;
+
+        await expect(transport.send(message)).rejects.toThrow(
+            new SdkHttpError(SdkErrorCode.ClientHttpSessionExpired, 'Session expired (HTTP 404): Session not found', {
+                status: 404,
+                statusText: 'Not Found',
+                text: 'Session not found'
+            })
+        );
+        expect(errorSpy).toHaveBeenCalled();
+
+        // The dead session ID is cleared so a subsequent connect() starts fresh.
+        expect(transport.sessionId).toBeUndefined();
+
+        // And a subsequent request no longer carries the stale (or any) session ID.
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+        await transport.send({ jsonrpc: '2.0', method: 'test2', params: {} } as JSONRPCMessage);
+        const lastCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+        expect(lastCall[1].headers.get('mcp-session-id')).toBeNull();
+    });
+
+    it('should not clear the session ID on a 404 from the standalone GET SSE stream', async () => {
+        // The standalone GET SSE stream is the optional server->client notification
+        // channel. A 404 on its (re)connection must not tear down an otherwise-healthy
+        // session — the client should keep the session and continue issuing POST
+        // requests. Session-expiry detection is scoped to the POST path (_send) only.
+        const initMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'test-session-id' })
+        });
+        await transport.send(initMessage);
+        expect(transport.sessionId).toBe('test-session-id');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Not Found'),
+            headers: new Headers()
+        });
+
+        await expect(transport.resumeStream('some-event-id')).rejects.toThrow(SdkHttpError);
+        expect(transport.sessionId).toBe('test-session-id');
     });
 
     it('should handle non-streaming JSON response', async () => {
