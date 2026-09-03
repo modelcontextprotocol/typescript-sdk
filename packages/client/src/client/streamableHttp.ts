@@ -531,7 +531,8 @@ export class StreamableHTTPClientTransport implements Transport {
         // `StartSSEOptions`) must honour the per-request abort exactly as the
         // original POST did — both as a fetch signal and as a "do not surface
         // onerror" gate.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
+        const transportSignal = this._abortController?.signal;
+        const isIntentionalAbort = (): boolean => transportSignal?.aborted === true || requestSignal?.aborted === true;
 
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
@@ -690,9 +691,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Honour BOTH the transport-wide abort and the per-request abort
             // (a listen subscription closed during the backoff delay): do not
             // resurrect a stream the caller already tore down.
-            if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
+            if (!this._abortController || this._abortController.signal.aborted || options.requestSignal?.aborted) return;
             this._startOrAuthSse(options).catch(error => {
-                if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
+                if (!this._abortController || this._abortController.signal.aborted || options.requestSignal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
@@ -726,7 +727,8 @@ export class StreamableHTTPClientTransport implements Transport {
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
         // and no GET+Last-Event-ID reconnect that would resurrect a stream the
         // caller just tore down.
-        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
+        const transportSignal = this._abortController?.signal;
+        const isIntentionalAbort = (): boolean => transportSignal?.aborted === true || requestSignal?.aborted === true;
 
         let lastEventId: string | undefined;
         // Track whether we've received a priming event (event with ID)
@@ -921,6 +923,7 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
+            this._abortController = undefined;
             this.onclose?.();
         }
     }
