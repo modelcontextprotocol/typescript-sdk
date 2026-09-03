@@ -2451,10 +2451,17 @@ export async function fetchToken(
  * consistently across both DCR and the subsequent authorization request.
  *
  * @deprecated Dynamic Client Registration is deprecated as of protocol version
- * 2026-07-28 (SEP-2577) in favor of Client ID Metadata Documents (SEP-991).
- * Remains functional during the deprecation window (at least twelve months).
- * Prefer a CIMD URL `client_id` when the authorization server advertises
- * `client_id_metadata_document_supported`; the SDK already gates on this for you.
+ * 2026-07-28 in favor of Client ID Metadata Documents (SEP-991); the deprecation
+ * landed via spec PR
+ * {@link https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858 | modelcontextprotocol#2858}
+ * (SEP-2577 is the separate roots/sampling/logging deprecation). Remains
+ * functional during the deprecation window — at least twelve months under the
+ * feature lifecycle policy (SEP-2596), so 2027-07-28 is the earliest possible
+ * removal date. Prefer a CIMD URL `client_id` when the authorization server
+ * advertises `client_id_metadata_document_supported`: the built-in `auth()` flow
+ * skips registration for you when that capability is advertised AND your
+ * provider supplies `clientMetadataUrl`, but `registerClient` itself does not
+ * gate — calling it directly always sends the registration request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
