@@ -49,6 +49,31 @@ Align everything on one Zod 4 version. When a transitive dependency pins another
 
 `npm ls zod` reporting a single version means the duplicate is gone and the error with it.
 
+## `tools/list` returns an empty `inputSchema`, or fails with `reading '_def'`
+
+Both symptoms come from passing a complete `z.object({ ... })` where the **v1** positional
+`server.tool(name, description, schema, handler)` API expects a **raw Zod shape** —
+`{ name: z.string() }`, with no `z.object()` wrapper.
+
+- With `server.tool()`, v1.12.0 through v1.26.0 publish `{"type":"object"}` with **no properties**
+  and raise nothing: `tools/list` looks correct, but clients send no arguments and your handler
+  receives an empty object. v1.28.0 and later reject the wrapped shape at registration instead.
+- Passing that same complete schema to v1 `registerTool()` fails `tools/list` on v1.12.0 through
+  v1.21.0 with `MCP error -32603: Cannot read properties of null (reading '_def')`; v1.22.0 and
+  later normalize it.
+
+Use a raw shape with the v1 positional API:
+
+```diff
+- server.tool('greet', 'Greet a user', z.object({ name: z.string() }), handler);
++ server.tool('greet', 'Greet a user', { name: z.string() }, handler);
+```
+
+In **v2** the contract inverts: `registerTool()` takes a config object whose `inputSchema` is a
+[Standard Schema](https://standardschema.dev/) object such as `z.object({ name: z.string() })`.
+The [v1 to v2 migration guide](./migration/upgrade-to-v2.md#standard-schema-objects-raw-shapes-deprecated)
+covers the full call-shape change.
+
 ## `ReferenceError: crypto is not defined`
 
 The OAuth client helpers sign and verify through the Web Crypto API at `globalThis.crypto`. Every `@modelcontextprotocol/*` package requires Node.js 20, where that global is always defined — this error means the process is running on an older runtime (Node.js 18 and earlier).
@@ -172,6 +197,7 @@ HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so cli
 - Every heading on this page is the exact message you searched for.
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
+- v1 positional `server.tool()` takes a raw Zod shape; a `z.object()` there publishes an empty schema (or crashes `registerTool()` with `reading '_def'`). v2 `registerTool()` takes a Standard Schema object.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
