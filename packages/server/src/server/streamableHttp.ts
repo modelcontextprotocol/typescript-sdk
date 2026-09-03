@@ -369,14 +369,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return undefined;
         }
         const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
-        const result = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
-        return result === undefined
-            ? undefined
-            : createScopeChallengeResponse(
-                  result.challenge,
-                  messages.length === 1 ? result.requestId : null,
-                  scopeChallengeResourceMetadataUrl(authInfo)
-              );
+        const challenge = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
+        return challenge === undefined ? undefined : createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));
     }
 
     /**

@@ -6,7 +6,7 @@ import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp';
 import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
-import { requireScopes } from '../../src/server/scopeChallenge';
+import { createScopeChallengeResponse, requireScopes } from '../../src/server/scopeChallenge';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 const RESOURCE_METADATA_URL = 'https://auth.example.com/.well-known/oauth-protected-resource';
@@ -47,6 +47,25 @@ describe('requireScopes', () => {
         for (const scope of ['repo read', 'repo"read', String.raw`repo\read`, 'repo:read🚀']) {
             expect(() => requireScopes(scope)).toThrow('scope-token grammar');
         }
+    });
+});
+
+describe('createScopeChallengeResponse', () => {
+    it('uses an OAuth error body rather than a JSON-RPC Invalid Request error', async () => {
+        const response = createScopeChallengeResponse(
+            { scopes: ['repo:write'], errorDescription: 'Write access is required' },
+            RESOURCE_METADATA_URL
+        );
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toBe(
+            'Bearer error="insufficient_scope", error_description="Write access is required", scope="repo:write"' +
+                `, resource_metadata="${RESOURCE_METADATA_URL}"`
+        );
+        expect(await response.json()).toEqual({
+            error: 'insufficient_scope',
+            error_description: 'Write access is required'
+        });
     });
 });
 
@@ -159,7 +178,10 @@ describe('legacy Streamable HTTP scope preflight', () => {
         );
 
         expect(response.status).toBe(403);
-        expect(((await response.json()) as { id: unknown }).id).toBeNull();
+        expect(await response.json()).toEqual({
+            error: 'insufficient_scope',
+            error_description: 'Insufficient scope'
+        });
         expect(callback).toHaveBeenCalledTimes(1);
         expect(harness.calls).not.toHaveBeenCalled();
         await harness.transport.close();

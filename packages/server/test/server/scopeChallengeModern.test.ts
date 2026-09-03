@@ -86,6 +86,10 @@ describe('createMcpHandler scope preflight', () => {
         expect(response.headers.get('WWW-Authenticate')).toBe(
             'Bearer error="insufficient_scope", error_description="Insufficient scope", scope="repo:write"'
         );
+        expect(await response.json()).toEqual({
+            error: 'insufficient_scope',
+            error_description: 'Insufficient scope'
+        });
         expect(callback).toHaveBeenCalledWith({
             request: expect.objectContaining({
                 method: 'tools/call',

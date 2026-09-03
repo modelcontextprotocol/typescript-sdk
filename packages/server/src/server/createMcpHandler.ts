@@ -840,10 +840,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // or the token's RFC 8707 resource identifier) and omitted otherwise.
         if (route.messageKind === 'request' && product instanceof McpServer) {
             try {
-                const result = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
-                if (result !== undefined) {
+                const challenge = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
+                if (challenge !== undefined) {
                     void product.close().catch(reportError);
-                    return createScopeChallengeResponse(result.challenge, result.requestId, scopeChallengeResourceMetadataUrl(authInfo));
+                    return createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));
                 }
             } catch (error) {
                 void product.close().catch(reportError);

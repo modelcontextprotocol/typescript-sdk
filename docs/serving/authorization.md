@@ -121,7 +121,7 @@ The per-request factory itself receives the same value as `ctx.authInfo`, so it 
 
 `requiredScopes` gates the whole endpoint. For scope step-up on an individual tool call, resource read, or prompt retrieval, set `scopeChallenge` on its registration — no handler or transport configuration is needed. The callback receives the full parsed request and verified `authInfo`. Return `undefined` to continue, or return the exact, complete scope set to send `403 insufficient_scope` before invocation or SSE. Throwing or rejecting fails closed.
 
-The challenge's `WWW-Authenticate` header is built by the same formatter as `requireBearerAuth`'s own `401`/`403` answers, and its `resource_metadata` parameter comes from the verified `AuthInfo`: the gate stamps its configured `resourceMetadataUrl` onto the `AuthInfo` it returns, so the metadata URL is configured exactly once — on `requireBearerAuth`. Without a stamped value the parameter falls back to the well-known location for the token's RFC 8707 `resource` identifier, or is omitted.
+The challenge uses the same OAuth `insufficient_scope` JSON body and `WWW-Authenticate` formatter as `requireBearerAuth`'s own `403` answer. Its `resource_metadata` parameter comes from the verified `AuthInfo`: the gate stamps its configured `resourceMetadataUrl` onto the `AuthInfo` it returns, so the metadata URL is configured exactly once — on `requireBearerAuth`. Without a stamped value the parameter falls back to the well-known location for the token's RFC 8707 `resource` identifier, or is omitted.
 
 Use `requireScopes` for a static exact all-of check. Use a callback when the required scope set depends on the request:
 
