@@ -56,6 +56,10 @@ export type StdioServerParameters = {
      * (POSIX) and `close()` signals the whole group; on Windows the tree is torn down with
      * `taskkill /T /F`.
      *
+     * Note: this only runs when `close()` is actually invoked — a host killed with
+     * SIGKILL cannot trigger it, so this is a teardown convenience, not a lifetime
+     * guarantee.
+     *
      * Defaults to `false`, preserving the current signal-propagation behaviour.
      */
     killProcessTree?: boolean;
