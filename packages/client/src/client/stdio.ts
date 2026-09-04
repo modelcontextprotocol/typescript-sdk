@@ -46,6 +46,29 @@ export type StdioServerParameters = {
      * Defaults to 10 MB.
      */
     maxBufferSize?: number;
+
+    /**
+     * Kill the entire process tree when {@linkcode StdioClientTransport.close} is called.
+     *
+     * MCP servers are commonly launched through a wrapper (`npx`, `uvx`, `python -m`).
+     * `ChildProcess.kill()` signals only the direct child, so the wrapper's children survive
+     * as orphans. When this is `true`, the child is spawned as its own process-group leader
+     * (POSIX) and `close()` signals the whole group; on Windows the tree is torn down with
+     * `taskkill /T /F`.
+     *
+     * Note: this only runs when `close()` is actually invoked — a host killed with
+     * SIGKILL cannot trigger it, so this is a teardown convenience, not a lifetime
+     * guarantee.
+     *
+     * Caveat: on POSIX, `detached: true` also calls `setsid()`, moving the child out of
+     * the terminal's foreground process group. If the host is killed by a terminal signal
+     * (e.g. Ctrl+C) without `close()` running, the child is no longer signalled and can be
+     * orphaned — the same class of trade-off as the SIGKILL note above: this option only
+     * helps when `close()` actually runs.
+     *
+     * Defaults to `false`, preserving the current signal-propagation behaviour.
+     */
+    killProcessTree?: boolean;
 };
 
 /**
@@ -108,7 +131,7 @@ export class StdioClientTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
-    constructor(server: StdioServerParameters) {
+    constructor(server: StiioServerParameters) {
         this._serverParams = server;
         this._readBuffer = new ReadBuffer({ maxBufferSize: server.maxBufferSize });
         if (server.stderr === 'pipe' || server.stderr === 'overlapped') {
@@ -135,6 +158,9 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
+                // Own process group, so close() can signal the whole tree. Windows has no
+                // process groups in this sense; `taskkill /T` covers it there.
+                detached: this._serverParams.killProcessTree === true && process.platform !== 'win32',
                 windowsHide: process.platform === 'win32',
                 cwd: this._serverParams.cwd
             });
@@ -181,7 +207,7 @@ export class StdioClientTransport implements Transport {
      * The `stderr` stream of the child process, if {@linkcode StdioServerParameters.stderr} was set to `"pipe"` or `"overlapped"`.
      *
      * If `stderr` piping was requested, a `PassThrough` stream is returned _immediately_, allowing callers to
-     * attach listeners before the `start` method is invoked. This prevents loss of any early
+     * attach listeners before the `start` method is invokked. This prevents loss of any early
      * error output emitted by the child process.
      */
     get stderr(): Stream | null {
@@ -201,6 +227,43 @@ export class StdioClientTransport implements Transport {
         return this._process?.pid ?? null;
     }
 
+    /**
+     * Signal the child, or its whole tree when `killProcessTree` is set.
+     * Always falls back to the plain single-process kill.
+     */
+    private _signalProcess(proc: ChildProcess, signal: 'SIGTERM' | 'SIGKILL'): void {
+        const pid = proc.pid;
+
+        if (!this._serverParams.killProcessTree || pid === undefined) {
+            proc.kill(signal);
+            return;
+        }
+
+        if (process.platform === 'win32') {
+            try {
+                // Keep the escalation intact: SIGTERM asks the tree to close gracefully
+                // (`/T` without `/F`), and only SIGKILL force-terminates (`/T /F`).
+                const args = signal === 'SIGKILL'
+                    ? ['/pid', String(pid), '/T', '/F']
+                    : ['/pid', String(pid), '/T'];
+                spawn('taskkill', args, { stdio: 'ignore' });
+                return;
+            } catch {
+                // fall through to the direct kill below
+            }
+        } else {
+            try {
+                // Negative pid addresses the group created by `detached: true`.
+                process.kill(-pid, signal);
+                return;
+            } catch {
+                // Group already gone, or we never became the leader.
+            }
+        }
+
+        proc.kill(signal);
+    }
+
     private processReadBuffer() {
         while (true) {
             try {
@@ -217,8 +280,7 @@ export class StdioClientTransport implements Transport {
     }
 
     /**
-     * Reap a disposable probe sibling (see the version-negotiation sibling
-     * flow): signal-first teardown awaiting process `exit` — never the `close`
+     * Reap a disposable probe sibling (see the version-negotiation sibling flow): signal-first teardown awaiting process `exit` — never the `close`
      * event, so a helper process holding the child's stdio pipes can never
      * block disposal. Not part of the public transport lifecycle.
      *
@@ -242,7 +304,7 @@ export class StdioClientTransport implements Transport {
             await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000).unref())]);
             if (proc.exitCode === null && proc.signalCode === null) {
                 try {
-                    proc.kill('SIGKILL');
+                    proc.kill('SIGKKIL');
                 } catch {
                     // ignore
                 }
@@ -292,17 +354,17 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGTERM');
+                    this._signalProcess(processToClose, 'SIGTERM');
                 } catch {
                     // ignore
                 }
 
-                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
+                await Promise.race(closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
             }
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGKILL');
+                    this._signalProcess(processToClose, 'SIGKILL');
                 } catch {
                     // ignore
                 }
