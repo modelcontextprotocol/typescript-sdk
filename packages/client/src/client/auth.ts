@@ -30,6 +30,9 @@ import {
 import pkceChallenge from 'pkce-challenge';
 
 import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
+import type { DpopSession } from './dpop';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
+import type { withDpopFromProvider, withOAuth } from './middleware';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
 export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
@@ -206,6 +209,12 @@ export async function handleOAuthUnauthorized(
  * not in scope. Providers that key storage on `ctx.issuer` MUST treat `ctx === undefined`
  * as "return the most-recently-saved token set" (the only consumer is the resource server
  * the token was minted for); providers that round-trip a single blob need no change.
+ *
+ * SEP-1932 (DPoP) note: DPoP request-signing is deliberately *not* done here. When the provider
+ * implements {@linkcode OAuthClientProvider.dpop | dpop()}, the transports wrap their
+ * resource-server `fetch` with {@linkcode withDpopFromProvider}, which upgrades the `Bearer` header
+ * this adapter produces to `DPoP` + proof for DPoP-bound tokens and handles nonce challenges — at
+ * the one layer that sees the real method, URL and response of every request.
  */
 export function adaptOAuthProvider(
     provider: OAuthClientProvider,
@@ -340,6 +349,28 @@ export interface OAuthClientProvider {
      * @param metadata - Optional OAuth metadata for the server, which may include supported authentication methods
      */
     addClientAuthentication?: AddClientAuthentication;
+
+    /**
+     * Enables DPoP (RFC 9449 / SEP-1932) sender-constrained tokens when implemented. When this
+     * resolves to a {@linkcode DpopSession}, {@linkcode auth} signs a DPoP proof into the token
+     * request, and the transports (and {@linkcode withOAuth}) present a resulting `token_type: DPoP`
+     * access token with the `DPoP` Authorization scheme plus a fresh per-request proof instead of
+     * `Bearer`, by wrapping their resource-server `fetch` with {@linkcode withDpopFromProvider}.
+     *
+     * Return the *same* session across calls — the AS/RS nonce state and signing key it holds are
+     * meant to persist for the life of this client registration. A minimal implementation:
+     * ```typescript
+     * class MyProvider implements OAuthClientProvider {
+     *     private _dpop = DpopSession.create();
+     *     dpop() { return this._dpop; }
+     *     // ...
+     * }
+     * ```
+     *
+     * Left undefined (the default), the provider behaves exactly as before this option existed:
+     * plain Bearer tokens throughout.
+     */
+    dpop?(): DpopSession | undefined | Promise<DpopSession | undefined>;
 
     /**
      * If defined, overrides the selection and validation of the
@@ -1025,7 +1056,11 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 await provider.invalidateCredentials?.('client');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
-            } else if (error.code === OAuthErrorCode.InvalidGrant) {
+            } else if (error.code === OAuthErrorCode.InvalidGrant || error.code === OAuthErrorCode.InvalidDpopProof) {
+                // invalid_dpop_proof on refresh typically means the stored refresh token is bound
+                // (RFC 9449 §5) to a DPoP key this process no longer holds — e.g. a non-extractable
+                // key regenerated across a restart. Like invalid_grant, the token set is unusable;
+                // drop it and fall through to a fresh authorization.
                 warnCredentialInvalidation(provider, error, 'tokens');
                 await provider.invalidateCredentials?.('tokens');
                 return await authInternal(provider, options);
@@ -1208,11 +1243,17 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    // Send the metadata's resource indicator verbatim: `selectResourceURL` returns a parsed
+    // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
+    // which exact-match authorization servers reject (#1968). A URL returned by the
+    // provider's own `validateResourceURL` is used as returned.
+    const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: string | URL | undefined =
+        selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
-        await provider.saveResourceUrl?.(String(resource));
+        await provider.saveResourceUrl?.(resourceIndicatorToString(resource));
     }
 
     // Scope selection used consistently for DCR and the authorization request.
@@ -1346,6 +1387,7 @@ async function authInternal(
                 scope: tokens.scope || undefined,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
+                dpop: await provider.dpop?.(),
                 fetchFn
             });
         } catch (error) {
@@ -1435,6 +1477,17 @@ export function isHttpsUrl(value?: string): boolean {
     }
 }
 
+/**
+ * Selects the RFC 8707 resource indicator for an MCP server: the provider's
+ * {@linkcode OAuthClientProvider.validateResourceURL | validateResourceURL} result when
+ * implemented, otherwise the protected resource metadata's `resource` (checked against the
+ * server URL with `checkResourceAllowed`), or `undefined` when there is no metadata.
+ *
+ * The result is a parsed `URL`, so a pathless indicator such as `https://example.com` has
+ * the `href` `https://example.com/`. {@linkcode auth} therefore sends the metadata string
+ * verbatim instead of this URL's `href` (#1968); callers that emit the `resource`
+ * parameter themselves should do the same.
+ */
 export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
@@ -1460,9 +1513,17 @@ export async function selectResourceURL(
     return new URL(resourceMetadata.resource);
 }
 
+/** Auth-scheme challenge tokens {@linkcode extractWWWAuthenticateParams} recognizes. */
+const RECOGNIZED_CHALLENGE_SCHEMES = new Set(['bearer', 'dpop']);
+
 /**
  * Extract `resource_metadata`, `scope`, `error`, and `error_description` from a
  * `WWW-Authenticate` header.
+ *
+ * Recognizes both the `Bearer` scheme (RFC 6750) and the `DPoP` scheme (RFC 9449 §7.1,
+ * SEP-1932) — a DPoP-protected resource's challenge carries the same parameters under `DPoP`
+ * instead of `Bearer`, and this must still surface `resource_metadata`/`scope` from it for
+ * discovery and SEP-2350 step-up to work against such a resource.
  */
 export function extractWWWAuthenticateParams(res: Response): {
     resourceMetadataUrl?: URL;
@@ -1476,7 +1537,7 @@ export function extractWWWAuthenticateParams(res: Response): {
     }
 
     const [type, scheme] = authenticateHeader.split(' ');
-    if (type?.toLowerCase() !== 'bearer' || !scheme) {
+    if (!type || !RECOGNIZED_CHALLENGE_SCHEMES.has(type.toLowerCase()) || !scheme) {
         return {};
     }
 
@@ -1999,6 +2060,10 @@ export async function discoverOAuthServerInfo(
     };
 }
 
+function resourceIndicatorToString(resource: string | URL): string {
+    return typeof resource === 'string' ? resource : resource.href;
+}
+
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
@@ -2017,7 +2082,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: string | URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2065,7 +2130,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', resourceIndicatorToString(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2107,13 +2172,21 @@ export async function executeTokenRequest(
         clientInformation,
         addClientAuthentication,
         resource,
+        dpop,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: string | URL;
+        /**
+         * SEP-1932 / RFC 9449 §5: when set, signs a DPoP proof into the token request's `DPoP`
+         * header — the prerequisite for obtaining a DPoP-bound access token. On a `400
+         * use_dpop_nonce` challenge (RFC 9449 §8) the request is retried exactly once with a
+         * fresh proof carrying the server-supplied nonce.
+         */
+        dpop?: DpopSession;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2125,22 +2198,53 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', resourceIndicatorToString(resource));
     }
 
-    if (addClientAuthentication) {
-        await addClientAuthentication(headers, tokenRequestParams, tokenUrl, metadata);
-    } else if (clientInformation) {
+    if (!addClientAuthentication && clientInformation) {
         const supportedMethods = metadata?.token_endpoint_auth_methods_supported ?? [];
         const authMethod = selectClientAuthMethod(clientInformation, supportedMethods);
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
     }
 
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
-        method: 'POST',
-        headers,
-        body: tokenRequestParams
-    });
+    const requestOnce = async (): Promise<Response> => {
+        const requestHeaders = new Headers(headers);
+        // Per attempt, not once up front: a `private_key_jwt` client_assertion carries a one-time
+        // `jti` (RFC 7521 §5.2), so the DPoP nonce retry below must mint a fresh one, not replay it.
+        if (addClientAuthentication) {
+            await addClientAuthentication(requestHeaders, tokenRequestParams, tokenUrl, metadata);
+        }
+        if (dpop) {
+            // No `ath`: RFC 9449 §4.3 step 12a only binds a proof to an access token when one is
+            // presented, and the token request is presenting credentials to *obtain* one.
+            requestHeaders.set('DPoP', await dpop.buildProof({ htm: 'POST', htu: tokenUrl }));
+        }
+        return (fetchFn ?? fetch)(tokenUrl, {
+            method: 'POST',
+            headers: requestHeaders,
+            body: tokenRequestParams
+        });
+    };
+
+    let response = await requestOnce();
+
+    // RFC 9449 §8: the AS may answer with `400 { error: "use_dpop_nonce" }` + `DPoP-Nonce`; a
+    // conformant client retries the token request once with a fresh proof carrying that nonce
+    // (buildProof picks it up automatically via the session's remembered nonce for this origin).
+    // Peek the body via a clone so a non-nonce 400 still flows into parseErrorResponse below with
+    // an unconsumed body.
+    if (dpop && response.status === 400) {
+        const challenge = (await response
+            .clone()
+            .json()
+            .catch(() => {})) as { error?: string } | undefined;
+        if (challenge?.error === OAuthErrorCode.UseDpopNonce) {
+            dpop.observeNonce(response, tokenUrl);
+            response = await requestOnce();
+        }
+    }
+    // RFC 9449 §8.2: newest-wins nonce capture applies to any response, success included.
+    dpop?.observeNonce(response, tokenUrl);
 
     if (!response.ok) {
         throw await parseErrorResponse(response);
@@ -2183,6 +2287,7 @@ export async function exchangeAuthorization(
         redirectUri,
         resource,
         addClientAuthentication,
+        dpop,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
@@ -2196,8 +2301,10 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
+        dpop?: DpopSession;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2215,6 +2322,7 @@ export async function exchangeAuthorization(
         clientInformation,
         addClientAuthentication,
         resource,
+        dpop,
         fetchFn
     });
 }
@@ -2240,6 +2348,7 @@ export async function refreshAuthorization(
         scope,
         resource,
         addClientAuthentication,
+        dpop,
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
@@ -2257,8 +2366,10 @@ export async function refreshAuthorization(
          * the client application is also the resource (#2718).
          */
         scope?: string;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
+        /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
+        dpop?: DpopSession;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2281,6 +2392,7 @@ export async function refreshAuthorization(
         clientInformation,
         addClientAuthentication,
         resource,
+        dpop,
         fetchFn
     });
 
@@ -2330,7 +2442,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: string | URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**
@@ -2381,6 +2493,7 @@ export async function fetchToken(
         clientInformation: clientInformation ?? undefined,
         addClientAuthentication: provider.addClientAuthentication,
         resource,
+        dpop: await provider.dpop?.(),
         fetchFn
     });
 }
