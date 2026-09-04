@@ -1,5 +1,6 @@
 import {
     CallToolResultSchema,
+    CancelledNotificationSchema,
     InitializedNotificationSchema,
     InitializeRequestSchema,
     JSONRPCErrorResponseSchema,
@@ -12,6 +13,7 @@ import {
 } from './schemas';
 import type {
     CallToolResult,
+    CancelledNotification,
     CompleteRequest,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -124,6 +126,9 @@ export const isInitializeRequest = (value: unknown): value is InitializeRequest 
 
 export const isInitializedNotification = (value: unknown): value is InitializedNotification =>
     InitializedNotificationSchema.safeParse(value).success;
+
+export const isCancelledNotification = (value: unknown): value is CancelledNotification =>
+    CancelledNotificationSchema.safeParse(value).success;
 
 export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt {
     if (request.params.ref.type !== 'ref/prompt') {
