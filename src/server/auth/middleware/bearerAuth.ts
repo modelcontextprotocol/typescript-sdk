@@ -15,7 +15,11 @@ export type BearerAuthMiddlewareOptions = {
     requiredScopes?: string[];
 
     /**
-     * Optional resource metadata URL to include in WWW-Authenticate header.
+     * Resource metadata URL to advertise in the `WWW-Authenticate` challenge on 401/403
+     * responses (RFC 9728 §5.1). The MCP authorization spec requires MCP servers to send it, so
+     * pass `getOAuthProtectedResourceMetadataUrl(mcpServerUrl)` for any protected MCP endpoint.
+     * When omitted, clients must guess the well-known location and strict clients can fail
+     * discovery; leave it out only for non-MCP or legacy deployments.
      */
     resourceMetadataUrl?: string;
 };
