@@ -3049,6 +3049,207 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        describe('concurrent auth deduplication', () => {
+            const configureRefresh = (tokenResponse: (body: URLSearchParams) => Promise<Response> | Response): void => {
+                mockFetch.mockImplementation((url, init) => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve(
+                            Response.json({
+                                resource: 'https://api.example.com/mcp-server',
+                                authorization_servers: ['https://auth.example.com']
+                            })
+                        );
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve(
+                            Response.json({
+                                issuer: 'https://auth.example.com',
+                                authorization_endpoint: 'https://auth.example.com/authorize',
+                                token_endpoint: 'https://auth.example.com/token',
+                                response_types_supported: ['code'],
+                                code_challenge_methods_supported: ['S256']
+                            })
+                        );
+                    }
+                    if (urlString.includes('/token')) {
+                        return Promise.resolve(tokenResponse(init?.body as URLSearchParams));
+                    }
+                    return Promise.resolve(Response.json({}, { status: 404 }));
+                });
+                (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+                (mockProvider.tokens as Mock).mockResolvedValue({
+                    access_token: 'expired-access',
+                    refresh_token: 'current-refresh',
+                    issuer: 'https://auth.example.com'
+                });
+                (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+                (mockProvider.codeVerifier as Mock).mockResolvedValue('test-verifier');
+            };
+
+            it('deduplicates concurrent refreshes for the same provider', async () => {
+                let tokenRequests = 0;
+                let release!: () => void;
+                const gate = new Promise<void>(resolve => {
+                    release = resolve;
+                });
+                configureRefresh(async () => {
+                    tokenRequests++;
+                    await gate;
+                    return Response.json({
+                        access_token: 'new-access',
+                        refresh_token: 'new-refresh',
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    });
+                });
+
+                const requests = [
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+                ];
+                release();
+
+                await expect(Promise.all(requests)).resolves.toEqual(['AUTHORIZED', 'AUTHORIZED', 'AUTHORIZED']);
+                expect(tokenRequests).toBe(1);
+                expect(mockProvider.saveTokens).toHaveBeenCalledTimes(1);
+            });
+
+            it('allows a new refresh after the previous one completes', async () => {
+                let tokenRequests = 0;
+                configureRefresh(() => {
+                    tokenRequests++;
+                    return Response.json({
+                        access_token: `access-${tokenRequests}`,
+                        refresh_token: `refresh-${tokenRequests}`,
+                        token_type: 'Bearer',
+                        expires_in: 3600
+                    });
+                });
+
+                await auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+                await auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+
+                expect(tokenRequests).toBe(2);
+            });
+
+            it('does not coalesce an authorization-code exchange with an in-flight refresh', async () => {
+                let releaseRefresh!: () => void;
+                let refreshStarted!: () => void;
+                const refreshGate = new Promise<void>(resolve => {
+                    releaseRefresh = resolve;
+                });
+                const started = new Promise<void>(resolve => {
+                    refreshStarted = resolve;
+                });
+                let codeRequests = 0;
+                configureRefresh(async body => {
+                    if (body.get('grant_type') === 'refresh_token') {
+                        refreshStarted();
+                        await refreshGate;
+                    } else {
+                        codeRequests++;
+                    }
+                    return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'Bearer' });
+                });
+
+                const refresh = auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+                await started;
+                const codeExchange = auth(mockProvider, {
+                    serverUrl: 'https://api.example.com/mcp-server',
+                    authorizationCode: 'auth-code'
+                });
+
+                await expect(codeExchange).resolves.toBe('AUTHORIZED');
+                expect(codeRequests).toBe(1);
+                releaseRefresh();
+                await expect(refresh).resolves.toBe('AUTHORIZED');
+            });
+
+            it('does not coalesce forced reauthorization with an in-flight refresh', async () => {
+                let releaseRefresh!: () => void;
+                let refreshStarted!: () => void;
+                const refreshGate = new Promise<void>(resolve => {
+                    releaseRefresh = resolve;
+                });
+                const started = new Promise<void>(resolve => {
+                    refreshStarted = resolve;
+                });
+                configureRefresh(async body => {
+                    if (body.get('grant_type') === 'refresh_token') {
+                        refreshStarted();
+                        await refreshGate;
+                    }
+                    return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'Bearer' });
+                });
+
+                const refresh = auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+                await started;
+                await expect(
+                    auth(mockProvider, {
+                        serverUrl: 'https://api.example.com/mcp-server',
+                        forceReauthorization: true
+                    })
+                ).resolves.toBe('REDIRECT');
+                expect(mockProvider.redirectToAuthorization).toHaveBeenCalledTimes(1);
+                releaseRefresh();
+                await expect(refresh).resolves.toBe('AUTHORIZED');
+            });
+
+            it('does not deduplicate different providers', async () => {
+                let tokenRequests = 0;
+                configureRefresh(() => {
+                    tokenRequests++;
+                    return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'Bearer' });
+                });
+                const otherProvider: OAuthClientProvider = {
+                    ...mockProvider,
+                    clientInformation: vi.fn().mockResolvedValue({ client_id: 'other-client', client_secret: 'other-secret' }),
+                    tokens: vi.fn().mockResolvedValue({
+                        access_token: 'other-expired-access',
+                        refresh_token: 'other-current-refresh',
+                        issuer: 'https://auth.example.com'
+                    }),
+                    saveTokens: vi.fn().mockResolvedValue(undefined)
+                };
+
+                await expect(
+                    Promise.all([
+                        auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                        auth(otherProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+                    ])
+                ).resolves.toEqual(['AUTHORIZED', 'AUTHORIZED']);
+                expect(tokenRequests).toBe(2);
+            });
+
+            it('propagates one refresh failure to every concurrent caller', async () => {
+                const persistError = new Error('credential store unavailable');
+                let tokenRequests = 0;
+                configureRefresh(() => {
+                    tokenRequests++;
+                    return Response.json({ access_token: 'new-access', refresh_token: 'new-refresh', token_type: 'Bearer' });
+                });
+                (mockProvider.saveTokens as Mock).mockRejectedValueOnce(persistError);
+
+                const results = await Promise.allSettled([
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })
+                ]);
+
+                expect(results).toEqual([
+                    { status: 'rejected', reason: persistError },
+                    { status: 'rejected', reason: persistError },
+                    { status: 'rejected', reason: persistError }
+                ]);
+                expect(tokenRequests).toBe(1);
+
+                await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('AUTHORIZED');
+                expect(tokenRequests).toBe(2);
+            });
+        });
+
         // The #2034 tests below differ only in how the token endpoint answers, so the
         // discovery fixture is shared. `tokenResponse` is invoked per POST to /token.
         const mockDiscoveryWithTokenEndpoint = (tokenResponse: () => unknown): void => {
