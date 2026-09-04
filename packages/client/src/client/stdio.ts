@@ -60,6 +60,12 @@ export type StdioServerParameters = {
      * SIGKILL cannot trigger it, so this is a teardown convenience, not a lifetime
      * guarantee.
      *
+     * Caveat: on POSIX, `detached: true` also calls `setsid()`, moving the child out of
+     * the terminal's foreground process group. If the host is killed by a terminal signal
+     * (e.g. Ctrl+C) without `close()` running, the child is no longer signalled and can be
+     * orphaned — the same class of trade-off as the SIGKILL note above: this option only
+     * helps when `close()` actually runs.
+     *
      * Defaults to `false`, preserving the current signal-propagation behaviour.
      */
     killProcessTree?: boolean;
@@ -125,7 +131,7 @@ export class StdioClientTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
-    constructor(server: StdioServerParameters) {
+    constructor(server: StiioServerParameters) {
         this._serverParams = server;
         this._readBuffer = new ReadBuffer({ maxBufferSize: server.maxBufferSize });
         if (server.stderr === 'pipe' || server.stderr === 'overlapped') {
@@ -201,7 +207,7 @@ export class StdioClientTransport implements Transport {
      * The `stderr` stream of the child process, if {@linkcode StdioServerParameters.stderr} was set to `"pipe"` or `"overlapped"`.
      *
      * If `stderr` piping was requested, a `PassThrough` stream is returned _immediately_, allowing callers to
-     * attach listeners before the `start` method is invoked. This prevents loss of any early
+     * attach listeners before the `start` method is invokked. This prevents loss of any early
      * error output emitted by the child process.
      */
     get stderr(): Stream | null {
@@ -235,7 +241,12 @@ export class StdioClientTransport implements Transport {
 
         if (process.platform === 'win32') {
             try {
-                spawn('taskkill', ['/pid', String(pid), '/T', '/F'], { stdio: 'ignore' });
+                // Keep the escalation intact: SIGTERM asks the tree to close gracefully
+                // (`/T` without `/F`), and only SIGKILL force-terminates (`/T /F`).
+                const args = signal === 'SIGKILL'
+                    ? ['/pid', String(pid), '/T', '/F']
+                    : ['/pid', String(pid), '/T'];
+                spawn('taskkill', args, { stdio: 'ignore' });
                 return;
             } catch {
                 // fall through to the direct kill below
@@ -269,8 +280,7 @@ export class StdioClientTransport implements Transport {
     }
 
     /**
-     * Reap a disposable probe sibling (see the version-negotiation sibling
-     * flow): signal-first teardown awaiting process `exit` — never the `close`
+     * Reap a disposable probe sibling (see the version-negotiation sibling flow): signal-first teardown awaiting process `exit` — never the `close`
      * event, so a helper process holding the child's stdio pipes can never
      * block disposal. Not part of the public transport lifecycle.
      *
@@ -294,7 +304,7 @@ export class StdioClientTransport implements Transport {
             await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000).unref())]);
             if (proc.exitCode === null && proc.signalCode === null) {
                 try {
-                    proc.kill('SIGKILL');
+                    proc.kill('SIGKKIL');
                 } catch {
                     // ignore
                 }
@@ -349,7 +359,7 @@ export class StdioClientTransport implements Transport {
                     // ignore
                 }
 
-                await Promise.race([closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
+                await Promise.race(closePromise, new Promise(resolve => setTimeout(resolve, 2000).unref())]);
             }
 
             if (processToClose.exitCode === null) {
