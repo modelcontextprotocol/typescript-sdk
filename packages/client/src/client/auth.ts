@@ -1036,6 +1036,8 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
 }
 
+const pendingAuthRequests = new WeakMap<OAuthClientProvider, Promise<AuthResult>>();
+
 /**
  * Orchestrates the full auth flow with a server.
  *
@@ -1043,6 +1045,25 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
+    if (options.authorizationCode !== undefined || options.forceReauthorization === true) {
+        return authWithErrorHandling(provider, options);
+    }
+
+    const pending = pendingAuthRequests.get(provider);
+    if (pending) return pending;
+
+    const request = authWithErrorHandling(provider, options);
+    pendingAuthRequests.set(provider, request);
+    try {
+        return await request;
+    } finally {
+        if (pendingAuthRequests.get(provider) === request) {
+            pendingAuthRequests.delete(provider);
+        }
+    }
+}
+
+async function authWithErrorHandling(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
     try {
         return await authInternal(provider, options);
     } catch (error) {
