@@ -271,6 +271,52 @@ describe('Zod v4', () => {
                 });
             });
 
+            it('should reject a duplicate in-flight request id before overwriting stream mapping', async () => {
+                let release!: () => void;
+                const gate = new Promise<void>(resolve => {
+                    release = resolve;
+                });
+                mcpServer.registerTool(
+                    'hold',
+                    { description: 'wait before returning', inputSchema: z.object({}) },
+                    async (): Promise<CallToolResult> => {
+                        await gate;
+                        return { content: [{ type: 'text', text: 'done' }] };
+                    }
+                );
+
+                sessionId = await initializeServer();
+
+                const duplicateId = 'duplicate-1';
+                const firstMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'hold', arguments: {} },
+                    id: duplicateId
+                };
+                const secondMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/list',
+                    params: {},
+                    id: duplicateId
+                };
+
+                let firstResponse: Response | undefined;
+                let secondResponse: Response | undefined;
+                try {
+                    firstResponse = await transport.handleRequest(createRequest('POST', firstMessage, { sessionId }));
+                    secondResponse = await transport.handleRequest(createRequest('POST', secondMessage, { sessionId }));
+
+                    expect(secondResponse.status).toBe(400);
+                    const errorData = await secondResponse.json();
+                    expectErrorResponse(errorData, -32_600, /already in flight/);
+                } finally {
+                    release();
+                    await firstResponse?.body?.cancel().catch(() => {});
+                    await secondResponse?.body?.cancel().catch(() => {});
+                }
+            });
+
             it('should reject requests without a valid session ID', async () => {
                 const request = createRequest('POST', TEST_MESSAGES.toolsList);
                 const response = await transport.handleRequest(request);
