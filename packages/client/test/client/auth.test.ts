@@ -3090,11 +3090,16 @@ describe('OAuth Authorization', () => {
             it('deduplicates concurrent refreshes for the same provider', async () => {
                 let tokenRequests = 0;
                 let release!: () => void;
+                let markStarted!: () => void;
+                const started = new Promise<void>(resolve => {
+                    markStarted = resolve;
+                });
                 const gate = new Promise<void>(resolve => {
                     release = resolve;
                 });
                 configureRefresh(async () => {
                     tokenRequests++;
+                    markStarted();
                     await gate;
                     return Response.json({
                         access_token: 'new-access',
@@ -3104,8 +3109,10 @@ describe('OAuth Authorization', () => {
                     });
                 });
 
+                const first = auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' });
+                await started;
                 const requests = [
-                    auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
+                    first,
                     auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' }),
                     auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })
                 ];
