@@ -283,6 +283,9 @@ describe('stamped-seam fault injection (identity-preserving auth outcomes, never
         expect(out.settled).toBe('rejected');
         expect(out.error).toBeInstanceOf(SdkError);
         expect((out.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        // The failure rides the standard cause chain (#2657); the legacy data.cause
+        // slot is kept populated for compatibility until it is removed.
+        expect((out.error as SdkError).cause).toBe(netError);
         expect(((out.error as SdkError).data as { cause?: unknown }).cause).toBe(netError);
     });
 });
