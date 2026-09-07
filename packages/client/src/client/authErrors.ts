@@ -132,7 +132,8 @@ export class RegistrationRejectedError extends OAuthClientFlowError {
 
 /**
  * Thrown by the token-exchange and refresh paths when the resolved token
- * endpoint is not `https:` and is not a loopback host (SEP-2207). This is a
+ * endpoint is not `https:` and is not a loopback host (MCP authorization spec,
+ * OAuth 2.1 §1.5). This is a
  * configuration error — re-authorizing cannot fix it — so it intentionally does
  * **not** extend `OAuthError` and `auth()`'s refresh branch rethrows it instead
  * of falling through to a fresh `/authorize` redirect.
