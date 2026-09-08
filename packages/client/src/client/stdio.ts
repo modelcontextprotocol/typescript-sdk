@@ -246,7 +246,14 @@ export class StdioClientTransport implements Transport {
                 const args = signal === 'SIGKILL'
                     ? ['/pid', String(pid), '/T', '/F']
                     : ['/pid', String(pid), '/T'];
-                spawn('taskkill', args, { stdio: 'ignore' });
+                const taskkill = spawn('taskkill', args, { stdio: 'ignore' });
+                // taskkill launch failures are delivered asynchronously via an
+                // 'error' event, which the try/catch above cannot intercept. Attach a
+                // listener so an unhandled 'error' cannot take the host process down;
+                // on failure we fall through to the direct kill below.
+                taskkill.on('error', () => {
+                    proc.kill(signal);
+                });
                 return;
             } catch {
                 // fall through to the direct kill below
