@@ -509,8 +509,8 @@ export class Client<
                 this._pendingListChangedConfig = undefined;
             }
         } catch (error) {
-            // Disconnect if initialization fails.
-            void this.close();
+            // Disconnect without delaying or replacing the initialization error if cleanup fails.
+            void this.close().catch(() => undefined);
             throw error;
         }
     }
