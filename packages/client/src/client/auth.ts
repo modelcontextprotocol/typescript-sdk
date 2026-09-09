@@ -58,6 +58,14 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /**
+     * Abort signal for the request (or transport) whose 401 triggered this
+     * recovery. The transport stops waiting for `onUnauthorized` when it
+     * aborts; cooperative implementations should pass it to their own fetches
+     * so the recovery work stops too. Optional — absent when the transport
+     * has no lifetime signal to offer.
+     */
+    signal?: AbortSignal;
 }
 
 /**

@@ -15,7 +15,8 @@ export type {
     OAuthClientInformationContext,
     OAuthClientProvider,
     OAuthDiscoveryState,
-    OAuthServerInfo
+    OAuthServerInfo,
+    UnauthorizedContext
 } from './client/auth';
 export {
     assertSecureTokenEndpoint,
