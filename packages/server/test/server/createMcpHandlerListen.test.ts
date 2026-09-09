@@ -13,13 +13,15 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
 } from '@modelcontextprotocol/core-internal';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { createMcpHandler } from '../../src/server/createMcpHandler';
 import { McpServer } from '../../src/server/mcp';
+import type { ServerEventBus } from '../../src/server/serverEventBus';
 
+const MODERN_REVISION = '2026-07-28';
 const ENVELOPE = {
-    [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+    [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
     [CLIENT_INFO_META_KEY]: { name: 'listen-test-client', version: '1.0.0' },
     [CLIENT_CAPABILITIES_META_KEY]: {}
 };
@@ -30,6 +32,7 @@ function listenRequest(id: string | number, filter: Record<string, unknown>): Re
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': MODERN_REVISION,
             'mcp-method': 'subscriptions/listen'
         },
         body: JSON.stringify({
@@ -105,6 +108,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
         );
         const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
         expect(response.status).toBe(200);
+        expect(response.headers.get('cache-control')).toBe('no-cache, no-transform');
         const [ack] = await readMessages(response, 1);
         // The factory is consulted exactly once (capabilities probe only); the
         // instance is never connected and is closed immediately after the
@@ -114,6 +118,44 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(closeCalls).toBe(1);
         expect((ack as { method: string }).method).toBe('notifications/subscriptions/acknowledged');
         await handler.close();
+    });
+
+    it.each([0.5, Number.NaN, Number.POSITIVE_INFINITY])('disables invalid keepAliveMs %s', async keepAliveMs => {
+        vi.useFakeTimers();
+        try {
+            const handler = createMcpHandler(trivialFactory(), { keepAliveMs });
+            const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
+            const reader = response.body!.getReader();
+            await reader.read();
+            expect(vi.getTimerCount()).toBe(0);
+            await reader.cancel();
+            await handler.close();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('cleans up when a custom bus unsubscribe throws', async () => {
+        vi.useFakeTimers();
+        try {
+            const onerror = vi.fn();
+            const bus: ServerEventBus = {
+                publish() {},
+                subscribe: () => () => {
+                    throw new Error('unsubscribe failed');
+                }
+            };
+            const handler = createMcpHandler(trivialFactory(), { bus, keepAliveMs: 1_000, onerror });
+            const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
+            const reader = response.body!.getReader();
+            await reader.read();
+            await reader.cancel();
+            expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'unsubscribe failed' }));
+            expect(vi.getTimerCount()).toBe(0);
+            await handler.close();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('ack is the first frame, stamped with the listen id verbatim, carrying the honored subset', async () => {
@@ -172,6 +214,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': MODERN_REVISION,
                     'mcp-method': 'subscriptions/listen'
                 },
                 body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: { _meta: ENVELOPE } })
@@ -208,7 +251,16 @@ describe('createMcpHandler — subscriptions/listen', () => {
         expect(resultFrame).toEqual({
             jsonrpc: '2.0',
             id: 1,
-            result: { resultType: 'complete', _meta: { 'io.modelcontextprotocol/subscriptionId': 1 } }
+            result: {
+                resultType: 'complete',
+                _meta: {
+                    'io.modelcontextprotocol/subscriptionId': 1,
+                    // #3002: the close result carries the serving instance's
+                    // identity like every other result (SubscriptionsListenResultMeta
+                    // extends ResultMetaObject).
+                    'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
+                }
+            }
         });
     });
 

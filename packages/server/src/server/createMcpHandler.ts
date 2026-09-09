@@ -31,6 +31,7 @@ import type {
     ClientCapabilities,
     Implementation,
     InboundClassificationOutcome,
+    InboundHttpRequest,
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
@@ -59,13 +60,15 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { invoke } from './invoke';
-import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
+import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
+import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
 import type { Server } from './server';
-import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server';
+import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
 import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
+import { DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
 
 /* ------------------------------------------------------------------------ *
@@ -194,11 +197,21 @@ export interface CreateMcpHandlerOptions {
      */
     maxSubscriptions?: number;
     /**
-     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
-     * in milliseconds. Set to `0` to disable.
+     * SSE comment-frame keepalive interval for every SSE stream this handler
+     * serves. In modern `auto` mode it starts after SSE upgrade. Set to `0` to disable.
      * @default 15000
      */
     keepAliveMs?: number;
+    /**
+     * Upper bound, in bytes, on a POST body the handler reads itself (the
+     * classification step and the stateless legacy leg). A body over the bound
+     * is answered `413` before anything is parsed or any server instance is
+     * created. Not applied to a body supplied as `parsedBody`. Must be a
+     * positive number. Hand-wired compositions routing on
+     * {@linkcode isLegacyRequest} pass the same value to the predicate.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -306,7 +319,12 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
  * The entry passes its own `onerror` here when expanding the default, so
  * legacy-leg failures are never silently swallowed.
  */
-export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
+function createLegacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    keepAliveMs?: number,
+    maxRequestBodySize?: number
+): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
@@ -317,7 +335,11 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 requestInfo: request
             });
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                ...(keepAliveMs !== undefined && { keepAliveMs }),
+                ...(maxRequestBodySize !== undefined && { maxRequestBodySize })
+            });
             await product.connect(transport);
 
             const teardown = () => {
@@ -390,14 +412,53 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
     };
 }
 
+/** Options for {@linkcode legacyStatelessFallback}. */
+export interface LegacyStatelessFallbackOptions {
+    /**
+     * Upper bound, in bytes, on a POST body the leg reads itself (not applied
+     * to a body supplied as `parsedBody`). Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
+}
+
+export function legacyStatelessFallback(
+    factory: McpServerFactory,
+    onerror?: (error: Error) => void,
+    options?: LegacyStatelessFallbackOptions
+): LegacyHttpHandler {
+    return createLegacyStatelessFallback(factory, onerror, undefined, resolveMaxRequestBodySize(options?.maxRequestBodySize));
+}
+
 /* ------------------------------------------------------------------------ *
  * The entry's classification step (shared with isLegacyRequest)
  * ------------------------------------------------------------------------ */
+
+/**
+ * Read the SEP-2243 standard request headers off the inbound request.
+ *
+ * Both halves of the standard-header story need them — the body-primary
+ * classifier for its cross-check cells, and
+ * {@linkcode validateStandardRequestHeaders} for the presence half — and a
+ * header read at one site but not the other is precisely how a required header
+ * goes unenforced: that divergence is what let a modern POST omitting
+ * `MCP-Protocol-Version` be served. Read them here once so a header added to
+ * {@linkcode InboundHttpRequest} reaches both sites together.
+ */
+function standardHeadersOf(request: Request): Omit<InboundHttpRequest, 'httpMethod' | 'body'> {
+    return {
+        protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
+        mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+        mcpNameHeader: request.headers.get('mcp-name') ?? undefined
+    };
+}
 
 /** The outcome of the entry's classification step for one inbound HTTP request. */
 type EntryClassification =
     /** The body bytes could not be read at all (a failing stream, not malformed JSON). */
     | { step: 'unreadable-body' }
+    /** A POST body over the size limit; nothing past the limit was read. */
+    | { step: 'body-too-large' }
     /** A POST with an empty or non-JSON body: nothing to classify, so there is no envelope claim. */
     | { step: 'no-json-body'; forwardRequest: Request }
     /** A classifiable request, with the classifier's routing outcome. */
@@ -414,7 +475,12 @@ type EntryClassification =
  * the body-preserving clone is then skipped and `forwardRequest` is the
  * (consumed) input request.
  */
-async function classifyEntryRequest(request: Request, providedParsedBody?: unknown, needsForward = true): Promise<EntryClassification> {
+async function classifyEntryRequest(
+    request: Request,
+    providedParsedBody?: unknown,
+    needsForward = true,
+    maxRequestBodySize: number = DEFAULT_MAX_REQUEST_BODY_SIZE
+): Promise<EntryClassification> {
     const httpMethod = request.method.toUpperCase();
 
     let body: unknown;
@@ -432,7 +498,11 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
             }
             let bodyText: string;
             try {
-                bodyText = await request.text();
+                const read = await readRequestBody(request, maxRequestBodySize);
+                if (read.tooLarge) {
+                    return { step: 'body-too-large' };
+                }
+                bodyText = read.text;
             } catch {
                 return { step: 'unreadable-body' };
             }
@@ -455,12 +525,21 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
 
     const outcome = classifyInboundRequest({
         httpMethod,
-        protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
-        mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-        mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
+        ...standardHeadersOf(request),
         ...(body !== undefined && { body })
     });
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
+}
+
+/** Options for {@linkcode isLegacyRequest}. */
+export interface IsLegacyRequestOptions {
+    /**
+     * The same `maxRequestBodySize` the handler the predicate routes for was
+     * created with, so the two read the body under one bound (a body over it
+     * classifies `false`; the modern handler answers `413`).
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -523,7 +602,8 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   answers it with the unsupported-protocol-version error), a malformed
  *   envelope behind a present claim (answered `-32602`), a request whose
  *   `MCP-Protocol-Version` header names a modern revision but that lacks the
- *   envelope (`-32602`), and header/body mismatches (`-32020`). Consumers
+ *   envelope (`-32602`), header/body mismatches (`-32020`), and a POST body
+ *   over the size limit (413). Consumers
  *   routing on the predicate must send `false` traffic to the modern handler,
  *   never to a legacy handler — the modern path owns those error answers.
  * - `server/discover` probes sent by negotiating clients always carry the
@@ -531,13 +611,14 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   a method named `server/discover` has no claim and classifies legacy,
  *   exactly as the entry itself routes it.
  */
-export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
+export async function isLegacyRequest(request: Request, parsedBody?: unknown, options?: IsLegacyRequestOptions): Promise<boolean> {
+    const maxRequestBodySize = resolveMaxRequestBodySize(options?.maxRequestBodySize);
     // Classify a clone so the caller's request body stays readable; with a
     // pre-parsed body (or a body-less method) nothing is read and no clone is
     // needed. The predicate never reads forwardRequest, so the classification
     // step's own forwarding clone is skipped.
     const probe = parsedBody === undefined && request.method.toUpperCase() === 'POST' ? request.clone() : request;
-    const classified = await classifyEntryRequest(probe, parsedBody, false);
+    const classified = await classifyEntryRequest(probe, parsedBody, false, maxRequestBodySize);
     return classified.step === 'no-json-body' || (classified.step === 'classified' && classified.outcome.kind === 'legacy');
 }
 
@@ -591,6 +672,7 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
+    const maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
 
     // Construction-time guard for JavaScript callers passing a handler as the
     // legacy value: the option only selects a posture ('stateless' | 'reject').
@@ -619,7 +701,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
-        keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
+        keepAliveMs: options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS,
         onerror: reportError
     });
     if (responseMode === 'json') {
@@ -632,7 +714,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
+    const legacyHandler: LegacyHttpHandler | undefined =
+        legacy === 'reject' ? undefined : createLegacyStatelessFallback(factory, reportError, options.keepAliveMs, maxRequestBodySize);
 
     async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
@@ -648,10 +731,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
         }
 
-        // SEP-2243 standard-header presence and `Mcp-Name` cross-check
+        // SEP-2243 standard-header presence (`MCP-Protocol-Version`,
+        // `Mcp-Method`) and `Mcp-Name` cross-check
         // (`standard-header-validation` rung; the `MCP-Protocol-Version` and
         // `Mcp-Method` *mismatch* cells are already answered inside
-        // `classifyInboundRequest` on the edge `era-classification` rung).
+        // `classifyInboundRequest` on the edge `era-classification` rung,
+        // which only cross-checks a protocol-version header that is present).
         // Evaluated after the supported-revision
         // gate so an envelope naming a revision this endpoint does not serve
         // is still answered with `-32022` (the supported list is the more
@@ -659,14 +744,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // before the capability gate, the factory call, and the
         // `Mcp-Param-*` rung so a request that fails several rungs is
         // answered by the standard-header rung first.
-        const stdHeaderRejection = validateStandardRequestHeaders(
-            {
-                httpMethod: request.method,
-                mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-                mcpNameHeader: request.headers.get('mcp-name') ?? undefined
-            },
-            route
-        );
+        const stdHeaderRejection = validateStandardRequestHeaders({ httpMethod: request.method, ...standardHeadersOf(request) }, route);
         if (stdHeaderRejection !== undefined) {
             reportError(new Error(`Rejected inbound request (${stdHeaderRejection.cell}): ${stdHeaderRejection.message}`));
             return rejectionResponse(stdHeaderRejection, echoableRequestId(route.message));
@@ -721,8 +799,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // middleware layer mounted in front of this entry.
         if (route.messageKind === 'request' && route.message.method === 'subscriptions/listen') {
             const capabilities = server.getCapabilities();
+            const serverInfo = serverIdentityOf(server);
             void product.close().catch(reportError);
-            return listenRouter.serve(route.message, request.signal, capabilities);
+            return listenRouter.serve(route.message, request.signal, capabilities, serverInfo);
         }
 
         // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder
@@ -777,7 +856,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(responseMode !== undefined && { responseMode })
+                ...(responseMode !== undefined && { responseMode }),
+                ...(options.keepAliveMs !== undefined && { keepAliveMs: options.keepAliveMs })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
@@ -838,10 +918,13 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
         }
 
-        const classified = await classifyEntryRequest(request, requestOptions?.parsedBody);
+        const classified = await classifyEntryRequest(request, requestOptions?.parsedBody, true, maxRequestBodySize);
 
         if (classified.step === 'unreadable-body') {
             return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body could not be read');
+        }
+        if (classified.step === 'body-too-large') {
+            return jsonRpcErrorResponse(413, -32_000, requestBodyTooLargeMessage(maxRequestBodySize));
         }
         if (classified.step === 'no-json-body') {
             // No JSON body to classify: there is no envelope claim, so this is

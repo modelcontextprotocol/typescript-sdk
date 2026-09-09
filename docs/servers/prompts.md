@@ -116,6 +116,47 @@ server.registerPrompt(
 
 The host hands the messages to the model in order, so the trailing `assistant` message becomes the start of its reply. `content` accepts the same union a tool result does: `text`, `image`, `audio`, `resource_link`, and `resource`.
 
+## Add an image to a message
+
+An `image` block carries base64 `data` and a `mimeType`; pair it with a `text` block that says what to do with the image.
+
+```ts source="../../examples/guides/servers/prompts.examples.ts#registerPrompt_image"
+server.registerPrompt(
+    'describe-image',
+    {
+        description: 'Describe an image for alt text',
+        argsSchema: z.object({ imageBase64: z.string().describe('Base64-encoded PNG') })
+    },
+    ({ imageBase64 }) => ({
+        messages: [
+            {
+                role: 'user' as const,
+                content: { type: 'image' as const, data: imageBase64, mimeType: 'image/png' }
+            },
+            {
+                role: 'user' as const,
+                content: { type: 'text' as const, text: 'Write one sentence of alt text for this image.' }
+            }
+        ]
+    })
+);
+```
+
+`prompts/get` returns the image block as the first message, bytes unchanged:
+
+```
+{
+  role: 'user',
+  content: {
+    type: 'image',
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    mimeType: 'image/png'
+  }
+}
+```
+
+`audio` takes the same shape: base64 `data` plus `mimeType`.
+
 ## Embed a resource in a message
 
 `type: 'resource'` puts a resource's contents inside a message. Register the resource as usual — see [Resources](./resources.md) — and embed the same `uri`, `mimeType`, and `text` in the prompt.
@@ -201,5 +242,5 @@ The client sends `completion/complete` with the characters typed so far; the SDK
 - `argsSchema` is one Zod object: the advertised argument list, argument validation, and the callback's argument types.
 - Arguments that fail the schema reject `prompts/get` with a `-32602` protocol error; the callback never runs.
 - The callback returns `{ messages }`; each message names a `role` and one `content` block.
-- A message can embed a registered resource's contents with `type: 'resource'`.
+- A message can carry an `image` (base64 `data` plus `mimeType`) or embed a registered resource's contents with `type: 'resource'`.
 - `completable()` adds per-argument autocompletion.

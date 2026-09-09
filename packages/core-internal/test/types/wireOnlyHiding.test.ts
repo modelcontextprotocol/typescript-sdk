@@ -135,7 +135,8 @@ describe('task vocabulary is importable but in no API signature', () => {
         // codec split (Q1 increment 2); the param-side carriers stay in the
         // neutral file. Both homes are scanned — the combined surface is the
         // same ≥19 schemas the docs claim covers.
-        const neutral = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'schemas.ts'), 'utf8');
+        // The neutral schema source moved to @modelcontextprotocol/core (the old path is a re-export shim).
+        const neutral = readFileSync(join(__dirname, '..', '..', '..', 'core', 'src', 'schemas.ts'), 'utf8');
         const wire2025 = readFileSync(join(__dirname, '..', '..', 'src', 'wire', 'rev2025-11-25', 'schemas.ts'), 'utf8');
         let total = 0;
         for (const schemas of [neutral, wire2025]) {
@@ -159,7 +160,7 @@ describe('task vocabulary is importable but in no API signature', () => {
             );
         }
 
-        const constants = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'constants.ts'), 'utf8');
+        const constants = readFileSync(join(__dirname, '..', '..', '..', 'core', 'src', 'constants.ts'), 'utf8');
         const keyDecl = constants.indexOf('export const RELATED_TASK_META_KEY');
         expect(constants.slice(Math.max(0, keyDecl - 300), keyDecl)).toContain('@deprecated');
     });

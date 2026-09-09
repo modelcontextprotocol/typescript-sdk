@@ -72,8 +72,14 @@ export { Client } from './client/client';
 export { getSupportedElicitationModes } from './client/client';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess';
-export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware';
-export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware';
+// DPoP (RFC 9449 / SEP-1932) sender-constrained tokens: the signing session plus key-pair
+// primitives. Wire a DpopSession into OAuthClientProvider.dpop() for full OAuth+DPoP via `auth`/
+// the transports' authProvider option, or use `withDpop` directly when you manage tokens yourself.
+export type { DpopAlg, DpopKeyPair, DpopProofRequest, GenerateDpopKeyPairOptions } from './client/dpop';
+export { accessTokenHash, DPOP_SUPPORTED_ALGS, DpopSession, generateDpopKeyPair, isDpopNonceChallenge } from './client/dpop';
+export type { DpopSessionSource, DpopTokenSource, LoggingOptions, Middleware, RequestLogger } from './client/middleware';
+export { applyMiddlewares, createMiddleware, withDpop, withDpopFromProvider, withLogging, withOAuth } from './client/middleware';
+export type { PriorDiscovery } from './client/probeClassifier';
 export type {
     CacheEntry,
     CacheKey,
@@ -105,6 +111,12 @@ export { fromJsonSchema } from './fromJsonSchema';
 // schema wrapper for callers that opt out of auto-fulfilment per call.
 export type { InputRequiredOptions } from '@modelcontextprotocol/core-internal';
 export { withInputRequired } from '@modelcontextprotocol/core-internal';
+
+// Explicit opt-in to eager wire-schema construction, for platforms that bill
+// request CPU but not module evaluation (isolate-based edge/serverless
+// runtimes). The package's workerd build calls it automatically at module
+// scope; other builds stay lazy unless the application calls it itself.
+export { preloadSchemas } from '@modelcontextprotocol/core-internal';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core-internal/public';

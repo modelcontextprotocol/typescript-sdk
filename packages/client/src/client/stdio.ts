@@ -216,6 +216,61 @@ export class StdioClientTransport implements Transport {
         }
     }
 
+    /**
+     * Reap a disposable probe sibling (see the version-negotiation sibling
+     * flow): signal-first teardown awaiting process `exit` — never the `close`
+     * event, so a helper process holding the child's stdio pipes can never
+     * block disposal. Not part of the public transport lifecycle.
+     *
+     * @internal
+     */
+    private async _dispose(): Promise<void> {
+        const proc = this._process;
+        this._process = undefined;
+        if (proc && proc.exitCode === null && proc.signalCode === null) {
+            const exited = new Promise<void>(resolve => proc.once('exit', () => resolve()));
+            try {
+                proc.stdin?.end();
+            } catch {
+                // ignore
+            }
+            try {
+                proc.kill('SIGTERM');
+            } catch {
+                // ignore
+            }
+            await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 1000).unref())]);
+            if (proc.exitCode === null && proc.signalCode === null) {
+                try {
+                    proc.kill('SIGKILL');
+                } catch {
+                    // ignore
+                }
+            }
+            await exited;
+        }
+        // The child is gone — release the PARENT-side pipe handles too. A helper
+        // process holding the inherited write ends would otherwise keep them (and
+        // with them the host's event loop: stdout carries a flowing 'data'
+        // listener from start()) alive until the helper exits.
+        try {
+            proc?.stdout?.destroy();
+        } catch {
+            // ignore
+        }
+        try {
+            proc?.stdin?.destroy();
+        } catch {
+            // ignore
+        }
+        try {
+            proc?.stderr?.destroy();
+        } catch {
+            // ignore
+        }
+        this._readBuffer.clear();
+    }
+
     async close(): Promise<void> {
         if (this._process) {
             const processToClose = this._process;

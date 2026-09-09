@@ -19,6 +19,9 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
+
 export type StreamId = string;
 export type EventId = string;
 
@@ -149,6 +152,21 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     retryInterval?: number;
 
     /**
+     * Interval in milliseconds between SSE keep-alive comment frames.
+     * Defaults to `15000`; set to `0` to disable.
+     */
+    keepAliveMs?: number;
+
+    /**
+     * Upper bound, in bytes, on a POST body the transport reads itself. A body
+     * over the bound (declared `Content-Length`, or observed while streaming)
+     * is answered `413` before anything is parsed. Not applied when the caller
+     * supplies `parsedBody`. Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
+
+    /**
      * List of protocol versions that this transport will accept.
      * Used to validate the `mcp-protocol-version` header in incoming requests.
      *
@@ -166,7 +184,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
  */
 export interface HandleRequestOptions {
     /**
-     * Pre-parsed request body. If provided, the transport will use this instead of parsing `req.json()`.
+     * Pre-parsed request body. If provided, the transport will use this instead of reading and parsing the request body.
      * Useful when using body-parser middleware that has already parsed the body.
      */
     parsedBody?: unknown;
@@ -247,6 +265,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _keepAliveMs: number;
+    private _maxRequestBodySize: number;
 
     sessionId?: string;
     onclose?: () => void;
@@ -264,6 +284,24 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
+        this._maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
+    }
+
+    private startKeepAlive(
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        encoder: InstanceType<typeof TextEncoder>
+    ): ReturnType<typeof setInterval> | undefined {
+        if (this._closed) return undefined;
+
+        const timer = armSseKeepAlive(this._keepAliveMs, () => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                if (timer !== undefined) clearInterval(timer);
+            }
+        });
+        return timer;
     }
 
     /**
@@ -352,6 +390,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a `Response` object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        if (this._closed) {
+            return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+        }
+
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {
@@ -462,6 +504,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const encoder = new TextEncoder();
         let streamController: ReadableStreamDefaultController<Uint8Array>;
+        // Captured by cancel/cleanup before it is assigned after stream setup.
+        // eslint-disable-next-line prefer-const
+        let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
         // Create a ReadableStream with a controller we can use to push SSE events
         const readable = new ReadableStream<Uint8Array>({
@@ -469,6 +514,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 streamController = controller;
             },
             cancel: () => {
+                if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                 // Stream was cancelled by client. Only drop the mapping when
                 // it still points at THIS controller — a stale cancel must not
                 // delete a successor stream registered by a later GET/resume.
@@ -481,7 +527,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const headers: Record<string, string> = {
             'Content-Type': 'text/event-stream',
             'Cache-Control': 'no-cache, no-transform',
-            Connection: 'keep-alive'
+            Connection: 'keep-alive',
+            'X-Accel-Buffering': 'no'
         };
 
         // After initialization, always include the session ID if we have one
@@ -494,6 +541,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -503,6 +551,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         });
 
+        keepAliveTimer = this.startKeepAlive(streamController!, encoder);
         return new Response(readable, { headers });
     }
 
@@ -537,7 +586,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache, no-transform',
-                Connection: 'keep-alive'
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             if (this.sessionId !== undefined) {
@@ -547,6 +597,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
+            let cancelled = false;
             // Captured by the cancel closure below before it's assigned (after
             // replayEventsAfter resolves) — must be `let`.
             // eslint-disable-next-line prefer-const
@@ -557,6 +609,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     streamController = controller;
                 },
                 cancel: () => {
+                    cancelled = true;
+                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                     // Stream was cancelled by client — drop the mapping so a
                     // subsequent reconnect with the same Last-Event-ID is not
                     // refused with 409 by the conflict check above. Only delete
@@ -585,11 +639,22 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
+            if (this._closed || cancelled) {
+                try {
+                    streamController!.close();
+                } catch {
+                    // Controller already closed/cancelled.
+                }
+                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            this._streamMapping.get(replayedStreamId)?.cleanup();
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
                 replayedEventIds,
                 cleanup: () => {
+                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                     this._streamMapping.delete(replayedStreamId!);
                     try {
                         streamController!.close();
@@ -618,6 +683,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
+            if (this._streamMapping.get(replayedStreamId)?.controller === streamController!) {
+                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+            }
             return new Response(readable, { headers });
         } catch (error) {
             this.onerror?.(error as Error);
@@ -707,13 +775,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             let rawMessage;
             if (options?.parsedBody === undefined) {
                 try {
-                    rawMessage = await req.json();
+                    const body = await readRequestBody(req, this._maxRequestBodySize);
+                    if (body.tooLarge) {
+                        const message = requestBodyTooLargeMessage(this._maxRequestBodySize);
+                        this.onerror?.(new Error(message));
+                        return this.createJsonErrorResponse(413, -32_000, message);
+                    }
+                    rawMessage = JSON.parse(body.text);
                 } catch (error) {
                     this.onerror?.(error as Error);
                     return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
                 }
             } else {
                 rawMessage = options.parsedBody;
+            }
+            if (Array.isArray(rawMessage) && rawMessage.length > MAX_BATCH_SIZE) {
+                this.onerror?.(new Error(`Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`));
+                return this.createJsonErrorResponse(400, -32_600, `Invalid Request: Batch must not exceed ${MAX_BATCH_SIZE} messages`);
             }
 
             let messages: JSONRPCMessage[];
@@ -726,6 +804,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             } catch (error) {
                 this.onerror?.(error as Error);
                 return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+            }
+
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
             }
 
             // Check if this is an initialization request
@@ -768,6 +850,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 if (protocolError) {
                     return protocolError;
                 }
+            }
+
+            if (this._closed) {
+                return this.createJsonErrorResponse(404, -32_001, 'Session not found');
             }
 
             // check if it contains requests
@@ -818,12 +904,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // SSE streaming mode - use ReadableStream with controller for more reliable data pushing
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let keepAliveTimer: ReturnType<typeof setInterval> | undefined;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
                 },
                 cancel: () => {
+                    if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                     // Stream was cancelled by client. Only drop the mapping
                     // when it still points at THIS controller — a stale cancel
                     // (firing after a Last-Event-ID reconnect registered a
@@ -837,8 +925,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             const headers: Record<string, string> = {
                 'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                Connection: 'keep-alive'
+                'Cache-Control': 'no-cache, no-transform',
+                Connection: 'keep-alive',
+                'X-Accel-Buffering': 'no'
             };
 
             // After initialization, always include the session ID if we have one
@@ -854,6 +943,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
+                            if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
@@ -891,6 +981,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
 
+            if (this._streamMapping.get(streamId)?.controller === streamController!) {
+                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+            }
             return new Response(readable, { status: 200, headers });
         } catch (error) {
             // return JSON-RPC formatted error
@@ -912,9 +1005,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return protocolError;
         }
 
-        await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
-        await this.close();
-        return new Response(null, { status: 200 });
+        try {
+            await Promise.resolve(this._onsessionclosed?.(this.sessionId!));
+            return new Response(null, { status: 200 });
+        } finally {
+            await this.close();
+        }
     }
 
     /**

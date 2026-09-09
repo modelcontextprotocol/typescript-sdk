@@ -4,7 +4,7 @@ shape: how-to
 # Provide roots
 
 ::: warning Deprecated — SEP-2577
-Pass paths through tool arguments, resource URIs, or host configuration instead. **Roots** are deprecated as of protocol version 2026-07-28 (SEP-2577) and stay functional on 2025-era connections for at least twelve months — see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated).
+Pass paths through tool arguments, resource URIs, or host configuration instead. **Roots** are deprecated as of protocol version 2026-07-28 (SEP-2577) and stay functional on 2025-era connections for at least twelve months — see the [deprecated features registry](https://modelcontextprotocol.io/specification/2026-07-28/deprecated).
 :::
 
 ## Migrate away first

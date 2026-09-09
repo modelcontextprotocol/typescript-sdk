@@ -66,7 +66,7 @@ Four adapters exist: `@modelcontextprotocol/node` for Node's built-in `http` ser
 
 ## Reach for `core` only to validate raw wire JSON
 
-`@modelcontextprotocol/core` exports the Zod schema constants the SDK validates protocol payloads against, for code that handles raw JSON-RPC payloads itself — gateways, proxies, log pipelines. Neither `server` nor `client` exports a Zod schema, and the matching TypeScript types ship with both, so if you only call `registerTool` and `callTool` you never install it. [Wire schemas](../advanced/wire-schemas.md) is the how-to.
+`@modelcontextprotocol/core` exports the Zod schema constants the SDK validates protocol payloads against, for code that handles raw JSON-RPC payloads itself — gateways, proxies, log pipelines. Neither `server` nor `client` exports a Zod schema, and the matching TypeScript types ship with both, so if you only call `registerTool` and `callTool` you never import it directly — it arrives transitively, since `server` and `client` resolve their shared schema graph from it at runtime. [Wire schemas](../advanced/wire-schemas.md) is the how-to.
 
 ## Leave `server-legacy` and `codemod` to the migration guide
 

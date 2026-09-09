@@ -254,13 +254,18 @@ export interface WireCodec {
 
     /**
      * Outbound result mapping (the stamp seam). The 2025-era codec is the
-     * identity — it has NO stamp code path (the never-stamp guarantee). The
-     * 2026-era codec strictly enforces the 2026 wire shape for the known
-     * deleted-field set (`execution.taskSupport`, `capabilities.tasks` —
-     * Q1-SD3 iii), stamps `resultType`, and fills the required
-     * `ttlMs`/`cacheScope` fields on cacheable results.
+     * identity — it has NO stamp code path (the never-stamp guarantee; it
+     * never reads `serverInfo`). The 2026-era codec strictly enforces the
+     * 2026 wire shape for the known deleted-field set
+     * (`execution.taskSupport`, `capabilities.tasks` — Q1-SD3 iii), stamps
+     * `resultType`, fills the required `ttlMs`/`cacheScope` fields on
+     * cacheable results, and — when the caller supplies its identity —
+     * stamps `_meta['io.modelcontextprotocol/serverInfo']` on every result
+     * (spec PR #3002 SHOULD; a handler-authored value wins). `Server`
+     * instances pass their identity; clients and hand-constructed protocol
+     * objects pass nothing and no identity is ever invented.
      */
-    encodeResult(method: string, result: Result): Result;
+    encodeResult(method: string, result: Result, serverInfo?: Implementation): Result;
 
     /**
      * Outbound error-code mapping (the error half of the stamp seam). A

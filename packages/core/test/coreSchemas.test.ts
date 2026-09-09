@@ -33,7 +33,9 @@ describe('@modelcontextprotocol/core', () => {
         //      name prefix) is the source of truth, so a new auth schema added to core-internal is required here
         //      automatically; typeless internal helpers (SafeUrlSchema, OptionalSafeUrlSchema) stay out
         //      because they are not in `authSchemas`.
-        // Read the core-internal sources directly so the groups cannot silently drift.
+        // Read the schema source modules directly so the groups cannot silently drift: the spec
+        // group against core's own src/schemas.ts (the canonical home since the move), the auth
+        // group against core-internal's `authSchemas` registry (specTypeSchema.ts stays there).
         const SPEC_INTERNAL_HELPERS = [
             'BaseRequestParamsSchema',
             'ClientTasksCapabilitySchema',
@@ -41,10 +43,9 @@ describe('@modelcontextprotocol/core', () => {
             'NotificationsParamsSchema',
             'ServerTasksCapabilitySchema'
         ];
-        const specSchemas = exportedSchemaConsts(
-            readCore('../../core-internal/src/types/schemas.ts'),
-            /^export const (\w+Schema)\b/gm
-        ).filter(name => !SPEC_INTERNAL_HELPERS.includes(name));
+        const specSchemas = exportedSchemaConsts(readCore('../src/schemas.ts'), /^export const (\w+Schema)\b/gm).filter(
+            name => !SPEC_INTERNAL_HELPERS.includes(name)
+        );
         const specTypeSrc = readCore('../../core-internal/src/types/specTypeSchema.ts');
         const authStart = specTypeSrc.indexOf('const authSchemas = {');
         const authObj = specTypeSrc.slice(authStart, specTypeSrc.indexOf('} as const', authStart));

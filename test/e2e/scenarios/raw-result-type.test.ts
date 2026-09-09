@@ -63,7 +63,7 @@ function makeResponder(toolCallBody: unknown) {
             return {
                 supportedVersions: ['2026-07-28'],
                 capabilities: { tools: {} },
-                serverInfo: { name: 'raw-input-required-server', version: '0' }
+                _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'raw-input-required-server', version: '0' } }
             };
         }
         if (request.method === 'tools/call') return toolCallBody;

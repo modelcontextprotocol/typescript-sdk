@@ -10,7 +10,9 @@ export type { CompletableSchema, CompleteCallback } from './server/completable';
 export { completable, isCompletable } from './server/completable';
 export type {
     CreateMcpHandlerOptions,
+    IsLegacyRequestOptions,
     LegacyHttpHandler,
+    LegacyStatelessFallbackOptions,
     McpHandlerRequestOptions,
     McpHttpHandler,
     McpRequestContext,
@@ -71,6 +73,9 @@ export type {
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp';
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp';
+// Request-body bound shared by the HTTP entry points; the reader is exported for
+// adapter authors that pre-parse bodies (the way isJsonContentType is).
+export { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody } from './server/requestBody';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema';
@@ -98,6 +103,12 @@ export type { CacheHint, CacheScope } from '@modelcontextprotocol/core-internal'
 // typed readers for the responses a retried request carries back.
 export type { ElicitInputParams, InputRequiredSpec, InputResponseView } from '@modelcontextprotocol/core-internal';
 export { acceptedContent, inputRequired, inputResponse } from '@modelcontextprotocol/core-internal';
+
+// Explicit opt-in to eager wire-schema construction, for platforms that bill
+// request CPU but not module evaluation (isolate-based edge/serverless
+// runtimes). The package's workerd build calls it automatically at module
+// scope; other builds stay lazy unless the application calls it itself.
+export { preloadSchemas } from '@modelcontextprotocol/core-internal';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core-internal/public';

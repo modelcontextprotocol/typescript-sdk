@@ -134,4 +134,89 @@ describe('@modelcontextprotocol/hono', () => {
         expect(res.status).toBe(200);
         expect(await res.json()).toEqual({ preset: true });
     });
+
+    /** A body that yields up to `chunks` 1 MiB chunks on demand (no Content-Length), counting pulls. */
+    function streamedBody(chunks: number): { body: ReadableStream<Uint8Array>; pulls: () => number } {
+        let pulled = 0;
+        const body = new ReadableStream<Uint8Array>(
+            {
+                pull(controller) {
+                    if (pulled >= chunks) {
+                        return controller.close();
+                    }
+                    pulled++;
+                    controller.enqueue(new Uint8Array(1024 * 1024).fill(0x20));
+                }
+            },
+            { highWaterMark: 0 }
+        );
+        return { body, pulls: () => pulled };
+    }
+    const jsonHeaders = { Host: 'localhost:3000', 'content-type': 'application/json' };
+
+    test('createMcpHonoApp rejects a disallowed Host before reading the body', async () => {
+        const app = createMcpHonoApp();
+        app.post('/echo', (c: Context) => c.text('ok'));
+
+        const { body, pulls } = streamedBody(1);
+        const init = { method: 'POST', headers: { ...jsonHeaders, Host: 'example.com:3000' }, body, duplex: 'half' };
+        const res = await app.request('http://localhost/echo', init as RequestInit);
+        expect(res.status).toBe(403);
+        expect(pulls()).toBe(0);
+    });
+
+    test('createMcpHonoApp answers 413 for a JSON body over the size limit', async () => {
+        const app = createMcpHonoApp();
+        app.post('/echo', (c: Context) => c.text('ok'));
+
+        const declared = streamedBody(5);
+        const declaredOverLimit = { ...jsonHeaders, 'content-length': String(4 * 1024 * 1024 + 1) };
+        const res = await app.request('http://localhost/echo', {
+            method: 'POST',
+            headers: declaredOverLimit,
+            body: declared.body,
+            duplex: 'half'
+        } as RequestInit);
+        expect(res.status).toBe(413);
+        expect(await res.json()).toEqual({
+            jsonrpc: '2.0',
+            error: { code: -32_000, message: expect.stringMatching(/^Payload Too Large/) },
+            id: null
+        });
+        // clone() tees the body, which buffers one chunk up front; nothing past that is read.
+        expect(declared.pulls()).toBeLessThanOrEqual(1);
+
+        const streamed = await app.request('http://localhost/echo', {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: streamedBody(5).body,
+            duplex: 'half'
+        } as RequestInit);
+        expect(streamed.status).toBe(413);
+        expect(((await streamed.json()) as { error: { code: number } }).error.code).toBe(-32_000);
+    });
+
+    test('createMcpHonoApp maxRequestBodySize moves the pre-parse bound and is validated', async () => {
+        const strict = createMcpHonoApp({ maxRequestBodySize: 1024 });
+        strict.post('/echo', (c: Context) => c.text('ok'));
+        const refused = await strict.request('http://localhost/echo', {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: JSON.stringify({ pad: 'x'.repeat(2048) })
+        });
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as { error: { message: string } }).error.message).toMatch(/must not exceed 1024 bytes/);
+
+        const roomy = createMcpHonoApp({ maxRequestBodySize: 8 * 1024 * 1024 });
+        roomy.post('/echo', (c: Context) => c.json({ keys: Object.keys(c.get('parsedBody') as object) }));
+        const served = await roomy.request('http://localhost/echo', {
+            method: 'POST',
+            headers: jsonHeaders,
+            body: JSON.stringify({ pad: 'x'.repeat(5 * 1024 * 1024) })
+        });
+        expect(served.status).toBe(200);
+        expect(await served.json()).toEqual({ keys: ['pad'] });
+
+        expect(() => createMcpHonoApp({ maxRequestBodySize: 0 })).toThrow(RangeError);
+    });
 });

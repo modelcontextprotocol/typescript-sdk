@@ -32,8 +32,9 @@ class MyStore implements ResponseCacheStore {
     async get(key: CacheKey): Promise<CacheEntry | undefined> {
         /* read {value, stamp, expiresAt, scope} from your backend */
     }
-    async set(key: CacheKey, entry: { value: unknown; expiresAt?: number; scope?: CacheScope }): Promise<number> {
-        /* write entry under key; return a monotonically-increasing stamp */
+    async set(key: CacheKey, entry: { value: string; expiresAt?: number; scope?: CacheScope }): Promise<number> {
+        /* write entry under key (value is the JSON-serialized result document —
+           persist the string verbatim); return a monotonically-increasing stamp */
     }
     async delete(key: CacheKey): Promise<void> {
         /* drop the single entry under key (no-op if absent) */

@@ -31,7 +31,7 @@ function classify(outcome: ProbeOutcome, context: Partial<ProbeClassifierContext
 const discoverResult = (supportedVersions: string[]) => ({
     supportedVersions,
     capabilities: { tools: {} },
-    serverInfo: { name: 'fixture-server', version: '1.0.0' }
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'fixture-server', version: '1.0.0' } }
 });
 
 /** The deployed-fleet 400 body for a JSON-RPC error (server streamableHttp `createJsonErrorResponse`). */
@@ -57,12 +57,12 @@ describe('row: DiscoverResult with version overlap → modern, select from suppo
         expect(verdict.kind).toBe('modern');
         if (verdict.kind === 'modern') {
             expect(verdict.discover.capabilities).toEqual({ tools: {} });
-            expect(verdict.discover.serverInfo.name).toBe('fixture-server');
+            expect(verdict.discover._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'fixture-server', version: '1.0.0' });
         }
     });
 });
 
-describe('row: DiscoverResult with NO overlap → initialize on the same connection, else typed error with synthesized data', () => {
+describe('row: DiscoverResult with NO overlap → legacy initialize fallback, else typed error with synthesized data', () => {
     test('fallback possible → legacy (era selection on a dual-era server)', () => {
         const verdict = classify({ kind: 'result', result: discoverResult(['2027-12-31']) });
         expect(verdict).toEqual({ kind: 'legacy' });
@@ -270,6 +270,25 @@ describe('row: network outage → typed connect error (Node)', () => {
         const verdict = classify({ kind: 'network-error', error: new TypeError('fetch failed') }, { environment: 'node' });
         expect(verdict.kind).toBe('error');
     });
+
+    test('the underlying network error is reachable via Error.cause (#2657)', () => {
+        // Node's fetch wraps the socket/DNS failure: `TypeError: fetch failed` with
+        // the error that actually names the failure (ENOTFOUND / ECONNREFUSED /
+        // ETIMEDOUT) on its own `cause`.
+        const dnsError = Object.assign(new Error('getaddrinfo ENOTFOUND unreachable.invalid'), { code: 'ENOTFOUND' });
+        const fetchError = new TypeError('fetch failed', { cause: dnsError });
+        const verdict = classify({ kind: 'network-error', error: fetchError });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            // Walking `.cause` (what loggers and error reporters do) must reach the
+            // error that names the failure instead of dead-ending on the SdkError.
+            expect(verdict.error.cause).toBe(fetchError);
+            expect((verdict.error.cause as Error).cause).toBe(dnsError);
+            // The legacy data.cause slot stays populated too (kept for compatibility,
+            // slated for removal).
+            expect(((verdict.error as SdkError).data as { cause?: unknown }).cause).toBe(fetchError);
+        }
+    });
 });
 
 describe('row: timeout — transport-aware verdict', () => {
@@ -288,8 +307,24 @@ describe('row: timeout — transport-aware verdict', () => {
         }
     });
 
-    test('stdio: timeout is a legacy-server signal → fall back to initialize on the same stream', () => {
+    test('stdio: timeout is a legacy-server signal → legacy initialize fallback', () => {
         expect(classify({ kind: 'timeout', timeoutMs: 5_000 }, { transportKind: 'stdio' })).toEqual({ kind: 'legacy' });
+    });
+});
+
+describe('row: closed — transport-aware verdict, symmetric with the timeout row', () => {
+    test('stdio: a child that exits on the unrecognized probe is a legacy signal → legacy verdict', () => {
+        expect(classify({ kind: 'closed' }, { transportKind: 'stdio' })).toEqual({ kind: 'legacy' });
+    });
+
+    test('HTTP: a mid-probe close is ambiguous — the same typed connect error as any probe network failure', () => {
+        const verdict = classify({ kind: 'closed' }, { transportKind: 'http' });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(verdict.error.message).toContain('Connection closed during the version negotiation probe');
+        }
     });
 });
 

@@ -360,8 +360,7 @@ describe('encode-side deleted-field strictness (Q1-SD3 iii)', () => {
                         ttlMs: 0,
                         cacheScope: 'private',
                         supportedVersions: ['2026-07-28'],
-                        capabilities: { tools: {}, tasks: { list: {} } },
-                        serverInfo: { name: 's', version: '0' }
+                        capabilities: { tools: {}, tasks: { list: {} } }
                     })) as never
                 );
             }

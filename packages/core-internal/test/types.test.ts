@@ -14,12 +14,14 @@ import {
     DiscoverResultSchema,
     ElicitRequestFormParamsSchema,
     EmptyResultSchema,
+    isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     LOG_LEVEL_META_KEY,
     PromptMessageSchema,
     PROTOCOL_VERSION_META_KEY,
     ResourceLinkSchema,
     ResultSchema,
+    SubscriptionsListenResultMetaSchema,
     SamplingMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     ToolChoiceSchema,
@@ -1112,14 +1114,18 @@ describe('2026-07-28 wire shapes', () => {
             }
         });
 
-        test.each([PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY])(
-            'rejects an envelope missing %s',
-            key => {
-                const incomplete: Record<string, unknown> = { ...envelope };
-                delete incomplete[key];
-                expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
-            }
-        );
+        test.each([PROTOCOL_VERSION_META_KEY, CLIENT_CAPABILITIES_META_KEY])('rejects an envelope missing %s', key => {
+            const incomplete: Record<string, unknown> = { ...envelope };
+            delete incomplete[key];
+            expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
+        });
+
+        test('accepts an envelope without clientInfo (SHOULD since spec PR #3002), but rejects a malformed one', () => {
+            const withoutClientInfo: Record<string, unknown> = { ...envelope };
+            delete withoutClientInfo[CLIENT_INFO_META_KEY];
+            expect(RequestMetaEnvelopeSchema.safeParse(withoutClientInfo).success).toBe(true);
+            expect(RequestMetaEnvelopeSchema.safeParse({ ...envelope, [CLIENT_INFO_META_KEY]: 'not-an-object' }).success).toBe(false);
+        });
 
         test('rejects an invalid log level', () => {
             const result = RequestMetaEnvelopeSchema.safeParse({ ...envelope, [LOG_LEVEL_META_KEY]: 'loud' });
@@ -1146,25 +1152,69 @@ describe('2026-07-28 wire shapes', () => {
     describe('DiscoverResult', () => {
         const result = {
             supportedVersions: ['2026-07-28'],
-            capabilities: { tools: { listChanged: true } },
-            serverInfo: { name: 'test-server', version: '1.0.0' }
+            capabilities: { tools: { listChanged: true } }
         };
 
-        test('parses a discover result', () => {
-            const parsed = DiscoverResultSchema.safeParse({ ...result, resultType: 'complete', instructions: 'Use the echo tool.' });
+        test('parses a discover result (serverInfo in _meta since spec PR #3002)', () => {
+            const parsed = DiscoverResultSchema.safeParse({
+                ...result,
+                resultType: 'complete',
+                _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'test-server', version: '1.0.0' } },
+                instructions: 'Use the echo tool.'
+            });
             expect(parsed.success).toBe(true);
             if (parsed.success) {
                 expect(parsed.data.supportedVersions).toEqual(['2026-07-28']);
                 expect(parsed.data.capabilities).toEqual({ tools: { listChanged: true } });
-                expect(parsed.data.serverInfo).toEqual({ name: 'test-server', version: '1.0.0' });
+                expect(parsed.data._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'test-server', version: '1.0.0' });
                 expect(parsed.data.instructions).toBe('Use the echo tool.');
             }
         });
 
-        test.each(['supportedVersions', 'capabilities', 'serverInfo'])('rejects a discover result missing %s', key => {
+        test.each(['supportedVersions', 'capabilities'])('rejects a discover result missing %s', key => {
             const incomplete: Record<string, unknown> = { ...result };
             delete incomplete[key];
             expect(DiscoverResultSchema.safeParse(incomplete).success).toBe(false);
+        });
+    });
+
+    describe('Result _meta serverInfo — receive-side leniency on the NEUTRAL layer (#3002)', () => {
+        // The neutral ResultMetaObjectSchema sits inside
+        // JSONRPCResultResponseSchema, whose guard classifies every inbound
+        // message on BOTH eras — a strict serverInfo key here would drop
+        // whole responses (probe timeouts, hung requests) over a bad
+        // display-only stamp. Malformed drops to absent, exactly like the
+        // 2026 wire schema.
+        const MALFORMED_META = { 'io.modelcontextprotocol/serverInfo': 'not-an-implementation', 'com.example/keep': 1 };
+
+        test('a malformed _meta serverInfo drops to absent; foreign keys survive', () => {
+            const parsed = ResultSchema.safeParse({ _meta: MALFORMED_META });
+            expect(parsed.success).toBe(true);
+            if (parsed.success) {
+                expect(parsed.data._meta?.['io.modelcontextprotocol/serverInfo']).toBeUndefined();
+                expect(parsed.data._meta?.['com.example/keep']).toBe(1);
+            }
+        });
+
+        test('the message-classification guard accepts responses carrying a malformed stamp (either era)', () => {
+            expect(isJSONRPCResultResponse({ jsonrpc: '2.0', id: 1, result: { _meta: MALFORMED_META } })).toBe(true);
+            // 2025-era shaped body: the reserved key's value must not drop
+            // legacy frames either (the era the stamp never touches).
+            expect(isJSONRPCResultResponse({ jsonrpc: '2.0', id: 2, result: { tools: [], _meta: MALFORMED_META } })).toBe(true);
+        });
+
+        test('the listen result meta keeps subscriptionId strict (load-bearing demux) while serverInfo stays lenient', () => {
+            expect(
+                SubscriptionsListenResultMetaSchema.safeParse({
+                    'io.modelcontextprotocol/subscriptionId': 'sub-1',
+                    'io.modelcontextprotocol/serverInfo': 'bogus'
+                }).success
+            ).toBe(true);
+            expect(
+                SubscriptionsListenResultMetaSchema.safeParse({
+                    'io.modelcontextprotocol/serverInfo': { name: 'a', version: '1' }
+                }).success
+            ).toBe(false);
         });
     });
 

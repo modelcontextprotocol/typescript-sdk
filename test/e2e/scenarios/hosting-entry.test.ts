@@ -92,14 +92,16 @@ verifies('typescript:client:connect:prior-zero-roundtrip', async ({ transport }:
     // the modern revision) populates getDiscoverResult().
     const bootstrap = new Client({ name: 'bootstrap', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
     await using wired = await wire(transport, greetFactory, bootstrap);
-    const prior = bootstrap.getDiscoverResult();
-    expect(prior).toBeDefined();
-    expect(prior!.supportedVersions).toContain(MODERN);
+    const discover = bootstrap.getDiscoverResult();
+    expect(discover).toBeDefined();
+    expect(discover!.supportedVersions).toContain(MODERN);
 
     // Fresh worker → SAME hosted server, connect({ prior }): zero round trips.
     const before = wired.httpLog!.length;
     const worker = new Client({ name: 'worker', version: '1.0.0' });
-    await worker.connect(new StreamableHTTPClientTransport(wired.url!, { fetch: wired.fetch }), { prior });
+    await worker.connect(new StreamableHTTPClientTransport(wired.url!, { fetch: wired.fetch }), {
+        prior: { kind: 'modern', discover: discover! }
+    });
     try {
         // No HTTP exchange was added by the worker's connect().
         expect(wired.httpLog!.length).toBe(before);

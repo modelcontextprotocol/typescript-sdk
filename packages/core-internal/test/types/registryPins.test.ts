@@ -22,15 +22,21 @@ import { describe, expect, it } from 'vitest';
 
 // Post-relocation home (Q1 increment-2 step 1): the pinned contents are
 // unchanged — only the module housing the registries moved.
-import { getNotificationSchema, getRequestSchema, CallToolResultWireSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
+import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
 // The 2025 wire schemas are fully self-contained in the era's schema module:
 // every per-method schema the registry serves is a FROZEN 2025-11-25 copy so
 // the public/neutral layer can evolve (e.g. SEP-2106 widening) without
 // changing the 2025 wire-parse contract. The registry serves the FROZEN
-// copies, so the by-reference pins target this module.
+// copies, so the by-reference pins target this module. Since the lazy-
+// construction change, importing this module also WARMS the era's schema
+// memo (`buildSchemas2025`) at module scope — the registry pulls its maps
+// through the same memo, so the by-reference pins hold under laziness. The
+// wire-seam wrapper `CallToolResultWireSchema` moved here from the registry
+// with that change (same object either way, via the shared memo).
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
+    CallToolResultWireSchema,
     CancelledNotificationSchema,
     CancelTaskRequestSchema,
     CompleteRequestSchema,

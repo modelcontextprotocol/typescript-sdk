@@ -128,7 +128,7 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
         }
     });
 
-    it('modern-opening connection: the auto-negotiating client reaches 2026-07-28 via server/discover, the connection pins modern, and a late initialize is rejected with the supported list', async () => {
+    it('modern-opening connection: the auto-negotiating client reaches 2026-07-28 via the sibling probe, the session pipe pins modern from its first enveloped request, and a late initialize is rejected with the supported list', async () => {
         const transport = spawnFixtureTransport();
         const outbound = recordOutbound(transport);
         const client = new Client({ name: 'modern-pipe-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
@@ -138,10 +138,11 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
             await client.connect(transport);
             const inbound = recordInbound(transport);
 
-            // 2026 negotiated via discover on the pipe — no initialize was ever written.
+            // 2026 negotiated via the disposable sibling probe — the session
+            // pipe carries neither initialize nor server/discover.
             expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
             expect(outbound.some(message => (message as { method?: string }).method === 'initialize')).toBe(false);
-            expect((outbound[0] as { method?: string }).method).toBe('server/discover');
+            expect(outbound.some(message => (message as { method?: string }).method === 'server/discover')).toBe(false);
 
             // Modern vertical: list → call. The raw list carries a hand-built
             // envelope so the resultType marker can be read on the wire; the

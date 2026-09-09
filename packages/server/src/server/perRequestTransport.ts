@@ -58,6 +58,8 @@ import {
     SdkErrorCode
 } from '@modelcontextprotocol/core-internal';
 
+import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
+
 /**
  * How the transport shapes its HTTP response for a request:
  *
@@ -79,6 +81,8 @@ export interface PerRequestHTTPServerTransportOptions {
     classification: MessageClassification;
     /** Response shaping for the exchange; defaults to `auto`. */
     responseMode?: PerRequestResponseMode;
+    /** SSE keep-alive interval in milliseconds; defaults to `15000`, `0` disables. */
+    keepAliveMs?: number;
 }
 
 /** Per-exchange context handed to {@linkcode PerRequestHTTPServerTransport.handleMessage}. */
@@ -107,6 +111,7 @@ interface SseSink {
     controller: ReadableStreamDefaultController<Uint8Array>;
     encoder: InstanceType<typeof TextEncoder>;
     closed: boolean;
+    keepAliveTimer?: ReturnType<typeof setInterval>;
 }
 
 /**
@@ -140,10 +145,12 @@ export class PerRequestHTTPServerTransport implements Transport {
     private _deferredResponse?: DeferredResponse;
     private _sse?: SseSink;
     private _abortCleanup?: () => void;
+    private readonly _keepAliveMs: number;
 
     constructor(options: PerRequestHTTPServerTransportOptions) {
         this._classification = options.classification;
         this._responseMode = options.responseMode ?? 'auto';
+        this._keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
     }
 
     async start(): Promise<void> {
@@ -343,6 +350,9 @@ export class PerRequestHTTPServerTransport implements Transport {
         this._abortCleanup?.();
         this._abortCleanup = undefined;
 
+        if (this._sse?.keepAliveTimer !== undefined) {
+            clearInterval(this._sse.keepAliveTimer);
+        }
         if (this._sse !== undefined && !this._sse.closed) {
             this._sse.closed = true;
             try {
@@ -382,13 +392,14 @@ export class PerRequestHTTPServerTransport implements Transport {
             }
         });
         this._sse = { controller, encoder: new TextEncoder(), closed: false };
+        this._sse.keepAliveTimer = armSseKeepAlive(this._keepAliveMs, () => this.writeCommentFrame('keepalive'));
 
         this.settleResponse(
             new Response(readable, {
                 status: 200,
                 headers: {
                     'Content-Type': 'text/event-stream',
-                    'Cache-Control': 'no-cache',
+                    'Cache-Control': 'no-cache, no-transform',
                     Connection: 'keep-alive',
                     // Disable proxy buffering so streamed messages are
                     // delivered as they are written.
@@ -399,6 +410,9 @@ export class PerRequestHTTPServerTransport implements Transport {
     }
 
     private finalizeStream(): void {
+        if (this._sse?.keepAliveTimer !== undefined) {
+            clearInterval(this._sse.keepAliveTimer);
+        }
         if (this._sse !== undefined && !this._sse.closed) {
             this._sse.closed = true;
             try {

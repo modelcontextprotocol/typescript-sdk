@@ -44,7 +44,7 @@ const discoverBody = {
     cacheScope: 'public',
     supportedVersions: [MODERN],
     capabilities: { tools: {} },
-    serverInfo: { name: 'modern-server', version: '1.0.0' },
+    _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'modern-server', version: '1.0.0' } },
     instructions: 'modern instructions'
 };
 
@@ -78,7 +78,7 @@ describe('Client.discover()', () => {
 
         const advertisement = await client.discover();
         expect(advertisement.supportedVersions).toEqual([MODERN]);
-        expect(advertisement.serverInfo).toEqual({ name: 'modern-server', version: '1.0.0' });
+        expect(advertisement._meta?.['io.modelcontextprotocol/serverInfo']).toEqual({ name: 'modern-server', version: '1.0.0' });
         expect(advertisement.instructions).toBe('modern instructions');
 
         await client.close();
@@ -96,6 +96,52 @@ describe('Client.discover()', () => {
         // Rejected locally: nothing new reached the transport.
         expect(transport.sent.length).toBe(sentBefore);
 
+        await client.close();
+    });
+});
+
+describe('server identity from a DiscoverResult (#3002: _meta only)', () => {
+    const base = { resultType: 'complete', ttlMs: 0, cacheScope: 'public', supportedVersions: [MODERN], capabilities: {} };
+    const metaIdentity = { name: 'meta-server', version: '2.0.0' };
+
+    async function connectAgainst(result: Record<string, unknown>): Promise<Client> {
+        const transport = new ScriptedTransport((message, t) => {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                t.reply({ jsonrpc: '2.0', id: message.id, result });
+            }
+        });
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+        await client.connect(transport);
+        return client;
+    }
+
+    test('serverInfo in _meta yields the identity', async () => {
+        const client = await connectAgainst({ ...base, _meta: { 'io.modelcontextprotocol/serverInfo': metaIdentity } });
+        expect(client.getServerVersion()).toEqual(metaIdentity);
+        await client.close();
+    });
+
+    test('a stray body serverInfo is ignored — identity comes from _meta only', async () => {
+        const client = await connectAgainst({ ...base, serverInfo: { name: 'body-only', version: '0.9.0' } });
+        expect(client.getServerVersion()).toBeUndefined();
+        await client.close();
+    });
+
+    test('absent identity → undefined, connection still established (serverInfo is a SHOULD)', async () => {
+        const client = await connectAgainst(base);
+        expect(client.getServerVersion()).toBeUndefined();
+        await client.close();
+    });
+
+    test('a MALFORMED _meta serverInfo still connects modern through the real transport path (regression: the neutral-schema classification guard must not drop the frame)', async () => {
+        // Exercises the full inbound pipeline — transport.onmessage →
+        // isJSONRPCResultResponse (neutral JSONRPCResultResponseSchema) →
+        // probe classification — not a pre-built ProbeOutcome. A strict
+        // neutral serverInfo key made this connect fail before the frame
+        // reached the lenient wire schema.
+        const client = await connectAgainst({ ...base, _meta: { 'io.modelcontextprotocol/serverInfo': 'utterly-bogus' } });
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+        expect(client.getServerVersion()).toBeUndefined();
         await client.close();
     });
 });

@@ -64,7 +64,7 @@ const store = new InMemoryResponseCacheStore({ maxEntries: 2048 });
 const client = new Client({ name: 'my-client', version: '1.0.0' }, { responseCacheStore: store });
 ```
 
-Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
+Every method on the `ResponseCacheStore` interface may return a promise, so a Redis-style store implements the same five methods. `CacheEntry.value` is the JSON-serialized result document — a persistent store persists the string verbatim, no extra serialization step, and behaves identically to the in-memory default. Entries are keyed by connected-server identity, so one store can back many clients: connections to different servers never collide.
 
 ## Partition the store per user
 
@@ -93,6 +93,10 @@ Fresh or not, the cache also evicts itself when the server signals a change: a `
 ::: info
 Cache hints are a 2026-07-28 surface — see [Protocol versions](../protocol-versions.md). Against a 2025-era server, `defaultCacheTtlMs` is the only lever.
 :::
+
+## Two caches, two owners
+
+The response cache on this page is the only cache the SDK manages: the server declares each entry's lifetime (`ttlMs`) and the SDK enforces it. A host that also caches **discovery verdicts** — the connect-time era outcome supplied as `ConnectOptions.prior` — owns that policy itself: the SDK never expires a supplied verdict. See [Protocol versions](../protocol-versions.md#skip-the-probe-with-a-cached-verdict) for the verdict shapes and [Caching discovery verdicts](../advanced/gateway.md#caching-discovery-verdicts) for the full host-side loop.
 
 ## Recap
 

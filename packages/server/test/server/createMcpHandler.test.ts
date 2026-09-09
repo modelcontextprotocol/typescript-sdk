@@ -48,8 +48,9 @@ function modernToolsCall(name: string, args: Record<string, unknown>, envelope: 
 function bodyDerivedStandardHeaders(body: unknown): Record<string, string> {
     if (body === null || typeof body !== 'object' || Array.isArray(body)) return {};
     const b = body as { method?: unknown; params?: { name?: unknown; uri?: unknown; _meta?: Record<string, unknown> } };
-    if (typeof b.params?._meta?.[PROTOCOL_VERSION_META_KEY] !== 'string') return {};
-    const out: Record<string, string> = {};
+    const claimedVersion = b.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+    if (b.params === undefined || typeof claimedVersion !== 'string') return {};
+    const out: Record<string, string> = { 'mcp-protocol-version': claimedVersion };
     if (typeof b.method === 'string') out['mcp-method'] = b.method;
     const name = b.method === 'resources/read' ? b.params.uri : b.params.name;
     if (typeof name === 'string') out['mcp-name'] = name;
@@ -128,9 +129,12 @@ describe('createMcpHandler — modern path', () => {
             postRequest({ jsonrpc: '2.0', id: 5, method: 'server/discover', params: { _meta: ENVELOPE } })
         );
         expect(response.status).toBe(200);
-        const body = (await response.json()) as { result: { supportedVersions: string[]; serverInfo: { name: string } } };
+        const body = (await response.json()) as {
+            result: { supportedVersions: string[]; _meta: Record<string, { name: string }> };
+        };
         expect(body.result.supportedVersions).toEqual([MODERN_REVISION]);
-        expect(body.result.serverInfo.name).toBe('entry-test-server');
+        // #3002: identity in the result `_meta`, never the body.
+        expect(body.result._meta['io.modelcontextprotocol/serverInfo']!.name).toBe('entry-test-server');
     });
 
     it('backfills the deprecated accessors and the negotiated revision from the validated envelope (per-request instance state)', async () => {
@@ -309,7 +313,10 @@ describe('createMcpHandler — modern path', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_602);
-        expect(JSON.stringify(body.error.data)).toContain('clientInfo');
+        // clientCapabilities is the missing REQUIRED key; clientInfo is a
+        // SHOULD since spec PR #3002 and its absence is never an error.
+        expect(JSON.stringify(body.error.data)).toContain('clientCapabilities');
+        expect(JSON.stringify(body.error.data)).not.toContain('clientInfo');
         expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });
@@ -529,6 +536,44 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_700);
+    });
+
+    it('answers 413 for a request body over the size limit before creating a server', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const streamed = postRequest('x'.repeat(4 * 1024 * 1024 + 1));
+        const declared = postRequest('{}', { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        for (const request of [streamed, declared]) {
+            const response = await handler.fetch(request);
+            expect(response.status).toBe(413);
+            expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_000);
+        }
+        expect(state.contexts).toHaveLength(0);
+    });
+
+    it('maxRequestBodySize moves the bound for the entry, its stateless legacy leg, and isLegacyRequest', async () => {
+        const { factory, state } = testFactory();
+        const paddedPing = { jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(5 * 1024 * 1024) } };
+
+        const roomy = createMcpHandler(factory, { maxRequestBodySize: 8 * 1024 * 1024 });
+        const served = await roomy.fetch(postRequest(paddedPing));
+        expect(served.status).toBe(200);
+        expect(await served.text()).toContain('"result":{}');
+        expect(state.contexts).toHaveLength(1);
+
+        const strict = createMcpHandler(factory, { maxRequestBodySize: 1024 });
+        const refused = await strict.fetch(postRequest('x'.repeat(1025)));
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as JSONRPCErrorBody).error.message).toMatch(/must not exceed 1024 bytes/);
+        expect(state.contexts).toHaveLength(1);
+
+        expect(await isLegacyRequest(postRequest(paddedPing))).toBe(false);
+        expect(await isLegacyRequest(postRequest(paddedPing), undefined, { maxRequestBodySize: 8 * 1024 * 1024 })).toBe(true);
+
+        for (const invalid of [0, -1, Number.NaN]) {
+            expect(() => createMcpHandler(factory, { maxRequestBodySize: invalid })).toThrow(RangeError);
+        }
     });
 
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {
@@ -814,3 +859,57 @@ describe('createMcpHandler — close()', () => {
 // Type-level pin: a zero-argument factory stays assignable to McpServerFactory unchanged.
 const zeroArgFactory = () => new McpServer({ name: 'zero-arg', version: '1.0.0' });
 void createMcpHandler(zeroArgFactory);
+
+describe('createMcpHandler — keepAliveMs', () => {
+    function gatedFactory(): { factory: () => McpServer; release: () => void } {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        const factory = (): McpServer => {
+            const s = new McpServer({ name: 'ka', version: '1.0.0' });
+            s.registerTool('gated', { inputSchema: z.object({}) }, async () => {
+                await gate;
+                return { content: [{ type: 'text', text: 'done' }] };
+            });
+            return s;
+        };
+        return { factory, release };
+    }
+
+    it('threads keepAliveMs into the modern per-request exchange stream', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { responseMode: 'sse', keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(postRequest(modernToolsCall('gated', {})));
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('threads keepAliveMs into the legacy stateless fallback per-request transport', async () => {
+        vi.useFakeTimers();
+        try {
+            const { factory, release } = gatedFactory();
+            const handler = createMcpHandler(factory, { keepAliveMs: 1_000 });
+            const responsePromise = handler.fetch(
+                postRequest({ jsonrpc: '2.0', id: 9, method: 'tools/call', params: { name: 'gated', arguments: {} } })
+            );
+            await vi.advanceTimersByTimeAsync(1_000);
+            release();
+            const response = await responsePromise;
+            expect(response.headers.get('content-type')).toContain('text/event-stream');
+            const text = await response.text();
+            expect(text).toContain(': keepalive');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});

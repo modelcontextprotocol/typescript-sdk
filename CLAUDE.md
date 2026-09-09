@@ -44,7 +44,7 @@ Include what changed, why, and how to migrate. Search for related sections and g
 
 ### JSDoc `@example` Code Snippets
 
-JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use `` ```ts source="./file.examples.ts#regionName" `` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
+JSDoc `@example` tags should pull type-checked code from companion `.examples.ts` files (e.g., `client.ts` → `client.examples.ts`). Use ` ```ts source="./file.examples.ts#regionName" ` fences referencing `//#region regionName` blocks; region names follow `exportedName_variant` or `ClassName_methodName_variant` pattern (e.g., `applyMiddlewares_basicUsage`, `Client_connect_basicUsage`). For whole-file inclusion (any file type), omit the `#regionName`.
 
 Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdown files.
 
@@ -68,11 +68,12 @@ The SDK is organized into three main layers:
 The SDK separates internal code from the public API surface:
 
 - **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
-- **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports TypeScript types, error classes, constants, guards, and the `Protocol` base class (+ `mergeCapabilities`). Re-exported by client and server packages.
 - **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core-internal/public`.
-- **`@modelcontextprotocol/core`** (`packages/core/src/index.ts`) — Public Zod-schema package. Re-exports **only** the `*Schema` Zod constants (MCP spec + OAuth/OpenID), bundled from `core-internal` at build time. The published home for raw runtime validation (`CallToolResultSchema.parse(...)`); runtime-neutral (`zod` is its only dependency). Not consumed by the sibling packages — `client`/`server` keep their own bundled schema copies and stay Zod-free in their public surface.
+- **`@modelcontextprotocol/core`** (`packages/core/src/index.ts`) — Public Zod-schema package and the canonical home of the schema source modules (`src/schemas.ts`, `src/auth.ts`, `src/constants.ts`). The root entry re-exports **only** the `*Schema` Zod constants (MCP spec + OAuth/OpenID) — the published home for raw runtime validation (`CallToolResultSchema.parse(...)`); runtime-neutral (`zod` is its only dependency). The `./internal` subpath re-exports the schema modules wholesale for the sibling packages: `core-internal` re-exports them at the old module paths, and the `client`/`server`/`server-legacy` bundles resolve `@modelcontextprotocol/core/internal` as a real external dependency instead of carrying their own schema copies (their public surfaces stay Zod-free).
 
 When modifying exports:
+
 - Use explicit named exports, not `export *`, in package `index.ts` files and `core-internal/public`.
 - Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
 - Internal helpers should stay in the core internal barrel and not be added to `core-internal/public` or package index files.
@@ -197,14 +198,14 @@ The `ctx` parameter in handlers provides a structured context:
 
 - `sessionId?`: Transport session identifier
 - `mcpReq`: Request-level concerns
-  - `id`: JSON-RPC message ID
-  - `method`: Request method string (e.g., 'tools/call')
-  - `_meta?`: Request metadata
-  - `signal`: AbortSignal for cancellation
-  - `send(request, schema, options?)`: Send related request (for bidirectional flows)
-  - `notify(notification)`: Send related notification back
+    - `id`: JSON-RPC message ID
+    - `method`: Request method string (e.g., 'tools/call')
+    - `_meta?`: Request metadata
+    - `signal`: AbortSignal for cancellation
+    - `send(request, schema, options?)`: Send related request (for bidirectional flows)
+    - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
-  - `authInfo?`: Validated auth token info
+    - `authInfo?`: Validated auth token info
 
 **`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
 

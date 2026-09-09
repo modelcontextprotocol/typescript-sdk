@@ -3,7 +3,7 @@
     "source": {
         "repo": "modelcontextprotocol/modelcontextprotocol",
         "path": "schema/draft/examples",
-        "commit": "f68d864a813754e188c6df52dcc5772a12f96c63"
+        "commit": "71e306956a4959c9655e5036be215d41986596e6"
     },
     "regenerate": "pnpm fetch:spec-examples --spec-dir <spec-checkout>   # or [sha] to fetch from GitHub",
     "directoryCount": 87,

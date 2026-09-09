@@ -1496,7 +1496,8 @@ describe('OAuth Authorization', () => {
 
         it('calls saveDiscoveryState after discovery when provider implements it', async () => {
             const saveDiscoveryState = vi.fn();
-            const provider = createMockProvider({ saveDiscoveryState });
+            const saveResourceUrl = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState, saveResourceUrl });
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -1529,6 +1530,9 @@ describe('OAuth Authorization', () => {
                     authorizationServerMetadata: validAuthMetadata
                 })
             );
+            expect(saveResourceUrl).toHaveBeenCalledWith('https://resource.example.com');
+            const authorizationUrl = vi.mocked(provider.redirectToAuthorization).mock.calls[0]![0];
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://resource.example.com');
         });
 
         it('restores full discovery state from cache including resource metadata', async () => {
@@ -1580,7 +1584,7 @@ describe('OAuth Authorization', () => {
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -1785,6 +1789,16 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(codeVerifier).toBe('test_verifier');
+        });
+
+        it('preserves a string resource indicator without URL normalization', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                resource: 'https://api.example.com'
+            });
+
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com');
         });
 
         it('includes scope parameter when provided', async () => {
@@ -3035,6 +3049,202 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        // The #2034 tests below differ only in how the token endpoint answers, so the
+        // discovery fixture is shared. `tokenResponse` is invoked per POST to /token.
+        const mockDiscoveryWithTokenEndpoint = (tokenResponse: () => unknown): void => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve(tokenResponse());
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+        };
+
+        // A real Response: parseErrorResponse() reads the body via .text(), which a plain
+        // object mock cannot satisfy.
+        const oauthErrorResponse = (code: OAuthErrorCode, message: string): Response =>
+            Response.json(new OAuthError(code, message).toResponseObject(), { status: 400 });
+
+        const storedTokens = { access_token: 'old-access', refresh_token: 'refresh123', issuer: 'https://auth.example.com' };
+
+        it('propagates saveTokens errors after a successful refresh (#2034)', async () => {
+            // Regression test: previously the catch block that wraps
+            // refreshAuthorization() also wrapped saveTokens(), silently
+            // swallowing any non-OAuthError thrown while persisting the new
+            // tokens and falling through to startAuthorization(). With
+            // rotating refresh tokens, that loses the freshly minted refresh
+            // token while invalidating the old one server-side.
+            mockDiscoveryWithTokenEndpoint(() => ({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-access',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh'
+                })
+            }));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            const persistError = new Error('disk full');
+            // `mockRejectedValueOnce`, not `mockRejectedValue`: `mockProvider` is shared by
+            // the whole describe and its beforeEach only calls `vi.clearAllMocks()`, which
+            // clears call history but keeps implementations. A persistent rejection would
+            // leak 'disk full' into every later test that reaches saveTokens.
+            (mockProvider.saveTokens as Mock).mockRejectedValueOnce(persistError);
+
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toBe(persistError);
+
+            // saveTokens was called with the new tokens before throwing.
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({ access_token: 'new-access', refresh_token: 'new-refresh' }),
+                expect.anything()
+            );
+            // The fallthrough to a new authorization flow must NOT happen.
+            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
+        });
+
+        it('warns when a server-side refresh failure falls back to a new authorization request (#2034)', async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Could not refresh OAuth tokens'));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('AS is having a bad day'));
+            warn.mockRestore();
+        });
+
+        it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
+            let tokenPosts = 0;
+            mockDiscoveryWithTokenEndpoint(() => {
+                tokenPosts++;
+                return oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired');
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            // This provider implements no invalidateCredentials(), so storage is never
+            // cleared and every read returns the same dead refresh token.
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            // invalid_grant is rethrown out of the refresh block into auth()'s outer catch,
+            // which retries authInternal. Nothing was invalidated, so the retry replays the
+            // same dead refresh token and the second failure propagates to the caller.
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toThrow('Refresh token expired');
+
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('OAuth "invalid_grant"'));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
+            // The warn must not claim a discard that never happened.
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('without discarding the stored tokens'));
+            // The retry is futile for this provider shape: the dead refresh token goes to the
+            // token endpoint a second time and no authorization is ever started.
+            expect(tokenPosts).toBe(2);
+            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
+            warn.mockRestore();
+        });
+
+        // A local provider — adding invalidateCredentials to the shared mockProvider would
+        // leak into every later test in this describe.
+        const providerWithInvalidation = (invalidateCredentials: Mock): OAuthClientProvider => ({
+            ...mockProvider,
+            invalidateCredentials,
+            clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' }),
+            tokens: vi.fn().mockResolvedValueOnce(storedTokens).mockResolvedValue(undefined),
+            saveTokens: vi.fn().mockResolvedValue(undefined),
+            redirectToAuthorization: vi.fn(),
+            saveCodeVerifier: vi.fn(),
+            codeVerifier: vi.fn().mockResolvedValue('verifier')
+        });
+
+        it('neutralizes AS-controlled error text so it cannot forge log lines (#2034)', async () => {
+            // The authorization server is resolved from the resource server's metadata, so its
+            // error strings are attacker-controllable. Newlines in them must not be able to
+            // manufacture extra '[mcp-sdk] ...' lines in an operator's log.
+            const forged = 'revoked\n[mcp-sdk] audit: user approved scope admin:all';
+            mockDiscoveryWithTokenEndpoint(() => Response.json({ error: 'invalid_grant', error_description: forged }, { status: 400 }));
+
+            const provider = providerWithInvalidation(vi.fn());
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp-server' }).catch(() => {});
+
+            const emitted = warn.mock.calls.map(call => String(call[0])).filter(line => line.includes('invalid_grant'));
+            warn.mockRestore();
+
+            expect(emitted).toHaveLength(1);
+            // The newline survives only as an escape, so the forged prefix never begins a
+            // line of its own.
+            expect(emitted[0]).not.toContain('\n');
+            expect(emitted[0]).toContain('\\n');
+            expect(emitted[0]!.split('\n')).toHaveLength(1);
+        });
+
+        it('reports the discard when the provider does implement invalidateCredentials (#2034)', async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.InvalidGrant, 'Refresh token expired'));
+
+            const invalidateCredentials = vi.fn();
+            const provider = providerWithInvalidation(invalidateCredentials);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored tokens'));
+            warn.mockRestore();
+        });
+
+        it.each([
+            [OAuthErrorCode.InvalidClient, 'Client authentication failed'],
+            [OAuthErrorCode.UnauthorizedClient, 'Client not authorized']
+        ])('warns before discarding client credentials on %s (#2034)', async (code, message) => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(code, message));
+
+            const invalidateCredentials = vi.fn();
+            const provider = providerWithInvalidation(invalidateCredentials);
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+
+            // Both scopes are invalidated on this branch, and the warn must say so.
+            expect(invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(`OAuth ${JSON.stringify(code)}`));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining('invalidating the stored client credentials and tokens'));
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining(message));
+            warn.mockRestore();
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {
@@ -3155,6 +3365,75 @@ describe('OAuth Authorization', () => {
             const authUrl: URL = redirectCall[0];
             // Should use the PRM's resource value, not the full requested URL
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
+        });
+
+        it('sends a pathless PRM resource verbatim on the authorization and token requests (#1968)', async () => {
+            // RFC 9728 publishes the resource identifier and RFC 8707 requires it to be
+            // sent unchanged. `new URL('https://example.com').href` is 'https://example.com/',
+            // and authorization servers that match the indicator exactly (Microsoft Entra
+            // ID: AADSTS9010010) reject the extra slash.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://example.com',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['https://example.com/mcp:tools']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ access_token: 'access123', token_type: 'bearer', expires_in: 3600 })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+            (mockProvider.codeVerifier as Mock).mockResolvedValue('verifier123');
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            // Authorization request: the redirect carries the metadata value byte for byte.
+            const redirectResult = await auth(mockProvider, { serverUrl: 'https://example.com/mcp' });
+            expect(redirectResult).toBe('REDIRECT');
+            const authUrl: URL = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]![0];
+            expect(authUrl.searchParams.get('resource')).toBe('https://example.com');
+
+            // Token request: the authorization-code exchange sends the same value.
+            const exchangeResult = await auth(mockProvider, {
+                serverUrl: 'https://example.com/mcp',
+                authorizationCode: 'code123'
+            });
+            expect(exchangeResult).toBe('AUTHORIZED');
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://example.com');
         });
 
         it('excludes resource parameter when Protected Resource Metadata is not present', async () => {
