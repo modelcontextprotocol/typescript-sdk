@@ -34,11 +34,19 @@ const REGION_INPUT_SCHEMA = {
     properties: { region: { type: 'string', 'x-mcp-header': 'Region' }, query: { type: 'string' } }
 } as const;
 
+const COUNT_INPUT_SCHEMA = {
+    type: 'object',
+    properties: { count: { type: 'integer', 'x-mcp-header': 'Count' } }
+} as const;
+
 function makeFactory(): () => McpServer {
     return () => {
         const s = new McpServer({ name: 'param-server', version: '1.0.0' });
         s.registerTool('route', { inputSchema: fromJsonSchema<{ region?: string; query?: string }>(REGION_INPUT_SCHEMA) }, async args => ({
             content: [{ type: 'text', text: `routed ${args.region ?? '<none>'}` }]
+        }));
+        s.registerTool('compute', { inputSchema: fromJsonSchema<{ count?: number }>(COUNT_INPUT_SCHEMA) }, async args => ({
+            content: [{ type: 'text', text: `computed ${args.count}` }]
         }));
         return s;
     };
@@ -115,11 +123,36 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(response.status).toBe(400);
         expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
     });
+
+    // Issue #2689: Streamable HTTP server accepts unsafe integer in x-mcp-header field when mirrored header is absent
+    it('rejects unsafe integer in annotated field when mirrored header is absent (issue #2689)', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const req = new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'mcp-protocol-version': MODERN,
+                'mcp-method': 'tools/call',
+                'mcp-name': 'compute'
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 8,
+                method: 'tools/call',
+                params: { name: 'compute', arguments: { count: 9_007_199_254_740_992 }, _meta: ENVELOPE }
+            })
+        });
+        const response = await handler.fetch(req);
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as { error: { code: number } };
+        expect(body.error.code).toBe(-32_020);
+    });
 });
 
 describe('SEP-2243 registerTool declaration-validity check', () => {
     it('warns on an invalid x-mcp-header declaration at registration time', () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const s = new McpServer({ name: 'warn-server', version: '1.0.0' });
         s.registerTool(
             'bad',
