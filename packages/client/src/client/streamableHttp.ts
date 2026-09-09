@@ -759,10 +759,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
 
                     // Update last event ID if provided
-                    if (event.id) {
+                    if (event.id !== undefined) {
                         lastEventId = event.id;
-                        // Mark that we've received a priming event - stream is now resumable
-                        hasPrimingEvent = true;
+                        // An empty ID clears the token and cannot resume a POST stream.
+                        hasPrimingEvent = event.id !== '';
                         onresumptiontoken?.(event.id);
                     }
 

@@ -1356,6 +1356,43 @@ describe('StreamableHTTPClientTransport', () => {
             expect(postCall).toBeDefined();
         });
 
+        it.each(['', 'id: stale-event-id\ndata: \n\n'])('does not resume a POST stream after an empty id (prefix: %j)', async prefix => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.enqueue(new TextEncoder().encode(`${prefix}id:\ndata: \n\n`));
+                        controller.close();
+                    }
+                })
+            });
+            const onresumptiontoken = vi.fn();
+            const onRequestStreamEnd = vi.fn();
+
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'tools/call', id: 'request-1', params: { name: 'slow-tool' } },
+                { onresumptiontoken, onRequestStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onresumptiontoken).toHaveBeenLastCalledWith('');
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+            expect(onRequestStreamEnd).toHaveBeenCalledTimes(1);
+        });
+
         it('should NOT reconnect a POST stream when response was received', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
@@ -2461,6 +2498,50 @@ describe('StreamableHTTPClientTransport', () => {
             // Second call should include Last-Event-ID
             const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
             expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
+        });
+
+        it.each([
+            { idField: 'id:\n', expectedToken: '', expectedTokens: [['stale-event-id'], ['']] },
+            { idField: '', expectedToken: 'stale-event-id', expectedTokens: [['stale-event-id']] }
+        ])('handles SSE id field "$idField" on GET reconnect', async ({ idField, expectedToken, expectedTokens }) => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+
+            const encoder = new TextEncoder();
+            const stream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(encoder.encode(`id: stale-event-id\ndata: \n\n${idField}data: \n\n`));
+                    controller.close();
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: stream
+            });
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+            const onresumptiontoken = vi.fn();
+
+            await transport.start();
+            await transport.resumeStream('initial-event-id', { onresumptiontoken });
+            await vi.advanceTimersByTimeAsync(50);
+
+            expect(onresumptiontoken.mock.calls).toEqual(expectedTokens);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[1]![1]?.headers.get('last-event-id')).toBe(expectedToken || null);
         });
     });
 
