@@ -716,6 +716,7 @@ describe('StreamableHTTPClientTransport', () => {
         const requestInit = {
             headers: {
                 Authorization: 'Bearer stale-placeholder',
+                'mcp-protocol-version': 'caller-supplied',
                 'X-Caller-Header': 'preserved'
             }
         };
@@ -723,6 +724,7 @@ describe('StreamableHTTPClientTransport', () => {
             requestInit,
             authProvider: mockAuthProvider
         });
+        transport.setProtocolVersion('2025-03-26');
 
         let actualReqInit: RequestInit = {};
         (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
@@ -732,10 +734,19 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport.start();
         await transport['_startOrAuthSse']({});
-        // OAuth-derived token wins over the stale placeholder.
+        // On the SSE GET: the OAuth-derived token wins over the stale placeholder, and so
+        // does the transport-managed protocol version.
         expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
         // Caller-supplied non-auth headers still pass through.
         expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+
+        // Same precedence on POST.
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
     it('should always send specified custom headers (Headers class)', async () => {

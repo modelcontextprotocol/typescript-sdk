@@ -660,6 +660,45 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
         });
 
+        it('lets the auth provider token override a stale caller-supplied Authorization header', async () => {
+            // Regression test for #2208: transport-managed headers are merged on top of
+            // requestInit.headers, so a static Authorization placeholder (e.g. an env-var
+            // API key) gives way to the provider's token on both the SSE GET and POSTs.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-placeholder',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            // SSE GET
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // POST
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
         it('refreshes expired token during SSE connection', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {
