@@ -458,7 +458,10 @@ export class StreamableHTTPClientTransport implements Transport {
         // value.) This lets a stale static `Authorization` placeholder (e.g. an env-var
         // API key) fall back to the OAuth token once the provider has one, and mirrors
         // the per-request `RESERVED_REQUEST_HEADER_NAMES` guard in send(). See #2208.
-        const headers = new Headers(this._requestInit?.headers);
+        // `|| undefined` keeps the old tolerance for a falsy `headers` value (e.g. `null`
+        // from a JS caller or a JSON config forwarded verbatim): the Fetch `Headers`
+        // constructor accepts `undefined` but throws on `null`.
+        const headers = new Headers(this._requestInit?.headers || undefined);
         let token: string | undefined;
         try {
             token = await this._authProvider?.token();

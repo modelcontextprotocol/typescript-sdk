@@ -798,6 +798,29 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
     });
 
+    it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+        // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+        // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { headers: null as unknown as RequestInit['headers'] }
+        });
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect(actualReqInit.headers).toBeInstanceOf(Headers);
+        expect((actualReqInit.headers as Headers).get('accept')).toContain('text/event-stream');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(actualReqInit.headers).toBeInstanceOf(Headers);
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
     it('should always send specified custom headers (Headers class)', async () => {
         const requestInit = {
             headers: new Headers({

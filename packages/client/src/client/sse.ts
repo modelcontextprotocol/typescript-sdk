@@ -186,7 +186,10 @@ export class SSEClientTransport implements Transport {
         // a stale static `Authorization` placeholder (e.g. an env-var API key) fall back
         // to the OAuth token once the provider has one, and keeps this transport in step
         // with StreamableHTTPClientTransport. See #2208.
-        const headers = new Headers(this._requestInit?.headers);
+        // `|| undefined` keeps the old tolerance for a falsy `headers` value (e.g. `null`
+        // from a JS caller or a JSON config forwarded verbatim): the Fetch `Headers`
+        // constructor accepts `undefined` but throws on `null`.
+        const headers = new Headers(this._requestInit?.headers || undefined);
         let token: string | undefined;
         try {
             token = await this._authProvider?.token();

@@ -303,6 +303,26 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers.authorization).toBe(authToken);
         });
 
+        it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+            // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+            // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: null as unknown as RequestInit['headers'] }
+            });
+
+            await transport.start();
+            expect(lastServerRequest.headers.accept).toBe('text/event-stream');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+            await transport.send(message);
+            expect(lastServerRequest.headers['content-type']).toBe('application/json');
+        });
+
         it('passes custom headers to fetch requests', async () => {
             const customHeaders = {
                 Authorization: 'Bearer test-token',
