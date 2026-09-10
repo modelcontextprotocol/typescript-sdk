@@ -3,7 +3,6 @@ import {
     brandedHasInstance,
     createFetchWithInit,
     JSONRPCMessageSchema,
-    normalizeHeaders,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -97,10 +96,11 @@ export type SSEClientTransportOptions = {
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
      *
-     * NOTE: Setting this property will prevent an `Authorization` header from
-     * being automatically attached to the SSE request, if an {@linkcode SSEClientTransportOptions.authProvider | authProvider} is
-     * also given. This can be worked around by setting the `Authorization` header
-     * manually.
+     * A custom `fetch` supplied here is still wrapped by the transport: the
+     * transport-managed headers, including the `Authorization` header derived from
+     * {@linkcode SSEClientTransportOptions.authProvider | authProvider}, are attached to the
+     * SSE request and take precedence over a same-named entry in `requestInit.headers`
+     * (see {@linkcode SSEClientTransportOptions.requestInit | requestInit}).
      */
     eventSourceInit?: EventSourceInit;
 
@@ -177,7 +177,16 @@ export class SSEClientTransport implements Transport {
     private _last401Response?: Response;
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: RequestInit['headers'] & Record<string, string> = {};
+        // Start from the caller-supplied `requestInit.headers` and `set()` the
+        // transport-managed headers on top. `Headers.set` compares names
+        // case-insensitively, so Authorization / mcp-protocol-version replace a
+        // same-named caller entry whatever its spelling. (A plain-object spread would
+        // keep `authorization` and `Authorization` side by side, and the Fetch `Headers`
+        // constructor would then combine them into one "stale, fresh" value.) This lets
+        // a stale static `Authorization` placeholder (e.g. an env-var API key) fall back
+        // to the OAuth token once the provider has one, and keeps this transport in step
+        // with StreamableHTTPClientTransport. See #2208.
+        const headers = new Headers(this._requestInit?.headers);
         let token: string | undefined;
         try {
             token = await this._authProvider?.token();
@@ -187,24 +196,12 @@ export class SSEClientTransport implements Transport {
             throw markAuthSeamEscape(error);
         }
         if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+            headers.set('Authorization', `Bearer ${token}`);
         }
         if (this._protocolVersion) {
-            headers['mcp-protocol-version'] = this._protocolVersion;
+            headers.set('mcp-protocol-version', this._protocolVersion);
         }
-
-        // Order matters: caller-supplied `requestInit.headers` are spread first and the
-        // transport-managed headers (Authorization from the auth provider,
-        // mcp-protocol-version) on top, so they win over a same-named caller entry. This
-        // lets a stale static `Authorization` placeholder (e.g. an env-var API key) fall
-        // back to the OAuth token once the provider has one, and keeps this transport in
-        // step with StreamableHTTPClientTransport. See #2208.
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-        return new Headers({
-            ...extraHeaders,
-            ...headers
-        });
+        return headers;
     }
 
     private _startOrAuth(): Promise<void> {

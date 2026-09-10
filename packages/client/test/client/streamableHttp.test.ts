@@ -749,6 +749,55 @@ describe('StreamableHTTPClientTransport', () => {
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
+    it.each([
+        [
+            'a Headers instance',
+            (): NonNullable<RequestInit['headers']> =>
+                new Headers({
+                    authorization: 'Bearer stale-placeholder',
+                    'MCP-Protocol-Version': 'caller-supplied',
+                    'x-caller-header': 'preserved'
+                })
+        ],
+        [
+            'a lowercase plain object',
+            (): NonNullable<RequestInit['headers']> => ({
+                authorization: 'Bearer stale-placeholder',
+                'MCP-Protocol-Version': 'caller-supplied',
+                'x-caller-header': 'preserved'
+            })
+        ]
+    ])('transport-managed headers replace caller-supplied ones regardless of name casing (%s)', async (_label, makeHeaders) => {
+        // #2208 follow-up: header names compare case-insensitively. A `Headers` instance
+        // normalizes names to lowercase and a caller may spell them any way; a key-exact
+        // object merge would keep both spellings and the Fetch `Headers` constructor would
+        // then combine them into "Bearer stale, Bearer fresh". The transport must send
+        // exactly its own value.
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 'oauth-access-token', token_type: 'Bearer' });
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { headers: makeHeaders() },
+            authProvider: mockAuthProvider
+        });
+        transport.setProtocolVersion('2025-03-26');
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+    });
+
     it('should always send specified custom headers (Headers class)', async () => {
         const requestInit = {
             headers: new Headers({
