@@ -1,0 +1,69 @@
+packages/tasks/README.md
+  s_a5c48038294d8c::t_553e18f7909f8c 1-61
+packages/tasks/eslint.config.mjs
+  s_a5c48038294d8c::t_d92cda49d78781 1-5
+packages/tasks/package.json
+  s_a5c48038294d8c::t_857df441db5c47 1-75
+packages/tasks/src/engine/backoff.ts
+  s_a5c48038294d8c::t_7a75e399f5a05f 1-20
+packages/tasks/src/engine/defaults.ts
+  s_a5c48038294d8c::t_c0aaef8821e485 1-26
+packages/tasks/src/engine/duration.ts
+  s_a5c48038294d8c::t_efaea83ab6c526 1-43
+packages/tasks/src/engine/errors.ts
+  s_a5c48038294d8c::t_d4df06fa1fc2e1 1-167
+packages/tasks/src/engine/executor.ts
+  s_a5c48038294d8c::t_acbf29429fc603 1-66
+packages/tasks/src/engine/inMemory.ts
+  s_a5c48038294d8c::t_5eccde422e85cd 1-543
+packages/tasks/src/engine/protocol.ts
+  s_a5c48038294d8c::t_9401db48979c8e 1-180
+packages/tasks/src/engine/serialization.ts
+  s_a5c48038294d8c::t_5e491941b4c535 1-57
+packages/tasks/src/engine/taskEngine.ts
+  s_a5c48038294d8c::t_c1450dccddb40e 1-61
+packages/tasks/src/index.ts
+  s_a5c48038294d8c::t_107f05e103074d 1-104
+packages/tasks/src/server/installTasks.ts
+  s_a5c48038294d8c::t_ca8147736c1f1c 1-207
+packages/tasks/src/server/registration.ts
+  s_a5c48038294d8c::t_0b3f3da6f054ae 1-58
+packages/tasks/src/step/replayStep.ts
+  s_a5c48038294d8c::t_feb3a43541b60d 1-337
+packages/tasks/src/step/types.ts
+  s_a5c48038294d8c::t_3bdb4f72c037f5 1-162
+packages/tasks/src/wire/schemas.ts
+  s_a5c48038294d8c::t_822146108084cc 1-177
+packages/tasks/src/wire/types.ts
+  s_a5c48038294d8c::t_5aef556e313726 1-220
+packages/tasks/test/inMemoryEngine.test.ts
+  s_a5c48038294d8c::t_ab0c9f48d42e66 1-192
+packages/tasks/test/tasks.e2e.test.ts
+  s_a5c48038294d8c::t_a414b2528b95d7 1-239
+packages/tasks/tsconfig.json
+  s_a5c48038294d8c::t_e16d26d7b755d8 1-23
+packages/tasks/tsdown.config.ts
+  s_a5c48038294d8c::t_a3b8a404968170 1-22
+packages/tasks/typedoc.json
+  s_a5c48038294d8c::t_45097b5637bd87 1-10
+packages/tasks/vitest.config.js
+  s_a5c48038294d8c::t_4396a946be8b92 1-3
+pnpm-lock.yaml
+  s_a5c48038294d8c::t_377905e586a8cb 1943-1997
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d52ef5537de8f6e52a41ed99dbf0eb0d4c660309",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
