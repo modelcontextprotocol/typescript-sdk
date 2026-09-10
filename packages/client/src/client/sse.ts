@@ -182,7 +182,7 @@ export class SSEClientTransport implements Transport {
         // case-insensitively, so Authorization / mcp-protocol-version replace a
         // same-named caller entry whatever its spelling. (A plain-object spread would
         // keep `authorization` and `Authorization` side by side, and the Fetch `Headers`
-        // constructor would then combine them into one "stale, fresh" value.) This lets
+        // constructor would then combine them into one two-token value.) This lets
         // a stale static `Authorization` placeholder (e.g. an env-var API key) fall back
         // to the OAuth token once the provider has one, and keeps this transport in step
         // with StreamableHTTPClientTransport. See #2208.

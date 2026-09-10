@@ -721,7 +721,7 @@ describe('SSEClientTransport', () => {
 
         it('replaces a caller-supplied Authorization header regardless of name casing (Headers instance)', async () => {
             // #2208 follow-up: `Headers` normalizes names to lowercase; the transport must
-            // still send exactly its own token, not "Bearer stale, Bearer fresh".
+            // still send exactly its own token, not a combined two-token value.
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'fresh-token',
                 token_type: 'Bearer'

@@ -779,8 +779,8 @@ describe('StreamableHTTPClientTransport', () => {
         // #2208 follow-up: header names compare case-insensitively. A `Headers` instance
         // normalizes names to lowercase and a caller may spell them any way; a key-exact
         // object merge would keep both spellings and the Fetch `Headers` constructor would
-        // then combine them into "Bearer stale, Bearer fresh". The transport must send
-        // exactly its own value.
+        // then combine them into one two-token value. The transport must send exactly its
+        // own value.
         mockAuthProvider.tokens.mockResolvedValue({ access_token: 'oauth-access-token', token_type: 'Bearer' });
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: { headers: makeHeaders() },

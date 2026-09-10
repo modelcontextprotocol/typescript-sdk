@@ -454,7 +454,7 @@ export class StreamableHTTPClientTransport implements Transport {
         // case-insensitively, so Authorization / mcp-session-id / mcp-protocol-version
         // replace a same-named caller entry whatever its spelling. (A plain-object
         // spread would keep `authorization` and `Authorization` side by side, and the
-        // Fetch `Headers` constructor would then combine them into one "stale, fresh"
+        // Fetch `Headers` constructor would then combine them into one two-token
         // value.) This lets a stale static `Authorization` placeholder (e.g. an env-var
         // API key) fall back to the OAuth token once the provider has one, and mirrors
         // the per-request `RESERVED_REQUEST_HEADER_NAMES` guard in send(). See #2208.
