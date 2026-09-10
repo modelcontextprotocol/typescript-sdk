@@ -755,6 +755,48 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
         });
 
+        it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+            // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+            // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+            // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+            // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+            // a repeated *transport-managed* name is still replaced outright by the transport's
+            // own value rather than combined with it.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer stale-1'],
+                        ['Authorization', 'Bearer stale-2'],
+                        ['x-multi', 'a'],
+                        ['x-multi', 'b']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+        });
+
         it('refreshes expired token during SSE connection', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {

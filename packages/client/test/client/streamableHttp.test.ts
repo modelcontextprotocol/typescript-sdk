@@ -766,6 +766,14 @@ describe('StreamableHTTPClientTransport', () => {
                 'MCP-Protocol-Version': 'caller-supplied',
                 'x-caller-header': 'preserved'
             })
+        ],
+        [
+            'a tuple array',
+            (): NonNullable<RequestInit['headers']> => [
+                ['authorization', 'Bearer stale-placeholder'],
+                ['MCP-Protocol-Version', 'caller-supplied'],
+                ['x-caller-header', 'preserved']
+            ]
         ]
     ])('transport-managed headers replace caller-supplied ones regardless of name casing (%s)', async (_label, makeHeaders) => {
         // #2208 follow-up: header names compare case-insensitively. A `Headers` instance
@@ -796,6 +804,42 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
         expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
         expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+    });
+
+    it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+        // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+        // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+        // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+        // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+        // a repeated *transport-managed* name is still replaced outright by the transport's
+        // own value rather than combined with it.
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 'oauth-access-token', token_type: 'Bearer' });
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: [
+                    ['Authorization', 'Bearer stale-1'],
+                    ['Authorization', 'Bearer stale-2'],
+                    ['x-multi', 'a'],
+                    ['x-multi', 'b']
+                ]
+            },
+            authProvider: mockAuthProvider
+        });
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('x-multi')).toBe('a, b');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('x-multi')).toBe('a, b');
     });
 
     it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
