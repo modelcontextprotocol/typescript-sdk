@@ -3420,7 +3420,7 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
                 return 'evt-1';
             },
             async replayEventsAfter(): Promise<StreamId> {
-                return 'stream-1';
+                return '_GET_stream';
             }
         };
         const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
@@ -3432,7 +3432,7 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         const first = await transport.handleRequest(req('GET', { headers: replayHeaders }));
         expect(first.status).toBe(200);
 
-        // Reconnect with the same Last-Event-ID — re-registers 'stream-1'
+        // Reconnect with the same Last-Event-ID — re-registers '_GET_stream'
         const second = await transport.handleRequest(req('GET', { headers: replayHeaders }));
         expect(second.status).toBe(200);
 
@@ -3977,6 +3977,78 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
         }
         expect(resumedData).toContain('"id":"call-1"');
         expect(resumedData).toContain('done');
+
+        await transport.close();
+        expect(vi.getTimerCount()).toBe(0);
+    });
+
+    it('should close and unregister the resumed request stream when reconnecting after the request was already retired', async () => {
+        // Retire-then-reconnect: closeSSEStream → tool result. With no live
+        // writer the final response is stored and the request id is retired.
+        // A subsequent Last-Event-ID reconnect must replay that response AND
+        // close the resumed stream so a second reconnect is not refused with 409.
+        const events: { id: string; streamId: string; message: JSONRPCMessage }[] = [];
+        let counter = 0;
+        const eventStore: EventStore = {
+            async storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId> {
+                const id = `${streamId}#${counter++}`;
+                events.push({ id, streamId, message });
+                return id;
+            },
+            async getStreamIdForEventId(eventId: EventId): Promise<StreamId | undefined> {
+                return events.find(e => e.id === eventId)?.streamId;
+            },
+            async replayEventsAfter(lastEventId: EventId, { send }): Promise<StreamId> {
+                const index = events.findIndex(e => e.id === lastEventId);
+                const streamId = events[index]?.streamId ?? '_GET_stream';
+                for (const event of events.slice(index + 1).filter(e => e.streamId === streamId)) {
+                    await send(event.id, event.message);
+                }
+                return streamId;
+            }
+        };
+        const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), eventStore });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        mcpServer.tool('retire', 'closeSSE then emit then return', {}, async (_args, extra) => {
+            extra.closeSSEStream?.();
+            await extra.sendNotification({
+                method: 'notifications/progress',
+                params: { progressToken: 'retire-1', progress: 75 }
+            });
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        await mcpServer.connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const original = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'retire', arguments: {} }, id: 'retire-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+        const primingText = await original.text().catch(() => '');
+        const primingEventId = /^id: (.+)$/m.exec(primingText)?.[1];
+        expect(primingEventId).toBeDefined();
+
+        await vi.advanceTimersByTimeAsync(0);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        expect((transport as any)._requestToStreamMapping.has('retire-1')).toBe(false);
+
+        const reconnect = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', 'Last-Event-ID': primingEventId! } })
+        );
+        expect(reconnect.status).toBe(200);
+        const replayed = await reconnect.text();
+        expect(replayed).toContain('notifications/progress');
+        expect(replayed).toContain('"id":"retire-1"');
+        expect(replayed).toContain('"result"');
+
+        const reconnect2 = await transport.handleRequest(
+            req('GET', { headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25', 'Last-Event-ID': primingEventId! } })
+        );
+        expect(reconnect2.status).toBe(200);
+        await reconnect2.body?.cancel();
 
         await transport.close();
         expect(vi.getTimerCount()).toBe(0);
