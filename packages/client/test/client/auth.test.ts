@@ -626,43 +626,40 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it.each([401, 403, 404])(
-            'falls back to root discovery when path-aware discovery returns %d',
-            async statusCode => {
-                // First call (path-aware) returns 4xx (CDNs often use 401/403 instead of 404)
-                mockFetch.mockResolvedValueOnce({
-                    ok: false,
-                    status: statusCode
-                });
+        it.each([401, 403, 404])('falls back to root discovery when path-aware discovery returns %d', async statusCode => {
+            // First call (path-aware) returns 4xx (CDNs often use 401/403 instead of 404)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: statusCode
+            });
 
-                // Second call (root fallback) succeeds
-                mockFetch.mockResolvedValueOnce({
-                    ok: true,
-                    status: 200,
-                    json: async () => validMetadata
-                });
+            // Second call (root fallback) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
 
-                const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
-                expect(metadata).toEqual(validMetadata);
+            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            expect(metadata).toEqual(validMetadata);
 
-                const calls = mockFetch.mock.calls;
-                expect(calls.length).toBe(2);
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2);
 
-                // First call should be path-aware
-                const [firstUrl, firstOptions] = calls[0]!;
-                expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
-                expect(firstOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
-                });
+            // First call should be path-aware
+            const [firstUrl, firstOptions] = calls[0]!;
+            expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
+            expect(firstOptions.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
 
-                // Second call should be root fallback
-                const [secondUrl, secondOptions] = calls[1]!;
-                expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-                expect(secondOptions.headers).toEqual({
-                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
-                });
-            }
-        );
+            // Second call should be root fallback
+            const [secondUrl, secondOptions] = calls[1]!;
+            expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+            expect(secondOptions.headers).toEqual({
+                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+            });
+        });
 
         it('does not fall back when path-aware authorization-server discovery returns 200', async () => {
             mockFetch.mockResolvedValueOnce({
