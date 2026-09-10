@@ -869,6 +869,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         inflight.add(server);
         server.onclose = () => {
             inflight.delete(server);
+            server.onclose = previousOnClose;
             previousOnClose?.();
         };
 
