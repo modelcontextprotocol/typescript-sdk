@@ -653,7 +653,28 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // The resume itself proves the client holds a Last-Event-ID cursor
             this._resumableStreams.add(replayedStreamId);
 
-            keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+            // If this is a per-request stream and no in-flight request still
+            // targets this streamId, the request was already retired by the
+            // clean-return path while disconnected and the replay above just
+            // delivered the final response. Per the spec the server SHOULD
+            // close the SSE stream after the JSON-RPC response — close and
+            // unregister so a later reconnect isn't refused with 409. The
+            // standalone GET stream is never request-scoped and stays open.
+            if (replayedStreamId !== this._standaloneSseStreamId) {
+                const hasInFlightRequest = [...this._requestToStreamMapping.values()].includes(replayedStreamId);
+                if (!hasInFlightRequest) {
+                    this._streamMapping.delete(replayedStreamId);
+                    try {
+                        streamController!.close();
+                    } catch {
+                        // Controller might already be closed
+                    }
+                }
+            }
+
+            if (this._streamMapping.get(replayedStreamId)?.controller === streamController!) {
+                keepAliveTimer = this.startKeepAlive(streamController!, encoder);
+            }
 
             return new Response(readable, { headers });
         } catch (error) {
