@@ -626,39 +626,84 @@ describe('OAuth Authorization', () => {
             });
         });
 
-        it('falls back to root discovery when path-aware discovery returns 404', async () => {
-            // First call (path-aware) returns 404
-            mockFetch.mockResolvedValueOnce({
-                ok: false,
-                status: 404
-            });
+        it.each([401, 403, 404])(
+            'falls back to root discovery when path-aware discovery returns %d',
+            async statusCode => {
+                // First call (path-aware) returns 4xx (CDNs often use 401/403 instead of 404)
+                mockFetch.mockResolvedValueOnce({
+                    ok: false,
+                    status: statusCode
+                });
 
-            // Second call (root fallback) succeeds
+                // Second call (root fallback) succeeds
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => validMetadata
+                });
+
+                const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+                expect(metadata).toEqual(validMetadata);
+
+                const calls = mockFetch.mock.calls;
+                expect(calls.length).toBe(2);
+
+                // First call should be path-aware
+                const [firstUrl, firstOptions] = calls[0]!;
+                expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
+                expect(firstOptions.headers).toEqual({
+                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                });
+
+                // Second call should be root fallback
+                const [secondUrl, secondOptions] = calls[1]!;
+                expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
+                expect(secondOptions.headers).toEqual({
+                    'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
+                });
+            }
+        );
+
+        it('does not fall back when path-aware authorization-server discovery returns 200', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
                 json: async () => validMetadata
             });
 
-            const metadata = await discoverOAuthMetadata('https://auth.example.com/path/name');
+            const metadata = await discoverOAuthMetadata('https://resource.example.com/apis/mcp', {
+                authorizationServerUrl: 'https://id.auth.example.com'
+            });
+            expect(metadata).toEqual(validMetadata);
+            expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
+                'https://id.auth.example.com/.well-known/oauth-authorization-server/apis/mcp'
+            ]);
+        });
+
+        it('builds the authorization-server fallback URL on the AS host, not the resource host', async () => {
+            // Path-aware AS metadata on the issuer host is blocked (e.g. CDN 403)
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 403
+            });
+
+            // Root well-known on the authorization-server origin succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthMetadata('https://resource.example.com/apis/mcp', {
+                authorizationServerUrl: 'https://id.auth.example.com'
+            });
             expect(metadata).toEqual(validMetadata);
 
-            const calls = mockFetch.mock.calls;
-            expect(calls.length).toBe(2);
-
-            // First call should be path-aware
-            const [firstUrl, firstOptions] = calls[0]!;
-            expect(firstUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/path/name');
-            expect(firstOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
-            });
-
-            // Second call should be root fallback
-            const [secondUrl, secondOptions] = calls[1]!;
-            expect(secondUrl.toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server');
-            expect(secondOptions.headers).toEqual({
-                'MCP-Protocol-Version': LATEST_PROTOCOL_VERSION
-            });
+            const urls = mockFetch.mock.calls.map(([url]) => String(url));
+            expect(urls).toEqual([
+                'https://id.auth.example.com/.well-known/oauth-authorization-server/apis/mcp',
+                'https://id.auth.example.com/.well-known/oauth-authorization-server'
+            ]);
         });
 
         it('returns undefined when both path-aware and root discovery return 404', async () => {
@@ -1018,6 +1063,27 @@ describe('OAuth Authorization', () => {
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
 
             expect(metadata).toEqual(validOpenIdMetadata);
+        });
+
+        it.each([401, 403, 404])('continues from path-inserted AS metadata to the next URL on %d', async statusCode => {
+            const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: statusCode
+            });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => tenantOidcMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toEqual(tenantOidcMetadata);
+            expect(mockFetch.mock.calls.map(([url]) => String(url))).toEqual([
+                'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
+                'https://auth.example.com/.well-known/openid-configuration/tenant1'
+            ]);
         });
 
         it('preserves authorization_response_iss_parameter_supported through OIDC discovery parse', async () => {
