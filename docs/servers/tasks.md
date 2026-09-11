@@ -1,12 +1,16 @@
-# `@modelcontextprotocol/tasks`
+---
+shape: how-to
+---
 
-Server-side [MCP Tasks extension](https://github.com/modelcontextprotocol/ext-tasks) (`io.modelcontextprotocol/tasks`) for `@modelcontextprotocol/server`, with a pluggable execution engine.
+# Tasks
+
+Server-side [MCP Tasks extension](https://github.com/modelcontextprotocol/ext-tasks) (`io.modelcontextprotocol/tasks`) with a pluggable execution engine.
 
 `registerTask` is `registerTool` for long-running work: the handler runs as a replayable workflow (`step.do`, `step.sleep`, `step.elicit`, `step.status`, `step.offer`), and the extension's `tasks/get`, `tasks/update` and `tasks/cancel` methods route to per-task state that outlives the request that created it.
 
 ```ts
 import { McpServer } from '@modelcontextprotocol/server';
-import { InMemoryTaskEngine, installTasks } from '@modelcontextprotocol/tasks';
+import { InMemoryTaskEngine, installTasks } from '@modelcontextprotocol/server/ext/tasks';
 import * as z from 'zod/v4';
 
 const engine = new InMemoryTaskEngine();
@@ -40,7 +44,7 @@ Handlers never touch an engine directly. Two interfaces keep them engine-invaria
 
 `InMemoryTaskEngine` implements both in-process and is the reference: task records and step journals in a `Map`, one timer per task computed from the rows, handlers run through the attached executor. State does not survive the process.
 
-A durable engine implements the same two interfaces and lives outside this package: `TaskEngine` over a database or durable-execution runtime, `StepJournal` over its journal rows, and either `attach`es the executor (`createTaskExecutor(tasks)`) to run handlers in-process or builds one where the handlers run. Swapping engines changes the `installTasks` call and nothing else.
+A durable engine implements the same two interfaces and lives outside the SDK: `TaskEngine` over a database or durable-execution runtime, `StepJournal` over its journal rows, and either `attach`es the executor (`createTaskExecutor(tasks)`) to run handlers in-process or builds one where the handlers run. Swapping engines changes the `installTasks` call and nothing else.
 
 ## Step API
 

@@ -9,8 +9,7 @@
  * {@link StepJournal}, the surface the replay-aware step API drives.
  */
 
-import type { CallToolResult } from '@modelcontextprotocol/server';
-
+import type { CallToolResult } from '../../../index';
 import type { SerializedError } from './errors';
 
 /** One claimed execution attempt, as dispatched by the engine. */

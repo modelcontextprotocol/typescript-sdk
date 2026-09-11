@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { RunOutcome, StepJournal, TaskExecutor, TaskInvocation } from '../src/index';
-import { DuplicateStepError, InMemoryTaskEngine, StaleLeaseError } from '../src/index';
+import type { RunOutcome, StepJournal, TaskExecutor, TaskInvocation } from '../../../src/ext/tasks/index';
+import { DuplicateStepError, InMemoryTaskEngine, StaleLeaseError } from '../../../src/ext/tasks/index';
 
 const tick = (ms = 0) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -69,8 +69,8 @@ describe('InMemoryTaskEngine', () => {
                 return { outcome: 'completed', result: { content: [] } };
             })
         );
-        await engine.create(params);
-        await tick(20);
+        const task = await engine.create(params);
+        for (let i = 0; i < 100 && (await engine.get(task.taskId))?.status !== 'completed'; i++) await tick(5);
         await expect(stale?.beginStep('late')).rejects.toBeInstanceOf(StaleLeaseError);
         engine.close();
     });

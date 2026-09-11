@@ -6,8 +6,7 @@
  * shapes beyond the `DetailedTask` snapshot they return.
  */
 
-import type { InputResponses } from '@modelcontextprotocol/server';
-
+import type { InputResponses } from '../../../index';
 import type { DetailedTask, Task } from '../wire/types';
 import type { TaskExecutor } from './protocol';
 

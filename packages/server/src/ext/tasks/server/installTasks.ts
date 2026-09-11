@@ -12,21 +12,8 @@
  * the request is refused with `MissingRequiredClientCapability` (`-32021`).
  */
 
-import type {
-    CallToolResult,
-    InputResponses,
-    McpServer,
-    ServerContext,
-    StandardSchemaWithJSON,
-    ToolAnnotations
-} from '@modelcontextprotocol/server';
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    MissingRequiredClientCapabilityError,
-    ProtocolError,
-    ProtocolErrorCode
-} from '@modelcontextprotocol/server';
-
+import type { CallToolResult, InputResponses, McpServer, ServerContext, StandardSchemaWithJSON, ToolAnnotations } from '../../../index';
+import { CLIENT_CAPABILITIES_META_KEY, MissingRequiredClientCapabilityError, ProtocolError, ProtocolErrorCode } from '../../../index';
 import { DEFAULT_POLL_INTERVAL_MS, DEFAULT_RETRY_POLICY, DEFAULT_TTL_MS } from '../engine/defaults';
 import { createTaskExecutor } from '../engine/executor';
 import type { TaskEngine } from '../engine/taskEngine';

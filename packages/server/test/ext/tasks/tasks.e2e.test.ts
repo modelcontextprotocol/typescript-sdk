@@ -5,11 +5,11 @@
  * instance that answered `tools/call`; the engine is the only shared state.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { CLIENT_CAPABILITIES_META_KEY, createMcpHandler, McpServer, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/server';
+import { CLIENT_CAPABILITIES_META_KEY, createMcpHandler, McpServer, PROTOCOL_VERSION_META_KEY } from '../../../src/index';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { InputResponses, Step } from '../src/index';
+import type { InputResponses, Step } from '../../../src/ext/tasks/index';
 import {
     createTaskResultSchema,
     detailedTaskSchema,
@@ -17,7 +17,7 @@ import {
     installTasks,
     NonRetryableError,
     TASKS_EXTENSION_ID
-} from '../src/index';
+} from '../../../src/ext/tasks/index';
 
 /**
  * The SDK `Client` consumes `resultType` (a wire-only field) before a caller

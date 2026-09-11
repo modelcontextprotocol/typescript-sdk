@@ -1,5 +1,4 @@
-import type { CallToolResult, StandardSchemaWithJSON, ToolAnnotations } from '@modelcontextprotocol/server';
-
+import type { CallToolResult, StandardSchemaWithJSON, ToolAnnotations } from '../../../index';
 import type { RetryPolicy, Step } from '../step/types';
 
 /** The validated input type a task handler receives for its input schema. */

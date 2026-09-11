@@ -9,8 +9,7 @@
  * store would make. State does not survive the process.
  */
 
-import type { CallToolResult, InputRequests, InputResponses } from '@modelcontextprotocol/server';
-
+import type { CallToolResult, InputRequests, InputResponses } from '../../../index';
 import type { DetailedTask, Task, TaskStatus } from '../wire/types';
 import type { SerializedError } from './errors';
 import { DuplicateStepError } from './errors';
