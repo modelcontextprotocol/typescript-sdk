@@ -7,8 +7,8 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { Prompt, RegisteredTool, Resource, Tool } from '@modelcontextprotocol/server';
-import { McpServer, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
+import type { Prompt, RegisteredResourceTemplate, RegisteredTool, Resource, Tool } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
@@ -229,6 +229,65 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
     expect(restored.isError).toBeFalsy();
     expect(restored.content).toEqual([{ type: 'text', text: 'toggle-probe' }]);
 });
+
+verifies(
+    'mcpserver:handle:enable-disable',
+    async ({ transport }: TestArgs) => {
+        let handle!: RegisteredResourceTemplate;
+        let server!: McpServer;
+
+        const makeServer = () => {
+            server = new McpServer({ name: 's', version: '0' });
+            handle = server.registerResource(
+                'toggle-template',
+                new ResourceTemplate('probe://{id}', {
+                    list: async () => ({ resources: [{ name: 'probe-1', uri: 'probe://1' }] })
+                }),
+                {},
+                async uri => ({ contents: [{ uri: uri.toString(), text: 'probe-body' }] })
+            );
+            return server;
+        };
+
+        let listChanged = 0;
+        const client = newClient();
+        client.setNotificationHandler('notifications/resources/list_changed', () => {
+            listChanged++;
+        });
+
+        await using _ = await wire(transport, makeServer, client);
+
+        const initialTemplates = await client.listResourceTemplates();
+        expect(initialTemplates.resourceTemplates.map(t => t.name)).toContain('toggle-template');
+        const initialResources = await client.listResources();
+        expect(initialResources.resources.map(r => r.uri)).toContain('probe://1');
+        const initialRead = await client.readResource({ uri: 'probe://1' });
+        expect(initialRead.contents[0]).toMatchObject({ text: 'probe-body' });
+
+        const beforeDisable = listChanged;
+        handle.disable();
+        await waitUntil(() => listChanged > beforeDisable);
+
+        const disabledTemplates = await client.listResourceTemplates();
+        expect(disabledTemplates.resourceTemplates.map(t => t.name)).not.toContain('toggle-template');
+        const disabledResources = await client.listResources();
+        expect(disabledResources.resources.map(r => r.uri)).not.toContain('probe://1');
+        await expect(client.readResource({ uri: 'probe://1' })).rejects.toMatchObject({
+            code: ProtocolErrorCode.InvalidParams,
+            message: expect.stringMatching(/disabled/i)
+        });
+
+        const beforeEnable = listChanged;
+        handle.enable();
+        await waitUntil(() => listChanged > beforeEnable);
+
+        const restoredTemplates = await client.listResourceTemplates();
+        expect(restoredTemplates.resourceTemplates.map(t => t.name)).toContain('toggle-template');
+        const restoredRead = await client.readResource({ uri: 'probe://1' });
+        expect(restoredRead.contents[0]).toMatchObject({ text: 'probe-body' });
+    },
+    { title: 'resource template' }
+);
 
 verifies('mcpserver:list-changed:debounce', async ({ transport }: TestArgs) => {
     let server!: McpServer;
