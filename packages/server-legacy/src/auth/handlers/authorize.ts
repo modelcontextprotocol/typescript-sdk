@@ -151,16 +151,24 @@ export function authorizationHandler({ provider, issuerUrl, rateLimit: rateLimit
         }
 
         // Phase 2: Validate other parameters. Any errors here should go into redirect responses.
-        let state;
+        let state: string | undefined;
         try {
+            const params = req.method === 'POST' ? req.body : req.query;
+
+            // RFC 6749 4.1.2.1: the error response MUST carry `state` whenever the
+            // request did. Capture it before schema validation, which throws on any
+            // other malformed parameter and would otherwise drop it.
+            if (typeof params?.state === 'string') {
+                state = params.state;
+            }
+
             // Parse and validate authorization parameters
-            const parseResult = RequestAuthorizationParamsSchema.safeParse(req.method === 'POST' ? req.body : req.query);
+            const parseResult = RequestAuthorizationParamsSchema.safeParse(params);
             if (!parseResult.success) {
                 throw new InvalidRequestError(parseResult.error.message);
             }
 
             const { scope, code_challenge, resource } = parseResult.data;
-            state = parseResult.data.state;
 
             // Validate scopes
             let requestedScopes: string[] = [];
