@@ -46,8 +46,7 @@ import {
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index';
-import type { StandardSchemaV1 } from '../util/standardSchema';
-import type { StandardSchemaValidationResult } from '../util/standardSchema';
+import type { StandardSchemaV1, StandardSchemaValidationResult } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
