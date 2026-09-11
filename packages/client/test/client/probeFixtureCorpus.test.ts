@@ -184,32 +184,35 @@ const CORPUS: CorpusRow[] = [
         outcome: { kind: 'http-error', status: 401, body: DEPLOYED_SESSION_REQUIRED_BODY },
         expected: 'error'
     },
-    // --- Server failures are never era evidence: the spec keys the HTTP
-    // legacy signal to a 4xx rejection, so a 5xx (mid-deploy proxy, crashed
-    // backend) rejects typed instead of demoting a modern server to legacy.
+    // --- Server errors are completed exchanges and therefore era evidence:
+    // deployed frameworks map JSON-RPC errors to 500 and gateways 502 unknown
+    // routes, so a 5xx answer to the probe selects the legacy fallback (a
+    // genuinely failing server just fails the fallback initialize with its
+    // own error). Hosts caching era verdicts should date legacy verdicts —
+    // a 5xx can be a modern server's transient failure.
     {
-        name: '5xx: HTTP 503 with an HTML error page (mid-deploy modern server) → typed error, never legacy',
+        name: '5xx: HTTP 503 with an HTML error page → legacy fallback',
         outcome: { kind: 'http-error', status: 503, body: '<html><body>Service Unavailable</body></html>' },
-        expected: 'error'
+        expected: 'legacy'
     },
     {
-        name: '5xx: bare HTTP 500 (no body) → typed error, never legacy',
+        name: '5xx: bare HTTP 500 (no body) → legacy fallback',
         outcome: { kind: 'http-error', status: 500 },
-        expected: 'error'
+        expected: 'legacy'
     },
     {
-        name: '5xx: HTTP 502 with a JSON (but not JSON-RPC) gateway body → typed error, never legacy',
+        name: '5xx: HTTP 502 with a JSON (but not JSON-RPC) gateway body → legacy fallback',
         outcome: { kind: 'http-error', status: 502, body: '{"message":"upstream connect error"}' },
-        expected: 'error'
+        expected: 'legacy'
     },
     {
-        name: '5xx: HTTP 500 whose body parses as a JSON-RPC error (-32603 from a crashed handler) is still a server failure — 5xx ranks above the body parse',
+        name: '5xx: HTTP 500 whose body parses as a JSON-RPC error (-32603, a framework mapping JSON-RPC errors to 500) → legacy fallback',
         outcome: {
             kind: 'http-error',
             status: 500,
             body: JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32_603, message: 'Internal error' } })
         },
-        expected: 'error'
+        expected: 'legacy'
     },
     // --- Q12 transport-aware timeout rows (stdio falls back, HTTP stays a typed error).
     {
@@ -227,6 +230,24 @@ const CORPUS: CorpusRow[] = [
     {
         name: 'wire-real: -32601 method-not-found → legacy fallback',
         outcome: { kind: 'rpc-error', code: -32_601, message: 'Method not found' },
+        expected: 'legacy'
+    },
+    // --- Wire-real shape (anomalyco/opencode#39354): a 200-accepted reply that
+    // fails strict JSON-RPC validation. A completed non-auth exchange is era
+    // evidence — a non-modern answer selects the legacy fallback (the same
+    // rule as the unparseable-4xx row; note the former 200-vs-404 asymmetry:
+    // this exact body already fell back at 404 via the lenient body parse).
+    {
+        name: 'wire-real (oc#39354): 200 + JSON-RPC 2.0 parse-error reply (-32700, id: null) failing strict validation → legacy fallback',
+        outcome: {
+            kind: 'invalid-reply',
+            body: { jsonrpc: '2.0', id: null, error: { code: -32_700, message: 'Parse Error' } }
+        },
+        expected: 'legacy'
+    },
+    {
+        name: 'invalid-reply: bodiless completed exchange (200 empty/unparseable JSON, HTML content type, 202 accepted-without-reply) → legacy fallback',
+        outcome: { kind: 'invalid-reply' },
         expected: 'legacy'
     },
     // --- Wire-real shape C: the #3002 final-revision DiscoverResult (go v1.7.0-pre.3).
@@ -278,19 +299,16 @@ describe('T9/T11 merged probe fixture corpus (probe classifier)', () => {
         }
     });
 
-    it('the 5xx typed failure is EraNegotiationFailed (a genuine negotiation failure) carrying the status', () => {
+    it('a 5xx probe answer for a modern-only client (no fallback available) still classifies legacy — the caller reports the typed negotiation error', () => {
         const verdict = classifyProbeOutcome(
             { kind: 'http-error', status: 503, statusText: 'Service Unavailable', body: 'down' },
-            baseContext
+            { ...baseContext, fallbackAvailable: false }
         );
-        expect(verdict.kind).toBe('error');
-        if (verdict.kind === 'error') {
-            expect(verdict.error).toBeInstanceOf(SdkHttpError);
-            const error = verdict.error as SdkHttpError;
-            expect(error.code).toBe(SdkErrorCode.EraNegotiationFailed);
-            expect(error.status).toBe(503);
-            expect(error.message).toContain('503');
-        }
+        // Non-modern evidence stays a legacy classification; negotiateEra
+        // converts it to SdkError(EraNegotiationFailed) when no pre-2026
+        // version is available to fall back to (see the classifier context
+        // contract on fallbackAvailable).
+        expect(verdict.kind).toBe('legacy');
     });
 
     it('a DiscoverResult with a mutual version is the only result shape that yields a modern verdict', () => {
