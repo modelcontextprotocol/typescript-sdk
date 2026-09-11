@@ -5,7 +5,7 @@ import { PassThrough } from 'node:stream';
 
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core-internal';
-import spawn from 'cross-spawn';
+import { x } from 'tinyexec';
 
 export type StdioServerParameters = {
     /**
@@ -94,6 +94,22 @@ export function getDefaultEnvironment(): Record<string, string> {
 }
 
 /**
+ * `tinyexec` always merges `process.env` into the child environment, so passing an allowlist
+ * alone would not keep parent variables out. Masking every parent key with `undefined` cancels
+ * that merge, because Node's `spawn` drops `undefined` entries — leaving only the keys the
+ * caller (via {@linkcode getDefaultEnvironment} and `StdioServerParameters.env`) opted into.
+ */
+function maskInheritedEnvironment(): Record<string, undefined> {
+    const mask: Record<string, undefined> = {};
+
+    for (const key of Object.keys(process.env)) {
+        mask[key] = undefined;
+    }
+
+    return mask;
+}
+
+/**
  * Client transport for stdio: this will connect to a server by spawning a process and communicating with it over stdin/stdout.
  *
  * This transport is only available in Node.js environments.
@@ -127,17 +143,30 @@ export class StdioClientTransport implements Transport {
         }
 
         return new Promise((resolve, reject) => {
-            this._process = spawn(this._serverParams.command, this._serverParams.args ?? [], {
-                // merge default env with server env because mcp server needs some env vars
-                env: {
-                    ...getDefaultEnvironment(),
-                    ...this._serverParams.env
-                },
-                stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
-                shell: false,
-                windowsHide: process.platform === 'win32',
-                cwd: this._serverParams.cwd
-            });
+            const child = x(this._serverParams.command, this._serverParams.args ?? [], {
+                // Leave PATH exactly as given: tinyexec otherwise prepends every ancestor
+                // `node_modules/.bin` directory, which would change how the server command resolves.
+                nodePath: false,
+                nodeOptions: {
+                    // merge default env with server env because mcp server needs some env vars
+                    env: {
+                        ...maskInheritedEnvironment(),
+                        ...getDefaultEnvironment(),
+                        ...this._serverParams.env
+                    },
+                    stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
+                    shell: false,
+                    windowsHide: process.platform === 'win32',
+                    cwd: this._serverParams.cwd
+                }
+            }).process;
+
+            if (!child) {
+                reject(new SdkError(SdkErrorCode.NotConnected, 'Failed to spawn server process'));
+                return;
+            }
+
+            this._process = child;
 
             this._process.on('error', error => {
                 reject(error);
