@@ -92,7 +92,13 @@ function schemaServer(): McpServer {
         'structured-mismatch',
         { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
         // intentionally invalid structuredContent (tests server-side validation rejects it)
-        () => ({ structuredContent: { value: 'not-a-number' }, content: [] })
+        () => ({
+            structuredContent: {
+                // @ts-expect-error intentionally nonconforming structuredContent
+                value: 'not-a-number'
+            },
+            content: []
+        })
     );
     s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         content: [{ type: 'text', text: 'handler-body-no-structured' }]

@@ -139,7 +139,15 @@ verifies('standardschema:tool:output-schema-validation', async ({ transport }: T
             'get-server-status-corrupt',
             { inputSchema: type({}), outputSchema },
             // intentionally nonconforming structuredContent (server-side output validation must reject it)
-            () => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] })
+            () => ({
+                structuredContent: {
+                    // @ts-expect-error intentionally nonconforming structuredContent
+                    healthy: 'definitely',
+                    // @ts-expect-error intentionally nonconforming structuredContent
+                    uptimeSeconds: 'a while'
+                },
+                content: []
+            })
         );
         return s;
     };
