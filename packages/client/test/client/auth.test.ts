@@ -1022,9 +1022,9 @@ describe('OAuth Authorization', () => {
 
         it('preserves authorization_response_iss_parameter_supported through OIDC discovery parse', async () => {
             // OAuth well-known 404s; OIDC well-known returns metadata advertising RFC 9207 support.
-            // Regression-guard: OpenIdProviderDiscoveryMetadataSchema is a plain z.object(), so the
-            // field must be declared on the underlying schemas or it gets stripped — making the
-            // RFC 9207 §2.4 advertised-but-missing reject inert on the OIDC-only discovery path.
+            // Regression-guard: the field must be declared on the underlying schemas so its typed
+            // value is visible to the RFC 9207 §2.4 advertised-but-missing reject on the OIDC-only
+            // discovery path.
             mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -1056,6 +1056,270 @@ describe('OAuth Authorization', () => {
 
             expect(metadata).toEqual(validOpenIdMetadata);
             expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('accepts RFC 8414 OAuth metadata served at the openid-configuration path', async () => {
+            // A plain OAuth 2.0 AS (no jwks_uri / subject_types_supported /
+            // id_token_signing_alg_values_supported) publishing RFC 8414 metadata only at the
+            // OIDC well-known path — explicitly permitted by RFC 8414 §5.
+            const rfc8414Metadata = {
+                issuer: 'https://auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token',
+                response_types_supported: ['code'],
+                grant_types_supported: ['authorization_code', 'refresh_token'],
+                code_challenge_methods_supported: ['S256'],
+                revocation_endpoint: 'https://auth.example.com/oauth/revoke',
+                introspection_endpoint: 'https://auth.example.com/oauth/introspect'
+            };
+
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => rfc8414Metadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(rfc8414Metadata);
+        });
+
+        it('preserves RFC 8414 fields on OIDC discovery documents', async () => {
+            // OIDC providers commonly mix in OAuth 2.0 metadata fields; a successful OIDC parse
+            // must not strip them (the discovery schema is a loose object).
+            const mixedMetadata = {
+                ...validOpenIdMetadata,
+                revocation_endpoint: 'https://auth.example.com/revoke',
+                introspection_endpoint: 'https://auth.example.com/introspect'
+            };
+
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => mixedMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(mixedMetadata);
+        });
+
+        it('skips a candidate whose document fits neither schema and tries the next URL', async () => {
+            const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
+
+            // First OAuth URL 404s
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            // Second URL (RFC 8414-style OIDC path) returns a document that is not
+            // authorization server metadata at all
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ hello: 'world' })
+            });
+            // Third URL (OIDC Discovery 1.0-style path) succeeds
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => tenantOidcMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toEqual(tenantOidcMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(3);
+        });
+
+        it('skips a candidate whose 200 body is not JSON', async () => {
+            // e.g. an SPA catch-all serving HTML at the well-known path
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => {
+                    throw new SyntaxError('Unexpected token < in JSON');
+                }
+            });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validOpenIdMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        it('throws a diagnosable error when every candidate document fails validation', async () => {
+            // The AS publishes a near-miss document (200, valid JSON, fits neither schema):
+            // discovery must not silently return undefined and degrade to endpoint guessing.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ issuer: 'https://auth.example.com', token_endpoint: 'https://auth.example.com/token' })
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(
+                /matched neither the OAuth 2\.0 \(RFC 8414\) nor the OpenID Connect Discovery metadata schema/
+            );
+        });
+
+        it('drops fields that failed the path-implied schema instead of passing them through the fallback parse', async () => {
+            // An OIDC-shaped document whose jwks_uri fails SafeUrlSchema: the OIDC parse
+            // fails, the OAuth fallback succeeds — but the unsafe value must not ride
+            // through the OAuth schema's looseObject passthrough unvalidated.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            // Fields that passed validation are kept
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+            expect(metadata).toHaveProperty('subject_types_supported', ['public']);
+        });
+
+        it('drops unsafe RFC 8414 endpoint values from OIDC discovery documents without failing the document', async () => {
+            // revocation_endpoint and introspection_endpoint are declared on the discovery
+            // schema with their OAuth validators (SafeUrlSchema). An unsafe value in these
+            // optional, client-unused fields drops the field — it must neither ride through
+            // the loose object's passthrough nor abort the auth flow.
+            for (const field of ['revocation_endpoint', 'introspection_endpoint']) {
+                mockFetch.mockReset();
+                mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOpenIdMetadata, [field]: 'javascript:alert(1)' })
+                });
+
+                const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+                expect(metadata).toBeDefined();
+                expect(metadata).not.toHaveProperty(field);
+                expect(metadata?.issuer).toBe('https://auth.example.com');
+            }
+        });
+
+        it('legacy discoverOAuthMetadata sanitizes OIDC-declared fields it only passes through', async () => {
+            // Same sanitization as discoverAuthorizationServerMetadata: jwks_uri is not
+            // declared by the OAuth schema, so an unsafe value must be dropped, not
+            // returned via the looseObject passthrough.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+        });
+
+        it('legacy discoverOAuthMetadata drops an invalid optional field instead of throwing', async () => {
+            // The deprecated path shares the field policy: base returned this document
+            // (introspection_endpoint was a plain string then), so the tightened validator
+            // must drop the field, not reject the document.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOAuthMetadata, introspection_endpoint: '/oauth/introspect' })
+            });
+
+            const metadata = await discoverOAuthMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('introspection_endpoint');
+            expect(metadata?.token_endpoint).toBe('https://auth.example.com/token');
+        });
+
+        it('drops an invalid optional field instead of failing an OAuth metadata document', async () => {
+            // A document whose only flaw is a relative URL in an optional, client-unused
+            // field must not abort discovery (on base this hard-failed the OAuth path).
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOAuthMetadata, revocation_endpoint: '/oauth/revoke' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('revocation_endpoint');
+            expect(metadata?.token_endpoint).toBe('https://auth.example.com/token');
+        });
+
+        it('sanitizes fields the sibling schema rejects even when the path-implied schema accepts the document', async () => {
+            // A mixed OIDC document served at the oauth-authorization-server path parses
+            // successfully with the (loose) OAuth schema — the OIDC-declared jwks_uri must
+            // still be validated, not passed through because of which path served it.
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, jwks_uri: 'javascript:alert(1)' })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata).toBeDefined();
+            expect(metadata).not.toHaveProperty('jwks_uri');
+            expect(metadata?.issuer).toBe('https://auth.example.com');
+            expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        it('applies the URL scheme guard to service_documentation on OIDC discovery documents', async () => {
+            // service_documentation is a URL in both RFC 8414 and OIDC Discovery; the
+            // discovery schema takes the OAuth validator (SafeUrlSchema) so an unsafe value
+            // is dropped like any other invalid optional field, while a valid URL survives.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'javascript:alert(1)' })
+            });
+
+            const dropped = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(dropped).toBeDefined();
+            expect(dropped).not.toHaveProperty('service_documentation');
+
+            mockFetch.mockReset();
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, service_documentation: 'https://auth.example.com/docs' })
+            });
+
+            const kept = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(kept).toHaveProperty('service_documentation', 'https://auth.example.com/docs');
+        });
+
+        it('still validates the issuer on RFC 8414 documents found at the openid-configuration path', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    issuer: 'https://evil.example.com',
+                    authorization_endpoint: 'https://auth.example.com/authorize',
+                    token_endpoint: 'https://auth.example.com/token',
+                    response_types_supported: ['code']
+                })
+            });
+
+            await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(IssuerMismatchError);
         });
 
         it('throws on non-502 5xx errors', async () => {
