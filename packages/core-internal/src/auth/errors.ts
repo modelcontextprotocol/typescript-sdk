@@ -100,14 +100,16 @@ export enum OAuthErrorCode {
     InvalidTarget = 'invalid_target',
 
     /**
-     * The DPoP proof accompanying the request is invalid, or does not match the key the grant
-     * (e.g. a refresh token) is bound to. (RFC 9449 §5 / §7.1)
+     * The DPoP proof accompanying the request is missing, malformed, or fails validation
+     * (signature, `htm`/`htu`/`iat`, etc. — RFC 9449 §4.3), or does not match the key the token is
+     * bound to — whether an access token at a protected resource (RFC 9449 §7.1) or a grant (e.g.
+     * a refresh token) at the token endpoint (RFC 9449 §5). (SEP-1932)
      */
     InvalidDpopProof = 'invalid_dpop_proof',
 
     /**
      * The server requires a server-supplied nonce in the DPoP proof; retry with the `DPoP-Nonce`
-     * it returned. (RFC 9449 §8 / §9)
+     * it returned. (RFC 9449 §8 / §9, SEP-1932)
      */
     UseDpopNonce = 'use_dpop_nonce'
 }
