@@ -11,9 +11,15 @@
  * Registry membership is the deletion story, and these tests prove it at the
  * protocol funnels, in both directions:
  *
- *  - inbound: `tasks/get` on a modern-era instance gets −32601 BY ABSENCE —
- *    even with a handler registered (a custom handler cannot shadow a
- *    deleted spec method across eras); era-deleted spec notifications are
+ *  - inbound: a TYPED spec handler (`setRequestHandler(method, handler)`)
+ *    cannot shadow a deleted spec method across eras — `ping` on a
+ *    modern-era instance still answers −32601 BY ABSENCE. An
+ *    EXPLICIT-SCHEMA handler (`setRequestHandler(method, schemas, handler)`)
+ *    for the same kind of name IS reachable regardless of era-registry
+ *    absence — `tasks/get` served on a modern-era instance, because the
+ *    consumer's own schema is the extension-authoring path (issue #2598:
+ *    the Tasks extension, SEP-2663, reuses a name a past core revision also
+ *    used for an unrelated core method). Era-deleted spec notifications are
  *    silently dropped even with a handler registered.
  *  - outbound: an era-mismatched spec method dies locally with
  *    `SdkErrorCode.MethodNotSupportedByProtocolVersion` before anything
@@ -109,30 +115,50 @@ const resultOf = (msg: JSONRPCMessage | undefined) => (msg as { result?: Record<
 
 describe('inbound era gates — deletions are physical, era is instance state', () => {
     const registerTasksGetHandler = (onRun: () => void) => (receiver: TestProtocol) => {
-        // A custom (3-arg) handler deliberately shadowing the deleted
-        // spec method: it may serve the 2025 era only.
+        // An explicit-schema (3-arg) handler: the consumer supplies their own
+        // schema for a name the era registry doesn't define as a core
+        // method, which is the extension-authoring path (#2598) — it is
+        // reachable on every era, not shadowed by the deletion gate.
         receiver.setRequestHandler('tasks/get', { params: z.looseObject({ taskId: z.string() }) }, () => {
             onRun();
             return {} as Result;
         });
     };
 
-    test('a modern-era instance answers tasks/get with −32601 BY ABSENCE even with a handler registered', async () => {
+    test('a modern-era instance still serves tasks/get through an explicit-schema handler (#2598)', async () => {
         let handlerRan = false;
         const h = await harness({ era: '2026-07-28', setup: registerTasksGetHandler(() => (handlerRan = true)) });
 
         // A matching modern classification rides along untouched — the
-        // handoff check accepts it; the era gate still answers by absence.
+        // handoff check accepts it; the era gate no longer answers by
+        // absence when an explicit-schema handler is registered.
         h.deliver(
             { jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { taskId: 't-1', _meta: { ...ENVELOPE } } } as JSONRPCMessage,
             MODERN
         );
         await h.flush();
 
-        expect(handlerRan).toBe(false);
+        expect(handlerRan).toBe(true);
+        expect(resultOf(h.sent[0])).toBeDefined();
+    });
+
+    test('a modern-era instance still answers −32601 BY ABSENCE for a deleted spec method with no handler registered', async () => {
+        const h = await harness({ era: '2026-07-28' });
+
+        h.deliver(
+            { jsonrpc: '2.0', id: 1, method: 'tasks/get', params: { taskId: 't-1', _meta: { ...ENVELOPE } } } as JSONRPCMessage,
+            MODERN
+        );
+        await h.flush();
+
         expect(h.sent).toHaveLength(1);
         expect(errorOf(h.sent[0])).toMatchObject({ code: -32601, message: 'Method not found' });
     });
+
+    // The built-in `ping` handler (registered via the typed 2-arg overload
+    // in the `Protocol` constructor) demonstrates the typed path stays fully
+    // era-gated — see 'ping on a modern-era instance is −32601 by absence'
+    // below: only explicit-schema registrations are exempt.
 
     test('a legacy-era instance (the default) serves tasks/get with that handler — era is fixed per instance', async () => {
         let handlerRan = false;
@@ -532,6 +558,21 @@ describe('outbound era gates — typed local error before the transport', () => 
             expect((error as SdkError).data).toMatchObject({ method: 'ping', era: '2026-07-28' });
         }
         expect(h.sent).toHaveLength(0);
+    });
+
+    test('the public request() overload sends tasks/get with an explicit schema even on a 2026-era instance (#2598)', async () => {
+        const h = await harness({ era: '2026-07-28' });
+
+        const pending = h.receiver.request({ method: 'tasks/get', params: { taskId: 't-1' } }, z.looseObject({}));
+        await h.flush();
+
+        // Reached the transport (unlike the typed-dispatch case above, which
+        // never gets past the local era gate) — no peer is listening in this
+        // harness, so the request itself is left pending; asserting on
+        // `h.sent` is enough to prove it was NOT rejected locally.
+        expect(h.sent).toHaveLength(1);
+        expect(h.sent[0]).toMatchObject({ method: 'tasks/get', params: { taskId: 't-1' } });
+        pending.catch(() => {});
     });
 
     test('pre-negotiation bootstrap pins still route initialize to the 2025 era', async () => {
