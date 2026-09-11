@@ -123,6 +123,26 @@ async function McpServer_sendLoggingMessage_basic(server: McpServer) {
 }
 
 /**
+ * Example: Tracking per-resource subscriptions (2025-era `resources/subscribe`).
+ */
+async function McpServer_trackResourceSubscriptions_basic(server: McpServer) {
+    //#region McpServer_trackResourceSubscriptions_basic
+    server.trackResourceSubscriptions({
+        onSubscribe: uri => {
+            if (!uri.startsWith('status://')) {
+                throw new Error(`Subscriptions to ${uri} are not supported`);
+            }
+        }
+    });
+
+    // ...later, when the resource changes:
+    if (server.resourceSubscriptions.has('status://deploy')) {
+        await server.sendResourceUpdated({ uri: 'status://deploy' });
+    }
+    //#endregion McpServer_trackResourceSubscriptions_basic
+}
+
+/**
  * Example: Logging from inside a tool handler via ctx.mcpReq.log().
  */
 function McpServer_registerTool_logging(server: McpServer) {
