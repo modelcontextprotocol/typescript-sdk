@@ -3,6 +3,9 @@ import { tmpdir } from 'node:os';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+
+import { Client } from '../../src/client/client';
 import type { StdioServerParameters } from '../../src/client/stdio';
 import { StdioClientTransport } from '../../src/client/stdio';
 
@@ -121,6 +124,42 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
     await closed;
 });
+
+test('an awaiting caller learns why the connection closed when the read buffer overflows', async () => {
+    // The shape from #2775: the transport reports the cause on onerror and
+    // closes; without a reason on the close, `await client.listTools()` was
+    // rejected with a bare `Connection closed` and the diagnosis was only
+    // visible to code that had wired up onerror in advance.
+    const server = String.raw`
+        const { createInterface } = require('readline');
+        const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
+        createInterface({ input: process.stdin }).on('line', (line) => {
+            const m = JSON.parse(line);
+            if (m.method === 'initialize') {
+                return send({ jsonrpc: '2.0', id: m.id, result: {
+                    protocolVersion: '2025-06-18', capabilities: { tools: {} },
+                    serverInfo: { name: 'big', version: '1.0.0' } } });
+            }
+            if (m.method === 'notifications/initialized') return;
+            send({ jsonrpc: '2.0', id: m.id, result: {
+                tools: [{ name: 'big', description: 'A'.repeat(4096), inputSchema: { type: 'object' } }] } });
+        });
+    `;
+    const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ['-e', server],
+        maxBufferSize: 1024
+    });
+    const client = new Client({ name: 'demo', version: '1.0.0' });
+    await client.connect(transport);
+
+    const error = await client.listTools().catch(e => e);
+    expect(error).toBeInstanceOf(SdkError);
+    expect(error.code).toBe(SdkErrorCode.ConnectionClosed);
+    expect(error.message).toMatch(/^Connection closed: ReadBuffer exceeded maximum size of 1024 bytes/);
+    expect(error.cause).toBeInstanceOf(Error);
+    expect((error.cause as Error).message).toMatch(/ReadBuffer exceeded maximum size/);
+}, 10_000);
 
 test('_dispose releases the parent-side pipe handles even when a helper process holds the child stdio', async () => {
     // The rmcp-holding anatomy: the child exits, but a helper it spawned with
