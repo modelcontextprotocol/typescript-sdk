@@ -1070,11 +1070,86 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         return undefined;
     }
 
+    /**
+     * Settles the pending `Promise<Response>` of any JSON-response-mode POST
+     * that is still in flight, so closing the transport cannot leave an HTTP
+     * request hanging.
+     *
+     * In JSON response mode `handleRequest()` returns a promise that only
+     * `send()` resolves. A stream mapping's `cleanup` deletes the entry
+     * without settling that promise, so a `close()` while a POST is in flight
+     * left the HTTP request open until the socket died, with the caller unable
+     * to tell whether the request ran.
+     *
+     * The SSE path is deliberately not touched: a POST-initiated SSE stream
+     * closing without a JSON-RPC response is the documented outcome of session
+     * termination (`hosting:session:delete-cancels-inflight`), where the
+     * request handler has been aborted and the request is therefore cancelled
+     * rather than unanswered.
+     */
+    private settlePendingJsonResponses(): void {
+        if (!this._enableJsonResponse || this._requestToStreamMapping.size === 0) {
+            return;
+        }
+
+        // Group the outstanding ids by the stream that owes them a response:
+        // a batched POST shares one stream across several request ids.
+        const idsByStream = new Map<string, RequestId[]>();
+        for (const [requestId, streamId] of this._requestToStreamMapping) {
+            const ids = idsByStream.get(streamId);
+            if (ids === undefined) {
+                idsByStream.set(streamId, [requestId]);
+            } else {
+                ids.push(requestId);
+            }
+        }
+
+        for (const [streamId, requestIds] of idsByStream) {
+            const stream = this._streamMapping.get(streamId);
+            if (stream?.resolveJson === undefined) {
+                continue;
+            }
+
+            // An id that already has a response only reaches here as part of a
+            // batch whose siblings are unanswered — reuse the real response
+            // rather than overwriting it with an error.
+            const messages = requestIds.map(
+                requestId =>
+                    this._requestResponseMap.get(requestId) ??
+                    ({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        error: {
+                            code: -32_000,
+                            message: 'Connection closed: the server transport closed before this request completed'
+                        }
+                    } satisfies JSONRPCMessage)
+            );
+
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+            if (this.sessionId !== undefined) {
+                headers['mcp-session-id'] = this.sessionId;
+            }
+
+            try {
+                stream.resolveJson(Response.json(messages.length === 1 ? messages[0] : messages, { status: 200, headers }));
+            } catch (error) {
+                // Never let one undeliverable response stop the others being
+                // settled, or close() from completing.
+                this.onerror?.(error as Error);
+            }
+        }
+    }
+
     async close(): Promise<void> {
         if (this._closed) {
             return;
         }
         this._closed = true;
+
+        // Settle pending JSON-mode responses BEFORE the streams are torn
+        // down — cleanup() drops the mapping without resolving the promise.
+        this.settlePendingJsonResponses();
 
         // Close all SSE connections
         for (const { cleanup } of this._streamMapping.values()) {
@@ -1083,6 +1158,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._streamMapping.clear();
 
         // Clear any pending responses
+        this._requestToStreamMapping.clear();
         this._requestResponseMap.clear();
         this.onclose?.();
     }
