@@ -567,6 +567,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _pendingDebouncedNotifications = new Set<string>();
 
     /**
+     * The most recent error the transport reported since the last message it
+     * delivered. Read once, in `_onclose`, so the `Connection closed` rejection
+     * can name the cause instead of a placeholder. A message arriving after an
+     * error means the transport recovered from it, so it is not why the
+     * connection closed and is forgotten.
+     */
+    private _lastTransportError?: Error;
+
+    /**
      * The protocol version negotiated for the current connection (`undefined`
      * before negotiation completes), which determines the wire era this
      * instance speaks. Set by the SDK's negotiation and initialize paths
@@ -784,6 +793,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
+        this._lastTransportError = undefined;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
             try {
@@ -795,12 +805,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const _onerror = this.transport?.onerror;
         this._transport.onerror = (error: Error) => {
+            this._lastTransportError = error;
             _onerror?.(error);
             this._onerror(error);
         };
 
         const _onmessage = this._transport?.onmessage;
         this._transport.onmessage = (message, extra) => {
+            this._lastTransportError = undefined;
             _onmessage?.(message, extra);
             if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                 this._onresponse(message);
@@ -838,9 +850,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const requestHandlerAbortControllers = this._requestHandlerAbortControllers;
         this._requestHandlerAbortControllers = new Map();
 
-        const error = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+        const error = this._connectionClosedError();
 
         this._transport = undefined;
+        this._lastTransportError = undefined;
 
         try {
             this.onclose?.();
@@ -857,6 +870,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _onerror(error: Error): void {
         this.onerror?.(error);
+    }
+
+    /**
+     * The error every pending request is settled with when the connection
+     * closes. When the transport reported why — a read buffer overflow, a
+     * stream error, a dropped socket — that error is the `cause` and its
+     * message is appended, so an awaiting caller learns what happened without
+     * having wired up `onerror` in advance. Plain `Connection closed` is the
+     * fallback for a close with no reported reason. Subclasses that settle
+     * their own pending state on close should use this rather than construct
+     * a second, reason-less error.
+     */
+    protected _connectionClosedError(): SdkError {
+        const cause = this._lastTransportError;
+        if (!cause) {
+            return new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+        }
+        return new SdkError(SdkErrorCode.ConnectionClosed, `Connection closed: ${cause.message}`, undefined, { cause });
     }
 
     /**
@@ -1225,6 +1256,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Closes the connection.
      */
     async close(): Promise<void> {
+        // A close the caller asked for has no transport-reported reason, even
+        // if the transport complained about something earlier.
+        this._lastTransportError = undefined;
         await this._transport?.close();
     }
 

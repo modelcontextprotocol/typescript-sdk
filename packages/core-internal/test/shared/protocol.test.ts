@@ -135,6 +135,75 @@ describe('protocol tests', () => {
         expect((abortReason as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
     });
 
+    describe('close reason', () => {
+        const resultSchema = z.object({});
+
+        test('rejects pending requests with the last transport error as the cause', async () => {
+            await protocol.connect(transport);
+            const pending = testRequest(protocol, { method: 'example', params: {} }, resultSchema);
+
+            const reported = new Error('ReadBuffer exceeded maximum size of 100 bytes');
+            transport.onerror?.(reported);
+            await transport.close();
+
+            const error = await pending.catch(e => e);
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
+            expect((error as SdkError).message).toBe('Connection closed: ReadBuffer exceeded maximum size of 100 bytes');
+            expect((error as SdkError).cause).toBe(reported);
+        });
+
+        test('falls back to a plain Connection closed when the transport reported nothing', async () => {
+            await protocol.connect(transport);
+            const pending = testRequest(protocol, { method: 'example', params: {} }, resultSchema);
+
+            await transport.close();
+
+            const error = await pending.catch(e => e);
+            expect((error as SdkError).message).toBe('Connection closed');
+            expect((error as SdkError).cause).toBeUndefined();
+        });
+
+        test('forgets a transport error once a later message shows the transport recovered', async () => {
+            await protocol.connect(transport);
+            const pending = testRequest(protocol, { method: 'example', params: {} }, resultSchema);
+
+            transport.onerror?.(new Error('a parse error the transport skipped past'));
+            transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 'x', progress: 1 } });
+            await transport.close();
+
+            const error = await pending.catch(e => e);
+            expect((error as SdkError).message).toBe('Connection closed');
+            expect((error as SdkError).cause).toBeUndefined();
+        });
+
+        test('does not blame an earlier transport error for a close the caller asked for', async () => {
+            await protocol.connect(transport);
+            const pending = testRequest(protocol, { method: 'example', params: {} }, resultSchema);
+
+            transport.onerror?.(new Error('an earlier complaint'));
+            await protocol.close();
+
+            const error = await pending.catch(e => e);
+            expect((error as SdkError).message).toBe('Connection closed');
+            expect((error as SdkError).cause).toBeUndefined();
+        });
+
+        test('does not carry a reason across reconnects', async () => {
+            await protocol.connect(transport);
+            transport.onerror?.(new Error('from the first connection'));
+            await transport.close();
+
+            const second = new MockTransport();
+            await protocol.connect(second);
+            const pending = testRequest(protocol, { method: 'example', params: {} }, resultSchema);
+            await second.close();
+
+            const error = await pending.catch(e => e);
+            expect((error as SdkError).message).toBe('Connection closed');
+        });
+    });
+
     test('should remove abort listener from caller signal when request settles', async () => {
         await protocol.connect(transport);
 
