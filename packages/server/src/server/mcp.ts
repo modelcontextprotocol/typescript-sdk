@@ -892,7 +892,7 @@ export class McpServer {
                 // Track if we need to regenerate the executor
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
-                    registeredTool.inputSchema = updates.paramsSchema;
+                    registeredTool.inputSchema = normalizeRawShapeSchema(updates.paramsSchema);
                     delete this._toolInputSchemaJson[name];
                     needsExecutorRegen = true;
                 }
