@@ -107,7 +107,11 @@ The repo also ships “middleware” packages under `packages/middleware/` (e.g.
 
 ### Experimental Features
 
-Located in `packages/*/src/experimental/`. Currently empty.
+Located in `packages/*/src/experimental/` and exported only at `./experimental/*` subpaths
+(never from a package root), which marks them as changeable or removable in any release.
+Currently: Server Card extension support (SEP-2127) — `experimental/server-card` subpaths on
+`core` (schemas/types/constants), `server` (builders + responders), `client` (hardened
+fetch/discover/resolve/reconcile helpers), and `express` (router adapter).
 
 ### Zod Schemas
 
