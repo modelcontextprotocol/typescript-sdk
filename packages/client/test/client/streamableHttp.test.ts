@@ -62,6 +62,112 @@ describe('StreamableHTTPClientTransport', () => {
         );
     });
 
+    it('should include MCP standard headers on POST requests', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'read_file',
+                arguments: { path: 'README.md' }
+            },
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send(message);
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBe('tools/call');
+        expect(headers.get('mcp-name')).toBe('read_file');
+    });
+
+    it('should use params.uri for the MCP name header', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'resources/read',
+            params: {
+                uri: 'file:///README.md'
+            },
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send(message);
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBe('resources/read');
+        expect(headers.get('mcp-name')).toBe('file:///README.md');
+    });
+
+    it('should include the MCP method header for notifications', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'notifications/initialized'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send(message);
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBe('notifications/initialized');
+        expect(headers.get('mcp-name')).toBeNull();
+    });
+
+    it('should not include MCP method headers for JSON-RPC responses', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            id: 'test-id',
+            result: {}
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send(message);
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBeNull();
+        expect(headers.get('mcp-name')).toBeNull();
+    });
+
+    it('should omit the MCP name header when params are absent', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send(message);
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBe('initialize');
+        expect(headers.get('mcp-name')).toBeNull();
+    });
+
     it('should send batch messages', async () => {
         const messages: JSONRPCMessage[] = [
             { jsonrpc: '2.0', method: 'test1', params: {}, id: 'id1' },
@@ -85,6 +191,10 @@ describe('StreamableHTTPClientTransport', () => {
                 body: JSON.stringify(messages)
             })
         );
+
+        const headers = (globalThis.fetch as Mock).mock.calls.at(-1)![1].headers as Headers;
+        expect(headers.get('mcp-method')).toBeNull();
+        expect(headers.get('mcp-name')).toBeNull();
     });
 
     it('should store session ID received during initialization', async () => {
