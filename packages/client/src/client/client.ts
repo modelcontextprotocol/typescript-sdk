@@ -2106,18 +2106,31 @@ export class Client extends Protocol<ClientContext> {
             method: 'subscriptions/listen',
             params: { _meta: { ...this._outboundMetaEnvelope() }, notifications: filter }
         };
-        try {
-            await this.transport.send(jsonrpcRequest, {
-                requestSignal: requestAbort.signal,
-                onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
-            });
-        } catch (error) {
-            // Synchronous OR awaited send failure (including a per-request
-            // abort fired before response headers — `streamableHttp._send`
-            // rethrows with onerror suppressed). `settle()` is idempotent so
-            // a locally-aborted send hitting this path after `close()` is a
-            // no-op.
+        // The send is NOT serially awaited: `opening` must be the promise
+        // listen() suspends on so that a settle() firing while the send is
+        // still in flight (ack timeout, transport close, server cancel, a
+        // stdio send parked on 'drain') rejects a promise whose handler is
+        // already attached — otherwise the rejection escapes as a
+        // process-level unhandledRejection the caller cannot prevent, and a
+        // send that never settles leaves listen() suspended forever even
+        // though the ack timer already fired.
+        const routeSendFailure = (error: unknown): void => {
+            // Send failure (including a per-request abort fired before
+            // response headers — `streamableHttp._send` rethrows with onerror
+            // suppressed). `settle()` is idempotent so a locally-aborted send
+            // hitting this path after `close()` is a no-op.
             settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+        };
+        try {
+            this.transport
+                .send(jsonrpcRequest, {
+                    requestSignal: requestAbort.signal,
+                    onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
+                })
+                .catch(routeSendFailure);
+        } catch (error) {
+            // A synchronous throw from send() (before it returns a promise).
+            routeSendFailure(error);
         }
 
         const honored = await opening;
