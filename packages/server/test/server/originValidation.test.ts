@@ -42,6 +42,16 @@ describe('validateOriginHeader', () => {
             }
         }
     });
+
+    it('rejects userinfo before an allowed hostname', () => {
+        for (const malformed of ['http://@localhost', 'http://:@localhost', 'http://user@localhost', 'http://user:pass@localhost']) {
+            const result = validateOriginHeader(malformed, localhostAllowedOrigins());
+            expect(result.ok).toBe(false);
+            if (!result.ok) {
+                expect(result.errorCode).toBe('invalid_origin_header');
+            }
+        }
+    });
 });
 
 describe('originValidationResponse', () => {
@@ -63,5 +73,10 @@ describe('originValidationResponse', () => {
         expect(body.error.code).toBe(-32_000);
         expect(body.error.message).toContain('Invalid Origin');
         expect(body.id).toBeNull();
+    });
+
+    it('returns a 403 response when an Origin with userinfo resolves to an allowed hostname', () => {
+        const request = new Request('http://localhost/mcp', { headers: { origin: 'http://@localhost' } });
+        expect(originValidationResponse(request, localhostAllowedOrigins())?.status).toBe(403);
     });
 });
