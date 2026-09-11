@@ -375,6 +375,30 @@ export function buildProbeRequest(
     };
 }
 
+/**
+ * Recognizes the failures a transport raises *after* the HTTP layer answered
+ * the probe 2xx, when the answer itself is unusable:
+ *
+ * - `ClientHttpUnexpectedContent` — a media type the transport does not accept
+ *   (a bare 204, `text/plain`, a missing `content-type`).
+ * - a JSON `SyntaxError` — an empty or whitespace body parsed as
+ *   `application/json`.
+ *
+ * Both mean the endpoint accepted the POST without answering `server/discover`,
+ * which is era evidence of the same strength as an unparseable 4xx. Auth
+ * escapes and `SdkHttpError` (a non-2xx rejection) are matched by earlier rows,
+ * so they never reach this check.
+ */
+function isUnusableReplyError(error: unknown): boolean {
+    if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpUnexpectedContent) {
+        return true;
+    }
+    // Name-based, not `instanceof`: the body parse can reject with a
+    // SyntaxError from another realm (an injected `fetch`, a differently
+    // bundled copy).
+    return error instanceof Error && error.name === 'SyntaxError';
+}
+
 function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
     switch (reply.kind) {
         case 'response': {
@@ -408,6 +432,14 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                     body: typeof text === 'string' ? text : undefined,
                     statusText: error.data.statusText
                 };
+            }
+            if (isUnusableReplyError(error)) {
+                // The HTTP layer answered 2xx and the body was unusable. Kept
+                // distinct from network-error so the classifier can apply the
+                // unparseable-4xx reading (conservative legacy fallback)
+                // instead of failing a connection a plain `initialize` would
+                // have completed.
+                return { kind: 'unusable-reply', error };
             }
             return { kind: 'network-error', error };
         }
