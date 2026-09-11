@@ -889,6 +889,13 @@ export interface MessageClassification {
  */
 export interface MessageExtraInfo {
     /**
+     * The client request whose Streamable HTTP response stream carried this message.
+     * Set by the client transport for server-initiated requests received on a
+     * per-request SSE stream; absent for the standalone GET stream.
+     */
+    relatedRequestId?: RequestId;
+
+    /**
      * The original HTTP request.
      */
     request?: globalThis.Request;
