@@ -1,0 +1,45 @@
+.changeset/tasks-extension-package.md
+  s_a5c48038294d8c::t_b5a4343897ad88 2,5
+docs/.vitepress/nav.ts
+  s_a5c48038294d8c::t_9a4ffaec943381 30
+docs/servers/tasks.md
+  s_a5c48038294d8c::t_64585f4b037ab4 1-3,5-7,13,47
+packages/server/package.json
+  s_a5c48038294d8c::t_5b07a1905fdd16 43-52,128-130,155,163-164
+packages/server/src/ext/tasks/engine/inMemory.ts
+  s_a5c48038294d8c::t_7f9f1f303ad262 12
+packages/server/src/ext/tasks/engine/protocol.ts
+  s_a5c48038294d8c::t_116a2fedeeed4e 12
+packages/server/src/ext/tasks/engine/taskEngine.ts
+  s_a5c48038294d8c::t_ec0d9ea53e4399 9
+packages/server/src/ext/tasks/server/installTasks.ts
+  s_a5c48038294d8c::t_c83d92e86bb4ae 15-16
+packages/server/src/ext/tasks/server/registration.ts
+  s_a5c48038294d8c::t_451d5ea26d65a5 1
+packages/server/src/ext/tasks/wire/types.ts
+  s_a5c48038294d8c::t_449117d727728b 22,29
+packages/server/test/ext/tasks/inMemoryEngine.test.ts
+  s_a5c48038294d8c::t_f916760fdbc556 8-9,72-73
+packages/server/test/ext/tasks/tasks.e2e.test.ts
+  s_a5c48038294d8c::t_7a4d7dfce3a895 8,12,20
+packages/server/tsdown.config.ts
+  s_a5c48038294d8c::t_76053238d4da38 8
+pnpm-lock.yaml
+  s_a5c48038294d8c::t_4851d78fc568cf 1800-1802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "774c3f936fb3b81a0078af1506cfca518b1754d2",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
