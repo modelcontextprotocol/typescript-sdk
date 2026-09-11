@@ -11,6 +11,7 @@
 import { Validator } from '@cfworker/json-schema';
 
 import { declaredDialect } from './dialects';
+import { canonicalJson, createBoundedCache, VALIDATOR_CACHE_LIMIT } from './schemaCache';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
@@ -52,6 +53,14 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     private readonly shortcircuit: boolean;
     /** Caller-supplied draft; when set, the `$schema` check is skipped (caller owns dialect). */
     private readonly draft?: CfWorkerSchemaDraft;
+    /**
+     * Instantiated validators by canonical schema + draft, bounded to
+     * {@link VALIDATOR_CACHE_LIMIT} distinct entries. `@cfworker/json-schema`
+     * compiles a fresh `Validator` per construction, so without caching
+     * repeated `getValidator` calls with identical schemas recompile each
+     * time and retain every instance (#2605).
+     */
+    private readonly _validators = createBoundedCache<Validator>(VALIDATOR_CACHE_LIMIT);
 
     /**
      * Create a validator
@@ -87,8 +96,22 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
         const draft = this.draft ?? this._draftFor(schema);
-        // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
-        const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+        const key = canonicalJson(schema);
+        let validator: Validator;
+        if (key === undefined) {
+            // Non-serializable schema (e.g. cyclic): skip the cache entirely.
+            validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+        } else {
+            const cacheKey = `${draft}:${key}`;
+            const cached = this._validators.get(cacheKey);
+            if (cached === undefined) {
+                // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
+                validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], draft, this.shortcircuit);
+                this._validators.set(cacheKey, validator);
+            } else {
+                validator = cached;
+            }
+        }
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const result = validator.validate(input);
