@@ -138,41 +138,45 @@ verifies('hosting:http:batch', async (_args: TestArgs) => {
     const { handleRequest, close } = hostStateless(echoServer);
 
     try {
-        const headers = {
+        // Batches are a back-compat affordance for pre-2025-06-18 clients;
+        // the 2025-06-18+ protocol forbids them.
+        const modernHeaders = {
             'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream'
         };
 
         const single = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
-        const singleRes = await handleRequest(new Request('http://in-process/mcp', { method: 'POST', headers, body: single }));
+        const singleRes = await handleRequest(
+            new Request('http://in-process/mcp', { method: 'POST', headers: modernHeaders, body: single })
+        );
         expect(singleRes.status).toBe(200);
         const singleMessages = await readAllSseMessages(singleRes.body!);
         expect(singleMessages).toHaveLength(1);
         expect(singleMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: { tools: [{ name: 'echo' }] } });
 
+        // A batch with a 2025-06-18+ protocol version is rejected.
         const batch = JSON.stringify([
             { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} },
             { jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} }
         ]);
-        const batchRes = await handleRequest(new Request('http://in-process/mcp', { method: 'POST', headers, body: batch }));
-        expect(batchRes.status).toBe(200);
-        const batchMessages = await readAllSseMessages(batchRes.body!);
-        expect(batchMessages).toHaveLength(2);
-        expect(batchMessages).toEqual(
-            expect.arrayContaining([
-                expect.objectContaining({
-                    jsonrpc: '2.0',
-                    id: 1,
-                    result: expect.objectContaining({ tools: [expect.objectContaining({ name: 'echo' })] })
-                }),
-                expect.objectContaining({
-                    jsonrpc: '2.0',
-                    id: 2,
-                    result: expect.objectContaining({ tools: [expect.objectContaining({ name: 'echo' })] })
-                })
-            ])
+        const batchRes = await handleRequest(new Request('http://in-process/mcp', { method: 'POST', headers: modernHeaders, body: batch }));
+        expect(batchRes.status).toBe(400);
+        const batchError = (await batchRes.json()) as { error: { code: number } };
+        expect(batchError.error.code).toBe(-32_600);
+
+        // A batch from a pre-2025-06-18 client is still served.
+        const legacyHeaders = {
+            'mcp-protocol-version': '2025-03-26',
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream'
+        };
+        const legacyBatchRes = await handleRequest(
+            new Request('http://in-process/mcp', { method: 'POST', headers: legacyHeaders, body: batch })
         );
+        expect(legacyBatchRes.status).toBe(200);
+        const legacyBatchMessages = await readAllSseMessages(legacyBatchRes.body!);
+        expect(legacyBatchMessages).toHaveLength(2);
     } finally {
         await close();
     }

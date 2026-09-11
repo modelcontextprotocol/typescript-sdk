@@ -699,7 +699,7 @@ describe('Zod v4', () => {
             expectErrorResponse(errorData, -32_000, /Content-Type must be application\/json/);
         });
 
-        it('should handle JSON-RPC batch notification messages with 202 response', async () => {
+        it('should reject JSON-RPC batch notification messages for protocol >= 2025-06-18', async () => {
             sessionId = await initializeServer();
 
             // Send batch of notifications (no IDs)
@@ -709,10 +709,12 @@ describe('Zod v4', () => {
             ];
             const response = await sendPostRequest(baseUrl, batchNotifications, sessionId);
 
-            expect(response.status).toBe(202);
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
         });
 
-        it('should handle batch request messages with SSE stream for responses', async () => {
+        it('should reject JSON-RPC batch request messages for protocol >= 2025-06-18', async () => {
             sessionId = await initializeServer();
 
             // Send batch of requests
@@ -722,20 +724,9 @@ describe('Zod v4', () => {
             ];
             const response = await sendPostRequest(baseUrl, batchRequests, sessionId);
 
-            expect(response.status).toBe(200);
-            expect(response.headers.get('content-type')).toBe('text/event-stream');
-
-            const reader = response.body?.getReader();
-
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
-
-            // Check that both responses were sent on the same stream
-            expect(text).toContain('"id":"req-1"');
-            expect(text).toContain('"tools"'); // tools/list result
-            expect(text).toContain('"id":"req-2"');
-            expect(text).toContain('Hello, BatchUser'); // tools/call result
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
         });
 
         it('should properly handle invalid JSON data', async () => {
@@ -1183,7 +1174,7 @@ describe('Zod v4', () => {
             });
         });
 
-        it('should return JSON response for batch requests', async () => {
+        it('should reject JSON-RPC batch requests for protocol >= 2025-06-18', async () => {
             const batchMessages: JSONRPCMessage[] = [
                 { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'batch-1' },
                 { jsonrpc: '2.0', method: 'tools/call', params: { name: 'greet', arguments: { name: 'JSON' } }, id: 'batch-2' }
@@ -1191,36 +1182,9 @@ describe('Zod v4', () => {
 
             const response = await sendPostRequest(baseUrl, batchMessages, sessionId);
 
-            expect(response.status).toBe(200);
-            expect(response.headers.get('content-type')).toBe('application/json');
-
-            const results = (await response.json()) as JSONRPCResultResponse[];
-            expect(Array.isArray(results)).toBe(true);
-            expect(results).toHaveLength(2);
-
-            // Batch responses can come in any order
-            const listResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-1');
-            const callResponse = results.find((r: { id?: RequestId }) => r.id === 'batch-2');
-
-            expect(listResponse).toEqual(
-                expect.objectContaining({
-                    jsonrpc: '2.0',
-                    id: 'batch-1',
-                    result: expect.objectContaining({
-                        tools: expect.arrayContaining([expect.objectContaining({ name: 'greet' })])
-                    })
-                })
-            );
-
-            expect(callResponse).toEqual(
-                expect.objectContaining({
-                    jsonrpc: '2.0',
-                    id: 'batch-2',
-                    result: expect.objectContaining({
-                        content: expect.arrayContaining([expect.objectContaining({ type: 'text', text: 'Hello, JSON!' })])
-                    })
-                })
-            );
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_600, /batch requests are not supported/);
         });
     });
 
