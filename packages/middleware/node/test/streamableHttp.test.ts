@@ -727,9 +727,22 @@ describe('Zod v4', () => {
 
             const reader = response.body?.getReader();
 
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // Read from the SSE stream until we have both responses or timeout
+            // On Node v26.7.0+, SSE events may arrive in separate chunks, so we need to
+            // keep reading until we have all expected responses or timeout
+            let text = '';
+            const startTime = Date.now();
+            const timeout = 5000; // 5 second timeout
+
+            while (Date.now() - startTime < timeout) {
+                const { value, done } = await reader!.read();
+                if (done) break;
+                text += new TextDecoder().decode(value);
+                // Check if we have both responses
+                if (text.includes('"id":"req-1"') && text.includes('"id":"req-2"')) {
+                    break;
+                }
+            }
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1481,9 +1494,21 @@ describe('Zod v4', () => {
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
             // Read the notification from the SSE stream
+            // On Node v26.7.0+, SSE events may arrive in separate chunks, so we need to
+            // keep reading until we get the expected notification
             const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            let text = '';
+            const startTime = Date.now();
+            const timeout = 5000;
+
+            while (Date.now() - startTime < timeout) {
+                const { value, done } = await reader!.read();
+                if (done) break;
+                text += new TextDecoder().decode(value);
+                if (text.includes('First notification from MCP server')) {
+                    break;
+                }
+            }
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
@@ -1515,8 +1540,17 @@ describe('Zod v4', () => {
 
             // Read the replayed notification
             const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            let reconnectText = '';
+            const reconnectStartTime = Date.now();
+
+            while (Date.now() - reconnectStartTime < 5000) {
+                const { value, done } = await reconnectReader!.read();
+                if (done) break;
+                reconnectText += new TextDecoder().decode(value);
+                if (reconnectText.includes('Second notification from MCP server')) {
+                    break;
+                }
+            }
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
