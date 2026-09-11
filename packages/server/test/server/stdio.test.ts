@@ -227,3 +227,35 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
     expect(closeCount).toBe(1);
 });
+
+test('shares a single drain listener across concurrent backpressured sends', async () => {
+    const backedUpOutput = new Writable({
+        highWaterMark: 1,
+        write(_chunk, _encoding, _callback) {
+            // never invoke the callback so the stream stays backed up
+        }
+    });
+    const server = new StdioServerTransport(input, backedUpOutput);
+    await server.start();
+
+    const messages = Array.from({ length: 15 }, (_, i) => ({
+        jsonrpc: '2.0' as const,
+        id: i,
+        method: 'ping'
+    }));
+
+    const sends = Promise.allSettled(messages.map(m => server.send(m)));
+    await new Promise(resolve => setImmediate(resolve));
+
+    // all writes buffered, but the sends must share ONE drain listener
+    expect(backedUpOutput.listenerCount('drain')).toBe(1);
+
+    backedUpOutput.emit('drain');
+
+    const results = await sends;
+    expect(results.every(r => r.status === 'fulfilled')).toBe(true);
+    expect(backedUpOutput.listenerCount('drain')).toBe(0);
+
+    backedUpOutput.destroy();
+    await server.close();
+});
