@@ -160,6 +160,18 @@ describe('inputRequired() builder', () => {
                 requestedSchema: z.object({ role: z.union([z.literal('admin'), z.literal('member')]) })
             })
         ).toThrow(TypeError);
+
+        // z.date() must keep failing loudly even though the tools-path conversion rewrites
+        // it to string/date-time (#2464): the accepted response (a JSON string) could never
+        // satisfy z.date() on handler re-entry, so acceptedContent() would silently return
+        // undefined. z.iso.date()/z.iso.datetime() are the supported ways to elicit dates.
+        const rejectDate = () =>
+            inputRequired.elicit({
+                message: 'When?',
+                requestedSchema: z.object({ when: z.date() })
+            });
+        expect(rejectDate).toThrow(TypeError);
+        expect(rejectDate).toThrow(/Date cannot be represented/);
     });
 
     test.each([
