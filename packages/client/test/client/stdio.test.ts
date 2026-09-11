@@ -162,9 +162,9 @@ const STDERR_POST_REQUEST_MARKER = 'STDERR_POST_REQUEST_MARKER';
  * so an undrained `stderr: 'pipe'` would block the child on write(2).
  */
 function chattyStderrServerScript(): string {
-    return `
+    return String.raw`
         const { createInterface } = require('readline');
-        const send = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
+        const send = (o) => process.stdout.write(JSON.stringify(o) + '\n');
         process.stderr.write(${JSON.stringify(`${STDERR_STARTUP_MARKER}\n`)});
         createInterface({ input: process.stdin }).on('line', (line) => {
             const m = JSON.parse(line);
@@ -180,7 +180,7 @@ function chattyStderrServerScript(): string {
                 });
             }
             if (m.method === 'notifications/initialized') return;
-            for (let i = 0; i < 200; i++) process.stderr.write('log line '.repeat(5000) + '\\n');
+            for (let i = 0; i < 256; i++) process.stderr.write('x'.repeat(512) + '\n');
             process.stderr.write(${JSON.stringify(`${STDERR_POST_REQUEST_MARKER}\n`)});
             send({
                 jsonrpc: '2.0',
@@ -199,38 +199,50 @@ function chattyStderrTransport(): StdioClientTransport {
     });
 }
 
+/** stdout can settle before every flowing-mode stderr chunk is delivered. */
+async function waitForStderrMarker(captured: { text: string }, marker: string): Promise<void> {
+    await vi.waitFor(
+        () => {
+            if (!captured.text.includes(marker)) {
+                throw new Error(`stderr has not yet included ${marker}`);
+            }
+        },
+        { timeout: 3000, interval: 10 }
+    );
+}
+
 test('piped stderr without a reader does not deadlock listTools', async () => {
     const transport = chattyStderrTransport();
     const client = new Client({ name: 'demo', version: '1.0.0' });
     try {
         await client.connect(transport);
-        const result = await client.listTools(undefined, { timeout: 5_000 });
+        const result = await client.listTools(undefined, { timeout: 5000 });
         expect(result.tools).toEqual([{ name: 'x', description: 'd', inputSchema: { type: 'object' } }]);
     } finally {
         await client.close();
     }
-}, 8_000);
+}, 8000);
 
 test('piped stderr listener attached before start still receives chunks', async () => {
     const transport = chattyStderrTransport();
     const stderr = transport.stderr;
     expect(stderr).not.toBeNull();
-    let captured = '';
+    const captured = { text: '' };
     stderr!.on('data', (chunk: Buffer) => {
-        captured += chunk.toString();
+        captured.text += chunk.toString();
     });
 
     const client = new Client({ name: 'demo', version: '1.0.0' });
     try {
         await client.connect(transport);
-        const result = await client.listTools(undefined, { timeout: 5_000 });
+        await waitForStderrMarker(captured, STDERR_STARTUP_MARKER);
+        const result = await client.listTools(undefined, { timeout: 5000 });
         expect(result.tools).toHaveLength(1);
-        expect(captured).toContain(STDERR_STARTUP_MARKER);
-        expect(captured).toContain(STDERR_POST_REQUEST_MARKER);
+        await waitForStderrMarker(captured, STDERR_POST_REQUEST_MARKER);
     } finally {
         await client.close();
     }
-}, 8_000);
+}, 8000);
 
 test('late stderr listener does not deadlock and sees only post-attach chunks', async () => {
     const transport = chattyStderrTransport();
@@ -242,16 +254,16 @@ test('late stderr listener does not deadlock and sees only post-attach chunks', 
 
         const stderr = transport.stderr;
         expect(stderr).not.toBeNull();
-        let captured = '';
+        const captured = { text: '' };
         stderr!.on('data', (chunk: Buffer) => {
-            captured += chunk.toString();
+            captured.text += chunk.toString();
         });
 
-        const result = await client.listTools(undefined, { timeout: 5_000 });
+        const result = await client.listTools(undefined, { timeout: 5000 });
         expect(result.tools).toHaveLength(1);
-        expect(captured).not.toContain(STDERR_STARTUP_MARKER);
-        expect(captured).toContain(STDERR_POST_REQUEST_MARKER);
+        await waitForStderrMarker(captured, STDERR_POST_REQUEST_MARKER);
+        expect(captured.text.includes(STDERR_STARTUP_MARKER)).toBe(false);
     } finally {
         await client.close();
     }
-}, 8_000);
+}, 8000);
