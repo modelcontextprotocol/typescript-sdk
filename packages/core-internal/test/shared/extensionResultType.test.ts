@@ -126,7 +126,9 @@ describe('caller schemas that require resultType after decodeResult lift (#2789)
             // skills is required
         });
 
-        await expect(protocol.request({ method: 'skills/list' }, ModernListSkillsResultSchema)).rejects.toThrow(/Invalid result for skills\/list/);
+        await expect(protocol.request({ method: 'skills/list' }, ModernListSkillsResultSchema)).rejects.toThrow(
+            /Invalid result for skills\/list/
+        );
 
         await protocol.close();
     });
