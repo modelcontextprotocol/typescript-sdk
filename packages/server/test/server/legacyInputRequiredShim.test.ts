@@ -44,7 +44,7 @@ async function elicitingToolServer(options?: ConstructorParameters<typeof McpSer
     server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
         seenResponses.push(ctx.mcpReq.inputResponses);
         const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', CONFIRM_SCHEMA);
-        if (!confirmed?.confirm) {
+        if (confirmed?.confirm !== true) {
             return inputRequired({
                 inputRequests: {
                     confirm: inputRequired.elicit({

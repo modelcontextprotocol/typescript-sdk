@@ -125,7 +125,7 @@ describe('input-required returns on the 2026-07-28 era', () => {
             { inputSchema: z.object({ env: z.string() }), outputSchema: z.object({ deployed: z.boolean() }) },
             async ({ env }, ctx) => {
                 const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
-                if (!confirmed?.confirm) {
+                if (confirmed?.confirm !== true) {
                     return inputRequired({
                         inputRequests: {
                             confirm: inputRequired.elicit({
@@ -165,12 +165,33 @@ describe('input-required returns on the 2026-07-28 era', () => {
         expect(first.cacheScope).toBeUndefined();
         expect(first.content).toBeUndefined();
 
+        // A schema-valid false value is content, not confirmation. The handler
+        // must inspect the validated value rather than only the object's presence.
+        const declined = resultOf(
+            await request(
+                modernToolCall(
+                    2,
+                    'deploy',
+                    { env: 'prod' },
+                    {
+                        clientCapabilities: { elicitation: { form: {} } },
+                        extraParams: {
+                            inputResponses: { confirm: { action: 'accept', content: { confirm: false } } },
+                            requestState: 'opaque-deploy-state'
+                        }
+                    }
+                )
+            )
+        );
+        expect(declined.resultType).toBe('input_required');
+        expect(declined.requestState).toBe('opaque-deploy-state');
+
         // Retry leg (fresh id, responses + byte-exact echo): full validation
         // applies to the completing result, which is stamped 'complete'.
         const second = resultOf(
             await request(
                 modernToolCall(
-                    2,
+                    3,
                     'deploy',
                     { env: 'prod' },
                     {
