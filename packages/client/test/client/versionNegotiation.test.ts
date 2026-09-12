@@ -11,14 +11,18 @@
 import type { JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextprotocol/core-internal';
 import {
     isJSONRPCRequest,
+    OAuthError,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
+    SdkHttpError,
     UnsupportedProtocolVersionError
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
 import { UnauthorizedError } from '../../src/client/auth';
+import { InsufficientScopeError } from '../../src/client/authErrors';
+import { markAuthSeamEscape } from '../../src/client/authSeam';
 import { Client } from '../../src/client/client';
 import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
 import type { StdioServerParameters } from '../../src/client/stdio';
@@ -1102,6 +1106,53 @@ describe('probe send-error classification', () => {
         expect(rejection).toBe(reason);
         expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
     });
+
+    // Any error stamped at a transport auth seam propagates unchanged —
+    // identity preserved (same object, instanceof and diagnostics intact),
+    // never a legacy fallback, never a rewrap. Provenance comes from the
+    // stamp, not the error type: the rows deliberately span typed SDK
+    // errors, foreign classes, and a bare TypeError.
+    const seamEscapes: Array<[string, () => Error]> = [
+        [
+            "the transport's post-re-auth 401 (SdkHttpError ClientHttpAuthentication)",
+            () =>
+                new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                    status: 401,
+                    statusText: 'Unauthorized'
+                })
+        ],
+        [
+            'an InsufficientScopeError from a step-up challenge with no provider',
+            () => new InsufficientScopeError({ requiredScope: 'mcp:tools' })
+        ],
+        ['an OAuthError (invalid_grant on a revoked refresh token)', () => new OAuthError('invalid_grant', 'Refresh token was revoked')],
+        ['a bare TypeError from a DCR sub-fetch inside the auth flow', () => new TypeError('Failed to fetch')],
+        [
+            'a custom error class thrown by a user onUnauthorized callback',
+            () => {
+                class UserDbError extends Error {
+                    override readonly name = 'UserDbError';
+                }
+                return new UserDbError('user db exploded');
+            }
+        ]
+    ];
+    for (const [label, make] of seamEscapes) {
+        test(`stamped seam escape propagates unchanged: ${label}`, async () => {
+            const reason = markAuthSeamEscape(make());
+            const transport = new AuthGatedTransport(reason);
+            const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+            const rejection = await client.connect(transport).then(
+                () => {
+                    throw new Error('connect unexpectedly resolved');
+                },
+                (e: unknown) => e
+            );
+            expect(rejection).toBe(reason);
+            expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+        });
+    }
 
     test('a plain send failure stays a typed negotiation error — no fallback runs', async () => {
         const transport = new AuthGatedTransport(new Error('connection refused'));

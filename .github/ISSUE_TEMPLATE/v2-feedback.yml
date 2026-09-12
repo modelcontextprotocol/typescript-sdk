@@ -6,7 +6,7 @@ body:
     - type: markdown
       attributes:
           value: |
-              Thanks for trying v2. Anything that broke, surprised you, or slowed you down is useful — API feedback is explicitly welcome while v2 is in beta.
+              Thanks for trying v2. Anything that broke, surprised you, or slowed you down is useful — API feedback is explicitly welcome while v2 settles.
 
               Docs: https://ts.sdk.modelcontextprotocol.io/v2/ · Migration from v1: https://ts.sdk.modelcontextprotocol.io/v2/migration/
     - type: textarea

@@ -22,9 +22,9 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -228,6 +228,117 @@ describe('typed connect errors (Q12) over real sockets', () => {
         await new Promise<void>(resolve => hang.close(() => resolve()));
         await new Promise(resolve => setTimeout(resolve, 50));
     }, 15_000);
+});
+
+describe('auth-protected server (HTTP 401/403): typed auth failure, never a legacy verdict (#2561)', () => {
+    const cleanups: Array<() => Promise<void> | void> = [];
+    afterEach(async () => {
+        while (cleanups.length > 0) await cleanups.pop()!();
+    });
+
+    /** An OAuth-protected deployment shape: the auth layer rejects every tokenless request before any MCP handler runs. */
+    async function startProtected(status: 401 | 403) {
+        const server = createServer((_req, res) => {
+            res.writeHead(status, {
+                'WWW-Authenticate': 'Bearer realm="mcp", error="invalid_token"',
+                'Content-Type': 'application/json'
+            });
+            res.end('{"error":"invalid_token"}');
+        });
+        const url = await listenOnRandomPort(server);
+        cleanups.push(() => new Promise<void>(resolve => server.close(() => resolve())));
+        return url;
+    }
+
+    it('auto mode, no authProvider: typed auth failure carrying the 401 — no initialize ever sent', async () => {
+        const url = await startProtected(401);
+        const { calls, fetchFn } = recordingFetch();
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        const transport = new StreamableHTTPClientTransport(url, { fetch: fetchFn });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error =>
+                error instanceof SdkHttpError &&
+                // The auth code, never EraNegotiationFailed: era-recovery flows
+                // keyed on that code must not consume auth walls.
+                error.code === SdkErrorCode.ClientHttpAuthentication &&
+                error.status === 401 &&
+                error.message.includes('401')
+        );
+
+        // The probe POST is the only wire traffic — the auth wall is not a
+        // legacy verdict, so no initialize follows it.
+        const posts = calls.filter(c => c.method === 'POST');
+        expect(posts.length).toBeGreaterThan(0);
+        expect(posts.every(c => (c.body ?? '').includes('server/discover'))).toBe(true);
+        expect(calls.some(c => (c.body ?? '').includes('"initialize"'))).toBe(false);
+    });
+
+    it('auto mode, no authProvider: a 403 denial is a typed failure carrying the 403, not era evidence', async () => {
+        const url = await startProtected(403);
+        const { calls, fetchFn } = recordingFetch();
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await expect(client.connect(new StreamableHTTPClientTransport(url, { fetch: fetchFn }))).rejects.toSatisfy(
+            error => error instanceof SdkHttpError && error.code === SdkErrorCode.ClientHttpForbidden && error.status === 403
+        );
+        expect(calls.some(c => (c.body ?? '').includes('"initialize"'))).toBe(false);
+    });
+
+    it('pin mode: the rejection names the auth status, never the did-not-offer-pinned-version text', async () => {
+        const url = await startProtected(401);
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: '2026-07-28' } } });
+
+        await expect(client.connect(new StreamableHTTPClientTransport(url))).rejects.toSatisfy(
+            error =>
+                error instanceof SdkError &&
+                error.message.includes('401') &&
+                !error.message.includes('did not offer pinned protocol version')
+        );
+    });
+
+    it('with an authProvider the auth flow is unchanged: UnauthorizedError propagates for finishAuth, no fallback runs', async () => {
+        const url = await startProtected(401);
+        const { calls, fetchFn } = recordingFetch();
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: fetchFn,
+            // Token-only provider (no onUnauthorized) whose token the server
+            // rejects: the transport's 401 handling throws UnauthorizedError,
+            // and the probe propagates it unchanged — same as before this fix.
+            authProvider: { token: async () => 'rejected-token' }
+        });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(error => error instanceof UnauthorizedError);
+        expect(calls.some(c => (c.body ?? '').includes('"initialize"'))).toBe(false);
+    });
+
+    it("onUnauthorized re-auth that does not help: the transport's typed 401-after-re-authentication failure propagates unchanged", async () => {
+        const url = await startProtected(401);
+        const { calls, fetchFn } = recordingFetch();
+        const client = new Client({ name: 'neg-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+        let reauthRuns = 0;
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: fetchFn,
+            authProvider: {
+                token: async () => 'still-rejected',
+                onUnauthorized: async () => {
+                    reauthRuns++;
+                }
+            }
+        });
+
+        // First 401 runs onUnauthorized, the retry 401s again: the transport's
+        // own diagnostic must reach the caller, not an era-negotiation rewrap.
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error =>
+                error instanceof SdkHttpError &&
+                error.code === SdkErrorCode.ClientHttpAuthentication &&
+                error.message.includes('after re-authentication')
+        );
+        expect(reauthRuns).toBe(1);
+        expect(calls.some(c => (c.body ?? '').includes('"initialize"'))).toBe(false);
+    });
 });
 
 describe('stdio: silent legacy server (probe timeout fallback)', () => {

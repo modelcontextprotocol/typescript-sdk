@@ -172,7 +172,7 @@ export function generateLlmsArtifacts(docsDir: string, outDir: string, site: str
     const header = [
         '# MCP TypeScript SDK',
         '',
-        '> The official TypeScript SDK for the Model Context Protocol (MCP): build MCP servers and clients on Node.js, Bun, Deno, and Workers. This is the v2 beta documentation, tracking the 2026-07-28 spec revision.',
+        '> The official TypeScript SDK for the Model Context Protocol (MCP): build MCP servers and clients on Node.js, Bun, Deno, and Workers. This is the v2 documentation, covering the 2026-07-28 spec revision.',
         '',
         'Every page below is also served as plain markdown at its `.md` URL — fetch any page directly.',
         ''

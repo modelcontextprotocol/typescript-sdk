@@ -4,7 +4,7 @@ shape: how-to
 # Sampling
 
 ::: warning Deprecated — SEP-2577
-Call your LLM provider's API directly from your server instead. **Sampling** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional on 2025-era connections for at least twelve months — see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated).
+Call your LLM provider's API directly from your server instead. **Sampling** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional on 2025-era connections for at least twelve months — see the [deprecated features registry](https://modelcontextprotocol.io/specification/2026-07-28/deprecated).
 :::
 
 ## Replace sampling with a direct provider call

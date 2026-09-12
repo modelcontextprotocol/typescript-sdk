@@ -76,6 +76,38 @@ server.registerTool(
 );
 //#endregion registerTool_annotations
 
+//#region registerTool_contentTypes
+// Base64 payloads; read yours from disk: readFileSync('card.png').toString('base64')
+const cardPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const spokenNameWav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+server.registerTool(
+    'product-card',
+    {
+        description: 'Render one product as an image, a spoken name, and its catalog record',
+        inputSchema: z.object({ name: z.string() })
+    },
+    async ({ name }) => {
+        const product = catalog.find(candidate => candidate.name === name);
+        if (!product) throw new Error(`No product named ${name}`);
+        return {
+            content: [
+                { type: 'image', data: cardPng, mimeType: 'image/png' },
+                { type: 'audio', data: spokenNameWav, mimeType: 'audio/wav' },
+                {
+                    type: 'resource',
+                    resource: {
+                        uri: `catalog://products/${encodeURIComponent(product.name)}`,
+                        mimeType: 'application/json',
+                        text: JSON.stringify(product)
+                    }
+                }
+            ]
+        };
+    }
+);
+//#endregion registerTool_contentTypes
+
 // ---------------------------------------------------------------------------
 // Harness (not shown on the page). An in-memory client drives the calls whose
 // output servers/tools.md quotes verbatim. Any MCP client behaves the same.
@@ -104,6 +136,14 @@ console.log(rejected);
 // "Return structured output" — the structured result the page quotes.
 const details = await client.callTool({ name: 'product-details', arguments: { name: 'Travel mug' } });
 console.log(details);
+
+// "Return other content types" — the three-block result the page quotes.
+const card = await client.callTool({ name: 'product-card', arguments: { name: 'Travel mug' } });
+console.log(card.content);
+const cardTypes = Array.isArray(card.content) ? card.content.map(block => block.type) : [];
+if (card.isError || cardTypes.join(',') !== 'image,audio,resource') {
+    throw new Error(`tools.md claim failed: product-card returned ${JSON.stringify(card.content)}`);
+}
 
 // Proof for the page's ::: tip — `.describe()` lands in the JSON Schema that
 // `tools/list` advertises for the `query` argument. Throws (non-zero exit) if

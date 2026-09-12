@@ -151,6 +151,8 @@ re-probed: 2026-07-28
 
 Replace the persisted blob with the fresh `getDiscoverResult()` and the rest of the fleet recovers on its next read.
 
+The `EraNegotiationFailed` filter above is deliberate and safe against auth walls: a `401`/`403` rejecting the probe carries `ClientHttpAuthentication`/`ClientHttpForbidden` instead, so an unauthorized exchange re-throws out of this recovery path and can never be persisted as an era verdict.
+
 ## Skip the probe for a known-legacy server
 
 When out-of-band metadata already says the server is pre-2026 — a registry entry, an earlier connection's outcome — an `'auto'`-mode probe is a round trip that fails on every single connect. Supply the negative verdict instead: `PriorDiscovery`'s `{ kind: 'legacy' }` arm skips the probe and goes straight to the `initialize` handshake.

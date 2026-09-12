@@ -348,6 +348,70 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
     }
 });
 
+verifies('client-auth:negotiation:auth-before-era', async (_args: TestArgs) => {
+    const validToken = 'negotiated-token';
+    const as = createMockAuthorizationServer({ tokenResponses: [{ access_token: validToken, token_type: 'Bearer' }] });
+    const provider = new RecordingOAuthClientProvider();
+    // The auth wall lives in createCombinedFetch (401 challenge without the
+    // token); behind it a plain legacy stack serves the tool.
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: 'ok' }] }));
+        return s;
+    });
+    const baseFetch = createCombinedFetch({ as, mcpHost, validToken });
+
+    // Wire recorder for MCP-origin POSTs: JSON-RPC method, response status, auth presence.
+    const mcpPosts: Array<{ method: string; status: number; hasAuth: boolean }> = [];
+    const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        const isMcp = urlObj.origin !== ISSUER && !urlObj.pathname.includes('/.well-known/');
+        const response = await baseFetch(url, init);
+        if (isMcp && init?.method === 'POST') {
+            const body = typeof init.body === 'string' ? (JSON.parse(init.body) as { method?: string }) : {};
+            mcpPosts.push({ method: body.method ?? '?', status: response.status, hasAuth: new Headers(init.headers).has('authorization') });
+        }
+        return response;
+    };
+
+    const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+    const first = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+    try {
+        // Probe -> 401: the auth challenge propagates. The 401 never decides the
+        // era -- the auth wall answered before the MCP layer saw server/discover.
+        await expect(client.connect(first)).rejects.toThrow(UnauthorizedError);
+        expect(mcpPosts).toEqual([{ method: 'server/discover', status: 401, hasAuth: false }]);
+        expect(provider.redirectedTo).toHaveLength(1);
+
+        // Complete the flow (the mock AS exchanges any code), then reconnect on
+        // a FRESH transport -- a started transport cannot be restarted.
+        await first.finishAuth('e2e-auth-code');
+        expect(provider.saved.tokens?.access_token).toBe(validToken);
+
+        const second = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+        await client.connect(second);
+
+        // The post-auth re-probe supplied the era evidence: two probes total --
+        // the pre-auth one 401'd, the post-auth one answered by the legacy
+        // stack -- and initialize ran only after the second.
+        const probes = mcpPosts.filter(p => p.method === 'server/discover');
+        expect(probes).toHaveLength(2);
+        expect(probes[1]).toMatchObject({ hasAuth: true });
+        expect(probes[1]!.status).not.toBe(401);
+        const kinds = mcpPosts.map(p => p.method);
+        expect(kinds.filter(k => k === 'initialize')).toHaveLength(1);
+        expect(kinds.indexOf('initialize')).toBeGreaterThan(kinds.lastIndexOf('server/discover'));
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
 verifies('client-auth:401-after-auth-throws', async (_args: TestArgs) => {
     const as = createMockAuthorizationServer({
         tokenResponses: [{ access_token: 'refreshed-access-token', token_type: 'Bearer' }]
@@ -1996,6 +2060,73 @@ verifies('client-auth:authprovider:token-attached', async (_args: TestArgs) => {
 
         // The bearer header reached the server intact on the tools/call request.
         expect(authorizationSeenByServer).toEqual([`Bearer ${TOKEN}`]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies('client-auth:authprovider:token-overrides-requestinit', async (_args: TestArgs) => {
+    const TOKEN = 'provider-bearer-token';
+    const STALE = 'stale-configured-token';
+
+    // Minimal AuthProvider: token() only. Mirrors a config that pins a static API key in
+    // requestInit.headers but must defer to the provider once it has a token (#2208).
+    const authProvider: AuthProvider = {
+        token: async () => TOKEN
+    };
+
+    const seenByServer: Array<{ authorization: string | null; custom: string | null }> = [];
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+            seenByServer.push({
+                authorization: ctx.http?.req?.headers.get('authorization') ?? null,
+                custom: ctx.http?.req?.headers.get('x-caller-header') ?? null
+            });
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        return s;
+    });
+
+    const requests: Array<{ method: string; authorization: string | null; custom: string | null }> = [];
+    const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+            method: init?.method ?? 'GET',
+            authorization: headers.get('authorization'),
+            custom: headers.get('x-caller-header')
+        });
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider,
+        fetch: recordingFetch,
+        requestInit: { headers: { Authorization: `Bearer ${STALE}`, 'X-Caller-Header': 'preserved' } }
+    });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // The standalone SSE GET is opened fire-and-forget after initialize; wait for it so it is checked too.
+        await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+        // Exactly three POSTs (initialize, notifications/initialized, tools/call) plus the standalone SSE GET,
+        // every one carrying the provider token rather than the configured placeholder, with the other
+        // configured header passing through untouched.
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(3);
+        expect(requests.filter(r => r.method === 'GET')).toHaveLength(1);
+        for (const req of requests) {
+            expect(req.authorization).toBe(`Bearer ${TOKEN}`);
+            expect(req.custom).toBe('preserved');
+        }
+
+        // The provider token, not the placeholder, is what reached the server on tools/call.
+        expect(seenByServer).toEqual([{ authorization: `Bearer ${TOKEN}`, custom: 'preserved' }]);
     } finally {
         await client.close();
         await mcpHost.close();

@@ -75,6 +75,9 @@ With the global in place the [client OAuth](./clients/oauth.md) flows run unchan
 - `the connection closed during the server/discover probe (this transport probed in place — the disposable sibling probe requires the SDK's base StdioClientTransport)` — a subclass of `StdioClientTransport`, or a custom stdio-shaped transport, probed in place and met a server that exits on any pre-`initialize` request: use the base `StdioClientTransport` (which probes on a disposable sibling), or `mode: 'legacy'`.
 - `the transport was closed during the server/discover probe` — the caller closed the transport while the probe was in flight; the connect aborted deliberately and the session child was never spawned.
 - `Version negotiation probe failed: ...` — the probe hit a transport failure (network outage, HTTP connection drop): fix connectivity and retry.
+- `the server answered the probe with HTTP 5xx` — the server or a proxy in front of it failed (mid-deploy, crashed backend); not era evidence, so no legacy fallback is attempted: retry once the deployment is healthy.
+
+A `401`/`403` probe rejection is **not** this code — see the next section.
 
 The pinned shape — `transport` here reaches a server still on the 2025 revisions ([Test a server](./testing.md) shows the in-memory wiring these outputs come from):
 
@@ -111,6 +114,12 @@ legacy
 ```
 
 Keep `{ pin }` where a legacy connection is unacceptable and a hard failure is the behavior you want. [Protocol versions](./protocol-versions.md) defines the eras and what each negotiation mode offers.
+
+## `Version negotiation failed: the server requires authorization (HTTP 401)`
+
+`SdkHttpError` with code `CLIENT_HTTP_AUTHENTICATION` (`error.status === 401`): the negotiation probe hit an auth wall and no `authProvider` is configured. Auth status is never protocol-era evidence, so `connect()` fails typed instead of guessing an era. Pass an `authProvider` — `{ token: async () => myApiKey }` for bearer tokens, or an `OAuthClientProvider` for OAuth flows (the connect-time `UnauthorizedError` → `finishAuth()` → reconnect cycle then works in every negotiation mode).
+
+The `403` sibling — `Version negotiation failed: the server denied access (HTTP 403)`, code `CLIENT_HTTP_FORBIDDEN` — means the server refused the request outright (IP allowlist, org policy, revoked key). Fix access; this is not a protocol mismatch. (A `403` whose `WWW-Authenticate` challenge carries `error="insufficient_scope"` instead rejects with `InsufficientScopeError` — request the challenged scope.)
 
 ## `SdkError: METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION`
 
