@@ -1,9 +1,12 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { toStandardJsonSchema } from '@valibot/to-json-schema';
+import { type } from 'arktype';
+import * as v from 'valibot';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index';
-import type { InferRawShape } from '../../src/server/mcp';
+import { inputRequired, McpServer } from '../../src/index';
+import type { InferRawShape, ToolCallback } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
@@ -128,22 +131,127 @@ describe('InferRawShape', () => {
     });
 });
 
-describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () => {
-    it('accepts z.array(z.number()) as outputSchema and a number[] structuredContent compiles', () => {
+describe('registerTool output schema callback typing', () => {
+    it('requires successful structuredContent to match object output schemas', () => {
         const server = new McpServer({ name: 's', version: '1' });
-        server.registerTool('arr', { inputSchema: z.object({ n: z.number() }), outputSchema: z.array(z.number()) }, async ({ n }) => ({
+
+        const outputSchema = z.object({ data: z.string(), count: z.number() });
+        server.registerTool('object-valid', { outputSchema }, () => ({
             content: [],
-            structuredContent: [n, n + 1] satisfies number[]
+            structuredContent: { data: 'ok', count: 1 }
         }));
-        // NOTE (SEP-2106 PR-B verification item): the OutputArgs generic on registerTool is
-        // captured but does NOT currently flow into the callback's return type — ToolCallback's
-        // SendResultT is `CallToolResult | InputRequiredResult` (structuredContent: unknown), so
-        // a wrong-typed structuredContent ALSO compiles. Runtime validation (validateToolOutput)
-        // is the guard. Tightening the generic is out of this commit's scope.
-        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, async () => ({
+
+        // @ts-expect-error structuredContent must match outputSchema
+        server.registerTool('object-wrong-root', { outputSchema }, async () => ({ content: [], structuredContent: 'wrong' }));
+        // @ts-expect-error structuredContent must include every required output field
+        server.registerTool('object-missing-field', { outputSchema }, () => ({ content: [], structuredContent: { data: 'missing' } }));
+        // prettier-ignore
+        // @ts-expect-error structuredContent field types must match outputSchema
+        server.registerTool('object-wrong-field', { outputSchema }, () => ({ content: [], structuredContent: { data: 'wrong', count: 'one' } }));
+        // @ts-expect-error successful callbacks with outputSchema must return structuredContent
+        server.registerTool('object-missing-output', { outputSchema }, () => ({ content: [] }));
+        // @ts-expect-error undefined is treated as absent by runtime output validation
+        server.registerTool('undefined-output', { outputSchema: z.undefined() }, () => ({ content: [], structuredContent: undefined }));
+    });
+
+    it('supports every non-object output root without widening invalid results', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+
+        server.registerTool('array-valid', { outputSchema: z.array(z.number()) }, () => ({ content: [], structuredContent: [1, 2] }));
+        // @ts-expect-error array output schema rejects a string
+        server.registerTool('array-invalid', { outputSchema: z.array(z.number()) }, () => ({ content: [], structuredContent: 'wrong' }));
+
+        server.registerTool('primitive-valid', { outputSchema: z.string() }, async () => ({ content: [], structuredContent: 'ok' }));
+        // @ts-expect-error primitive output schema rejects a number
+        server.registerTool('primitive-invalid', { outputSchema: z.string() }, async () => ({ content: [], structuredContent: 1 }));
+
+        const unionOutput = z.union([z.string(), z.number()]);
+        server.registerTool('union-valid', { outputSchema: unionOutput }, () => ({ content: [], structuredContent: 1 }));
+        // @ts-expect-error union output schema rejects values outside the union
+        server.registerTool('union-invalid', { outputSchema: unionOutput }, () => ({ content: [], structuredContent: false }));
+
+        server.registerTool('null-valid', { outputSchema: z.null() }, () => ({ content: [], structuredContent: null }));
+        // @ts-expect-error null output schema rejects non-null values
+        server.registerTool('null-invalid', { outputSchema: z.null() }, () => ({ content: [], structuredContent: 'not-null' }));
+
+        server.registerTool('unknown-valid', { outputSchema: z.unknown() }, () => ({ content: [], structuredContent: null }));
+        // @ts-expect-error runtime treats undefined structuredContent as absent even when the schema output is unknown
+        server.registerTool('unknown-undefined', { outputSchema: z.unknown() }, () => ({ content: [], structuredContent: undefined }));
+    });
+
+    it('preserves input inference and exceptional result branches', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+        const inputSchema = z.object({ succeed: z.boolean() });
+        const outputSchema = z.object({ data: z.string() });
+
+        server.registerTool('mixed-valid', { inputSchema, outputSchema }, async ({ succeed }) => {
+            expectTypeOf(succeed).toEqualTypeOf<boolean>();
+            return succeed ? { content: [], structuredContent: { data: 'ok' } } : { content: [], isError: true };
+        });
+        server.registerTool('input-required', { outputSchema }, () => inputRequired({ requestState: 'opaque' }));
+
+        // @ts-expect-error an invalid success branch cannot hide beside a valid error branch
+        server.registerTool('mixed-invalid', { inputSchema, outputSchema }, ({ succeed }) =>
+            succeed ? { content: [], structuredContent: { data: 1 } } : { content: [], isError: true }
+        );
+    });
+
+    it('retains broad callbacks when outputSchema is absent or optional', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+        const inputSchema = z.object({ value: z.string() });
+        const callback: ToolCallback<typeof inputSchema> = ({ value }) => ({ content: [], structuredContent: value.length });
+
+        server.registerTool('no-output-schema', { inputSchema }, callback);
+
+        const maybeOutputSchema = (enabled: boolean): typeof inputSchema | undefined => (enabled ? inputSchema : undefined);
+        server.registerTool('optional-output-schema', { outputSchema: maybeOutputSchema(false) }, () => ({
             content: [],
-            structuredContent: 'not-an-array' // compiles: structuredContent is `unknown`
+            structuredContent: { value: 'ok' }
         }));
-        expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
+    });
+
+    it('uses schema output types for coercing schemas', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+        const outputSchema = z.coerce.number();
+
+        server.registerTool('coerce-valid', { outputSchema }, () => ({ content: [], structuredContent: 1 }));
+        // @ts-expect-error callbacks return the schema output type, not its broader input type
+        server.registerTool('coerce-invalid', { outputSchema }, () => ({ content: [], structuredContent: '1' }));
+    });
+
+    it('checks deprecated raw output shapes and preserves raw input inference', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+        const inputSchema = { n: z.number() };
+        const outputSchema = { result: z.string() };
+
+        server.registerTool('raw-valid', { inputSchema, outputSchema }, ({ n }) => {
+            expectTypeOf(n).toEqualTypeOf<number>();
+            return { content: [], structuredContent: { result: String(n) } };
+        });
+        // prettier-ignore
+        // @ts-expect-error raw output shape is inferred as its object output type
+        server.registerTool('raw-invalid', { inputSchema, outputSchema }, ({ n }) => ({ content: [], structuredContent: { result: n } }));
+    });
+
+    it('checks ArkType and Valibot output schemas in the server typecheck target', () => {
+        const server = new McpServer({ name: 's', version: '1' });
+
+        const arkOutput = type({ result: 'string' });
+        server.registerTool('ark-output-valid', { outputSchema: arkOutput }, () => ({
+            content: [],
+            structuredContent: { result: 'ok' }
+        }));
+        // prettier-ignore
+        // @ts-expect-error ArkType output schema rejects the wrong field type
+        server.registerTool('ark-output-invalid', { outputSchema: arkOutput }, () => ({ content: [], structuredContent: { result: 1 } }));
+
+        const valibotOutput = toStandardJsonSchema(v.object({ result: v.string() }));
+        server.registerTool('valibot-output-valid', { outputSchema: valibotOutput }, () => ({
+            content: [],
+            structuredContent: { result: 'ok' }
+        }));
+        // prettier-ignore
+        // @ts-expect-error Valibot output schema rejects a missing required field
+        server.registerTool('valibot-output-invalid', { outputSchema: valibotOutput }, () => ({ content: [], structuredContent: {} }));
     });
 });

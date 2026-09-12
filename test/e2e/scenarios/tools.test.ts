@@ -91,12 +91,15 @@ function schemaServer(): McpServer {
     s.registerTool(
         'structured-mismatch',
         { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
-        // intentionally invalid structuredContent (tests server-side validation rejects it)
-        () => ({ structuredContent: { value: 'not-a-number' }, content: [] })
+        // Deliberately malformed runtime fixture: compile-time callers are rejected.
+        () => ({ structuredContent: { value: 'not-a-number' }, content: [] }) as never
     );
-    s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
-        content: [{ type: 'text', text: 'handler-body-no-structured' }]
-    }));
+    s.registerTool(
+        'structured-missing',
+        { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
+        // Deliberately malformed runtime fixture: compile-time callers are rejected.
+        () => ({ content: [{ type: 'text', text: 'handler-body-no-structured' }] }) as never
+    );
     s.registerTool('structured-error-skip', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         isError: true,
         content: [{ type: 'text', text: 'handler-returned-isError' }]
