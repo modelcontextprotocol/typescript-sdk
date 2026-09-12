@@ -32,7 +32,12 @@ export class ReadBuffer {
             return null;
         }
 
-        const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
+        // A UTF-8 byte order mark (written by some Windows tools and shell redirections)
+        // is not part of the JSON text; RFC 8259 §8.1 lets parsers ignore it.
+        const line = this._buffer
+            .toString('utf8', 0, index)
+            .replace(/\r$/, '')
+            .replace(/^\uFEFF/, '');
         this._buffer = this._buffer.subarray(index + 1);
         return deserializeMessage(line);
     }
