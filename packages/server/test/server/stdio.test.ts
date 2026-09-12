@@ -244,6 +244,34 @@ test('should fire onclose when stdin had already ended before start()', async ()
     expect(closeCount).toBe(1);
 });
 
+test('should fire onclose assigned after start() when stdin was already dead', async () => {
+    // The synthetic hangup for a pre-dead stream must land after the caller's
+    // start()/connect() continuation — exactly like a real 'end' — otherwise an
+    // onclose assigned right after `await server.connect(transport)` never runs.
+    input.destroy();
+    await new Promise<void>(resolve => {
+        input.once('close', resolve);
+    });
+
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+
+    let closeCount = 0;
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => {
+            closeCount++;
+            resolve();
+        };
+    });
+
+    await closed;
+    expect(closeCount).toBe(1);
+});
+
 test('should not fire onclose twice when close() is called after stdin ends', async () => {
     const server = new StdioServerTransport(input, output);
     server.onerror = error => {

@@ -122,10 +122,12 @@ export class StdioServerTransport implements Transport {
         // emitted its one 'end'/'close' event; the listeners below would never
         // fire. This can happen with a custom stream (e.g. a net.Socket the
         // peer reset during async setup) — treat it as the client having hung
-        // up, deferred by a microtask so onclose isn't invoked before start()
-        // returns.
+        // up. Deferred to the next event-loop turn (not a microtask) so it lands
+        // after the caller's start()/connect() continuation, exactly like a real
+        // 'end' would — an onclose assigned right after `await connect()` must
+        // still see it.
         if (this._stdin.readableEnded || this._stdin.destroyed) {
-            queueMicrotask(this._onstdinclose);
+            setImmediate(this._onstdinclose);
         }
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);

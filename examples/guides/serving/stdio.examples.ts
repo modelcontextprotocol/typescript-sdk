@@ -43,7 +43,7 @@ process.on('SIGINT', () => {
 // "Shut down cleanly" — the keep-alive release pattern: typechecked, not run
 // (running it here would start a second stdio transport on this process's
 // streams alongside the server above).
-export function notesServerWithKeepAlive() {
+export function notesServerWithKeepAlive(): void {
     //#region serveStdio_releaseKeepAlive
     serveStdio(() => {
         const server = new McpServer({ name: 'notes', version: '1.0.0' });
