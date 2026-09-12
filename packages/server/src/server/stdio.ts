@@ -21,7 +21,9 @@ const swallowsErrorsAfterClose = Symbol('swallowsErrorsAfterClose');
  * When the client closes its end of the pipe (stdin reaches end-of-file), the transport
  * closes itself and fires `onclose`, per the MCP stdio binding's guidance that servers
  * should exit promptly when their standard input is closed. A server that holds no other
- * keep-alive handles will then exit naturally.
+ * keep-alive handles will then exit naturally. Requests still in flight when stdin ends are
+ * aborted and not answered; a client that expects responses keeps stdin open until it has
+ * read them.
  *
  * @example
  * ```ts source="./stdio.examples.ts#StdioServerTransport_basicUsage"

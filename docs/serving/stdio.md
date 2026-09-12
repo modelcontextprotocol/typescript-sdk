@@ -70,7 +70,7 @@ process.on('SIGINT', () => {
 
 `close()` resolves once the instance the factory built and the underlying transport are both shut down.
 
-A signal handler is one path to teardown; the pipe itself is the other. When the client closes its end (stdin reaches end-of-file), the transport closes itself and the connection tears down automatically — no signal handler needed. A server that holds nothing else keeping the event loop alive then exits on its own. If yours does hold a keep-alive handle — a timer, a connection pool, a file watcher — release it when the connection closes so the process can exit:
+A signal handler is one path to teardown; the pipe itself is the other. When the client closes its end (stdin reaches end-of-file), the transport closes itself and the connection tears down automatically — no signal handler needed. Requests still in flight at that moment are aborted and never answered (EOF means the client is gone), so a client that wants answers keeps stdin open until it has read them. A server that holds nothing else keeping the event loop alive then exits on its own. If yours does hold a keep-alive handle — a timer, a connection pool, a file watcher — release it when the connection closes so the process can exit:
 
 ```ts source="../../examples/guides/serving/stdio.examples.ts#serveStdio_releaseKeepAlive"
 serveStdio(() => {
