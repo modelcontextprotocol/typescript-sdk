@@ -686,6 +686,11 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
+    /**
+     * Instances whose `onclose` already carries the in-flight bookkeeping, so a
+     * factory returning the same instance twice does not wrap it twice.
+     */
+    const inflightHookInstalled = new WeakSet<Server>();
     let closed = false;
 
     const reportError = (error: Error) => {
@@ -843,13 +848,21 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             });
         }
 
-        // Track the instance until its exchange tears down so close() can abort it.
-        const previousOnClose = server.onclose;
+        // Track the instance until its exchange tears down so close() can abort
+        // it. The `onclose` hook is installed at most once per instance: a
+        // factory that returns the same instance for every request (not the
+        // intended contract, but an easy mistake to make) would otherwise stack
+        // one wrapper per request, retaining every closure and eventually
+        // overflowing the stack when the chain finally runs.
         inflight.add(server);
-        server.onclose = () => {
-            inflight.delete(server);
-            previousOnClose?.();
-        };
+        if (!inflightHookInstalled.has(server)) {
+            inflightHookInstalled.add(server);
+            const previousOnClose = server.onclose;
+            server.onclose = () => {
+                inflight.delete(server);
+                previousOnClose?.();
+            };
+        }
 
         try {
             const response = await invoke(product, route.message, {
