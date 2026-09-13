@@ -5403,6 +5403,32 @@ describe('Error handling for missing resolvers', () => {
         });
     });
 
+    describe('McpError.fromError should not double-prefix', () => {
+        it('should not double-prefix when message already has MCP error prefix', () => {
+            // Simulate the message as it arrives from the wire (already prefixed by server's McpError constructor)
+            const prefixedMessage = 'MCP error -32601: Unknown tool: nope';
+            const error = McpError.fromError(ErrorCode.MethodNotFound, prefixedMessage);
+
+            // Should have exactly one prefix, not two
+            expect(error.message).toBe('MCP error -32601: Unknown tool: nope');
+            expect(error.message).not.toContain('MCP error -32601: MCP error');
+        });
+
+        it('should add prefix when message does not have it', () => {
+            // Direct usage without prefix (e.g., internal code creating an error)
+            const error = McpError.fromError(ErrorCode.InternalError, 'Something went wrong');
+
+            // Should have the prefix added
+            expect(error.message).toBe('MCP error -32603: Something went wrong');
+        });
+
+        it('should handle negative error codes correctly', () => {
+            const prefixedMessage = 'MCP error -32600: Invalid request';
+            const error = McpError.fromError(ErrorCode.InvalidRequest, prefixedMessage);
+            expect(error.message).toBe('MCP error -32600: Invalid request');
+        });
+    });
+
     describe('Response and error message routing integration', () => {
         it('should handle mixed response and error messages in queue', async () => {
             await protocol.connect(transport);

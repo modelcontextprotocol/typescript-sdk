@@ -892,7 +892,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (isJSONRPCResultResponse(response)) {
                 resolver(response);
             } else {
-                const error = new McpError(response.error.code, response.error.message, response.error.data);
+                const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
                 resolver(error);
             }
             return;

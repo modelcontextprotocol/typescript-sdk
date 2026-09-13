@@ -2315,19 +2315,32 @@ export class McpError extends Error {
     }
 
     /**
+     * Strip the "MCP error NNNN: " prefix that McpError's constructor adds,
+     * so that fromError does not double-prefix when reconstructing an error
+     * whose message already carries the prefix from the wire.
+     */
+    private static _stripErrorPrefix(message: string): string {
+        return message.replace(/^MCP error -?\d+: /, '');
+    }
+
+    /**
      * Factory method to create the appropriate error type based on the error code and data
      */
     static fromError(code: number, message: string, data?: unknown): McpError {
+        // Strip the "MCP error NNNN: " prefix if present, to avoid double-prefixing
+        // when the message comes from a serialized McpError on the wire.
+        const cleanMessage = McpError._stripErrorPrefix(message);
+
         // Check for specific error types
         if (code === ErrorCode.UrlElicitationRequired && data) {
             const errorData = data as { elicitations?: unknown[] };
             if (errorData.elicitations) {
-                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
+                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], cleanMessage);
             }
         }
 
         // Default to generic McpError
-        return new McpError(code, message, data);
+        return new McpError(code, cleanMessage, data);
     }
 }
 
