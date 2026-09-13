@@ -198,6 +198,75 @@ describe('UriTemplate', () => {
         });
     });
 
+    describe('percent-decoding on match', () => {
+        // See https://github.com/modelcontextprotocol/typescript-sdk/issues/2728
+        // match() previously returned the still-encoded substring, so the
+        // round trip (match(expand(v)) === v) failed for any value containing
+        // a reserved or non-ASCII character.
+
+        it('round-trips a single value through the default operator', () => {
+            for (const value of ['My File.txt', 'a b', 'a/b', 'a?b', 'a&b', 'a=b', '100%', 'ü', 'a#b']) {
+                const template = new UriTemplate('file:///{path}');
+                const expanded = template.expand({ path: value });
+                expect(template.match(expanded)).toEqual({ path: value });
+            }
+        });
+
+        it('round-trips multiple variables through the default operator', () => {
+            const template = new UriTemplate('x://h/{a}/{b}');
+            const expanded = template.expand({ a: 'a#b', b: 'a#b' });
+            expect(expanded).toBe('x://h/a%23b/a%23b');
+            expect(template.match(expanded)).toEqual({ a: 'a#b', b: 'a#b' });
+        });
+
+        it('round-trips values through the + reserved operator using decodeURI', () => {
+            // + uses encodeURI on expand, which leaves '/', ':' and friends
+            // unencoded. decodeURI is the matching inverse, and a percent
+            // escape such as %20 must still be decoded back to a space.
+            // The greedy .+ in the matcher relies on a literal suffix
+            // (here '/here') to backtrack, so include one for the test.
+            const template = new UriTemplate('http://example.com/{+path}/here');
+            const expanded = template.expand({ path: 'a b/c' });
+            expect(expanded).toBe('http://example.com/a%20b/c/here');
+            expect(template.match(expanded)).toEqual({ path: 'a b/c' });
+        });
+
+        it('round-trips a value through a /-prefixed path operator', () => {
+            const template = new UriTemplate('{/path}');
+            expect(template.match(template.expand({ path: 'a/b c' }))).toEqual({ path: 'a/b c' });
+        });
+
+        it('round-trips a value through a .-prefixed label operator', () => {
+            const template = new UriTemplate('X{.var}');
+            expect(template.match(template.expand({ var: 'a b' }))).toEqual({ var: 'a b' });
+        });
+
+        it('round-trips a value through a ?-prefixed form-style query operator', () => {
+            const template = new UriTemplate('X{?q}');
+            expect(template.match(template.expand({ q: 'a b&c' }))).toEqual({ q: 'a b&c' });
+        });
+
+        it('round-trips a value through a &-prefixed form-continuation operator', () => {
+            const template = new UriTemplate('X{&q}');
+            expect(template.match(template.expand({ q: 'a b&c' }))).toEqual({ q: 'a b&c' });
+        });
+
+        it('decodes each element of an exploded default-operator array', () => {
+            // Default-operator exploded values are joined by ',' on both the
+            // expand and the match sides, so the round trip is exact.
+            const template = new UriTemplate('{list*}');
+            const expanded = template.expand({ list: ['a b', 'c/d', 'e#f'] });
+            expect(template.match(expanded)).toEqual({ list: ['a b', 'c/d', 'e#f'] });
+        });
+
+        it('passes a malformed escape through unchanged instead of throwing', () => {
+            // '%ZZ' is not a valid percent escape. The wire shape is whatever
+            // the server sent; the matcher should not reject it.
+            const template = new UriTemplate('file:///{path}');
+            expect(template.match('file:///a%ZZb')).toEqual({ path: 'a%ZZb' });
+        });
+    });
+
     describe('security and edge cases', () => {
         it('should handle extremely long input strings', () => {
             const longString = 'x'.repeat(100_000);
