@@ -2625,6 +2625,52 @@ describe('StreamableHTTPClientTransport', () => {
             const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
             expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
         });
+
+        it('re-sends Last-Event-ID when a resumed stream closes before any id-bearing event', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 1
+                }
+            });
+
+            // The resumed stream is accepted but closes immediately without any
+            // event carrying an id (LB idle timeout, server restart).
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream({
+                    start(controller) {
+                        controller.close();
+                    }
+                })
+            });
+            // The reconnecting stream stays open so no further reconnection is
+            // scheduled after the one under test.
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: new ReadableStream()
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({ resumptionToken: 'evt-1' });
+
+            await vi.advanceTimersByTimeAsync(50);
+            await vi.advanceTimersByTimeAsync(150);
+
+            // The reconnect GET must re-send the token the stream was opened
+            // with — replay is idempotent, and without it the server treats the
+            // reconnect as a brand-new stream and never replays missed events.
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            const secondCallHeaders = fetchMock.mock.calls[1]![1]?.headers;
+            expect(secondCallHeaders?.get('last-event-id')).toBe('evt-1');
+        });
     });
 
     describe('Reconnection Logic with maxRetries 0', () => {
