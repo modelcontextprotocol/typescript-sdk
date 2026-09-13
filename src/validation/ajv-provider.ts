@@ -35,6 +35,7 @@ function createDefaultAjvInstance(): Ajv {
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv: Ajv;
+    private _compiledCache: Map<string, ReturnType<Ajv['compile']>>
 
     /**
      * Create an AJV validator
@@ -58,6 +59,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      */
     constructor(ajv?: Ajv) {
         this._ajv = ajv ?? createDefaultAjvInstance();
+        this._compiledCache = new Map();
     }
 
     /**
@@ -70,11 +72,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * @returns A validator function that validates input data
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
-        // Check if schema has $id and is already compiled/cached
-        const ajvValidator =
-            '$id' in schema && typeof schema.$id === 'string'
-                ? (this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema))
-                : this._ajv.compile(schema);
+        const ajvValidator = this._getCompiled(schema);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);
@@ -93,5 +91,23 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
                 };
             }
         };
+    }
+
+    private _getCompiled(schema: JsonSchemaType) {
+        if ('$id' in schema && typeof schema.$id === 'string') {
+            return this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema);
+        }
+        let key: string;
+        try {
+            key = JSON.stringify(schema);
+        } catch {
+            return this._ajv.compile(schema);
+        }
+        let cached = this._compiledCache.get(key);
+        if (cached === undefined) {
+            cached = this._ajv.compile(JSON.parse(key));
+            this._compiledCache.set(key, cached);
+        }
+        return cached;
     }
 }

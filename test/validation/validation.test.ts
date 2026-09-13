@@ -531,6 +531,62 @@ describe('JSON Schema Validators', () => {
     });
 });
 
+describe('AJV caching', () => {
+    it('caches compiled validators for identical schemas without $id', () => {
+        const validator = new AjvJsonSchemaValidator();
+        const schema: JsonSchemaType = {
+            type: 'object',
+            properties: { name: { type: 'string' } },
+            required: ['name']
+        };
+
+        // Get validator multiple times for the same schema
+        const v1 = validator.getValidator(schema);
+        const v2 = validator.getValidator(schema);
+
+        // Both should produce the same results
+        expect(v1({ name: 'test' })).toEqual(v2({ name: 'test' }));
+        expect(v1({})).toEqual(v2({}));
+    });
+
+    it('caches validators for schemas with same content but different references', () => {
+        const validator = new AjvJsonSchemaValidator();
+        const schema1: JsonSchemaType = { type: 'string' };
+        const schema2: JsonSchemaType = { type: 'string' };
+
+        const v1 = validator.getValidator(schema1);
+        const v2 = validator.getValidator(schema2);
+
+        expect(v1('test')).toEqual(v2('test'));
+        expect(v1(42)).toEqual(v2(42));
+    });
+
+    it('returns different validators for different schemas', () => {
+        const validator = new AjvJsonSchemaValidator();
+        const schema1: JsonSchemaType = { type: 'string' };
+        const schema2: JsonSchemaType = { type: 'number' };
+
+        const v1 = validator.getValidator(schema1);
+        const v2 = validator.getValidator(schema2);
+
+        expect(v1('test').valid).toBe(true);
+        expect(v2('test').valid).toBe(false);
+    });
+
+    it('compiles each unique schema only once', () => {
+        const validator = new AjvJsonSchemaValidator();
+        const schema: JsonSchemaType = { type: 'string' };
+
+        // Call getValidator 5 times with same schema
+        for (let i = 0; i < 5; i++) {
+            validator.getValidator(schema)(i === 0 ? 'test' : 'other');
+        }
+
+        // The cache should have exactly 1 entry
+        expect((validator as any)._compiledCache.size).toBe(1);
+    });
+});
+
 describe('Missing dependencies', () => {
     describe('AJV not installed but CfWorker is', () => {
         beforeEach(() => {
