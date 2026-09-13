@@ -822,7 +822,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         id: request.id,
                         error: {
                             code: Number.isSafeInteger(error['code']) ? error['code'] : ErrorCode.InternalError,
-                            message: error.message ?? 'Internal error',
+                            // McpError.message already carries the `MCP error <code>:` prefix, which is
+                            // reconstructed by the receiving peer; send the original message instead of
+                            // leaking the local prefixed form onto the wire (#2786).
+                            message: error instanceof McpError ? error.originalMessage : (error.message ?? 'Internal error'),
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };

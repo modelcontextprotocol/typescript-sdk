@@ -2305,6 +2305,13 @@ export const ServerResultSchema = z.union([
 ]);
 
 export class McpError extends Error {
+    /**
+     * The message exactly as passed to the constructor, without the
+     * `MCP error <code>:` prefix that `.message` carries. Peers reconstruct
+     * the prefixed form from `code`, so this is what belongs on the wire.
+     */
+    public readonly originalMessage: string;
+
     constructor(
         public readonly code: number,
         message: string,
@@ -2312,6 +2319,7 @@ export class McpError extends Error {
     ) {
         super(`MCP error ${code}: ${message}`);
         this.name = 'McpError';
+        this.originalMessage = message;
     }
 
     /**
