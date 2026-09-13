@@ -31,7 +31,13 @@ export class ReadBuffer {
             }
 
             const line = this._buffer.toString('utf8', 0, index).replace(/\r$/, '');
-            this._buffer = this._buffer.subarray(index + 1);
+            // Drop the buffer entirely once the last message is consumed: an
+            // empty subarray view is truthy and keeps the backing allocation
+            // (which may hold far more than this message, e.g. pooled or
+            // multi-message chunks) alive, and forces the next append through
+            // Buffer.concat.
+            const remainder = this._buffer.subarray(index + 1);
+            this._buffer = remainder.length === 0 ? undefined : remainder;
 
             try {
                 return deserializeMessage(line);

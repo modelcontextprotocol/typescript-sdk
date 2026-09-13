@@ -34,6 +34,37 @@ test('should be reusable after clearing', () => {
     expect(readBuffer.readMessage()).toEqual(testMessage);
 });
 
+test('releases the backing allocation once the last message is consumed', () => {
+    const readBuffer = new ReadBuffer();
+    readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n'));
+
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+    // An empty subarray view is truthy and keeps the backing allocation alive
+    // (one chunk can hold several messages, or be a pooled buffer); the
+    // buffer must be dropped entirely instead.
+    expect((readBuffer as unknown as { _buffer?: Buffer })._buffer).toBeUndefined();
+});
+
+test('appends directly after a full drain', () => {
+    const readBuffer = new ReadBuffer();
+    readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n'));
+    readBuffer.readMessage();
+
+    readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n'));
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+    expect(readBuffer.readMessage()).toBeNull();
+});
+
+test('keeps a partial next message when bytes follow the newline', () => {
+    const readBuffer = new ReadBuffer();
+    readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n' + JSON.stringify(testMessage)));
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+
+    readBuffer.append(Buffer.from('\n'));
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+    expect(readBuffer.readMessage()).toBeNull();
+});
+
 describe('non-JSON line filtering', () => {
     test('should skip empty lines', () => {
         const readBuffer = new ReadBuffer();
