@@ -116,3 +116,34 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
     await closed;
 });
+
+test('stderr pipe should not deadlock when nobody reads it', async () => {
+    // Spawn a server that writes a lot to stderr.
+    // Without auto-resume, the pipe fills, the child blocks on write(2),
+    // and the session hangs silently.
+    const client = new StdioClientTransport({
+        command: 'node',
+        args: ['-e', `
+            process.stderr.write('log line '.repeat(5000) + '\\n');
+            process.stdout.write(JSON.stringify({jsonrpc:'2.0', id:1, result:{}}) + '\\n');
+        `],
+        stderr: 'pipe'
+    });
+
+    // Do NOT attach a reader to client.stderr — this is the bug scenario.
+    const started = Date.now();
+    await Promise.race([
+        client.start().then(() => {
+            return new Promise<void>((resolve) => {
+                client.onmessage = () => resolve();
+            });
+        }),
+        new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error('Session hung - likely stderr deadlock')), 5000)
+        )
+    ]);
+
+    // Should complete quickly, not hang
+    expect(Date.now() - started).toBeLessThan(5000);
+    await client.close();
+});
