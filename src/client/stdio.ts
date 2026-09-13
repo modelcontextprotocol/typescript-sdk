@@ -172,6 +172,11 @@ export class StdioClientTransport implements Transport {
 
             if (this._stderrStream && this._process.stderr) {
                 this._process.stderr.pipe(this._stderrStream);
+                // Auto-resume so the pipe never blocks the child process.
+                // Without this, a server that logs to stderr will deadlock if
+                // nobody attaches a reader — the pipe fills, the child blocks
+                // on write(2), and the session silently hangs.
+                this._stderrStream.resume();
             }
         });
     }
