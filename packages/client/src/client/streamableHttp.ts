@@ -739,7 +739,12 @@ export class StreamableHTTPClientTransport implements Transport {
         // caller just tore down.
         const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
-        let lastEventId: string | undefined;
+        // Seed from the resumption token the stream was opened with: if the
+        // stream disconnects before any id-bearing event arrives, the reconnect
+        // must re-send that token (replay is idempotent). Without this, the
+        // reconnect GET goes out without Last-Event-ID and the server treats it
+        // as a brand-new stream, never replaying the missed events.
+        let lastEventId: string | undefined = options.resumptionToken;
         // Track whether we've received a priming event (event with ID)
         // Per spec, server SHOULD send a priming event with ID before closing
         let hasPrimingEvent = false;
