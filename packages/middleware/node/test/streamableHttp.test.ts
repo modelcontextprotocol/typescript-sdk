@@ -35,6 +35,37 @@ async function getFreePort() {
 }
 
 /**
+ * Reads chunks from an SSE stream reader until the accumulated decoded text contains every
+ * needle, or `timeoutMs` elapses. Node's fetch may deliver events emitted close together as
+ * separate chunks across separate `read()` calls (rather than coalesced into one), so tests
+ * asserting on multiple SSE events must accumulate across reads instead of reading once.
+ */
+async function readUntilContains(reader: ReadableStreamDefaultReader<Uint8Array>, needles: string[], timeoutMs = 2000): Promise<string> {
+    const decoder = new TextDecoder();
+    let text = '';
+
+    while (!needles.every(needle => text.includes(needle))) {
+        let timer: ReturnType<typeof setTimeout>;
+        const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error(`Timed out waiting for [${needles.join(', ')}] in SSE stream. Received so far:\n${text}`)),
+                timeoutMs
+            );
+        });
+
+        try {
+            const { value, done } = await Promise.race([reader.read(), timeout]);
+            if (done) break;
+            text += decoder.decode(value, { stream: true });
+        } finally {
+            clearTimeout(timer!);
+        }
+    }
+
+    return text;
+}
+
+/**
  * Test server configuration for NodeStreamableHTTPServerTransport tests
  */
 interface TestServerConfig {
@@ -727,9 +758,9 @@ describe('Zod v4', () => {
 
             const reader = response.body?.getReader();
 
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may come in any order, and Node's fetch may deliver them as
+            // separate chunks rather than coalesced into one, so accumulate until both arrive.
+            const text = await readUntilContains(reader!, ['"id":"req-1"', '"id":"req-2"']);
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1480,10 +1511,11 @@ describe('Zod v4', () => {
             // Send a server notification through the MCP server
             await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
-            // Read the notification from the SSE stream
+            // Read the notification from the SSE stream. Node's fetch may deliver the
+            // preceding connection event and this notification as separate chunks, so
+            // accumulate reads until the expected text shows up.
             const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            const text = await readUntilContains(reader!, ['id: ', 'First notification from MCP server']);
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
