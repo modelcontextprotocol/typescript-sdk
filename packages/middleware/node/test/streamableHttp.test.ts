@@ -43,15 +43,23 @@ async function getFreePort() {
 async function readUntilContains(reader: ReadableStreamDefaultReader<Uint8Array>, needles: string[], timeoutMs = 2000): Promise<string> {
     const decoder = new TextDecoder();
     let text = '';
-    const deadline = Date.now() + timeoutMs;
 
     while (!needles.every(needle => text.includes(needle))) {
-        if (Date.now() > deadline) {
-            throw new Error(`Timed out waiting for [${needles.join(', ')}] in SSE stream. Received so far:\n${text}`);
+        let timer: ReturnType<typeof setTimeout>;
+        const timeout = new Promise<never>((_, reject) => {
+            timer = setTimeout(
+                () => reject(new Error(`Timed out waiting for [${needles.join(', ')}] in SSE stream. Received so far:\n${text}`)),
+                timeoutMs
+            );
+        });
+
+        try {
+            const { value, done } = await Promise.race([reader.read(), timeout]);
+            if (done) break;
+            text += decoder.decode(value, { stream: true });
+        } finally {
+            clearTimeout(timer!);
         }
-        const { value, done } = await reader.read();
-        if (done) break;
-        text += decoder.decode(value, { stream: true });
     }
 
     return text;
