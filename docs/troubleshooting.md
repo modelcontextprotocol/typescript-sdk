@@ -147,6 +147,12 @@ METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION: subscriptions/listen requires a 2026-0
 
 Either negotiate the era that defines the method — `versionNegotiation: { mode: 'auto' }` against a server that serves 2026-07-28, as in the previous entry — or call the surface the negotiated era does define. [Subscriptions](./clients/subscriptions.md) covers both delivery models; [Protocol versions](./protocol-versions.md) lists which methods each era defines.
 
+## My tool's `inputSchema` is empty, or `tools/list` fails with `Cannot read properties of null (reading '_def')`
+
+You're on the SDK **v1** line and passed a `z.object({...})` where `server.tool()` expects a raw shape (`{ name: z.string() }`), the reverse of the v2 API. Depending on the exact v1 version this either crashes `tools/list` (≤1.21), or registers successfully but publishes an empty `{"type":"object"}` schema so every client silently strips your tool's arguments (1.22–1.26). Neither failure mode names the cause. v1 ≥1.28 throws a clear error at registration instead.
+
+Fix: pass the raw shape to `server.tool()` on v1, or migrate to `registerTool({ inputSchema: z.object({...}) })` on v2. See [the migration guide](./migration/upgrade-to-v2.md#server-registration-api).
+
 ## `Module '"@modelcontextprotocol/server"' has no exported member 'SSEServerTransport'`
 
 `@modelcontextprotocol/server` no longer ships the server-side SSE transport, and the OAuth Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`) left with it. Both live on as a frozen v1 copy in `@modelcontextprotocol/server-legacy`.
@@ -172,6 +178,7 @@ HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so cli
 - Every heading on this page is the exact message you searched for.
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
+- An empty `inputSchema` or a `reading '_def'` crash on v1 means a `z.object()` was passed where a raw shape was expected.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
