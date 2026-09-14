@@ -200,6 +200,13 @@ type Flatten<T> = T extends Primitive
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 /**
+ * The shape a schema ACCEPTS, before defaults are applied — as opposed to
+ * {@link Infer}, which is the shape parsing produces. The two differ only
+ * where a schema declares `.default()`.
+ */
+type InferInput<Schema extends z.ZodTypeAny> = Flatten<z.input<Schema>>;
+
+/**
  * Wire-only members hidden from the public types.
  *
  * `resultType` is the protocol-revision-2026-07-28 wire discrimination field
@@ -421,6 +428,28 @@ export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = StripWireOnly<Infer<typeof ListToolsResultSchema>>;
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
 export type CallToolResult = StripWireOnly<Infer<typeof CallToolResultSchema>>;
+/**
+ * A `tools/call` result as a tool handler may WRITE it.
+ *
+ * {@link CallToolResult} is the parsed shape, where `content` is always an
+ * array because the schema defaults it to `[]`. An author does not have to
+ * supply it: the server normalizes a content-less handler result before
+ * era validation (`normalizeContentlessToolResult`), which is why an
+ * empty object is already a valid `CallToolResult` INPUT — see
+ * `isSpecType.CallToolResult({})`.
+ *
+ * This matters for a tool that returns `structuredContent`. The spec makes
+ * the serialized-JSON TextContent block a SHOULD, not a MUST, so requiring
+ * authors to hand-write `content` alongside it asks for something the
+ * protocol does not.
+ *
+ * The omission is only good for a plain tool result. A body that also
+ * carries another result family's key (`task`, `inputRequests`,
+ * `requestState`) is left alone by that normalization and is then refused
+ * with −32602, because defaulting one family's field into another's body
+ * would be a guess.
+ */
+export type CallToolResultInput = StripWireOnly<InferInput<typeof CallToolResultSchema>>;
 export type CompatibilityCallToolResult = StripWireOnly<Infer<typeof CompatibilityCallToolResultSchema>>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
