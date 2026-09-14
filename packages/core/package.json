@@ -40,12 +40,25 @@
                 "types": "./dist/internal.d.cts",
                 "default": "./dist/internal.cjs"
             }
+        },
+        "./ext/skills": {
+            "import": {
+                "types": "./dist/ext/skills/index.d.mts",
+                "default": "./dist/ext/skills/index.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/skills/index.d.cts",
+                "default": "./dist/ext/skills/index.cjs"
+            }
         }
     },
     "typesVersions": {
         "*": {
             "internal": [
                 "dist/internal.d.mts"
+            ],
+            "ext/skills": [
+                "dist/ext/skills/index.d.mts"
             ]
         }
     },

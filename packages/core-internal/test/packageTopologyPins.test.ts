@@ -37,11 +37,14 @@ function readManifest(relativeDir: string): PackageManifest {
 const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?: Record<string, string> }> = {
     client: {
         name: '@modelcontextprotocol/client',
-        exportKeys: ['.', './stdio', './validators/ajv', './validators/cf-worker', './_shims']
+        // './ext/skills' is the client side of the Skills extension (SEP-2640) — public API,
+        // kept off the root barrel so the extension surface stays opt-in and separately versioned.
+        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',
-        exportKeys: ['.', './stdio', './validators/ajv', './validators/cf-worker', './_shims']
+        // './ext/skills' — the server side of the same extension.
+        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
     },
     'server-legacy': {
         name: '@modelcontextprotocol/server-legacy',
@@ -56,7 +59,10 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         // './internal' is the wholesale internal seam the sibling SDK packages resolve at
         // runtime (their bundles keep `@modelcontextprotocol/core/internal` imports external);
         // it is not public API — the curated public surface stays the root entry.
-        exportKeys: ['.', './internal']
+        // './ext/skills' is the shared (schemas + types + constants) half of the Skills
+        // extension (SEP-2640): public API, runtime-neutral, and deliberately NOT on the root
+        // entry, which stays the curated spec + OAuth `*Schema` surface.
+        exportKeys: ['.', './internal', './ext/skills']
     },
     codemod: {
         name: '@modelcontextprotocol/codemod',
