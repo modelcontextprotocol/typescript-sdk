@@ -458,7 +458,7 @@ describe('protocol tests', () => {
                 onprogress: onProgressMock
             });
 
-            // First progress notification should work
+            // First progress notification should work and reset the timeout window
             vi.advanceTimersByTime(80);
             if (transport.onmessage) {
                 transport.onmessage({
@@ -476,7 +476,9 @@ describe('protocol tests', () => {
                 progress: 50,
                 total: 100
             });
-            vi.advanceTimersByTime(80);
+
+            // Second progress at 101ms later still within maxTotalTimeout (150ms window)
+            vi.advanceTimersByTime(101);
             if (transport.onmessage) {
                 transport.onmessage({
                     jsonrpc: '2.0',
@@ -488,8 +490,23 @@ describe('protocol tests', () => {
                     }
                 });
             }
+            await Promise.resolve();
+
+            // Third progress at 151ms after the second — exceeds maxTotalTimeout
+            vi.advanceTimersByTime(151);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 90,
+                        total: 100
+                    }
+                });
+            }
             await expect(requestPromise).rejects.toThrow('Maximum total timeout exceeded');
-            expect(onProgressMock).toHaveBeenCalledTimes(1);
+            expect(onProgressMock).toHaveBeenCalledTimes(2);
         });
 
         test('should timeout if no progress received within timeout period', async () => {
