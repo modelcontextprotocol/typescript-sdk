@@ -248,6 +248,7 @@ describe('buildMcpParamHeaders', () => {
 
 describe('validateMcpParamHeaders — server-behavior table', () => {
     const DECLS = [{ path: ['region'], headerName: 'Region', type: 'string' }] as const;
+    const COUNT = [{ path: ['count'], headerName: 'Count', type: 'integer' }] as const;
 
     test('header present and matching → ok', () => {
         const headers = new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'us-west1' });
@@ -270,6 +271,50 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
     test('body has the value but the header is absent → reject 400/-32020', () => {
         const r = validateMcpParamHeaders(DECLS, { region: 'us-west1' }, new Headers());
         expect(r).toMatchObject({ kind: 'reject', httpStatus: 400, code: HEADER_MISMATCH_ERROR_CODE, cell: 'param-header-missing' });
+    });
+
+    // sep-2243-server-validate-param-match — globally-untested manifest check, covered here.
+    // A number the codec refuses is still a valid JSON Schema `integer`, so params validation
+    // never faults it; the header rung stays responsible for these rows.
+    test('unsafe-integer body but the header is absent → reject 400/-32020', () => {
+        const r = validateMcpParamHeaders(COUNT, { count: 2 ** 53 }, new Headers());
+        expect(r).toMatchObject({ kind: 'reject', httpStatus: 400, code: HEADER_MISMATCH_ERROR_CODE, cell: 'param-header-missing' });
+    });
+
+    test('non-finite body but the header is absent → reject 400/-32020', () => {
+        const r = validateMcpParamHeaders(COUNT, { count: Number.POSITIVE_INFINITY }, new Headers());
+        expect(r).toMatchObject({ kind: 'reject', httpStatus: 400, code: HEADER_MISMATCH_ERROR_CODE, cell: 'param-header-missing' });
+    });
+
+    test('unsafe-integer body with a disagreeing header → reject 400/-32020', () => {
+        const r = validateMcpParamHeaders(COUNT, { count: 2 ** 53 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Count`]: '1' }));
+        expect(r).toMatchObject({ kind: 'reject', httpStatus: 400, code: HEADER_MISMATCH_ERROR_CODE, cell: 'param-header-mismatch' });
+    });
+
+    test('unsafe-integer body whose header matches numerically → ok', () => {
+        const headers = new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Count`]: '9007199254740992' });
+        expect(validateMcpParamHeaders(COUNT, { count: 2 ** 53 }, headers)).toBeUndefined();
+    });
+
+    // `String(1e21)` is `'1e+21'`, which the canonical-decimal gate refuses — so this agreeing
+    // pair takes the string branch and would otherwise be reported as disagreeing with itself.
+    test('unsafe-integer body whose header mirrors the exponent spelling → ok', () => {
+        const headers = new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Count`]: '1e+21' });
+        expect(validateMcpParamHeaders(COUNT, { count: 1e21 }, headers)).toBeUndefined();
+    });
+
+    test('unsafe-integer body whose header spells the same value in full decimal → ok', () => {
+        const headers = new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Count`]: `1${'0'.repeat(21)}` });
+        expect(validateMcpParamHeaders(COUNT, { count: 1e21 }, headers)).toBeUndefined();
+    });
+
+    test('non-finite body is named in the rejection message rather than rendered as null', () => {
+        const r = validateMcpParamHeaders(COUNT, { count: Number.POSITIVE_INFINITY }, new Headers());
+        expect(r?.message).toContain('count=Infinity');
+    });
+
+    test('a number body on a string-typed declaration still defers to params validation', () => {
+        expect(validateMcpParamHeaders(DECLS, { region: 2 ** 53 }, new Headers())).toBeUndefined();
     });
 
     test('header present but disagreeing → reject 400/-32020 with the mismatch in data', () => {
