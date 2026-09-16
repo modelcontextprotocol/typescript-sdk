@@ -9,6 +9,7 @@
 import * as z from 'zod/v4';
 
 import type { StringSchema } from '../types/types';
+import { dereferenceLocalRefs } from './schema';
 
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
@@ -231,7 +232,14 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
     }
-    return { type: 'object', ...result };
+    // Hand-authored JSON Schema (wrapped via fromJsonSchema, vendor 'mcp') is advertised
+    // verbatim — SEP-1613 requires $schema/$defs/$ref to survive tools/list unchanged.
+    // Library-converted schemas (Zod, ArkType, Valibot) get local $ref inlined: their
+    // $ref is a conversion artifact (z.globalRegistry, z.lazy) that LLMs cannot resolve.
+    if (std.vendor === 'mcp') {
+        return { type: 'object', ...result };
+    }
+    return dereferenceLocalRefs({ type: 'object', ...result });
 }
 
 /**
