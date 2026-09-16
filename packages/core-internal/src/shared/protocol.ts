@@ -559,6 +559,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+    /** Overrides installed by `overrideRequestHandler`, in installation order (see `_resolveRequestHandler`). */
+    private _requestHandlerOverrides: Map<
+        string,
+        Array<
+            (
+                request: JSONRPCRequest,
+                ctx: ContextT,
+                next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+            ) => Result | Promise<Result>
+        >
+    > = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -1005,7 +1016,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        const handler = this._resolveRequestHandler(request.method);
 
         if (handler === undefined) {
             sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
@@ -1752,6 +1763,61 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         this._requestHandlers.set(method, this._wrapHandler(method, stored));
+    }
+
+    /**
+     * Installs an override around the request handler for `method`. The
+     * override receives the parsed request, the context, and `next` — the
+     * handler it wraps — and may answer itself, transform what `next`
+     * returns, or throw a `ProtocolError` that becomes the JSON-RPC error
+     * response. Overrides compose at dispatch time, so an override installed
+     * before the underlying handler exists (e.g. `tools/call`, which
+     * `McpServer` registers on the first tool registration) still applies;
+     * with no underlying handler and no fallback, `next` throws
+     * `MethodNotFound`. Later overrides run outside earlier ones. This is the
+     * seam server extensions use to intercept spec methods.
+     *
+     * @returns A function that removes the override.
+     */
+    overrideRequestHandler(
+        method: RequestMethod | string,
+        override: (
+            request: JSONRPCRequest,
+            ctx: ContextT,
+            next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+        ) => Result | Promise<Result>
+    ): () => void {
+        const overrides = this._requestHandlerOverrides.get(method) ?? [];
+        overrides.push(override);
+        this._requestHandlerOverrides.set(method, overrides);
+        return () => {
+            const current = this._requestHandlerOverrides.get(method);
+            if (current === undefined) return;
+            const index = current.indexOf(override);
+            if (index !== -1) current.splice(index, 1);
+            if (current.length === 0) this._requestHandlerOverrides.delete(method);
+        };
+    }
+
+    /**
+     * The handler `_onrequest` dispatches to for `method`: the registered
+     * handler (or the fallback), with any overrides composed around it.
+     * `undefined` when nothing is registered and nothing overrides.
+     */
+    private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
+        const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
+        const overrides = this._requestHandlerOverrides.get(method);
+        if (overrides === undefined || overrides.length === 0) return base;
+        let composed: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> =
+            base ??
+            (async () => {
+                throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+            });
+        for (const override of overrides) {
+            const next = composed;
+            composed = async (request, ctx) => override(request, ctx, next);
+        }
+        return composed;
     }
 
     /**
