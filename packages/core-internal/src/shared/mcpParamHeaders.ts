@@ -58,16 +58,13 @@ export type XMcpHeaderScanResult = { valid: true; declarations: readonly XMcpHea
 const RFC9110_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 
 /**
- * JSON Schema `type` values the spec admits on an `x-mcp-header` property.
- *
- * The spec text names `integer`, `string`, `boolean` and explicitly excludes
- * `number`. The published conformance referee at the pinned release ships its
- * `http-custom-headers` scenario with two `type: "number"` `x-mcp-header`
- * parameters and expects the client to mirror them, so `number` is accepted
- * here so that the conformance gate passes; the discrepancy is tracked
- * upstream. Everything else (`object`, `array`, `null`, absent) is rejected.
+ * JSON Schema `type` values the spec admits on an `x-mcp-header` property:
+ * `integer`, `string` and `boolean`. `number` is explicitly not permitted
+ * (2026-07-28 Streamable HTTP, "Schema Extension"), so a tool that annotates a
+ * `number`-typed property is rejected like any other invalid declaration.
+ * Everything else (`object`, `array`, `null`, absent) is rejected too.
  */
-const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set(['string', 'integer', 'boolean', 'number']);
+const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set(['string', 'integer', 'boolean']);
 
 /**
  * Scan a tool's JSON-serialized `inputSchema` for `x-mcp-header` declarations
