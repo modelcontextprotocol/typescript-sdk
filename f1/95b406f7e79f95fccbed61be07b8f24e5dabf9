@@ -1,0 +1,41 @@
+.changeset/server-extensions.md
+  s_a5c48038294d8c::t_4501c28510377e 1-8
+docs/.vitepress/nav.ts
+  s_a5c48038294d8c::t_918ef20bf336aa 69
+packages/core-internal/test/shared/overrideRequestHandler.test.ts
+  s_a5c48038294d8c::t_35ebdf3c646dd5 1-123
+packages/server/src/index.ts
+  s_a5c48038294d8c::t_3a51d80ad2c030 60
+packages/server/src/server/extension.ts
+  s_902f0d8aed10dd::t_bf207ed52782de 1-35
+packages/server/src/server/mcp.ts
+  s_a5c48038294d8c::t_17f4d85d92234b 231-236
+packages/server/src/server/server.ts
+  s_a5c48038294d8c::t_1e14f858a49c3f 75-76,78-84,361-365
+packages/server/test/server/extensions.test.ts
+  s_a5c48038294d8c::t_7e438a640a976e 1-118
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f195b406f7e79f95fccbed61be07b8f24e5dabf9",
+  "prompts": {},
+  "sessions": {
+    "s_902f0d8aed10dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b071c91a-4a12-4b69-b33c-ae6f25b8521d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
