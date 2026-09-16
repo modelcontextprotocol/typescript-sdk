@@ -1406,6 +1406,96 @@ describe('Zod v4', () => {
             expect(cleanupCalls).toEqual(['stream-1']);
         });
     });
+
+    describe('close() retires in-flight request state', () => {
+        const tick = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 10));
+
+        /**
+         * Event store whose `storeEvent` can be parked mid-write, so a close()
+         * can be interleaved with an in-flight send().
+         */
+        function createGatedEventStore(): EventStore & { park: () => void; release: () => void } {
+            let gate: Promise<void> | undefined;
+            let open: () => void = () => {};
+            let counter = 0;
+
+            return {
+                park(): void {
+                    gate = new Promise<void>(resolve => (open = resolve));
+                },
+                release(): void {
+                    gate = undefined;
+                    open();
+                },
+                async storeEvent(streamId: StreamId): Promise<EventId> {
+                    if (gate) {
+                        await gate;
+                    }
+                    return `${streamId}_${counter++}`;
+                },
+                async replayEventsAfter(): Promise<StreamId> {
+                    return '';
+                }
+            };
+        }
+
+        const request = (id: number): JSONRPCMessage => ({ jsonrpc: '2.0', id, method: 'ping' }) as JSONRPCMessage;
+        const response = (id: number): JSONRPCMessage => ({ jsonrpc: '2.0', id, result: {} }) as JSONRPCMessage;
+
+        it('should reject a send parked in storeEvent across close() rather than recording an undeliverable response', async () => {
+            const eventStore = createGatedEventStore();
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, eventStore });
+            transport.onmessage = () => {};
+
+            const res = await transport.handleRequest(createRequest('POST', [request(1), request(2)]));
+            expect(res.status).toBe(200);
+
+            // First response lands; the batch is not complete, so nothing is retired yet.
+            await transport.send(response(1));
+
+            // Second response parks inside storeEvent, and close() sweeps while it is suspended.
+            eventStore.park();
+            const parked = transport.send(response(2));
+            await tick();
+            await transport.close();
+            eventStore.release();
+
+            await expect(parked).rejects.toThrow(/No connection established for request ID: 2/);
+
+            // @ts-expect-error accessing private map for test purposes
+            expect(transport._requestToStreamMapping.size).toBe(0);
+            // @ts-expect-error accessing private map for test purposes
+            expect(transport._requestResponseMap.size).toBe(0);
+        });
+
+        it('should settle a JSON-mode POST parked across close() instead of leaving the HTTP request hanging', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                enableJsonResponse: true
+            });
+            transport.onmessage = () => {};
+
+            // JSON mode parks the Response promise until every response is ready.
+            const pending = transport.handleRequest(createRequest('POST', request(1)));
+            await tick();
+            await transport.close();
+
+            const res = await Promise.race([pending, tick().then(() => 'still pending' as const)]);
+            expect(res).not.toBe('still pending');
+            expect((res as Response).status).toBe(404);
+            expectErrorResponse(await (res as Response).json(), -32_001, /Session not found/);
+        });
+
+        it('should not accept a response for a request id retired by close()', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            transport.onmessage = () => {};
+
+            await transport.handleRequest(createRequest('POST', request(1)));
+            await transport.close();
+
+            await expect(transport.send(response(1))).rejects.toThrow(/No connection established for request ID: 1/);
+        });
+    });
 });
 
 describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
