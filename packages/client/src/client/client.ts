@@ -2264,7 +2264,7 @@ export class Client extends Protocol<ClientContext> {
      */
     protected override _onclose(): void {
         if (this._listenState.size > 0) {
-            const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+            const reason = this._connectionClosedError();
             for (const entry of this._listenState.values()) {
                 entry.settle({ cause: 'remote', error: reason });
             }
