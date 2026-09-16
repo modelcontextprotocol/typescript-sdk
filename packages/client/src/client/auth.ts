@@ -1243,11 +1243,17 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    // Send the metadata's resource indicator verbatim: `selectResourceURL` returns a parsed
+    // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
+    // which exact-match authorization servers reject (#1968). A URL returned by the
+    // provider's own `validateResourceURL` is used as returned.
+    const selectedResource = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: string | URL | undefined =
+        selectedResource && resourceMetadata && !provider.validateResourceURL ? resourceMetadata.resource : selectedResource;
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
-        await provider.saveResourceUrl?.(String(resource));
+        await provider.saveResourceUrl?.(resourceIndicatorToString(resource));
     }
 
     // Scope selection used consistently for DCR and the authorization request.
@@ -1460,6 +1466,17 @@ export function isHttpsUrl(value?: string): boolean {
     }
 }
 
+/**
+ * Selects the RFC 8707 resource indicator for an MCP server: the provider's
+ * {@linkcode OAuthClientProvider.validateResourceURL | validateResourceURL} result when
+ * implemented, otherwise the protected resource metadata's `resource` (checked against the
+ * server URL with `checkResourceAllowed`), or `undefined` when there is no metadata.
+ *
+ * The result is a parsed `URL`, so a pathless indicator such as `https://example.com` has
+ * the `href` `https://example.com/`. {@linkcode auth} therefore sends the metadata string
+ * verbatim instead of this URL's `href` (#1968); callers that emit the `resource`
+ * parameter themselves should do the same.
+ */
 export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
@@ -2032,6 +2049,10 @@ export async function discoverOAuthServerInfo(
     };
 }
 
+function resourceIndicatorToString(resource: string | URL): string {
+    return typeof resource === 'string' ? resource : resource.href;
+}
+
 /**
  * Begins the authorization flow with the given server, by generating a PKCE challenge and constructing the authorization URL.
  */
@@ -2050,7 +2071,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: string | URL;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2098,7 +2119,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', resourceIndicatorToString(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2147,7 +2168,7 @@ export async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: string | URL;
         /**
          * SEP-1932 / RFC 9449 §5: when set, signs a DPoP proof into the token request's `DPoP`
          * header — the prerequisite for obtaining a DPoP-bound access token. On a `400
@@ -2166,7 +2187,7 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', resourceIndicatorToString(resource));
     }
 
     if (!addClientAuthentication && clientInformation) {
@@ -2269,7 +2290,7 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
         dpop?: DpopSession;
@@ -2321,7 +2342,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
         dpop?: DpopSession;
@@ -2386,7 +2407,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: string | URL;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**

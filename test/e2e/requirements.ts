@@ -2917,6 +2917,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
+    'client-auth:authprovider:token-overrides-requestinit': {
+        source: 'sdk',
+        behavior:
+            'When an AuthProvider yields a token, the Authorization header the transport derives from it takes precedence over a same-named header configured in requestInit.headers on every HTTP request, so a stale static credential falls back to the provider token; other configured headers still pass through.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's header merge order (#2208); the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
     'client-auth:authprovider:onunauthorized-retry': {
         source: 'sdk',
         behavior:
