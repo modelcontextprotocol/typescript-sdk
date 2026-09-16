@@ -1406,6 +1406,44 @@ describe('Zod v4', () => {
             expect(cleanupCalls).toEqual(['stream-1']);
         });
     });
+
+    describe('close() racing the priming event', () => {
+        it('should answer Session not found, not a client parse error, when close() lands during the priming write', async () => {
+            let release: () => void = () => {};
+            const gate = new Promise<void>(resolve => (release = resolve));
+
+            const eventStore: EventStore = {
+                async storeEvent(streamId: StreamId): Promise<EventId> {
+                    await gate;
+                    return `${streamId}_0`;
+                },
+                async replayEventsAfter(): Promise<StreamId> {
+                    return '';
+                }
+            };
+
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, eventStore });
+            const errors: Error[] = [];
+            transport.onerror = error => errors.push(error);
+            transport.onmessage = () => {};
+
+            // The POST parks inside writePrimingEvent's storeEvent() call.
+            const pending = transport.handleRequest(
+                createRequest('POST', { jsonrpc: '2.0', id: 1, method: 'ping' } as JSONRPCMessage, {
+                    extraHeaders: { 'mcp-protocol-version': '2025-11-25' }
+                })
+            );
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            await transport.close();
+            release();
+
+            const res = await pending;
+            expect(res.status).toBe(404);
+            expectErrorResponse(await res.json(), -32_001, /Session not found/);
+            expect(errors).toEqual([]);
+        });
+    });
 });
 
 describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
