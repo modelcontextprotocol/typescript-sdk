@@ -62,7 +62,7 @@ export const OAuthMetadataSchema = z.looseObject({
     revocation_endpoint: SafeUrlSchema.optional(),
     revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     revocation_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-    introspection_endpoint: z.string().optional(),
+    introspection_endpoint: SafeUrlSchema.optional(),
     introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
@@ -126,10 +126,25 @@ export const OpenIdProviderMetadataSchema = z.looseObject({
  * OpenID Connect Discovery metadata that may include OAuth 2.0 fields
  * This schema represents the real-world scenario where OIDC providers
  * return a mix of OpenID Connect and OAuth 2.0 metadata fields
+ *
+ * Loose like its component schemas so that fields neither schema declares
+ * survive a successful parse instead of being stripped. The RFC 8414 fields
+ * OAuth 2.0 metadata declares and the OIDC shape does not (revocation and
+ * introspection endpoints) are declared here explicitly so they are
+ * validated by their OAuth schema validators rather than passed through,
+ * and `service_documentation` takes the OAuth schema's URL validator so
+ * every URL-carrying field is scheme-guarded uniformly.
  */
-export const OpenIdProviderDiscoveryMetadataSchema = z.object({
+export const OpenIdProviderDiscoveryMetadataSchema = z.looseObject({
     ...OpenIdProviderMetadataSchema.shape,
     ...OAuthMetadataSchema.pick({
+        revocation_endpoint: true,
+        revocation_endpoint_auth_methods_supported: true,
+        revocation_endpoint_auth_signing_alg_values_supported: true,
+        introspection_endpoint: true,
+        introspection_endpoint_auth_methods_supported: true,
+        introspection_endpoint_auth_signing_alg_values_supported: true,
+        service_documentation: true,
         code_challenge_methods_supported: true
     }).shape
 });
