@@ -43,6 +43,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
+import { registerSkillsConformanceFixture } from './skills';
+
 // Server state
 const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
@@ -157,7 +159,10 @@ function createMcpServer() {
                 // capability; the 2026-07-28 path uses the per-request
                 // envelope and ignores this field.
                 logging: {},
-                completions: {}
+                completions: {},
+                extensions: {
+                    'io.modelcontextprotocol/skills': { directoryRead: true }
+                }
             },
             // Seam-level integrity check (SEP-2322): every re-entered MRTR
             // request that carries requestState is verified before the handler
@@ -1112,6 +1117,8 @@ function createMcpServer() {
     );
 
     // ===== RESOURCES =====
+
+    registerSkillsConformanceFixture(mcpServer);
 
     // Static text resource
     const staticTextResourceConfig = {
