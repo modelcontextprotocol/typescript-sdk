@@ -1115,6 +1115,68 @@ describe('Zod v4', () => {
             const errorData = await response.json();
             expectErrorResponse(errorData, -32_000, /Unsupported protocol version/);
         });
+
+        it('should reject initialize when MCP-Protocol-Version header disagrees with body (header older)', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': '2025-03-26'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_600, /MCP-Protocol-Version header.*does not match initialize body protocolVersion/);
+        });
+
+        it('should reject initialize when MCP-Protocol-Version header disagrees with body (header newer)', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initializeOldVersion)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(400);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32_600, /MCP-Protocol-Version header.*does not match initialize body protocolVersion/);
+        });
+
+        it('should accept initialize when MCP-Protocol-Version header matches body', async () => {
+            const request = new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            });
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('mcp-session-id')).toBeDefined();
+        });
+
+        it('should accept initialize when MCP-Protocol-Version header is absent (existing behavior)', async () => {
+            const request = createRequest('POST', TEST_MESSAGES.initialize);
+
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('mcp-session-id')).toBeDefined();
+        });
     });
 
     describe('HTTPServerTransport - start() method', () => {
