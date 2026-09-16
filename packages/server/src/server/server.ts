@@ -473,6 +473,15 @@ export class Server extends Protocol<ServerContext> {
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
+        const lifecycleHandler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> = async (request, ctx) => {
+            // Initialization rides the negotiated revision: legacy instances
+            // get it in _oninitialize, modern-era instances at binding time.
+            if (!ctx.http && ctx.sessionId === undefined && this._negotiatedProtocolVersion === undefined && method !== 'initialize' && method !== 'ping') {
+                throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Server not initialized');
+            }
+            return handler(request, ctx);
+        };
+
         if (method !== 'tools/call') {
             const cacheHint = (this._cacheHints as Record<string, CacheHint | undefined> | undefined)?.[method];
             const isInputRequiredCapable = INPUT_REQUIRED_CAPABLE_METHODS.has(method);
@@ -481,7 +490,7 @@ export class Server extends Protocol<ServerContext> {
                 // whose result vocabulary does not include it is never
                 // mis-typed onto the wire.
                 return async (request, ctx) => {
-                    const result = await handler(request, ctx);
+                    const result = await lifecycleHandler(request, ctx);
                     if (isInputRequiredResult(result)) {
                         throw new ProtocolError(
                             ProtocolErrorCode.InternalError,
@@ -494,8 +503,8 @@ export class Server extends Protocol<ServerContext> {
             }
             return async (request, ctx) => {
                 const result = isInputRequiredCapable
-                    ? await this._invokeInputRequiredCapableHandler(method, handler, request, ctx)
-                    : await handler(request, ctx);
+                    ? await this._invokeInputRequiredCapableHandler(method, lifecycleHandler, request, ctx)
+                    : await lifecycleHandler(request, ctx);
                 if (isInputRequiredResult(result)) {
                     if (!isInputRequiredCapable) {
                         throw new ProtocolError(
@@ -530,7 +539,7 @@ export class Server extends Protocol<ServerContext> {
                 );
             }
 
-            const result = await this._invokeInputRequiredCapableHandler('tools/call', handler, request, ctx);
+            const result = await this._invokeInputRequiredCapableHandler('tools/call', lifecycleHandler, request, ctx);
             if (isInputRequiredResult(result)) {
                 // Already checked by the seam; the CallToolResult schema does
                 // not apply to it (no widening — InputRequiredResult travels
