@@ -242,4 +242,43 @@ describe('Server', () => {
             expect(result.structuredContent).toEqual({ ok: true });
         });
     });
+
+    describe('resource subscription capabilities (#2545)', () => {
+        async function connectServer(server: Server): Promise<void> {
+            const [, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+        }
+
+        it('sendResourceUpdated throws without resources.subscribe', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+            await connectServer(server);
+
+            await expect(server.sendResourceUpdated({ uri: 'test://resource' })).rejects.toThrow(/resource subscriptions/);
+        });
+
+        it('sendResourceUpdated succeeds when resources.subscribe is advertised', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+            await connectServer(server);
+
+            await expect(server.sendResourceUpdated({ uri: 'test://resource' })).resolves.toBeUndefined();
+        });
+
+        it('setRequestHandler rejects resources/subscribe without the capability', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+
+            expect(() => server.setRequestHandler('resources/subscribe', async () => ({}))).toThrow(/resource subscriptions/);
+        });
+
+        it('setRequestHandler rejects resources/unsubscribe without the capability', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: {} } });
+
+            expect(() => server.setRequestHandler('resources/unsubscribe', async () => ({}))).toThrow(/resource subscriptions/);
+        });
+
+        it('setRequestHandler allows resources/subscribe when the capability is advertised', () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
+
+            expect(() => server.setRequestHandler('resources/subscribe', async () => ({}))).not.toThrow();
+        });
+    });
 });
