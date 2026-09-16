@@ -9,9 +9,12 @@
 
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import http from 'node:http';
 
 import { McpServer } from '@modelcontextprotocol/server';
 
+import { localhostHostValidation } from './middleware/hostHeaderValidation';
+import { localhostOriginValidation } from './middleware/originValidation';
 import { NodeStreamableHTTPServerTransport } from './streamableHttp';
 
 /**
@@ -39,6 +42,39 @@ async function NodeStreamableHTTPServerTransport_stateless() {
     });
     //#endregion NodeStreamableHTTPServerTransport_stateless
     return transport;
+}
+
+/**
+ * Example: Unauthenticated Streamable HTTP transport on localhost, with DNS
+ * rebinding protection (CVE-2025-66414 / GHSA-w48q-cv73-mx4w).
+ *
+ * Neither `NodeStreamableHTTPServerTransport` nor a raw `node:http` server
+ * validates the `Host`/`Origin` headers on its own — that guard has to be
+ * wired in explicitly. Without it, a page in the victim's browser can use
+ * DNS rebinding to reach this server and invoke its tools, bypassing the
+ * browser's same-origin checks entirely. This is only needed when the
+ * server has no other authentication; an authenticated server is not
+ * exposed to this attack the same way.
+ */
+async function NodeStreamableHTTPServerTransport_secure() {
+    //#region NodeStreamableHTTPServerTransport_secure
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+
+    const transport = new NodeStreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID()
+    });
+
+    await server.connect(transport);
+
+    const validateHost = localhostHostValidation();
+    const validateOrigin = localhostOriginValidation();
+
+    http.createServer((req, res) => {
+        if (!validateHost(req, res)) return;
+        if (!validateOrigin(req, res)) return;
+        void transport.handleRequest(req, res);
+    });
+    //#endregion NodeStreamableHTTPServerTransport_secure
 }
 
 // Stubs for Express-style app
