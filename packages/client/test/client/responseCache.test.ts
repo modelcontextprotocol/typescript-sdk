@@ -1079,7 +1079,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         expect(wireCount('resources/read')).toBe(3);
     });
 
-    it('a pre-aborted signal on a warm-cache hit rejects with SdkError(RequestTimeout) — the abort is not swallowed by the cache serve', async () => {
+    it('a pre-aborted signal on a warm-cache hit rejects with SdkError(RequestAborted) — the abort is not swallowed by the cache serve', async () => {
         const store = new InMemoryResponseCacheStore();
         const { clientTx, listCount } = await scriptedModernServer([[TOOL_A]], { listHint: { ttlMs: 60_000, cacheScope: 'public' } });
         const client = modernClient(store);
@@ -1094,7 +1094,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         ac.abort('user cancelled');
         const error = await client.listTools(undefined, { signal: ac.signal }).catch(e => e as SdkError);
         expect(error).toBeInstanceOf(SdkError);
-        expect((error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
+        expect((error as SdkError).code).toBe(SdkErrorCode.RequestAborted);
         expect((error as SdkError).message).toContain('user cancelled');
         // The aborted call did not reach the wire.
         expect(listCount()).toBe(1);
