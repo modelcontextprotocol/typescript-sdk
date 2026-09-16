@@ -111,6 +111,21 @@ describe('createFetchWithInit', () => {
         );
     });
 
+    test('call headers override base headers case-insensitively', async () => {
+        const mockFetch: FetchLike = vi.fn();
+        const wrappedFetch = createFetchWithInit(mockFetch, {
+            headers: { Authorization: 'Bearer base-token' }
+        });
+
+        await wrappedFetch('https://example.com', {
+            headers: { authorization: 'Bearer request-token' }
+        });
+
+        const init = vi.mocked(mockFetch).mock.calls[0]![1];
+        const headers = new Headers(init?.headers);
+        expect(headers.get('authorization')).toBe('Bearer request-token');
+    });
+
     test('uses baseInit headers when call init has no headers', async () => {
         const mockFetch: FetchLike = vi.fn();
         const baseInit: RequestInit = {
