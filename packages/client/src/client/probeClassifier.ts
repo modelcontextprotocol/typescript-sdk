@@ -51,6 +51,12 @@ export type ProbeOutcome =
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text and `statusText` the HTTP reason phrase, when available. */
     | { kind: 'http-error'; status: number; body?: string; statusText?: string }
     | { kind: 'network-error'; error: unknown }
+    /**
+     * The HTTP layer answered the probe 2xx, but the answer was unusable — an
+     * empty or unparseable JSON body, or a media type the transport does not
+     * accept. `error` is the transport's own failure, propagated as the cause.
+     */
+    | { kind: 'unusable-reply'; error: unknown }
     /** The transport's auth flow challenged or failed during the probe send — an error stamped at a transport auth seam, or an `UnauthorizedError` (the foreign-transport contract). `error` propagates unchanged. */
     | { kind: 'auth-required'; error: Error }
     /** The transport reported close while the probe awaited its reply. */
@@ -138,6 +144,33 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
         }
         case 'network-error': {
             return classifyNetworkError(outcome.error, context);
+        }
+        case 'unusable-reply': {
+            // The HTTP layer succeeded and the answer was unusable — an empty
+            // 2xx, a whitespace body, a bare 204, a media type the transport
+            // does not accept. That is the same evidence as the unparseable
+            // 4xx row: the endpoint did not answer `server/discover`, so the
+            // conservative reading is a server that does not speak the discover
+            // protocol (an intermediary swallowing the unrecognized POST into
+            // an empty 2xx is exactly this shape). Fall back rather than brick
+            // a connection a plain `initialize` would have completed.
+            //
+            // Not folded into network-error: a genuine network failure (DNS,
+            // connection reset, CORS) never reached a server, and that row must
+            // keep its typed error outside the browser-CORS case.
+            if (context.fallbackAvailable) {
+                return { kind: 'legacy' };
+            }
+            // Modern-only client or `pin` mode: no `initialize` to fall back
+            // to, so the unusable answer is a typed negotiation failure.
+            return {
+                kind: 'error',
+                error: new SdkError(
+                    SdkErrorCode.EraNegotiationFailed,
+                    `Version negotiation probe failed: the server answered with an unusable reply (${describeError(outcome.error)})`,
+                    { cause: outcome.error }
+                )
+            };
         }
         case 'auth-required': {
             // Not era evidence: propagate the auth challenge unchanged so the
