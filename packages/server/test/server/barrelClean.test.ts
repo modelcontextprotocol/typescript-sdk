@@ -10,7 +10,7 @@ import { ensureBuilt } from '../helpers/ensureBuilt';
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
 const requireDist = createRequire(join(pkgDir, 'package.json'));
-const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
+const NODE_ONLY = /\b(child_process|tinyexec|node:stream|node:child_process)\b/;
 // Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
 const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
 const ROOT_VALIDATOR_EXPORTS = ['AjvJsonSchemaValidator', 'CfWorkerJsonSchemaValidator', 'CfWorkerSchemaDraft'];

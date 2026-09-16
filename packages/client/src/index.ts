@@ -94,7 +94,7 @@ export type { SSEClientTransportOptions } from './client/sse';
 export { SSEClientTransport, SseError } from './client/sse';
 export type { VersionNegotiationMode, VersionNegotiationOptions, VersionNegotiationProbeOptions } from './client/versionNegotiation';
 // StdioClientTransport, getDefaultEnvironment, DEFAULT_INHERITED_ENV_VARS, StdioServerParameters are exported from
-// the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
+// the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, tinyexec).
 export type {
     ReconnectionScheduler,
     StartSSEOptions,
