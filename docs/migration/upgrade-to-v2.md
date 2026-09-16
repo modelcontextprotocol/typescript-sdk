@@ -641,6 +641,15 @@ server.registerTool('greet', { description: 'Greet a user', inputSchema: z.objec
 
 `registerResource` requires a `metadata` argument — pass `{}` if you have none.
 
+> **Doing it backwards on v1:** if you copy a v2-style `z.object({...})` schema into a
+> v1 `server.tool()` call (which expects the raw shape `{ name: z.string() }`), the
+> failure is silent or cryptic depending on the v1 version: `tools/list` crashes with
+> `Cannot read properties of null (reading '_def')` on v1 ≤1.21, or publishes an empty
+> `{"type":"object"}` schema (arguments get stripped) on v1 1.22–1.26, with no error
+> pointing at the cause either way. v1 ≥1.28 throws a clear error at registration. If
+> you hit either symptom on v1, this is almost always why: migrate to `registerTool`
+> with `inputSchema: z.object({...})` as shown above instead.
+
 A tool or prompt registered **without** an `inputSchema` / `argsSchema` passes the
 context as its callback's single argument — v1 passed `(extra)`, v2 passes `(ctx)`:
 
