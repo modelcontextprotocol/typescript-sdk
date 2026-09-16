@@ -1058,6 +1058,19 @@ describe('OAuth Authorization', () => {
             expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
+        it('continues when an authorization metadata endpoint returns non-JSON', async () => {
+            const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
+            mockFetch.mockResolvedValueOnce(new Response('<html>not metadata</html>', { status: 200 }));
+            mockFetch.mockResolvedValueOnce(Response.json(tenantOidcMetadata, { status: 200 }));
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toEqual(tenantOidcMetadata);
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+            expect(mockFetch.mock.calls[0]![0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
+            expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://auth.example.com/.well-known/openid-configuration/tenant1');
+        });
+
         it('throws on non-502 5xx errors', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: false,
