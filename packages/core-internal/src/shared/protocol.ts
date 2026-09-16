@@ -765,6 +765,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         clearTimeout(info.timeoutId);
+        info.startTime = Date.now();
         info.timeoutId = setTimeout(info.onTimeout, info.timeout);
         return true;
     }
