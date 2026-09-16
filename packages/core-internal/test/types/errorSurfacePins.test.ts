@@ -255,7 +255,7 @@ describe('protocol version constants', () => {
         // naive LATEST bump that silently drops a previous version goes red here.
         expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
         expect(DEFAULT_NEGOTIATED_PROTOCOL_VERSION).toBe('2025-03-26');
-        expect(SUPPORTED_PROTOCOL_VERSIONS).toEqual(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07']);
+        expect(SUPPORTED_PROTOCOL_VERSIONS).toEqual(['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05']);
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(LATEST_PROTOCOL_VERSION);
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
     });
