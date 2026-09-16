@@ -22,6 +22,18 @@ describe('standardSchemaToJsonSchema — zod fallback paths', () => {
         warn.mockRestore();
     });
 
+    it('applies the zod conversion options on the fallback path (z.date() does not throw)', () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const real = z.object({ when: z.date() });
+        const { jsonSchema: _drop, ...stdNoJson } = real['~standard'] as unknown as Record<string, unknown>;
+        void _drop;
+        Object.defineProperty(real, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
+
+        const result = standardSchemaToJsonSchema(real as unknown as SchemaArg);
+        expect((result.properties as Record<string, unknown>)?.when).toEqual({ type: 'string', format: 'date-time' });
+        warn.mockRestore();
+    });
+
     it('throws a clear error for zod 3 (vendor=zod, no ~standard.jsonSchema, no _zod)', () => {
         // zod 3.24+ reports `~standard.vendor === 'zod'` but has no `_zod` internal marker.
         const zod3ish = { _def: {}, '~standard': { version: 1, vendor: 'zod', validate: () => ({ value: {} }) } };
