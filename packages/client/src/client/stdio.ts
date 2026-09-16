@@ -4,7 +4,7 @@ import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
 import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
-import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core-internal';
+import { DrainWait, ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core-internal';
 import spawn from 'cross-spawn';
 
 export type StdioServerParameters = {
@@ -103,6 +103,7 @@ export class StdioClientTransport implements Transport {
     private _readBuffer: ReadBuffer;
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
+    private _drainWait = new DrainWait();
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -313,16 +314,19 @@ export class StdioClientTransport implements Transport {
     }
 
     send(message: JSONRPCMessage): Promise<void> {
-        return new Promise(resolve => {
+        return new Promise((resolve, reject) => {
             if (!this._process?.stdin) {
-                throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+                reject(new SdkError(SdkErrorCode.NotConnected, 'Not connected'));
+                return;
             }
 
             const json = serializeMessage(message);
             if (this._process.stdin.write(json)) {
                 resolve();
             } else {
-                this._process.stdin.once('drain', resolve);
+                // Backpressure: wait on a shared drain so concurrent writes
+                // don't stack up 'drain' listeners on the pipe.
+                this._drainWait.wait(this._process.stdin).then(resolve, reject);
             }
         });
     }
