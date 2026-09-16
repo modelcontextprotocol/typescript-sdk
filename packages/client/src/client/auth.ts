@@ -242,6 +242,21 @@ export function adaptOAuthProvider(
  */
 export interface OAuthClientProvider {
     /**
+     * Optionally runs a complete {@linkcode auth} operation inside a host-managed
+     * credential transaction (for example, a cross-process lock). The operation
+     * includes credential reads, writes, invalidation, and recovery retries.
+     * Authorization-code exchanges and forced reauthorization also use this hook,
+     * but are never deduplicated by the SDK.
+     *
+     * Implementations must invoke and await `operation`, returning its result and
+     * releasing any lock in `finally`. Do not release the lock when an outer wait
+     * is cancelled while the underlying operation is still running. The operation
+     * returns `REDIRECT` after initiating authorization; it does not hold a lock
+     * across the human/browser authorization wait.
+     */
+    withAuthTransaction?(operation: () => Promise<AuthResult>): Promise<AuthResult>;
+
+    /**
      * The URL to redirect the user agent to after authorization.
      * Return `undefined` for non-interactive flows that don't require user interaction
      * (e.g., `client_credentials`, `jwt-bearer`).
@@ -950,7 +965,19 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
     const body = input instanceof Response ? await input.text() : input;
 
     try {
-        const result = OAuthErrorResponseSchema.parse(JSON.parse(body));
+        const parsed: unknown = JSON.parse(body);
+        // Some servers send null for an absent description. Normalize only at the
+        // wire boundary; the public schema and all other fields remain strict.
+        if (
+            parsed !== null &&
+            typeof parsed === 'object' &&
+            !Array.isArray(parsed) &&
+            'error_description' in parsed &&
+            parsed.error_description === null
+        ) {
+            delete parsed.error_description;
+        }
+        const result = OAuthErrorResponseSchema.parse(parsed);
         return OAuthError.fromResponse(result);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
@@ -1036,6 +1063,18 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     console.warn(`[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`);
 }
 
+const pendingAuthRequests = new WeakMap<OAuthClientProvider, { options: AuthOptions; request: Promise<AuthResult> }>();
+
+function equivalentAuthOptions(a: AuthOptions, b: AuthOptions): boolean {
+    return (
+        String(a.serverUrl) === String(b.serverUrl) &&
+        a.resourceMetadataUrl?.toString() === b.resourceMetadataUrl?.toString() &&
+        a.scope === b.scope &&
+        (a.skipIssuerMetadataValidation ?? false) === (b.skipIssuerMetadataValidation ?? false) &&
+        a.fetchFn === b.fetchFn
+    );
+}
+
 /**
  * Orchestrates the full auth flow with a server.
  *
@@ -1043,6 +1082,32 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
+    const execute = (): Promise<AuthResult> => {
+        const operation = (): Promise<AuthResult> => authWithErrorHandling(provider, options);
+        return provider.withAuthTransaction ? provider.withAuthTransaction(operation) : operation();
+    };
+    if (options.authorizationCode !== undefined || options.forceReauthorization === true) {
+        return execute();
+    }
+
+    const pending = pendingAuthRequests.get(provider);
+    if (pending && equivalentAuthOptions(pending.options, options)) return pending.request;
+
+    // Incompatible ordinary calls must use their own options and read credentials
+    // after the previous operation settles, even if it failed. Track the queue tail
+    // so equivalent callers can also share an operation that has not started yet.
+    const request = pending ? pending.request.then(execute, execute) : Promise.resolve().then(execute);
+    pendingAuthRequests.set(provider, { options, request });
+    try {
+        return await request;
+    } finally {
+        if (pendingAuthRequests.get(provider)?.request === request) {
+            pendingAuthRequests.delete(provider);
+        }
+    }
+}
+
+async function authWithErrorHandling(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
     try {
         return await authInternal(provider, options);
     } catch (error) {
