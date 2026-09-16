@@ -1,4 +1,10 @@
-import { createFetchWithInit, type FetchLike, normalizeHeaders } from '../../src/shared/transport';
+import {
+    createFetchWithInit,
+    type FetchLike,
+    normalizeHeaders,
+    isPrivateOrLoopbackHost,
+    isSafeRedirectTarget
+} from '../../src/shared/transport';
 
 describe('normalizeHeaders', () => {
     test('returns empty object for undefined', () => {
@@ -178,5 +184,93 @@ describe('createFetchWithInit', () => {
                 headers: baseHeaders
             })
         );
+    });
+
+    describe('SSRF & Redirect Protection', () => {
+        test('createFetchWithInit without baseInit still applies SSRF redirect protection when given options', async () => {
+            const mockFetch: FetchLike = vi.fn().mockResolvedValue(
+                new Response(null, {
+                    status: 307,
+                    headers: { Location: 'http://127.0.0.1:8080/internal-service' }
+                })
+            );
+
+            const wrappedFetch = createFetchWithInit(mockFetch, { allowLoopbackRedirects: false });
+            await expect(wrappedFetch('https://api.example.com/mcp')).rejects.toThrow(
+                /Insecure redirect rejected: redirection to internal\/loopback address/
+            );
+        });
+
+        test('isPrivateOrLoopbackHost correctly identifies loopback and private ranges', () => {
+            expect(isPrivateOrLoopbackHost('localhost')).toBe(true);
+            expect(isPrivateOrLoopbackHost('127.0.0.1')).toBe(true);
+            expect(isPrivateOrLoopbackHost('127.0.1.10')).toBe(true);
+            expect(isPrivateOrLoopbackHost('::1')).toBe(true);
+            expect(isPrivateOrLoopbackHost('[::1]')).toBe(true);
+            expect(isPrivateOrLoopbackHost('169.254.169.254')).toBe(true);
+            expect(isPrivateOrLoopbackHost('metadata.google.internal')).toBe(true);
+            expect(isPrivateOrLoopbackHost('10.0.0.1')).toBe(true);
+            expect(isPrivateOrLoopbackHost('192.168.1.1')).toBe(true);
+            expect(isPrivateOrLoopbackHost('172.16.0.5')).toBe(true);
+            expect(isPrivateOrLoopbackHost('172.31.255.255')).toBe(true);
+
+            expect(isPrivateOrLoopbackHost('example.com')).toBe(false);
+            expect(isPrivateOrLoopbackHost('api.anthropic.com')).toBe(false);
+            expect(isPrivateOrLoopbackHost('172.32.0.1')).toBe(false);
+            expect(isPrivateOrLoopbackHost('8.8.8.8')).toBe(false);
+        });
+
+        test('isSafeRedirectTarget allows public to public redirects', () => {
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'https://api.example.com/v2/mcp')).toBe(true);
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'https://cdn.other.com/mcp')).toBe(true);
+        });
+
+        test('isSafeRedirectTarget rejects public to loopback/private redirects (SSRF)', () => {
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'http://127.0.0.1:8080/secret')).toBe(false);
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'http://localhost:3000/')).toBe(false);
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'http://169.254.169.254/latest/meta-data/')).toBe(false);
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'http://10.0.0.5:8080/')).toBe(false);
+        });
+
+        test('isSafeRedirectTarget honors allowLoopback = true', () => {
+            expect(isSafeRedirectTarget('https://api.example.com/mcp', 'http://127.0.0.1:8080/secret', true)).toBe(true);
+        });
+
+        test('wrappedFetch follows safe public redirect seamlessly', async () => {
+            const mockFetch: FetchLike = vi
+                .fn()
+                .mockResolvedValueOnce(
+                    new Response(null, {
+                        status: 307,
+                        headers: { Location: 'https://api.example.com/target' }
+                    })
+                )
+                .mockResolvedValueOnce(
+                    new Response('{"jsonrpc":"2.0","result":"ok"}', {
+                        status: 200,
+                        headers: { 'Content-Type': 'application/json' }
+                    })
+                );
+
+            const wrappedFetch = createFetchWithInit(mockFetch, {});
+            const response = await wrappedFetch('https://api.example.com/initial');
+            expect(response.status).toBe(200);
+            expect(await response.text()).toBe('{"jsonrpc":"2.0","result":"ok"}');
+            expect(mockFetch).toHaveBeenCalledTimes(2);
+        });
+
+        test('wrappedFetch rejects redirect to loopback from public endpoint', async () => {
+            const mockFetch: FetchLike = vi.fn().mockResolvedValue(
+                new Response(null, {
+                    status: 307,
+                    headers: { Location: 'http://127.0.0.1:8080/internal-service' }
+                })
+            );
+
+            const wrappedFetch = createFetchWithInit(mockFetch, {});
+            await expect(wrappedFetch('https://api.example.com/mcp')).rejects.toThrow(
+                /Insecure redirect rejected: redirection to internal\/loopback address/
+            );
+        });
     });
 });
