@@ -150,3 +150,41 @@ test('_dispose releases the parent-side pipe handles even when a helper process 
     expect(proc.stdout?.destroyed).toBe(true);
     expect(proc.stdin?.destroyed).toBe(true);
 }, 10_000);
+
+test('send() rejects instead of hanging when the server exits before a large write flushes', async () => {
+    // A server that never reads stdin and then exits: the write stays buffered,
+    // and the exit destroys the pipe, so the stream can never flush or drain.
+    const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ['-e', 'setTimeout(() => process.exit(0), 200)']
+    });
+    transport.onerror = () => {};
+    await transport.start();
+    const stdin = (transport as unknown as { _process: import('node:child_process').ChildProcess })._process.stdin!;
+
+    // 8 MB of params, far past stdin's 16 KB high water mark, so write() returns
+    // false and the send has to wait for the stream instead of resolving at once.
+    const pending = transport.send({
+        jsonrpc: '2.0',
+        id: 1,
+        method: 'tools/call',
+        params: { name: 'echo', arguments: { blob: 'x'.repeat(8 * 1024 * 1024) } }
+    });
+
+    // Bounded so the unfixed behaviour reports as 'hung' rather than as a suite
+    // timeout. The rejection reason is platform specific (EPIPE, EOF), so only
+    // the fact that it settles is asserted.
+    const outcome = await Promise.race([
+        pending.then(
+            () => 'resolved' as const,
+            () => 'rejected' as const
+        ),
+        new Promise<'hung'>(resolve => {
+            setTimeout(() => resolve('hung'), 3000).unref();
+        })
+    ]);
+
+    expect(outcome).toBe('rejected');
+    expect(stdin.listenerCount('drain')).toBe(0);
+    await transport.close();
+}, 15_000);
