@@ -1,0 +1,29 @@
+.changeset/server-extensions.md
+  s_a5c48038294d8c::t_e53fb10bd6f62a 7
+docs/advanced/extensions.md
+  s_a5c48038294d8c::t_1ca454ca0c3e28 7,61-64,82-83
+packages/client/src/client/extension.ts
+  s_a5c48038294d8c::t_79f5ac5554faeb 17
+packages/client/test/client/extensions.test.ts
+  s_a5c48038294d8c::t_89ca50b79097d9 28,66-71,123-134
+packages/core-internal/src/shared/protocol.ts
+  s_a5c48038294d8c::t_199a4dae8865f3 583-584,1566-1580,1840,1864-1894
+packages/server/src/server/extension.ts
+  s_a5c48038294d8c::t_c908b3e0ea821f 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2c355f5d2e90fdb1bb83f856d7e9ca11301cea76",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
