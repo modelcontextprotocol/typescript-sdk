@@ -1,0 +1,65 @@
+.changeset/tasks-extension.md
+  s_a5c48038294d8c::t_6d96f7bc773a3f 2-3,7-13
+docs/.vitepress/nav.ts
+  s_a5c48038294d8c::t_bb7e1183ffc94d 57
+docs/clients/tasks.md
+  s_a5c48038294d8c::t_59fe32194e26cb 1-81
+docs/servers/tasks.md
+  s_a5c48038294d8c::t_bc6356deb9344b 67
+packages/client/package.json
+  s_a5c48038294d8c::t_d872aaa001ad06 43-52,128-130
+packages/client/src/ext/tasks/index.ts
+  s_a5c48038294d8c::t_74a23158f868b3 1-62
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_a5c48038294d8c::t_b16d745825b9ad 1-135
+packages/client/src/index.ts
+  s_a5c48038294d8c::t_111168b871b032 75
+packages/client/test/ext/tasks/tasksClientExtension.test.ts
+  s_a5c48038294d8c::t_e4e5435902861d 1-148
+packages/client/tsconfig.json
+  s_a5c48038294d8c::t_f618e94e24aecf 20-21
+packages/client/tsdown.config.ts
+  s_a5c48038294d8c::t_ea5c340d04c179 8,32
+packages/core-internal/package.json
+  s_a5c48038294d8c::t_994fdbd6422788 36-39
+packages/core-internal/src/ext/tasks/index.ts
+  s_a5c48038294d8c::t_0140ca3a6e65be 1-7
+packages/core-internal/src/ext/tasks/schemas.ts
+  s_a5c48038294d8c::t_c2048afd117594 22
+packages/core-internal/src/ext/tasks/types.ts
+  s_a5c48038294d8c::t_87a5c9a44d1e40 22,29
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_a5c48038294d8c::t_a2b8d55dc83f06 40,44
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_a5c48038294d8c::t_88773acfeb4108 10
+packages/server/src/ext/tasks/index.ts
+  s_a5c48038294d8c::t_9b58c60cba3370 42-68
+packages/server/src/ext/tasks/store.ts
+  s_a5c48038294d8c::t_0b13ad98a1a3ff 2,10
+packages/server/src/ext/tasks/tasksExtension.ts
+  s_a5c48038294d8c::t_0d7d0068d61433 30-36,55
+packages/server/test/ext/tasks/tasks.e2e.test.ts
+  s_a5c48038294d8c::t_0087ba8dd4bd59 9,13-14,40,76-78,83,86,88,91,93,117-118,121,137,140-141,154,168-169,173-174,181,185-187
+packages/server/tsconfig.json
+  s_a5c48038294d8c::t_93f0d91b091234 22-24
+packages/server/tsdown.config.ts
+  s_a5c48038294d8c::t_4fdea0fbc7a75d 32
+pnpm-lock.yaml
+  s_a5c48038294d8c::t_f254892b2621f0 1800-1802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2f34b000b9842314f69208bc98e70ba76b1f7d0a",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
