@@ -128,7 +128,7 @@ export interface McpHandlerRequestOptions {
      * performs no token verification of its own.
      */
     authInfo?: AuthInfo;
-    /** A pre-parsed JSON request body (e.g. `req.body` from `express.json()`). */
+    /** A pre-parsed JSON request body (e.g. `req.body` from `express.json()`). `null` is treated as not provided. */
     parsedBody?: unknown;
 }
 
@@ -485,7 +485,8 @@ async function classifyEntryRequest(
     const httpMethod = request.method.toUpperCase();
 
     let body: unknown;
-    let parsedBody = providedParsedBody;
+    // A null pre-parsed body (serverless-express leaves `req.body` null) is no parsed body.
+    let parsedBody: unknown = providedParsedBody ?? undefined;
     let forwardRequest = request;
     let unparseable = false;
 
@@ -618,7 +619,8 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown, op
     // pre-parsed body (or a body-less method) nothing is read and no clone is
     // needed. The predicate never reads forwardRequest, so the classification
     // step's own forwarding clone is skipped.
-    const probe = parsedBody === undefined && request.method.toUpperCase() === 'POST' ? request.clone() : request;
+    const hasParsedBody = parsedBody !== undefined && parsedBody !== null;
+    const probe = !hasParsedBody && request.method.toUpperCase() === 'POST' ? request.clone() : request;
     const classified = await classifyEntryRequest(probe, parsedBody, false, maxRequestBodySize);
     return classified.step === 'no-json-body' || (classified.step === 'classified' && classified.outcome.kind === 'legacy');
 }

@@ -1635,4 +1635,15 @@ describe('WebStandardStreamableHTTPServerTransport request body limits', () => {
         }
         expect(onmessage).not.toHaveBeenCalled();
     });
+
+    it('reads the request body when parsedBody is null, as for a body parser that found no parsed body', async () => {
+        // serverless-express (AWS Lambda) leaves `req.body` null, so the documented
+        // `handleRequest(req, res, req.body)` mounting passes null rather than undefined.
+        const onmessage = vi.fn();
+        transport.onmessage = onmessage;
+        const notification: JSONRPCMessage = { jsonrpc: '2.0', method: 'notifications/initialized' };
+        const response = await transport.handleRequest(createRequest('POST', notification), { parsedBody: null });
+        expect(response.status).toBe(202);
+        expect(onmessage).toHaveBeenCalledWith(notification, expect.anything());
+    });
 });

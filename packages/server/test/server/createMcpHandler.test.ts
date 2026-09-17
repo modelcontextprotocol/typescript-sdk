@@ -772,6 +772,26 @@ describe('createMcpHandler — user-land routing with isLegacyRequest (replaces 
         );
     });
 
+    it('treats a null pre-parsed body as absent and classifies from the request body', async () => {
+        const original = { jsonrpc: '2.0', id: 7, method: 'tools/list', params: {} };
+
+        const request = postRequest(original);
+        expect(await isLegacyRequest(request, null)).toBe(true);
+        expect(request.bodyUsed).toBe(false);
+        expect(await isLegacyRequest(postRequest(modernToolsCall('echo', { text: 'x' })), null)).toBe(false);
+
+        const handler = createMcpHandler(testFactory().factory);
+        const legacyCall = { jsonrpc: '2.0', id: 8, method: 'tools/call', params: { name: 'echo', arguments: { text: 'legacy null' } } };
+        for (const [body, text] of [
+            [modernToolsCall('echo', { text: 'modern null' }), 'modern null'],
+            [legacyCall, 'legacy null']
+        ] as const) {
+            const response = await handler.fetch(postRequest(body), { parsedBody: null });
+            expect(response.status).toBe(200);
+            expect(await response.text()).toContain(text);
+        }
+    });
+
     it("throws a TypeError at construction when a handler function is passed as the 'legacy' option", () => {
         const { factory } = testFactory();
         const myExistingLegacyHandler = async (): Promise<Response> => new Response(null, { status: 200 });

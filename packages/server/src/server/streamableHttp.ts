@@ -187,7 +187,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
 export interface HandleRequestOptions {
     /**
      * Pre-parsed request body. If provided, the transport will use this instead of reading and parsing the request body.
-     * Useful when using body-parser middleware that has already parsed the body.
+     * Useful when using body-parser middleware that has already parsed the body. `null` is treated as not provided.
      */
     parsedBody?: unknown;
 
@@ -794,7 +794,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const request = req;
 
             let rawMessage;
-            if (options?.parsedBody === undefined) {
+            // A null parsedBody means no parsed body, as serverless-express
+            // (AWS Lambda) leaves `req.body` null; read the request instead.
+            if (options?.parsedBody === undefined || options.parsedBody === null) {
                 try {
                     const body = await readRequestBody(req, this._maxRequestBodySize);
                     if (body.tooLarge) {

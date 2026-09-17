@@ -93,6 +93,16 @@ describe('toNodeHandler', () => {
         expect(await body()).toContain('pre-parsed');
     });
 
+    it('reads the request stream when the parsed body is null (serverless-express leaves req.body null)', async () => {
+        const { factory } = testFactory();
+        const node = toNodeHandler(createMcpHandler(factory));
+
+        const { req, res, body } = nodeRequestResponse(modernToolsCall('echo', { text: 'null body' }));
+        await node(req, res, null);
+        expect(res.statusCode).toBe(200);
+        expect(await body()).toContain('null body');
+    });
+
     it('serves a pre-parsed legacy body on the default fallback (the documented express.json mounting)', async () => {
         const { factory, contexts } = testFactory();
         const node = toNodeHandler(createMcpHandler(factory));

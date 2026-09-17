@@ -131,7 +131,8 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
     return async (req, res, parsedBody) => {
         // Express passes (req, res, next) when the handler is mounted as a
         // middleware function; a function third argument is `next`, not a body.
-        if (typeof parsedBody === 'function') {
+        // serverless-express (AWS Lambda) leaves `req.body` null: no parsed body either.
+        if (typeof parsedBody === 'function' || parsedBody === null) {
             parsedBody = undefined;
         }
 
@@ -290,7 +291,7 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
     // body keeps the constructed Request portable across runtime lib versions.
     let body: string | undefined;
     if (method !== 'GET' && method !== 'HEAD') {
-        if (parsedBody === undefined) {
+        if (parsedBody === undefined || parsedBody === null) {
             if (Number(singleHeaderValue(req.headers['content-length'])) > maxRequestBodySize) {
                 throw new RequestBodyTooLargeError(maxRequestBodySize);
             }

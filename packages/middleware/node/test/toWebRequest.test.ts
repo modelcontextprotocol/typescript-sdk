@@ -62,6 +62,21 @@ describe('toWebRequest', () => {
         expect(await request.text()).toBe(raw);
     });
 
+    it('reads the Node stream as the body when parsedBody is null', async () => {
+        const raw = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'ping' });
+        const request = await toWebRequest(
+            nodeRequest({
+                method: 'POST',
+                url: '/mcp',
+                headers: { host: 'localhost:3000', 'content-type': 'application/json' },
+                body: raw
+            }),
+            null
+        );
+
+        expect(await request.text()).toBe(raw);
+    });
+
     it('re-serializes a supplied parsedBody, rewrites the entity headers, and never touches the Node stream', async () => {
         // A non-ASCII character keeps the byte length and the string length
         // apart, so the rewritten content-length is provably the byte count.
