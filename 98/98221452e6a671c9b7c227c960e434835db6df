@@ -1,0 +1,25 @@
+docs/.vitepress/nav.ts
+  s_a5c48038294d8c::t_feb66df4d1118e 30
+packages/server/package.json
+  s_a5c48038294d8c::t_619f34eb3af3a6 43-52,128-130,155,163-164
+packages/server/tsconfig.json
+  s_a5c48038294d8c::t_0e15781f229937 20-22
+packages/server/tsdown.config.ts
+  s_a5c48038294d8c::t_f87b327133a767 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9898221452e6a671c9b7c227c960e434835db6df",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
