@@ -30,6 +30,7 @@ CI pass — that reopens the silent-drift hole the pin exists to close.
 | Published package set, export maps, dual ESM/CJS topology   | `packages/core-internal/test/packageTopologyPins.test.ts`      |
 | stdio environment-inheritance safelist                      | `packages/client/test/client/stdioEnvPins.test.ts`             |
 | 2025-11-25 wire method-registry membership, schema identity | `packages/core-internal/test/types/registryPins.test.ts`       |
+| OAuth scope challenge timing and serialization              | `packages/server/test/server/scopeChallenge.test.ts`           |
 
 ## Writing a new pin
 
