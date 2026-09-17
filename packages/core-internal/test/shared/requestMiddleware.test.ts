@@ -1,7 +1,7 @@
 /**
- * `Protocol.overrideRequestHandler`: overrides compose around the registered
- * handler at dispatch time, may answer or throw themselves, apply to handlers
- * registered later, and can be removed.
+ * `Protocol.use`: middleware composes around the registered handler at
+ * dispatch time, may answer or throw itself, applies to handlers registered
+ * later, runs in registration order, and can be removed.
  */
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
@@ -41,11 +41,11 @@ async function harness() {
     return { protocol, call };
 }
 
-describe('Protocol.overrideRequestHandler', () => {
-    it('wraps the registered handler; next reaches it and the override may transform the result', async () => {
+describe('Protocol.use (request middleware)', () => {
+    it('wraps the registered handler; next reaches it and the middleware may transform the result', async () => {
         const { protocol, call } = await harness();
         protocol.setRequestHandler('acme/op', { params: z.looseObject({}) }, () => ({ value: 1 }) as Result);
-        protocol.overrideRequestHandler('acme/op', async (request, ctx, next) => {
+        protocol.use('acme/op', async (request, ctx, next) => {
             const result = (await next(request, ctx)) as { value: number };
             return { value: result.value + 1, wrapped: true } as Result;
         });
@@ -60,27 +60,27 @@ describe('Protocol.overrideRequestHandler', () => {
             handlerRan = true;
             return {} as Result;
         });
-        protocol.overrideRequestHandler('acme/op', (request, ctx, next) => {
+        protocol.use('acme/op', (request, ctx, next) => {
             if ((request.params as { deny?: boolean }).deny) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'denied by override');
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'denied by middleware');
             }
             return next(request, ctx);
         });
         const denied = await call('acme/op', { deny: true });
         expect((denied as JSONRPCErrorResponse).error).toMatchObject({
             code: ProtocolErrorCode.InvalidParams,
-            message: 'denied by override'
+            message: 'denied by middleware'
         });
         expect(handlerRan).toBe(false);
         await call('acme/op');
         expect(handlerRan).toBe(true);
     });
 
-    it('applies to a handler registered after the override was installed', async () => {
+    it('applies to a handler registered after the middleware was installed', async () => {
         const { protocol, call } = await harness();
         const order: string[] = [];
-        protocol.overrideRequestHandler('acme/late', async (request, ctx, next) => {
-            order.push('override');
+        protocol.use('acme/late', async (request, ctx, next) => {
+            order.push('middleware');
             return next(request, ctx);
         });
         protocol.setRequestHandler('acme/late', { params: z.looseObject({}) }, () => {
@@ -88,36 +88,36 @@ describe('Protocol.overrideRequestHandler', () => {
             return {} as Result;
         });
         await call('acme/late');
-        expect(order).toEqual(['override', 'handler']);
+        expect(order).toEqual(['middleware', 'handler']);
     });
 
-    it('next throws MethodNotFound when nothing underlies the override', async () => {
+    it('next throws MethodNotFound when nothing underlies the middleware', async () => {
         const { protocol, call } = await harness();
-        protocol.overrideRequestHandler('acme/missing', (request, ctx, next) => next(request, ctx));
+        protocol.use('acme/missing', (request, ctx, next) => next(request, ctx));
         const response = await call('acme/missing');
         expect((response as JSONRPCErrorResponse).error).toMatchObject({ code: ProtocolErrorCode.MethodNotFound });
     });
 
-    it('later overrides run outside earlier ones, and removal restores the handler', async () => {
+    it('runs in registration order (first registered outermost), and removal restores the handler', async () => {
         const { protocol, call } = await harness();
         const order: string[] = [];
         protocol.setRequestHandler('acme/op', { params: z.looseObject({}) }, () => {
             order.push('handler');
             return {} as Result;
         });
-        const removeInner = protocol.overrideRequestHandler('acme/op', async (request, ctx, next) => {
-            order.push('inner');
+        const removeFirst = protocol.use('acme/op', async (request, ctx, next) => {
+            order.push('first');
             return next(request, ctx);
         });
-        protocol.overrideRequestHandler('acme/op', async (request, ctx, next) => {
-            order.push('outer');
+        protocol.use('acme/op', async (request, ctx, next) => {
+            order.push('second');
             return next(request, ctx);
         });
         await call('acme/op');
-        expect(order).toEqual(['outer', 'inner', 'handler']);
+        expect(order).toEqual(['first', 'second', 'handler']);
         order.length = 0;
-        removeInner();
+        removeFirst();
         await call('acme/op');
-        expect(order).toEqual(['outer', 'handler']);
+        expect(order).toEqual(['second', 'handler']);
     });
 });

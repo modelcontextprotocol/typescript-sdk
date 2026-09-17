@@ -1,7 +1,7 @@
 /**
  * `ServerOptions.extensions`: an extension is advertised under
  * `capabilities.extensions[id]` and installed at construction, where it can
- * register custom methods and override spec methods such as `tools/call`.
+ * register custom methods and install middleware on spec methods such as `tools/call`.
  */
 import type { JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 import {
@@ -56,7 +56,7 @@ function gateExtension(log: string[]): ServerExtension {
         install(server) {
             log.push('installed');
             server.setRequestHandler('gate/status', { params: z.looseObject({}) }, () => ({ armed: true }));
-            server.overrideRequestHandler('tools/call', (request, ctx, next) => {
+            server.use('tools/call', (request, ctx, next) => {
                 const envelope = ctx.mcpReq.envelope as Record<string, Record<string, unknown>> | undefined;
                 const extensions = envelope?.[CLIENT_CAPABILITIES_META_KEY]?.['extensions'] as Record<string, unknown> | undefined;
                 if (extensions === undefined || !(EXT_ID in extensions)) {
@@ -91,7 +91,7 @@ describe('ServerOptions.extensions', () => {
         expect(body['result']).toMatchObject({ armed: true });
     });
 
-    it('overrides tools/call registered later by McpServer: refuses without the capability, passes through with it', async () => {
+    it('middleware on tools/call registered later by McpServer: refuses without the capability, passes through with it', async () => {
         const mcp = new McpServer({ name: 's', version: '1' }, { extensions: [gateExtension([])] });
         mcp.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
             content: [{ type: 'text', text }]

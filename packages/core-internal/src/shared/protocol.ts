@@ -559,8 +559,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
-    /** Overrides installed by `overrideRequestHandler`, in installation order (see `_resolveRequestHandler`). */
-    private _requestHandlerOverrides: Map<
+    /** Middleware installed by `use`, in registration order (see `_resolveRequestHandler`). */
+    private _requestMiddleware: Map<
         string,
         Array<
             (
@@ -1783,36 +1783,40 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Installs an override around the request handler for `method`. The
-     * override receives the parsed request, the context, and `next` — the
-     * handler it wraps — and may answer itself, transform what `next`
-     * returns, or throw a `ProtocolError` that becomes the JSON-RPC error
-     * response. Overrides compose at dispatch time, so an override installed
-     * before the underlying handler exists (e.g. `tools/call`, which
-     * `McpServer` registers on the first tool registration) still applies;
-     * with no underlying handler and no fallback, `next` throws
-     * `MethodNotFound`. Later overrides run outside earlier ones. This is the
-     * hook server extensions use to intercept spec methods.
+     * Installs middleware on the request handler for `method`. The middleware
+     * receives the parsed request, the context, and `next` — the handler it
+     * wraps — and may answer itself, transform what `next` returns, or throw
+     * a `ProtocolError` that becomes the JSON-RPC error response.
+     * `setRequestHandler` is the route handler; this is the middleware
+     * around it, Koa-shaped: `await next(request, ctx)` yields the result and
+     * the middleware returns what goes on the wire.
      *
-     * @returns A function that removes the override.
+     * Middleware composes at dispatch time, so middleware installed before
+     * the underlying handler exists (e.g. `tools/call`, which `McpServer`
+     * registers on the first tool registration) still applies; with no
+     * underlying handler and no fallback, `next` throws `MethodNotFound`.
+     * Middleware runs in registration order: the first installed is the
+     * outermost. This is the hook extensions use to intercept spec methods.
+     *
+     * @returns A function that removes the middleware.
      */
-    overrideRequestHandler(
+    use(
         method: RequestMethod | string,
-        override: (
+        middleware: (
             request: JSONRPCRequest,
             ctx: ContextT,
             next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
         ) => Result | Promise<Result>
     ): () => void {
-        const overrides = this._requestHandlerOverrides.get(method) ?? [];
-        overrides.push(override);
-        this._requestHandlerOverrides.set(method, overrides);
+        const stack = this._requestMiddleware.get(method) ?? [];
+        stack.push(middleware);
+        this._requestMiddleware.set(method, stack);
         return () => {
-            const current = this._requestHandlerOverrides.get(method);
+            const current = this._requestMiddleware.get(method);
             if (current === undefined) return;
-            const index = current.indexOf(override);
+            const index = current.indexOf(middleware);
             if (index !== -1) current.splice(index, 1);
-            if (current.length === 0) this._requestHandlerOverrides.delete(method);
+            if (current.length === 0) this._requestMiddleware.delete(method);
         };
     }
 
@@ -1849,21 +1853,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * The handler `_onrequest` dispatches to for `method`: the registered
-     * handler (or the fallback), with any overrides composed around it.
-     * `undefined` when nothing is registered and nothing overrides.
+     * handler (or the fallback), with any middleware composed around it in
+     * registration order (first registered outermost). `undefined` when
+     * nothing is registered and no middleware is installed.
      */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
-        const overrides = this._requestHandlerOverrides.get(method);
-        if (overrides === undefined || overrides.length === 0) return base;
+        const stack = this._requestMiddleware.get(method);
+        if (stack === undefined || stack.length === 0) return base;
         let composed: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> =
             base ??
             (async () => {
                 throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
             });
-        for (const override of overrides) {
+        // Wrap from the innermost (last registered) outwards so the first
+        // registered middleware ends up outermost.
+        for (const middleware of stack.toReversed()) {
             const next = composed;
-            composed = async (request, ctx) => override(request, ctx, next);
+            composed = async (request, ctx) => middleware(request, ctx, next);
         }
         return composed;
     }

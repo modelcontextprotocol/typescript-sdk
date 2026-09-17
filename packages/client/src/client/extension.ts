@@ -12,8 +12,8 @@ import type { Client } from './client';
  * (in `initialize` on a legacy connection, in every request's
  * `_meta` client-capabilities envelope on a 2026-07-28 connection) and then
  * calls `install`, which is where the extension registers handlers for
- * server-to-client requests and notifications, or overrides the ones the
- * SDK installs (`client.overrideRequestHandler('elicitation/create', …)`).
+ * server-to-client requests and notifications, or wraps the ones the SDK
+ * installs with middleware (`client.use('elicitation/create', …)`).
  * The SDK provides the hooks; what an extension does behind them is its own.
  */
 export interface ClientExtension {
@@ -29,6 +29,6 @@ export interface ClientExtension {
      * no settings.
      */
     readonly capability?: JSONObject;
-    /** Installs the extension's handlers and overrides onto the client. Called once, at construction. */
+    /** Installs the extension's handlers and middleware onto the client. Called once, at construction. */
     install(client: Client): void;
 }

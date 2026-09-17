@@ -12,8 +12,8 @@ import type { Server } from './server';
  * extension under `capabilities.extensions[id]` and then calls `install`,
  * which is where the extension registers its custom methods
  * (`server.setRequestHandler(method, { params, result }, handler)`),
- * overrides spec methods it needs to intercept
- * (`server.overrideRequestHandler('tools/call', …)`), and adds notification
+ * installs middleware on spec methods it needs to intercept
+ * (`server.use('tools/call', …)`), and adds notification
  * handlers. The SDK provides the hooks; what an extension does behind them
  * — how it stores state, where its work runs — is the extension's own.
  */
@@ -30,6 +30,6 @@ export interface ServerExtension {
      * no settings.
      */
     readonly capability?: JSONObject;
-    /** Installs the extension's handlers and overrides onto the server. Called once, at construction. */
+    /** Installs the extension's handlers and middleware onto the server. Called once, at construction. */
     install(server: Server): void;
 }
