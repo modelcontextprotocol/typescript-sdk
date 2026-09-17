@@ -5,6 +5,7 @@ export default defineConfig({
     entry: [
         'src/index.ts',
         'src/stdio.ts',
+        'src/ext/tasks/index.ts',
         'src/shimsNode.ts',
         'src/shimsWorkerd.ts',
         'src/shimsBrowser.ts',

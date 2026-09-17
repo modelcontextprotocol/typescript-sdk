@@ -27,6 +27,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'Elicitation', link: '/servers/elicitation' },
             { text: 'Sampling (sunset)', link: '/servers/sampling' },
             { text: 'Input required', link: '/servers/input-required' },
+            { text: 'Tasks (extension)', link: '/servers/tasks' },
             { text: 'Notifications', link: '/servers/notifications' },
             { text: 'Errors', link: '/servers/errors' }
         ]
