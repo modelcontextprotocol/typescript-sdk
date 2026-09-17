@@ -25,6 +25,7 @@ function gateExtension(log: string[]): ClientExtension {
         install(client) {
             log.push('installed');
             client.setRequestHandler('gate/ping', { params: z.looseObject({}) }, () => ({ pong: true }));
+            client.acceptResultType('tools/call', 'task');
         }
     };
 }
@@ -61,6 +62,12 @@ async function scriptedServer(era: 'modern' | 'legacy') {
                     capabilities: { tools: {} },
                     serverInfo: { name: 'scripted', version: '1.0.0' }
                 }
+            });
+        } else if (request.method === 'tools/call') {
+            void serverTx.send({
+                jsonrpc: '2.0',
+                id: request.id,
+                result: { resultType: 'task', taskId: 't-1', status: 'working', createdAt: 'now', lastUpdatedAt: 'now', ttlMs: null }
             });
         } else if (request.method === 'tools/list') {
             void serverTx.send({
@@ -110,6 +117,18 @@ describe('ClientOptions.extensions', () => {
         const toolsList = written.find(message => (message as { method?: string }).method === 'tools/list');
         const meta = paramsOf(toolsList as JSONRPCMessage)['_meta'] as Record<string, unknown>;
         expect(meta[CLIENT_CAPABILITIES_META_KEY]).toMatchObject({ extensions: { [EXT_ID]: { exampleData: true } } });
+        await client.close();
+    });
+
+    it('receives an extension result kind the extension accepted, discriminator included', async () => {
+        const { clientTx } = await scriptedServer('modern');
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' }, extensions: [gateExtension([])] });
+        await client.connect(clientTx);
+        const taskSchema = z.looseObject({ resultType: z.literal('task'), taskId: z.string(), status: z.string() });
+        const result = await client.request({ method: 'tools/call', params: { name: 'slow', arguments: {} } }, taskSchema);
+        expect(result).toMatchObject({ resultType: 'task', taskId: 't-1', status: 'working' });
+        // callTool validates against CallToolResultSchema, which a task handle does not satisfy.
+        await expect(client.callTool({ name: 'slow', arguments: {} })).rejects.toThrow(/Invalid result for tools\/call/);
         await client.close();
     });
 

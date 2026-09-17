@@ -4,7 +4,7 @@ shape: how-to
 
 # Server extensions
 
-A **server extension** packages protocol behaviour outside the core specification — an MCP extension such as `io.modelcontextprotocol/tasks`, or a vendor feature — as one object you pass to the server. The SDK advertises it, installs it, and gives it two seams: custom methods and overrides of spec methods. What the extension does behind those seams is its own business.
+A **server extension** packages protocol behaviour outside the core specification — an MCP extension such as `io.modelcontextprotocol/tasks`, or a vendor feature — as one object you pass to the server. The SDK advertises it, installs it, and gives it two hooks: custom methods and overrides of spec methods. What the extension does behind those hooks is its own business.
 
 ## Write an extension
 
@@ -58,6 +58,10 @@ const gateClient: ClientExtension = {
     id: GATE,
     install(client) {
         client.setRequestHandler('gate/ping', { params: z.looseObject({}) }, () => ({ pong: true }));
+        // Results of tools/call may carry the extension's own kind; the
+        // explicit-schema request() path then hands them to the caller's
+        // schema as-is instead of rejecting the unknown resultType.
+        client.acceptResultType('tools/call', 'gate');
     }
 };
 
@@ -75,4 +79,5 @@ A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool hand
 - `ServerExtension` is `{ id, capability?, install(server) }`; pass it in `ServerOptions.extensions`. `ClientExtension` mirrors it on `ClientOptions.extensions`.
 - `install` gets the low-level `Server`: `setRequestHandler` for custom methods, `overrideRequestHandler` to intercept spec methods.
 - Overrides compose at dispatch time and apply to handlers registered later.
-- The SDK owns the seams and the capability advertisement, not the extension's state or execution.
+- `acceptResultType(method, resultType)` lets a client extension receive a result kind outside `complete` / `input_required` through the explicit-schema `request()` path.
+- The SDK owns the hooks and the capability advertisement, not the extension's state or execution.

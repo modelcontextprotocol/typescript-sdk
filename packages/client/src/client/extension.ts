@@ -14,7 +14,7 @@ import type { Client } from './client';
  * calls `install`, which is where the extension registers handlers for
  * server-to-client requests and notifications, or overrides the ones the
  * SDK installs (`client.overrideRequestHandler('elicitation/create', …)`).
- * The SDK provides the seams; what an extension does behind them is its own.
+ * The SDK provides the hooks; what an extension does behind them is its own.
  */
 export interface ClientExtension {
     /**

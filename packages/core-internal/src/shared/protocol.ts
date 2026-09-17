@@ -570,6 +570,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             ) => Result | Promise<Result>
         >
     > = new Map();
+    /** Extension result kinds accepted per method (see `acceptResultType`). */
+    private _acceptedResultTypes: Map<string, Set<string>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -1525,6 +1527,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // `_onresponse`, so a throw out of the decode hop would
                 // otherwise propagate into the transport's onmessage instead
                 // of failing this request.
+                // Extension result kinds (see `acceptResultType`): a raw
+                // `resultType` the caller declared for this method bypasses
+                // the codec's closed vocabulary and reaches the caller's
+                // schema as-is, discriminator included.
+                if (this._isAcceptedResultType(request.method, response.result)) {
+                    validateStandardSchema(resultSchema, response.result).then(parseResult => {
+                        if (parseResult.success) {
+                            resolve(parseResult.data);
+                        } else {
+                            reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
+                        }
+                    }, reject);
+                    return;
+                }
+
                 let decoded: ReturnType<WireCodec['decodeResult']>;
                 try {
                     decoded = codec.decodeResult(request.method, response.result);
@@ -1775,7 +1792,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * `McpServer` registers on the first tool registration) still applies;
      * with no underlying handler and no fallback, `next` throws
      * `MethodNotFound`. Later overrides run outside earlier ones. This is the
-     * seam server extensions use to intercept spec methods.
+     * hook server extensions use to intercept spec methods.
      *
      * @returns A function that removes the override.
      */
@@ -1797,6 +1814,37 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (index !== -1) current.splice(index, 1);
             if (current.length === 0) this._requestHandlerOverrides.delete(method);
         };
+    }
+
+    /**
+     * Declares that results of `method` may carry `resultType` — a kind an
+     * extension defines beyond the spec's `complete` / `input_required`
+     * vocabulary (the Tasks extension answers `tools/call` with
+     * `resultType: "task"`). A raw response with that discriminator skips the
+     * era codec's decode and is validated against the caller's explicit
+     * result schema as-is, discriminator included. Only the explicit-schema
+     * `request(request, resultSchema)` path consults this; typed spec calls
+     * keep the closed vocabulary. This is the hook client extensions use to
+     * receive extension result shapes.
+     *
+     * @returns A function that withdraws the declaration.
+     */
+    acceptResultType(method: string, resultType: string): () => void {
+        const accepted = this._acceptedResultTypes.get(method) ?? new Set<string>();
+        accepted.add(resultType);
+        this._acceptedResultTypes.set(method, accepted);
+        return () => {
+            const current = this._acceptedResultTypes.get(method);
+            current?.delete(resultType);
+            if (current?.size === 0) this._acceptedResultTypes.delete(method);
+        };
+    }
+
+    private _isAcceptedResultType(method: string, raw: unknown): boolean {
+        const accepted = this._acceptedResultTypes.get(method);
+        if (accepted === undefined || !isPlainObject(raw)) return false;
+        const resultType = raw['resultType'];
+        return typeof resultType === 'string' && accepted.has(resultType);
     }
 
     /**
