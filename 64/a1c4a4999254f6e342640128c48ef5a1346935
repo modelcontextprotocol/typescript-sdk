@@ -1,0 +1,31 @@
+.changeset/server-extensions.md
+  s_a5c48038294d8c::t_3ab0e4ef45d3e5 7
+docs/advanced/extensions.md
+  s_a5c48038294d8c::t_e05fb4e7e6e91d 7,11,23-25,29,31,44,54,73,75,81-83
+packages/client/src/client/extension.ts
+  s_a5c48038294d8c::t_dc1064f65d3316 15-16,32
+packages/core-internal/src/shared/protocol.ts
+  s_a5c48038294d8c::t_e1ce587ff4f6ec 562-563,1786-1792,1794-1801,1803,1805,1811-1813,1815,1817,1819,1856-1858,1862-1863,1869-1871,1873
+packages/core-internal/test/shared/requestMiddleware.test.ts
+  s_a5c48038294d8c::t_9f1b4c822dfced 2-4,44-45,48,63,65,72,79,82-83,91,94,96,101,108-109,112-113,117,119,121
+packages/server/src/server/extension.ts
+  s_a5c48038294d8c::t_54023edde34367 15-16,33
+packages/server/test/server/extensions.test.ts
+  s_a5c48038294d8c::t_fe619289b36225 4,59,94
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "64a1c4a4999254f6e342640128c48ef5a1346935",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
