@@ -1,0 +1,27 @@
+.changeset/era-gate-explicit-schema-handlers.md
+  s_a5c48038294d8c::t_8600608d01f3c4 1-8
+docs/migration/support-2026-07-28.md
+  s_a5c48038294d8c::t_c1c9b23e3432e3 352-362,710-714
+packages/core-internal/src/shared/protocol.ts
+  s_a5c48038294d8c::t_71c9a4621852cf 581-589,1027-1047,1318-1323,1326,1375-1379,1823-1831,1965
+packages/core-internal/src/wire/codec.ts
+  s_a5c48038294d8c::t_3fb088443f67e8 27-32,36-49
+packages/core-internal/test/wire/eraGates.test.ts
+  s_a5c48038294d8c::t_04d90f9e62f7b8 14-22,118-121,128,133-147,158-162,563-577
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "10ab1328da84411ef220cf7116ad9720c5e00d77",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
