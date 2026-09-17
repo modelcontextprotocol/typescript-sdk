@@ -91,7 +91,7 @@ describe('Protocol.use (request middleware)', () => {
         expect(order).toEqual(['middleware', 'handler']);
     });
 
-    it("runs '*' middleware on every request, in one registration order with per-method middleware", async () => {
+    it('keeps one registration order across methods and stamps _meta through next', async () => {
         const { protocol, call } = await harness();
         const order: string[] = [];
         for (const method of ['acme/a', 'acme/b']) {
@@ -100,29 +100,25 @@ describe('Protocol.use (request middleware)', () => {
                 return { method } as Result;
             });
         }
-        protocol.use(async (request, ctx, next) => {
-            order.push('every');
+        protocol.use('acme/a', async (request, ctx, next) => {
+            order.push('a-1');
             const result = await next(request, ctx);
             return { ...result, _meta: { 'acme/stamped': true } } as Result;
         });
-        const remove = protocol.use('acme/a', async (request, ctx, next) => {
-            order.push('only-a');
+        protocol.use('acme/b', async (request, ctx, next) => {
+            order.push('b-1');
             return next(request, ctx);
         });
-        protocol.use('*', async (request, ctx, next) => {
-            order.push('every-2');
+        protocol.use('acme/a', async (request, ctx, next) => {
+            order.push('a-2');
             return next(request, ctx);
         });
         const a = await call('acme/a');
         expect((a as JSONRPCResultResponse).result).toEqual({ method: 'acme/a', _meta: { 'acme/stamped': true } });
-        expect(order).toEqual(['every', 'only-a', 'every-2', 'handler:acme/a']);
+        expect(order).toEqual(['a-1', 'a-2', 'handler:acme/a']);
         order.length = 0;
         await call('acme/b');
-        expect(order).toEqual(['every', 'every-2', 'handler:acme/b']);
-        remove();
-        order.length = 0;
-        await call('acme/a');
-        expect(order).toEqual(['every', 'every-2', 'handler:acme/a']);
+        expect(order).toEqual(['b-1', 'handler:acme/b']);
     });
 
     it('next throws MethodNotFound when nothing underlies the middleware', async () => {

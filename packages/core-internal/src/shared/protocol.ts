@@ -570,11 +570,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
-    /**
-     * Middleware installed by `use`, in registration order across every
-     * method (see `_resolveRequestHandler`). `method` is a method name or
-     * `'*'` for every request.
-     */
+    /** Middleware installed by `use`, in registration order across every method (see `_resolveRequestHandler`). */
     private _requestMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
     /** Extension result kinds accepted per method (see `acceptResultType`). */
     private _acceptedResultTypes: Map<string, Set<string>> = new Map();
@@ -1802,26 +1798,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * registers on the first tool registration) still applies; with no
      * underlying handler and no fallback, `next` throws `MethodNotFound`.
      * Middleware runs in registration order: the first installed is the
-     * outermost. `use(middleware)` (or `use('*', middleware)`) installs it on
-     * every request — e.g. to stamp a `_meta` key on every result — and takes
-     * its place in the same order as per-method middleware. This is the hook
-     * extensions use to intercept spec methods.
+     * outermost. Method names are exact — there is no wildcard; what an
+     * extension needs every peer to know goes through `registerCapabilities`,
+     * not per-request middleware. This is the hook extensions use to
+     * intercept spec methods.
      *
      * @returns A function that removes the middleware.
      */
-    use(middleware: RequestMiddleware<ContextT>): () => void;
-    use(method: RequestMethod | '*' | string, middleware: RequestMiddleware<ContextT>): () => void;
-    use(
-        methodOrMiddleware: RequestMethod | '*' | string | RequestMiddleware<ContextT>,
-        maybeMiddleware?: RequestMiddleware<ContextT>
-    ): () => void {
-        const entry =
-            typeof methodOrMiddleware === 'function'
-                ? { method: '*', middleware: methodOrMiddleware }
-                : { method: methodOrMiddleware, middleware: maybeMiddleware as RequestMiddleware<ContextT> };
-        if (typeof entry.middleware !== 'function') {
+    use(method: RequestMethod | string, middleware: RequestMiddleware<ContextT>): () => void {
+        if (typeof middleware !== 'function') {
             throw new TypeError('use: middleware is required');
         }
+        const entry = { method, middleware };
         this._requestMiddleware.push(entry);
         return () => {
             const index = this._requestMiddleware.indexOf(entry);
@@ -1862,14 +1850,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * The handler `_onrequest` dispatches to for `method`: the registered
-     * handler (or the fallback), with any middleware for the method or for
-     * `'*'` composed around it in registration order (first registered
-     * outermost). `undefined` when nothing is registered and no middleware
-     * applies.
+     * handler (or the fallback), with any middleware for the method composed
+     * around it in registration order (first registered outermost).
+     * `undefined` when nothing is registered and no middleware applies.
      */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
-        const stack = this._requestMiddleware.filter(entry => entry.method === method || entry.method === '*');
+        const stack = this._requestMiddleware.filter(entry => entry.method === method);
         if (stack.length === 0) return base;
         let composed: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> =
             base ??

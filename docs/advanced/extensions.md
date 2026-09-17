@@ -72,16 +72,7 @@ const client = new Client({ name: 'gated-client', version: '1.0.0' }, { extensio
 
 ## How middleware composes
 
-`setRequestHandler` is the route handler; `use(method, middleware)` is the middleware around it, Koa-shaped: `await next(request, ctx)` yields the result and the middleware returns what goes on the wire. It wraps whatever handler serves `method` at dispatch time. That matters for `tools/call`, which `McpServer` registers on the first tool registration: middleware installed at construction still applies. With no underlying handler, `next` throws `MethodNotFound`. Several middleware nest in registration order, the first installed outermost. The returned function removes the middleware. `use(middleware)` — or `use('*', middleware)` — installs it on every request, in that same order, which is how an extension stamps a `_meta` key on every result:
-
-```ts
-server.use(async (request, ctx, next) => {
-    const result = await next(request, ctx);
-    return { ...result, _meta: { ...result._meta, 'com.example/gate': { armed: true } } };
-});
-```
-
-The encoder still stamps the SDK's reserved `_meta` keys and `resultType` on top; an extension adds its own namespaced keys, it does not replace those.
+`setRequestHandler` is the route handler; `use(method, middleware)` is the middleware around it, Koa-shaped: `await next(request, ctx)` yields the result and the middleware returns what goes on the wire. It wraps whatever handler serves `method` at dispatch time. That matters for `tools/call`, which `McpServer` registers on the first tool registration: middleware installed at construction still applies. With no underlying handler, `next` throws `MethodNotFound`. Several middleware nest in registration order, the first installed outermost. The returned function removes the middleware. Method names are exact; there is no wildcard. Something every peer must know about the extension belongs in its advertised capability (`registerCapabilities`), not in per-request `_meta`. Where a result does carry extension `_meta`, the middleware adds its own namespaced key and the encoder still stamps the SDK's reserved keys and `resultType` on top.
 
 A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool handler, `McpServer` converts most throws into an `isError` tool result; the exceptions are protocol-level errors the client must see as errors — `UrlElicitationRequiredError` and `MissingRequiredClientCapabilityError` (`-32021`).
 
