@@ -199,6 +199,17 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
 
 /**
+ * Request middleware (see `Protocol.use`): receives the parsed request, the
+ * context, and `next` — the handler it wraps — and returns the result that
+ * goes on the wire.
+ */
+export type RequestMiddleware<ContextT> = (
+    request: JSONRPCRequest,
+    ctx: ContextT,
+    next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+) => Result | Promise<Result>;
+
+/**
  * Lift wire-only material out of an inbound message so handlers see exactly
  * the 2025-era shape, and surface it for the protocol layer (requests: via
  * `ctx.mcpReq`). What counts as wire-only depends on the message kind: the
@@ -559,17 +570,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
-    /** Middleware installed by `use`, in registration order (see `_resolveRequestHandler`). */
-    private _requestMiddleware: Map<
-        string,
-        Array<
-            (
-                request: JSONRPCRequest,
-                ctx: ContextT,
-                next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
-            ) => Result | Promise<Result>
-        >
-    > = new Map();
+    /**
+     * Middleware installed by `use`, in registration order across every
+     * method (see `_resolveRequestHandler`). `method` is a method name or
+     * `'*'` for every request.
+     */
+    private _requestMiddleware: Array<{ method: string; middleware: RequestMiddleware<ContextT> }> = [];
     /** Extension result kinds accepted per method (see `acceptResultType`). */
     private _acceptedResultTypes: Map<string, Set<string>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
@@ -1796,27 +1802,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * registers on the first tool registration) still applies; with no
      * underlying handler and no fallback, `next` throws `MethodNotFound`.
      * Middleware runs in registration order: the first installed is the
-     * outermost. This is the hook extensions use to intercept spec methods.
+     * outermost. `use(middleware)` (or `use('*', middleware)`) installs it on
+     * every request — e.g. to stamp a `_meta` key on every result — and takes
+     * its place in the same order as per-method middleware. This is the hook
+     * extensions use to intercept spec methods.
      *
      * @returns A function that removes the middleware.
      */
+    use(middleware: RequestMiddleware<ContextT>): () => void;
+    use(method: RequestMethod | '*' | string, middleware: RequestMiddleware<ContextT>): () => void;
     use(
-        method: RequestMethod | string,
-        middleware: (
-            request: JSONRPCRequest,
-            ctx: ContextT,
-            next: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
-        ) => Result | Promise<Result>
+        methodOrMiddleware: RequestMethod | '*' | string | RequestMiddleware<ContextT>,
+        maybeMiddleware?: RequestMiddleware<ContextT>
     ): () => void {
-        const stack = this._requestMiddleware.get(method) ?? [];
-        stack.push(middleware);
-        this._requestMiddleware.set(method, stack);
+        const entry =
+            typeof methodOrMiddleware === 'function'
+                ? { method: '*', middleware: methodOrMiddleware }
+                : { method: methodOrMiddleware, middleware: maybeMiddleware as RequestMiddleware<ContextT> };
+        if (typeof entry.middleware !== 'function') {
+            throw new TypeError('use: middleware is required');
+        }
+        this._requestMiddleware.push(entry);
         return () => {
-            const current = this._requestMiddleware.get(method);
-            if (current === undefined) return;
-            const index = current.indexOf(middleware);
-            if (index !== -1) current.splice(index, 1);
-            if (current.length === 0) this._requestMiddleware.delete(method);
+            const index = this._requestMiddleware.indexOf(entry);
+            if (index !== -1) this._requestMiddleware.splice(index, 1);
         };
     }
 
@@ -1853,14 +1862,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * The handler `_onrequest` dispatches to for `method`: the registered
-     * handler (or the fallback), with any middleware composed around it in
-     * registration order (first registered outermost). `undefined` when
-     * nothing is registered and no middleware is installed.
+     * handler (or the fallback), with any middleware for the method or for
+     * `'*'` composed around it in registration order (first registered
+     * outermost). `undefined` when nothing is registered and no middleware
+     * applies.
      */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
-        const stack = this._requestMiddleware.get(method);
-        if (stack === undefined || stack.length === 0) return base;
+        const stack = this._requestMiddleware.filter(entry => entry.method === method || entry.method === '*');
+        if (stack.length === 0) return base;
         let composed: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> =
             base ??
             (async () => {
@@ -1868,7 +1878,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             });
         // Wrap from the innermost (last registered) outwards so the first
         // registered middleware ends up outermost.
-        for (const middleware of stack.toReversed()) {
+        for (const { middleware } of stack.toReversed()) {
             const next = composed;
             composed = async (request, ctx) => middleware(request, ctx, next);
         }
