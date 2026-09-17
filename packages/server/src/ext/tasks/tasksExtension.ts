@@ -27,13 +27,17 @@ import {
     ProtocolError,
     ProtocolErrorCode
 } from '@modelcontextprotocol/core-internal';
+import type { CancelTaskResult, CreateTaskResult, GetTaskResult, UpdateTaskResult } from '@modelcontextprotocol/core-internal/ext/tasks';
+import {
+    cancelTaskParamsSchema,
+    getTaskParamsSchema,
+    inputResponsesSchema,
+    TASKS_EXTENSION_ID
+} from '@modelcontextprotocol/core-internal/ext/tasks';
 
 import type { ServerExtension } from '../../server/extension';
 import type { Server } from '../../server/server';
 import type { CreateTaskParams, TaskStore } from './store';
-import { cancelTaskParamsSchema, getTaskParamsSchema, inputResponsesSchema } from './wire/schemas';
-import type { CancelTaskResult, CreateTaskResult, GetTaskResult, UpdateTaskResult } from './wire/types';
-import { TASKS_EXTENSION_ID } from './wire/types';
 
 /** Options for {@link TasksExtension}. */
 export interface TasksExtensionOptions {
@@ -48,7 +52,7 @@ export type CreateTaskOptions = Partial<Omit<CreateTaskParams, 'principal'>>;
 
 /**
  * The task handle a tool handler returns in place of a `CallToolResult`.
- * The 2026-07-28 encode seam forwards `resultType: "task"` for `tools/call`
+ * The 2026-07-28 result encoder forwards `resultType: "task"` for `tools/call`
  * verbatim, so the flat handle is the wire result.
  */
 export type TaskToolResult = CallToolResult & CreateTaskResult;

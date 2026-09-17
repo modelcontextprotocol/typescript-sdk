@@ -19,14 +19,14 @@
  * Copyright (c) Model Context Protocol contributors
  */
 
-import type { InputRequests, InputResponses, Result } from '@modelcontextprotocol/core-internal';
+import type { InputRequests, InputResponses, Result } from '../../types/index';
 
 /**
  * A single input request / response embedded in a task, re-based on the SDK
  * v2 MRTR unions (sampling, roots, or elicitation). Keys in the containing
  * maps MUST be unique over the lifetime of a single task.
  */
-export type { InputRequest, InputRequests, InputResponse, InputResponses } from '@modelcontextprotocol/core-internal';
+export type { InputRequest, InputRequests, InputResponse, InputResponses } from '../../types/index';
 
 /** The MCP Tasks extension identifier. An empty-object capability declares support. */
 export const TASKS_EXTENSION_ID = 'io.modelcontextprotocol/tasks';

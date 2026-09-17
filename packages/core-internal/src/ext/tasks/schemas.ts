@@ -19,7 +19,7 @@
  * Copyright (c) Model Context Protocol contributors
  */
 
-import { z } from 'zod';
+import * as z from 'zod/v4';
 
 import { TASK_STATUSES } from './types';
 

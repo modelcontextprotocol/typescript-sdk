@@ -1,5 +1,5 @@
 /**
- * The store seam of the Tasks extension: what the `tasks/*` request handlers
+ * The store interface of the Tasks extension: what the `tasks/*` request handlers
  * and `TasksExtension.create` call. Everything here is request/response over
  * JSON. How a task's work is executed — in-process, on a queue, in a
  * durable-execution runtime — is the server's business, not the SDK's: the
@@ -7,8 +7,7 @@
  */
 
 import type { InputResponses } from '@modelcontextprotocol/core-internal';
-
-import type { DetailedTask, Task } from './wire/types';
+import type { DetailedTask, Task } from '@modelcontextprotocol/core-internal/ext/tasks';
 
 /** What `TasksExtension.create` asks a store to durably create. */
 export interface CreateTaskParams {

@@ -1,20 +1,14 @@
 /**
- * `@modelcontextprotocol/server/ext/tasks` — the server side of the MCP
+ * `@modelcontextprotocol/client/ext/tasks` — the client side of the MCP
  * Tasks extension (`io.modelcontextprotocol/tasks`).
  *
- * `TasksExtension` owns the wire: capability, `tasks/get` / `tasks/update` /
- * `tasks/cancel`, the client-capability check, and the `tools/call` task
- * handle. A `TaskStore` owns the task: `InMemoryTaskStore` is the
- * in-process reference; durable stores implement the same four methods and
- * live outside the SDK. How the work behind a task runs is the server's
- * own.
+ * `TasksClientExtension` advertises the capability, accepts task handles on
+ * `tools/call`, and wraps `tasks/get`, `tasks/update` and `tasks/cancel`,
+ * plus `waitFor` to poll a task to a terminal status.
  */
 
-export type { InMemoryTaskStoreOptions, TaskHandle } from './inMemoryStore';
-export { InMemoryTaskStore } from './inMemoryStore';
-export type { CreateTaskParams, TaskAccess, TaskStore } from './store';
-export type { CreateTaskOptions, TasksExtensionOptions, TaskToolResult } from './tasksExtension';
-export { declaresTasksExtension, TasksExtension } from './tasksExtension';
+export type { CallToolOutcome, TerminalTask, WaitForOptions } from './tasksClientExtension';
+export { TasksClientExtension } from './tasksClientExtension';
 export type {
     CancelledTask,
     CancelTaskParams,

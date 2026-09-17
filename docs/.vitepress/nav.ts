@@ -54,6 +54,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'Handle server requests', link: '/clients/server-requests' },
             { text: 'Roots (sunset)', link: '/clients/roots' },
             { text: 'Subscriptions', link: '/clients/subscriptions' },
+            { text: 'Tasks (extension)', link: '/clients/tasks' },
             { text: 'OAuth', link: '/clients/oauth' },
             { text: 'Machine auth', link: '/clients/machine-auth' },
             { text: 'Middleware', link: '/clients/middleware' },
