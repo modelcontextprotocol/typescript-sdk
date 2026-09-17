@@ -52,7 +52,7 @@ async function exchange(server: Server, request: JSONRPCRequest): Promise<Record
 function gateExtension(log: string[]): ServerExtension {
     return {
         id: EXT_ID,
-        capability: { modes: ['strict'] },
+        capability: { exampleData: true },
         install(server) {
             log.push('installed');
             server.setRequestHandler('gate/status', { params: z.looseObject({}) }, () => ({ armed: true }));
@@ -76,7 +76,7 @@ describe('ServerOptions.extensions', () => {
         const log: string[] = [];
         const server = new Server({ name: 's', version: '1' }, { extensions: [gateExtension(log)] });
         expect(log).toEqual(['installed']);
-        expect(server.getCapabilities().extensions).toEqual({ [EXT_ID]: { modes: ['strict'] } });
+        expect(server.getCapabilities().extensions).toEqual({ [EXT_ID]: { exampleData: true } });
     });
 
     it('defaults the advertised settings to {} and passes through McpServer', () => {

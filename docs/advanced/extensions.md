@@ -19,7 +19,7 @@ const GATE = 'com.example/gate';
 
 export const gate: ServerExtension = {
     id: GATE,
-    capability: { modes: ['strict'] },
+    capability: { exampleData: true },
     install(server) {
         // A custom method, exactly as in Custom methods.
         server.setRequestHandler('gate/status', { params: z.looseObject({}) }, () => ({ armed: true }));
