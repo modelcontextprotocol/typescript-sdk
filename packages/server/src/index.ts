@@ -55,9 +55,9 @@ export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerR
 export { PerRequestHTTPServerTransport } from './server/perRequestTransport';
 // Opt-in HMAC sealing for the multi-round-trip requestState (SEP-2322): the
 // convenience codec consumers drop into ServerOptions.requestState.verify.
+export type { ServerExtension } from './server/extension';
 export type { RequestStateCodec, RequestStateCodecOptions } from './server/requestStateCodec';
 export { createRequestStateCodec } from './server/requestStateCodec';
-export type { ServerExtension } from './server/extension';
 export type { ServerOptions } from './server/server';
 export { Server } from './server/server';
 // subscriptions/listen change-event sourcing seam (protocol revision 2026-07-28).
