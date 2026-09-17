@@ -186,17 +186,9 @@ async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era
 }
 
 async function main(): Promise<void> {
-    // Stories live at `examples/<story>`; extension stories one level down
-    // at `examples/ext/<story>` (named `ext/<story>`).
     const stories = readdirSync(EXAMPLES, { withFileTypes: true })
         .filter(d => d.isDirectory() && !NON_STORY.has(d.name))
-        .flatMap(d =>
-            d.name === 'ext'
-                ? readdirSync(join(EXAMPLES, 'ext'), { withFileTypes: true })
-                      .filter(e => e.isDirectory())
-                      .map(e => `ext/${e.name}`)
-                : [d.name]
-        )
+        .map(d => d.name)
         .filter(name => existsSync(join(EXAMPLES, name, 'client.ts')))
         .sort();
 
