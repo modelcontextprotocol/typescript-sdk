@@ -12,6 +12,8 @@ import * as z from 'zod/v4';
 
 import type { DetailedTask, TaskHandle } from '../../../src/ext/tasks/index';
 import { InMemoryTaskStore, TASKS_EXTENSION_ID, TasksExtension } from '../../../src/ext/tasks/index';
+
+const TASKS_CAPABILITY = { extensions: { [TASKS_EXTENSION_ID]: {} } };
 import { CLIENT_CAPABILITIES_META_KEY, createMcpHandler, McpServer, PROTOCOL_VERSION_META_KEY } from '../../../src/index';
 
 type Work = (handle: TaskHandle, input: { name: string }) => Promise<void>;
