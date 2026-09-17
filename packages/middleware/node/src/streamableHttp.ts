@@ -15,7 +15,6 @@ import type {
     JSONRPCMessage,
     MessageExtraInfo,
     RequestId,
-    ScopeChallengeHandler,
     Transport,
     WebStandardStreamableHTTPServerTransportOptions
 } from '@modelcontextprotocol/server';
@@ -168,11 +167,6 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      */
     setSupportedProtocolVersions(versions: string[]): void {
         this._webStandardTransport.setSupportedProtocolVersions(versions);
-    }
-
-    /** Sets the scope challenge resolver used by the wrapped Web Standard transport. */
-    setScopeChallengeResolver(resolver: ScopeChallengeHandler): void {
-        this._webStandardTransport.setScopeChallengeResolver(resolver);
     }
 
     /**
