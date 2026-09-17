@@ -47,6 +47,23 @@ const server = new McpServer({ name: 'gated', version: '1.0.0' }, { extensions: 
 
 The same option exists on the low-level `Server`.
 
+## Client extensions
+
+The client half is symmetric: `ClientExtension` is `{ id, capability?, install(client) }`, passed in `ClientOptions.extensions`. The client advertises it under its own `capabilities.extensions[id]` — in `initialize` on a legacy connection, and in every request's `_meta` client-capabilities envelope on a 2026-07-28 connection, which is where a server extension reads it — and `install` receives the `Client` to register handlers for server-to-client requests and notifications, or override the ones the SDK installs.
+
+```ts
+import type { ClientExtension } from '@modelcontextprotocol/client';
+
+const gateClient: ClientExtension = {
+    id: GATE,
+    install(client) {
+        client.setRequestHandler('gate/ping', { params: z.looseObject({}) }, () => ({ pong: true }));
+    }
+};
+
+const client = new Client({ name: 'gated-client', version: '1.0.0' }, { extensions: [gateClient] });
+```
+
 ## How overrides compose
 
 `overrideRequestHandler(method, override)` wraps whatever handler serves `method` at dispatch time. That matters for `tools/call`, which `McpServer` registers on the first tool registration: an override installed at construction still applies. With no underlying handler, `next` throws `MethodNotFound`. Several overrides nest, the latest outermost. The returned function removes the override.
@@ -55,7 +72,7 @@ A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool hand
 
 ## Recap
 
-- `ServerExtension` is `{ id, capability?, install(server) }`; pass it in `ServerOptions.extensions`.
+- `ServerExtension` is `{ id, capability?, install(server) }`; pass it in `ServerOptions.extensions`. `ClientExtension` mirrors it on `ClientOptions.extensions`.
 - `install` gets the low-level `Server`: `setRequestHandler` for custom methods, `overrideRequestHandler` to intercept spec methods.
 - Overrides compose at dispatch time and apply to handlers registered later.
 - The SDK owns the seams and the capability advertisement, not the extension's state or execution.
