@@ -154,7 +154,7 @@ export class TasksExtension implements ServerExtension {
         // `create(ctx, …)` checks up front; this catches handles minted some
         // other way (an external engine's own create) — the extension owns
         // the wire regardless of where the task came from.
-        server.overrideRequestHandler('tools/call', async (request: JSONRPCRequest, ctx, next): Promise<Result> => {
+        server.use('tools/call', async (request: JSONRPCRequest, ctx, next): Promise<Result> => {
             const result = await next(request, ctx);
             if ((result as { resultType?: unknown }).resultType === 'task') {
                 requireTasksExtension(ctx, `Tool "${String((request.params as { name?: unknown })?.name)}" executes as a task and`);
