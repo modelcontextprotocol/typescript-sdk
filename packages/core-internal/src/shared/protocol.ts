@@ -783,35 +783,45 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        const isReconnectingSameTransport = this._transport === transport;
+
         this._transport = transport;
-        const _onclose = this.transport?.onclose;
-        this._transport.onclose = () => {
-            try {
-                _onclose?.();
-            } finally {
-                this._onclose();
-            }
-        };
 
-        const _onerror = this.transport?.onerror;
-        this._transport.onerror = (error: Error) => {
-            _onerror?.(error);
-            this._onerror(error);
-        };
+        // Only wrap the transport's callbacks when connecting to a NEW transport.
+        // If this is a reconnect on the same transport, the callbacks were
+        // already wrapped by the previous connect() call — re-wrapping would
+        // create an unbounded chain of closures that grows with every reconnect,
+        // each close event walking the entire chain (a memory leak, #2607).
+        if (!isReconnectingSameTransport) {
+            const _onclose = this.transport?.onclose;
+            this._transport.onclose = () => {
+                try {
+                    _onclose?.();
+                } finally {
+                    this._onclose();
+                }
+            };
 
-        const _onmessage = this._transport?.onmessage;
-        this._transport.onmessage = (message, extra) => {
-            _onmessage?.(message, extra);
-            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
-                this._onresponse(message);
-            } else if (isJSONRPCRequest(message)) {
-                this._onrequest(message, extra);
-            } else if (isJSONRPCNotification(message)) {
-                this._onnotification(message, extra);
-            } else {
-                this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
-            }
-        };
+            const _onerror = this.transport?.onerror;
+            this._transport.onerror = (error: Error) => {
+                _onerror?.(error);
+                this._onerror(error);
+            };
+
+            const _onmessage = this._transport?.onmessage;
+            this._transport.onmessage = (message, extra) => {
+                _onmessage?.(message, extra);
+                if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+                    this._onresponse(message);
+                } else if (isJSONRPCRequest(message)) {
+                    this._onrequest(message, extra);
+                } else if (isJSONRPCNotification(message)) {
+                    this._onnotification(message, extra);
+                } else {
+                    this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
+                }
+            };
+        }
 
         // Pass supported protocol versions to transport for header validation
         transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);

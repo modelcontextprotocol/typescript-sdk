@@ -209,6 +209,32 @@ describe('protocol tests', () => {
         expect(onmessageMock).toHaveBeenCalled();
     });
 
+    test('should not create unbounded onclose chain on reconnect to same transport (#2607)', async () => {
+        // On reconnect to the SAME transport, connect() must not re-wrap
+        // onclose/onerror/onmessage. Otherwise each reconnect nests a new
+        // closure around the previous one, and every transport close walks
+        // the full accumulated chain — a memory leak proportional to reconnects.
+        await protocol.connect(transport);
+
+        // Capture the wrapper that the first connect() installed.
+        const firstOncloseWrapper = transport.onclose;
+        expect(firstOncloseWrapper).toBeDefined();
+
+        // Reconnect to the SAME transport instance.
+        await protocol.connect(transport);
+
+        // The onclose handler must be the SAME closure, not a new wrapper
+        // that calls the old one. If it were re-wrapped, each close would walk
+        // a chain of N closures after N reconnects.
+        expect(transport.onclose).toBe(firstOncloseWrapper);
+
+        // Verify the single wrapper still fires onclose exactly once.
+        const oncloseMock = vi.fn();
+        protocol.onclose = oncloseMock;
+        transport.onclose?.();
+        expect(oncloseMock).toHaveBeenCalledTimes(1);
+    });
+
     describe('_meta preservation with onprogress', () => {
         test('should preserve existing _meta when adding progressToken', async () => {
             await protocol.connect(transport);
