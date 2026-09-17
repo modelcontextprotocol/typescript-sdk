@@ -1,0 +1,9 @@
+{
+    "content": [
+        {
+            "type": "text",
+            "text": "Failed to fetch weather data: API rate limit exceeded"
+        }
+    ],
+    "isError": true
+}

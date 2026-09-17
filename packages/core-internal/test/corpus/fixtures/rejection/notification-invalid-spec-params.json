@@ -1,0 +1,11 @@
+{
+    "description": "A spec notification whose params fail the method schema is dropped; the failure is reported out-of-band and no response is sent.",
+    "message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/cancelled",
+        "params": {
+            "requestId": true
+        }
+    },
+    "expect": "onerror"
+}

@@ -11,4 +11,4 @@
  * const validator = new AjvJsonSchemaValidator(ajv);
  * ```
  */
-export { addFormats, Ajv, AjvJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
+export { addFormats, Ajv, AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';

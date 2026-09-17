@@ -1,0 +1,19 @@
+{
+  "jsonrpc": "2.0",
+  "id": "call-tool-example",
+  "method": "tools/call",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": {
+        "name": "ExampleClient",
+        "version": "1.0.0"
+      },
+      "io.modelcontextprotocol/clientCapabilities": {}
+    },
+    "name": "get_weather",
+    "arguments": {
+      "location": "New York"
+    }
+  }
+}

@@ -51,17 +51,10 @@ const ADMIN_SCOPE = 'admin';
 
 // Function to create a new MCP server instance (one per session)
 function createMcpServer(): McpServer {
-    const mcpServer = new McpServer(
-        {
-            name: 'mcp-auth-test-server',
-            version: '1.0.0'
-        },
-        {
-            capabilities: {
-                tools: {}
-            }
-        }
-    );
+    const mcpServer = new McpServer({
+        name: 'mcp-auth-test-server',
+        version: '1.0.0'
+    });
 
     // Simple echo tool for testing authenticated calls
     mcpServer.registerTool(
@@ -72,8 +65,7 @@ function createMcpServer(): McpServer {
                 message: z.string().optional().describe('The message to echo back')
             })
         },
-        async (args: { message?: string }) => {
-            const message = args.message || 'No message provided';
+        async ({ message = 'No message provided' }) => {
             return {
                 content: [{ type: 'text', text: `Echo: ${message}` }]
             };
@@ -102,8 +94,7 @@ function createMcpServer(): McpServer {
                 action: z.string().optional().describe('The admin action to perform')
             })
         },
-        async (args: { action?: string }) => {
-            const action = args.action || 'default-admin-action';
+        async ({ action = 'default-admin-action' }) => {
             return {
                 content: [{ type: 'text', text: `Admin action performed: ${action}` }]
             };
@@ -274,8 +265,8 @@ async function startServer() {
     app.use(
         cors({
             origin: '*',
-            exposedHeaders: ['Mcp-Session-Id'],
-            allowedHeaders: ['Content-Type', 'mcp-session-id', 'last-event-id', 'Authorization']
+            exposedHeaders: ['Mcp-Session-Id', 'WWW-Authenticate'],
+            allowedHeaders: ['Content-Type', 'mcp-session-id', 'last-event-id', 'Authorization', 'mcp-protocol-version']
         })
     );
 

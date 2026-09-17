@@ -1,4 +1,4 @@
-import type { OAuthErrorResponse } from '@modelcontextprotocol/core';
+import type { OAuthErrorResponse } from '@modelcontextprotocol/core-internal';
 
 /**
  * Base class for all OAuth errors

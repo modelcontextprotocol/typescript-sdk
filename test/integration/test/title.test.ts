@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { McpServer, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 

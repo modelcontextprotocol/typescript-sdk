@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
 import { contextTypesTransform } from '../../../src/migrations/v1-to-v2/transforms/contextTypes';
-import type { TransformContext } from '../../../src/types';
+import type { Diagnostic, TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
@@ -215,7 +215,7 @@ describe('context-types transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).toContain('ctx?.mcpReq.signal');
         expect(result).not.toContain('extra');
     });
 
@@ -380,5 +380,378 @@ describe('context-types transform', () => {
         expect(result).toContain('typeof ctx.mcpReq.signal');
         expect(result).not.toContain('typeof ctx.signal');
         expect(result).not.toContain('extra');
+    });
+});
+
+describe('trailing context parameter selection (B2)', () => {
+    it('processes the 3-parameter registerResource template callback', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', template, {}, async (uri, variables, extra) => {`,
+                `    const s = extra.signal;`,
+                `    return { contents: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('(uri, variables, ctx)');
+        expect(text).toContain('ctx.mcpReq.signal');
+    });
+
+    it('does not flag a destructured middle parameter when the trailing context is already named ctx', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', tpl, {}, async (uri, { id }, ctx) => ({ contents: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(false);
+    });
+
+    it('still processes the 2-parameter form via index fallback', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    const s = extra.signal;`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n')
+        );
+        contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const text = sourceFile.getFullText();
+        expect(text).toContain('(args, ctx)');
+        expect(text).toContain('ctx.mcpReq.signal');
+    });
+});
+
+describe('destructured trailing parameter key gate (B4)', () => {
+    it('does not flag template-variable destructures', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerResource('r', tpl, {}, async (uri, { owner, repo }) => ({ contents: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(false);
+    });
+
+    it('flags renamed context destructures and requestInfo', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('a', {}, async (args, { signal: abort }) => ({ content: [] }));`,
+                `server.registerTool('b', {}, async (args, { requestInfo }) => ({ content: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        const flagged = result.diagnostics.filter(d => d.message.includes('Destructuring of context parameter'));
+        expect(flagged).toHaveLength(2);
+    });
+
+    it('still flags destructures carrying context-like keys', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            [
+                `import { McpServer } from '@modelcontextprotocol/server';`,
+                `server.registerTool('t', {}, async (args, { signal, sessionId }) => ({ content: [] }));`,
+                ''
+            ].join('\n')
+        );
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('Destructuring of context parameter'))).toBe(true);
+    });
+});
+
+describe('fallback handler and annotated context params (B5, #152)', () => {
+    function apply(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMPORT = `import { McpServer } from '@modelcontextprotocol/server';\n`;
+
+    it('remaps fallbackRequestHandler assignments', () => {
+        const code =
+            IMPORT +
+            [
+                `server.fallbackRequestHandler = async (request, extra) => {`,
+                `    extra.sendNotification(note);`,
+                `    return { ok: true };`,
+                `};`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('(request, ctx)');
+        expect(text).toContain('ctx.mcpReq.notify(note)');
+    });
+
+    it('remaps accesses on parameters annotated with a context type alias', () => {
+        const code =
+            IMPORT +
+            [
+                `type ToolExtra = ServerContext;`,
+                `class Host {`,
+                `    private screenParty(args: unknown, extra: ToolExtra) {`,
+                `        extra.sendRequest(req, schema);`,
+                `        return extra.authInfo;`,
+                `    }`,
+                `}`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.send(req, schema)');
+        expect(text).toContain('extra.http?.authInfo');
+    });
+
+    it('remaps direct ServerContext annotations on free functions', () => {
+        const code = IMPORT + [`function helper(extra: ServerContext) {`, `    return extra.signal;`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.signal');
+    });
+
+    it('does not remap shadowed inner parameters with the same name', () => {
+        const code =
+            IMPORT +
+            [`function helper(extra: ServerContext) {`, `    return items.map((extra: ItemMeta) => extra.signal);`, `}`, ''].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('=> extra.signal');
+        expect(text).not.toContain('mcpReq');
+    });
+
+    it('resolves alias-of-alias annotations and nullable widening', () => {
+        const code =
+            IMPORT +
+            [
+                `type A = ServerContext;`,
+                `type B = A;`,
+                `function h1(extra: B) { return extra.signal; }`,
+                `function h2(extra: ServerContext | undefined) { return extra?.signal; }`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('function h1(extra: B) { return extra.mcpReq.signal; }');
+        expect(text).toContain('return extra?.mcpReq.signal;');
+    });
+
+    it('accepts direct aliases whose generic arguments contain unions', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type Extra = RequestHandlerExtra<ServerRequest | PingRequest, ServerNotification>;`,
+            `function h(extra: Extra) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('extra.mcpReq.signal');
+    });
+
+    it('does not remap intersection aliases involving a context type', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type Augmented = ServerContext & { tenant: string };`,
+            `function h(extra: Augmented) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.signal;');
+        expect(result.diagnostics.some(d => d.message.includes('cannot remap'))).toBe(true);
+    });
+
+    it('does not remap wrapper aliases that merely mention a context type', () => {
+        const code = [
+            `import { McpServer } from '@modelcontextprotocol/server';`,
+            `type ToolCallContext = { mcp: ServerContext; signal: AbortSignal };`,
+            `function run(extra: ToolCallContext) {`,
+            `    return extra.signal;`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.signal;');
+        expect(text).not.toContain('mcpReq');
+        const advisory = result.diagnostics.find(d => d.message.includes('cannot remap'));
+        expect(advisory).toBeDefined();
+        expect(advisory?.advisoryOnly).toBe(true);
+    });
+
+    it('advises on context-mentioning annotations it cannot remap', () => {
+        const code = IMPORT + [`function pool(extra: Map<string, ServerContext>) { return extra.size; }`, ''].join('\n');
+        const { text, result } = apply(code);
+        expect(text).toContain('return extra.size;');
+        const diag = result.diagnostics.find(d => d.message.includes('cannot remap'));
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+
+    it('preserves optional chaining in processed callbacks', () => {
+        const code =
+            IMPORT +
+            [
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    return { content: [], note: extra?.sessionId };`,
+                `});`,
+                ''
+            ].join('\n');
+        const { text } = apply(code);
+        expect(text).toContain('ctx?.sessionId');
+    });
+
+    it('notes contexts forwarded wholesale to helpers', () => {
+        const code =
+            IMPORT +
+            [
+                `server.registerTool('t', {}, async (args, extra) => {`,
+                `    if (!hasScope(extra)) throw new Error('denied');`,
+                `    return { content: [] };`,
+                `});`,
+                ''
+            ].join('\n');
+        const { result } = apply(code);
+        const diag = result.diagnostics.find(d => d.message.includes('forwarded to hasScope'));
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+});
+
+describe('v1 mock context literals in tests (test doubles)', () => {
+    function apply(code: string) {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', code);
+        const result = contextTypesTransform.apply(sourceFile, { projectType: 'server' });
+        return { text: sourceFile.getFullText(), result };
+    }
+    const IMPORT = `import { McpServer } from '@modelcontextprotocol/server';\n`;
+    const findMockDiag = (diags: Diagnostic[]) => diags.find(d => d.message.includes('v1 handler-context mock'));
+
+    it('advises (without rewriting) on a v1 context mock passed inline as a call argument', () => {
+        const code = IMPORT + [`const r = await handler({}, { sendRequest: mockSendRequest });`, ''].join('\n');
+        const { text, result } = apply(code);
+        // Advisory only — the literal is left untouched.
+        expect(text).toContain('{ sendRequest: mockSendRequest }');
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+        expect(diag?.message).toContain('sendRequest → mcpReq.send');
+    });
+
+    it('advises on a v1 context mock bound to a variable, and notes sessionId stays top-level', () => {
+        const code = IMPORT + [`const extra = { sessionId: 'session-1', sendRequest: fn };`, `await handler(args, extra);`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+        expect(diag?.message).toContain('sessionId stays top-level');
+    });
+
+    it('advises on the _meta/requestId progress-notification mock shape', () => {
+        const code = IMPORT + [`await handler({ duration: 1 }, { _meta: {}, requestId: 'test-123' });`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.message).toContain('requestId → mcpReq.id');
+    });
+
+    it('advises when two generic context keys appear together (no distinctive key)', () => {
+        const code = IMPORT + [`await handler(args, { signal: ac.signal, sessionId: 's' });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeDefined();
+    });
+
+    it('does not advise on an already-migrated v2 context mock', () => {
+        const code = IMPORT + [`await handler({}, { mcpReq: { send: fn } });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a non-context object literal', () => {
+        const code = IMPORT + [`const config = { title: 'x', description: 'y' };`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a lone generic key (needs a distinctive key or >=2 context keys)', () => {
+        const code = IMPORT + [`doThing({ signal: ac.signal });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a lone requestId (a bare correlation-ID literal, not a context mock)', () => {
+        const code = IMPORT + [`logger.info('handling lookup', { requestId: args.id });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('advises on a cast-wrapped inline mock (`{ … } as unknown as RequestHandlerExtra`)', () => {
+        const code = IMPORT + [`await handler(args, { sendRequest: fn } as unknown as RequestHandlerExtra);`, ''].join('\n');
+        const { result } = apply(code);
+        const diag = findMockDiag(result.diagnostics);
+        expect(diag).toBeDefined();
+        expect(diag?.advisoryOnly).toBe(true);
+    });
+
+    it('advises on a cast-wrapped variable mock (`const ctx = { … } as any`)', () => {
+        const code = IMPORT + [`const mockCtx = { requestId: 1, sendRequest: fn } as any;`, `await handler(args, mockCtx);`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeDefined();
+    });
+
+    it('does not advise on already-v2 values (an options object reading ctx.mcpReq / ctx.sessionId)', () => {
+        const code = IMPORT + [`doThing({ signal: ctx.mcpReq.signal, sessionId: ctx.sessionId });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it("does not re-flag the codemod's own migrated handler output", () => {
+        const code =
+            IMPORT +
+            [
+                `server.setRequestHandler('x', async (req, extra) => {`,
+                `    await loadData(req.uri, { signal: extra.signal, sessionId: extra.sessionId });`,
+                `    return {};`,
+                `});`,
+                ''
+            ].join('\n');
+        const { text, result } = apply(code);
+        // sanity: the handler body WAS migrated to the v2 nested shape …
+        expect(text).toContain('ctx.mcpReq.signal');
+        // … and the resulting options object is not mistaken for a stale v1 mock.
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a flat MessageExtraInfo literal passed to onmessage', () => {
+        const code = IMPORT + [`transport.onmessage(msg, { requestInfo: req, authInfo });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
+    });
+
+    it('does not advise on a flat MessageExtraInfo literal passed to handleMessage', () => {
+        const code = IMPORT + [`await transport.handleMessage(msg, { authInfo, closeSSEStream: fn });`, ''].join('\n');
+        const { result } = apply(code);
+        expect(findMockDiag(result.diagnostics)).toBeUndefined();
     });
 });

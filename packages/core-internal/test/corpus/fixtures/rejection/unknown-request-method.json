@@ -1,0 +1,11 @@
+{
+    "description": "A request whose method is unknown to the receiver is answered with -32601 Method not found.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "vendor/definitely-unknown",
+        "params": {}
+    },
+    "expect": "error-response",
+    "errorCode": -32601
+}

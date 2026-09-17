@@ -1,0 +1,11 @@
+{
+    "description": "A request envelope with an unknown top-level sibling is not a valid JSON-RPC message; dispatch reports it out-of-band and sends no response.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "ping",
+        "params": {},
+        "extraTop": true
+    },
+    "expect": "onerror"
+}

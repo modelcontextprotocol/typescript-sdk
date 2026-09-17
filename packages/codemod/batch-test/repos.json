@@ -1,40 +1,14 @@
 [
     {
-        "repo": "modelcontextprotocol/servers",
+        "repo": "firebase/firebase-tools",
         "ref": "main",
         "packages": [
             {
-                "dir": "src/everything",
-                "sourceDir": ".",
+                "dir": ".",
+                "sourceDir": "src/mcp",
                 "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
-                    "test": "npm run test",
-                    "lint": "npm run prettier:check"
-                }
-            }
-        ]
-    },
-    {
-        "repo": "modelcontextprotocol/inspector",
-        "ref": "main",
-        "packages": [
-            {
-                "dir": "client",
-                "sourceDir": "src",
-                "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
-                    "test": "npm run test",
-                    "lint": "npm run lint"
-                }
-            },
-            {
-                "dir": "server",
-                "sourceDir": "src",
-                "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
+                    "typecheck": "npx tsc -p tsconfig.compile.json",
+                    "build": null,
                     "test": null,
                     "lint": null
                 }

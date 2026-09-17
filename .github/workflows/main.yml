@@ -2,6 +2,7 @@ on:
     push:
         branches:
             - main
+            - v2-2026-07-28
     pull_request:
     workflow_dispatch:
 
@@ -14,7 +15,7 @@ jobs:
         runs-on: ubuntu-latest
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -30,6 +31,7 @@ jobs:
             - run: pnpm install
             - run: pnpm run check:all
             - run: pnpm run build:all
+            - run: node scripts/smoke-dist-types.mjs
 
     test:
         runs-on: ubuntu-latest
@@ -39,7 +41,7 @@ jobs:
                 node-version: [20, 22, 24]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -65,7 +67,7 @@ jobs:
                 node-version: [20, 22, 24]
 
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
 
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
@@ -93,7 +95,7 @@ jobs:
                     - runtime: deno
                       version: v2.x
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
@@ -110,7 +112,7 @@ jobs:
                   bun-version: ${{ matrix.version }}
             - name: Set up Deno
               if: matrix.runtime == 'deno'
-              uses: denoland/setup-deno@667a34cdef165d8d2b2e98dde39547c9daac7282 # v2
+              uses: denoland/setup-deno@22d081ff2d3a40755e97629de92e3bcbfa7cf2ed # v2
               with:
                   deno-version: ${{ matrix.version }}
             - run: pnpm install

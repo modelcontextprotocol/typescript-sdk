@@ -1,0 +1,9 @@
+{
+  "role": "assistant",
+  "content": {
+    "type": "text",
+    "text": "Based on the current weather data:\n\n- **Paris**: 18°C and partly cloudy - quite pleasant!\n- **London**: 15°C and rainy - you'll want an umbrella.\n\nParis has slightly warmer and drier conditions today."
+  },
+  "model": "claude-3-sonnet-20240307",
+  "stopReason": "endTurn"
+}

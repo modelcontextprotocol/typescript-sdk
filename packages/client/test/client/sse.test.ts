@@ -2,8 +2,8 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
@@ -45,12 +45,14 @@ describe('SSEClientTransport', () => {
                 res.writeHead(200, {
                     'Content-Type': 'application/json'
                 });
+                // RFC 8414 §3.3: issuer must match the URL the metadata was fetched from.
+                const self = `http://${req.headers.host}`;
                 res.end(
                     JSON.stringify({
-                        issuer: 'https://auth.example.com',
-                        authorization_endpoint: 'https://auth.example.com/authorize',
-                        token_endpoint: 'https://auth.example.com/token',
-                        registration_endpoint: 'https://auth.example.com/register',
+                        issuer: self,
+                        authorization_endpoint: `${self}/authorize`,
+                        token_endpoint: `${self}/token`,
+                        registration_endpoint: `${self}/register`,
                         response_types_supported: ['code'],
                         code_challenge_methods_supported: ['S256']
                     })
@@ -317,6 +319,26 @@ describe('SSEClientTransport', () => {
             expect(fetchWithAuth).toHaveBeenCalledTimes(2);
             expect(lastServerRequest.method).toBe('POST');
             expect(lastServerRequest.headers.authorization).toBe(authToken);
+        });
+
+        it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+            // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+            // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: null as unknown as RequestInit['headers'] }
+            });
+
+            await transport.start();
+            expect(lastServerRequest.headers.accept).toBe('text/event-stream');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+            await transport.send(message);
+            expect(lastServerRequest.headers['content-type']).toBe('application/json');
         });
 
         it('passes custom headers to fetch requests', async () => {
@@ -676,6 +698,123 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
         });
 
+        it('lets the auth provider token override a stale caller-supplied Authorization header', async () => {
+            // Regression test for #2208: transport-managed headers are merged on top of
+            // requestInit.headers, so a static Authorization placeholder (e.g. an env-var
+            // API key) gives way to the provider's token on both the SSE GET and POSTs.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-placeholder',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            // SSE GET
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // POST
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('replaces a caller-supplied Authorization header regardless of name casing (Headers instance)', async () => {
+            // #2208 follow-up: `Headers` normalizes names to lowercase; the transport must
+            // still send exactly its own token, not a combined two-token value.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: new Headers({
+                        authorization: 'Bearer stale-placeholder',
+                        'x-custom-header': 'custom-value'
+                    })
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+            // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+            // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+            // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+            // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+            // a repeated *transport-managed* name is still replaced outright by the transport's
+            // own value rather than combined with it.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer stale-1'],
+                        ['Authorization', 'Bearer stale-2'],
+                        ['x-multi', 'a'],
+                        ['x-multi', 'b']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+        });
+
         it('refreshes expired token during SSE connection', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {
@@ -796,11 +935,14 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(connectionAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -949,11 +1091,14 @@ describe('SSEClientTransport', () => {
 
             await transport.send(message);
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(postAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -1036,7 +1181,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1085,10 +1230,14 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1136,7 +1285,11 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
         it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
@@ -1535,12 +1688,15 @@ describe('SSEClientTransport', () => {
             expect(tokenCalls.length).toBeGreaterThan(0);
 
             // Verify tokens were saved
-            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();

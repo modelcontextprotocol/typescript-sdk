@@ -61,6 +61,19 @@ describe('assertWireMessage', () => {
         expect(() => assertWireMessage(req('sampling/createMessage', { messages: [], maxTokens: 1 }), 'server')).not.toThrow();
     });
 
+    it('rejects an input_required server result unless the cell opted in (modern-era arms only)', () => {
+        const inputRequired = resp({
+            resultType: 'input_required',
+            inputRequests: { ask: { method: 'elicitation/create', params: { mode: 'form', message: 'Name?' } } }
+        });
+        // Default (legacy-era cells): input_required is not legal wire vocabulary.
+        expect(() => assertWireMessage(inputRequired, 'server')).toThrow(/invalid message/);
+        // Modern-era arms opt in explicitly.
+        expect(() => assertWireMessage(inputRequired, 'server', { allowInputRequiredResults: true })).not.toThrow();
+        // The opt-in never applies to client-sent results.
+        expect(() => assertWireMessage(inputRequired, 'client', { allowInputRequiredResults: true })).toThrow(/invalid message/);
+    });
+
     it('accepts a JSON-RPC error response for either party', () => {
         const err = { jsonrpc: '2.0' as const, id: 1, error: { code: -32_601, message: 'Method not found' } };
         expect(() => assertWireMessage(err, 'server')).not.toThrow();

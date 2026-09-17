@@ -1,0 +1,67 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "What's the weather like in Paris and London?"
+      }
+    },
+    {
+      "role": "assistant",
+      "content": [
+        {
+          "type": "tool_use",
+          "id": "call_abc123",
+          "name": "get_weather",
+          "input": { "city": "Paris" }
+        },
+        {
+          "type": "tool_use",
+          "id": "call_def456",
+          "name": "get_weather",
+          "input": { "city": "London" }
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "content": [
+        {
+          "type": "tool_result",
+          "toolUseId": "call_abc123",
+          "content": [
+            {
+              "type": "text",
+              "text": "Weather in Paris: 18°C, partly cloudy"
+            }
+          ]
+        },
+        {
+          "type": "tool_result",
+          "toolUseId": "call_def456",
+          "content": [
+            {
+              "type": "text",
+              "text": "Weather in London: 15°C, rainy"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather for a city",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": { "type": "string" }
+        },
+        "required": ["city"]
+      }
+    }
+  ],
+  "maxTokens": 1000
+}

@@ -1,0 +1,10 @@
+{
+  "resultType": "complete",
+  "content": [
+    {
+      "type": "text",
+      "text": "Current weather in New York:\nTemperature: 72°F\nConditions: Partly cloudy"
+    }
+  ],
+  "isError": false
+}

@@ -41,9 +41,9 @@ const WRANGLER_BIN = (() => {
 })();
 
 /**
- * Create an installable tarball of `@modelcontextprotocol/server` without mutating the workspace.
+ * Create an installable tarball of a workspace package without mutating the workspace.
  *
- * Running `pnpm pack` inside `packages/server` is not an option here: its `prepack` hook rebuilds
+ * Running `pnpm pack` inside the package is not an option here: its `prepack` hook rebuilds
  * the package in place (tsdown with `clean: true`), deleting and rewriting `packages/server/dist`
  * while the rest of the test run is still going. Anything that node-resolves the workspace
  * packages at that moment — most notably suites that spawn child processes importing
@@ -53,15 +53,15 @@ const WRANGLER_BIN = (() => {
  *
  * Returns the tarball's file name; the tarball itself is written into `tempDir`.
  */
-function packServerPackage(tempDir: string): string {
-    const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
-    const stagingDir = path.join(tempDir, 'package-staging');
+function packWorkspacePackage(tempDir: string, packageDirName: string): string {
+    const pkgPath = path.resolve(__dirname, `../../../../packages/${packageDirName}`);
+    const stagingDir = path.join(tempDir, `package-staging-${packageDirName}`);
     fs.mkdirSync(stagingDir, { recursive: true });
 
     // Build the publishable bundle with its output redirected away from the workspace's
-    // packages/server/dist (the CLI flag overrides `outDir` from tsdown.config.ts).
+    // own dist/ (the CLI flag overrides `outDir` from tsdown.config.ts).
     execSync(`pnpm exec tsdown --out-dir "${path.join(stagingDir, 'dist')}"`, {
-        cwd: serverPkgPath,
+        cwd: pkgPath,
         stdio: 'pipe',
         timeout: 60_000
     });
@@ -69,7 +69,7 @@ function packServerPackage(tempDir: string): string {
     // Write a publish-shaped manifest into the staging dir: drop lifecycle scripts and
     // devDependencies, and resolve pnpm-only `catalog:`/`workspace:` specifiers to the versions
     // installed in the workspace — the same substitution `pnpm pack` performs when publishing.
-    const manifest = JSON.parse(fs.readFileSync(path.join(serverPkgPath, 'package.json'), 'utf8')) as {
+    const manifest = JSON.parse(fs.readFileSync(path.join(pkgPath, 'package.json'), 'utf8')) as {
         scripts?: unknown;
         devDependencies?: unknown;
         dependencies?: Record<string, string>;
@@ -79,7 +79,7 @@ function packServerPackage(tempDir: string): string {
     const dependencies = manifest.dependencies ?? {};
     for (const [name, spec] of Object.entries(dependencies)) {
         if (spec.startsWith('catalog:') || spec.startsWith('workspace:')) {
-            const installed = JSON.parse(fs.readFileSync(path.join(serverPkgPath, 'node_modules', name, 'package.json'), 'utf8')) as {
+            const installed = JSON.parse(fs.readFileSync(path.join(pkgPath, 'node_modules', name, 'package.json'), 'utf8')) as {
                 version: string;
             };
             dependencies[name] = installed.version;
@@ -270,8 +270,12 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 
         try {
             // Pack the server package into the temp dir without touching the workspace's own
-            // dist/ — see packServerPackage for why the plain `pnpm pack` route is unsafe here.
-            const tarballName = packServerPackage(tempDir);
+            // dist/ — see packWorkspacePackage for why the plain `pnpm pack` route is unsafe here.
+            // Also pack @modelcontextprotocol/core from the workspace: the packed server resolves
+            // `@modelcontextprotocol/core/internal` at runtime, and the registry copy of core may
+            // not carry that subpath yet — the test must exercise the workspace pair together.
+            const tarballName = packWorkspacePackage(tempDir, 'server');
+            const coreTarballName = packWorkspacePackage(tempDir, 'core');
 
             // Write package.json
             const pkgJson = {
@@ -279,6 +283,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
                 private: true,
                 type: 'module',
                 dependencies: {
+                    '@modelcontextprotocol/core': `file:./${coreTarballName}`,
                     '@modelcontextprotocol/server': `file:./${tarballName}`
                 }
             };

@@ -2,7 +2,7 @@ name: Conformance Tests
 
 on:
     push:
-        branches: [main]
+        branches: [main, v2-2026-07-28]
     pull_request:
     workflow_dispatch:
 
@@ -17,7 +17,7 @@ jobs:
     client-conformance:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
@@ -30,11 +30,12 @@ jobs:
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:client:all
+            - run: pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:2026
 
     server-conformance:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v6
+            - uses: actions/checkout@v7
             - name: Install pnpm
               uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
               with:
@@ -48,3 +49,5 @@ jobs:
             - run: pnpm run build:all
             - run: pnpm run test:conformance:server
             - run: pnpm run test:conformance:server:draft
+            - run: pnpm run test:conformance:server:extensions
+            - run: pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:2026

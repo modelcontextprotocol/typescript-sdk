@@ -1,4 +1,4 @@
-import { OAuthTokenRevocationRequestSchema } from '@modelcontextprotocol/core';
+import { OAuthTokenRevocationRequestSchema } from '@modelcontextprotocol/core-internal';
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 import express from 'express';

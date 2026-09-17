@@ -1,0 +1,11 @@
+{
+    "description": "JSON-RPC batch arrays were removed in 2025-06-18; an array message is rejected at classification.",
+    "message": [
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "ping"
+        }
+    ],
+    "expect": "onerror"
+}

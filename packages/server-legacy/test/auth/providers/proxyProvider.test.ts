@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { ProxyOAuthServerProvider, ProxyOptions } from '../../../src/auth/providers/proxyProvider';
 import { AuthInfo } from '../../../src/auth/types';
-import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import { ServerError } from '../../../src/auth/errors';
 import { InvalidTokenError } from '../../../src/auth/errors';
 import { InsufficientScopeError } from '../../../src/auth/errors';
@@ -105,6 +105,14 @@ describe('Proxy OAuth Server Provider', () => {
             expectedUrl.searchParams.set('resource', 'https://api.example.com/resource');
 
             expect(mockResponse.redirect).toHaveBeenCalledWith(expectedUrl.toString());
+        });
+
+        it('reports authorizationResponseIssParameterSupported = false (upstream issues the callback)', () => {
+            // The proxy cannot guarantee its own `iss` on the callback, so the metadata flag
+            // derived from the provider must be false — otherwise RFC 9207 clients reject any
+            // callback that arrives *without* `iss`. (A present upstream `iss` still mismatches
+            // the proxy issuer regardless of this flag.)
+            expect(provider.authorizationResponseIssParameterSupported).toBe(false);
         });
     });
 

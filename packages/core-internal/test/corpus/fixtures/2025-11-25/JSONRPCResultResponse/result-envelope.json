@@ -1,0 +1,12 @@
+{
+    "jsonrpc": "2.0",
+    "id": 1,
+    "result": {
+        "content": [
+            {
+                "type": "text",
+                "text": "72F, partly cloudy"
+            }
+        ]
+    }
+}

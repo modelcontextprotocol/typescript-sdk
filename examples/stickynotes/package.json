@@ -1,0 +1,24 @@
+{
+    "name": "@mcp-examples/stickynotes",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "dual",
+        "//": "All four transport/era legs. The elicitation-confirmed remove_all path is exercised on stdio/legacy only (push-style server→client requests need a bidirectional connection that saw initialize; createMcpHandler's stateless legacy fallback has none); the modern and http legs exercise add/list/read/remove and skip remove_all."
+    }
+}

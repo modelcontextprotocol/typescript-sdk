@@ -1,5 +1,5 @@
 import { metadataHandler } from '../../../src/auth/handlers/metadata';
-import { OAuthMetadata } from '@modelcontextprotocol/core';
+import { OAuthMetadata } from '@modelcontextprotocol/core-internal';
 import express from 'express';
 import supertest from 'supertest';
 

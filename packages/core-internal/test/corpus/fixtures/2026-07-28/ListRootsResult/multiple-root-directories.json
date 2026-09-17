@@ -1,0 +1,12 @@
+{
+  "roots": [
+    {
+      "uri": "file:///home/user/repos/frontend",
+      "name": "Frontend Repository"
+    },
+    {
+      "uri": "file:///home/user/repos/backend",
+      "name": "Backend Repository"
+    }
+  ]
+}

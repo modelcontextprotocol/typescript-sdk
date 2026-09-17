@@ -1,0 +1,315 @@
+{
+    "revision": "2026-07-28",
+    "source": {
+        "repo": "modelcontextprotocol/modelcontextprotocol",
+        "path": "schema/draft/examples",
+        "commit": "71e306956a4959c9655e5036be215d41986596e6"
+    },
+    "regenerate": "pnpm fetch:spec-examples --spec-dir <spec-checkout>   # or [sha] to fetch from GitHub",
+    "directoryCount": 87,
+    "fileCount": 128,
+    "directories": {
+        "AudioContent": [
+            "audio-wav-content.json"
+        ],
+        "BlobResourceContents": [
+            "image-file-contents.json"
+        ],
+        "BooleanSchema": [
+            "boolean-input-schema.json"
+        ],
+        "CallToolRequest": [
+            "call-tool-request.json"
+        ],
+        "CallToolRequestParams": [
+            "get-weather-tool-call-params.json",
+            "tool-call-params-with-progress-token.json"
+        ],
+        "CallToolResult": [
+            "invalid-tool-input-error.json",
+            "result-with-array-structured-content.json",
+            "result-with-structured-content.json",
+            "result-with-unstructured-text.json"
+        ],
+        "CallToolResultResponse": [
+            "call-tool-result-response.json"
+        ],
+        "CancelledNotification": [
+            "user-requested-cancellation.json"
+        ],
+        "CancelledNotificationParams": [
+            "user-requested-cancellation.json"
+        ],
+        "ClientCapabilities": [
+            "elicitation-form-and-url-mode-support.json",
+            "elicitation-form-only-implicit.json",
+            "extensions-ui-mime-types.json",
+            "roots-minimum-baseline-support.json",
+            "sampling-context-inclusion-support-deprecated.json",
+            "sampling-minimum-baseline-support.json",
+            "sampling-tool-use-support.json"
+        ],
+        "CompleteRequest": [
+            "completion-request.json"
+        ],
+        "CompleteRequestParams": [
+            "prompt-argument-completion-with-context.json",
+            "prompt-argument-completion.json"
+        ],
+        "CompleteResult": [
+            "multiple-completion-values-with-more-available.json",
+            "single-completion-value.json"
+        ],
+        "CompleteResultResponse": [
+            "completion-result-response.json"
+        ],
+        "CreateMessageRequest": [
+            "sampling-request.json"
+        ],
+        "CreateMessageRequestParams": [
+            "basic-request.json",
+            "follow-up-with-tool-results.json",
+            "request-with-tools.json"
+        ],
+        "CreateMessageResult": [
+            "final-response.json",
+            "text-response.json",
+            "tool-use-response.json"
+        ],
+        "DiscoverRequest": [
+            "server-discover-request.json"
+        ],
+        "DiscoverResult": [
+            "server-capabilities-discovery.json"
+        ],
+        "DiscoverResultResponse": [
+            "discover-result-response.json"
+        ],
+        "ElicitRequest": [
+            "elicitation-request.json"
+        ],
+        "ElicitRequestFormParams": [
+            "elicit-multiple-fields.json",
+            "elicit-single-field.json"
+        ],
+        "ElicitRequestURLParams": [
+            "elicit-sensitive-data.json"
+        ],
+        "ElicitResult": [
+            "accept-url-mode-no-content.json",
+            "input-multiple-fields.json",
+            "input-single-field.json"
+        ],
+        "EmbeddedResource": [
+            "embedded-file-resource-with-annotations.json"
+        ],
+        "GetPromptRequest": [
+            "get-prompt-request.json"
+        ],
+        "GetPromptRequestParams": [
+            "get-code-review-prompt.json"
+        ],
+        "GetPromptResult": [
+            "code-review-prompt.json"
+        ],
+        "GetPromptResultResponse": [
+            "get-prompt-result-response.json"
+        ],
+        "HeaderMismatchError": [
+            "header-mismatch.json"
+        ],
+        "ImageContent": [
+            "image-png-content-with-annotations.json"
+        ],
+        "InputRequests": [
+            "elicitation-and-sampling-input-requests.json"
+        ],
+        "InputRequiredResult": [
+            "input-required-result-with-elicitation-and-sampling-and-request-state.json",
+            "input-required-result-with-request-state-only.json"
+        ],
+        "InputResponses": [
+            "elicitation-and-sampling-input-responses.json"
+        ],
+        "InternalError": [
+            "unexpected-error.json"
+        ],
+        "InvalidParamsError": [
+            "invalid-cursor.json",
+            "invalid-tool-arguments.json",
+            "unknown-prompt.json",
+            "unknown-tool.json"
+        ],
+        "ListPromptsRequest": [
+            "list-prompts-request.json"
+        ],
+        "ListPromptsResult": [
+            "prompts-list-with-cursor-and-ttl.json"
+        ],
+        "ListPromptsResultResponse": [
+            "list-prompts-result-response.json"
+        ],
+        "ListResourcesRequest": [
+            "list-resources-request.json"
+        ],
+        "ListResourcesResult": [
+            "resources-list-with-cursor-and-ttl.json"
+        ],
+        "ListResourcesResultResponse": [
+            "list-resources-result-response.json"
+        ],
+        "ListResourceTemplatesRequest": [
+            "list-resource-templates-request.json"
+        ],
+        "ListResourceTemplatesResult": [
+            "resource-templates-list-with-cursor-and-ttl.json"
+        ],
+        "ListResourceTemplatesResultResponse": [
+            "list-resource-templates-result-response.json"
+        ],
+        "ListRootsRequest": [
+            "list-roots-request.json"
+        ],
+        "ListRootsResult": [
+            "multiple-root-directories.json",
+            "single-root-directory.json"
+        ],
+        "ListToolsRequest": [
+            "list-tools-request.json"
+        ],
+        "ListToolsResult": [
+            "tools-list-with-cursor-and-ttl.json"
+        ],
+        "ListToolsResultResponse": [
+            "list-tools-result-response.json"
+        ],
+        "LoggingMessageNotification": [
+            "log-database-connection-failed.json"
+        ],
+        "LoggingMessageNotificationParams": [
+            "log-database-connection-failed.json"
+        ],
+        "MethodNotFoundError": [
+            "prompts-not-supported.json"
+        ],
+        "MissingRequiredClientCapabilityError": [
+            "missing-elicitation-capability.json"
+        ],
+        "ModelPreferences": [
+            "with-hints-and-priorities.json"
+        ],
+        "NumberSchema": [
+            "number-input-schema.json"
+        ],
+        "PaginatedRequestParams": [
+            "list-with-cursor.json"
+        ],
+        "ParseError": [
+            "invalid-json.json"
+        ],
+        "ProgressNotification": [
+            "progress-message.json"
+        ],
+        "ProgressNotificationParams": [
+            "progress-message.json"
+        ],
+        "PromptListChangedNotification": [
+            "prompts-list-changed.json"
+        ],
+        "ReadResourceRequest": [
+            "read-resource-request.json"
+        ],
+        "ReadResourceResult": [
+            "file-resource-contents.json"
+        ],
+        "ReadResourceResultResponse": [
+            "read-resource-result-response-with-ttl.json",
+            "read-resource-result-response.json"
+        ],
+        "Resource": [
+            "file-resource-with-annotations.json"
+        ],
+        "ResourceLink": [
+            "file-resource-link.json"
+        ],
+        "ResourceListChangedNotification": [
+            "resources-list-changed.json"
+        ],
+        "ResourceUpdatedNotification": [
+            "file-resource-updated-notification.json"
+        ],
+        "ResourceUpdatedNotificationParams": [
+            "file-resource-updated.json"
+        ],
+        "Root": [
+            "project-directory.json"
+        ],
+        "SamplingMessage": [
+            "multiple-content-blocks.json",
+            "single-content-block.json"
+        ],
+        "ServerCapabilities": [
+            "completions-minimum-baseline-support.json",
+            "extensions-tasks.json",
+            "logging-minimum-baseline-support.json",
+            "prompts-list-changed-notifications.json",
+            "prompts-minimum-baseline-support.json",
+            "resources-all-notifications.json",
+            "resources-list-changed-notifications-only.json",
+            "resources-minimum-baseline-support.json",
+            "resources-subscription-to-individual-resource-updates-only.json",
+            "tools-list-changed-notifications.json",
+            "tools-minimum-baseline-support.json"
+        ],
+        "StringSchema": [
+            "email-input-schema.json"
+        ],
+        "SubscriptionsAcknowledgedNotification": [
+            "listen-acknowledged.json"
+        ],
+        "SubscriptionsListenRequest": [
+            "listen-for-list-changes.json"
+        ],
+        "SubscriptionsListenResult": [
+            "listen-closed.json"
+        ],
+        "TextContent": [
+            "text-content.json"
+        ],
+        "TextResourceContents": [
+            "text-file-contents.json"
+        ],
+        "TitledMultiSelectEnumSchema": [
+            "titled-color-multi-select-schema.json"
+        ],
+        "TitledSingleSelectEnumSchema": [
+            "titled-color-select-schema.json"
+        ],
+        "Tool": [
+            "tool-with-array-output-schema.json",
+            "tool-with-composition-input-schema.json",
+            "with-default-2020-12-input-schema.json",
+            "with-explicit-draft-07-input-schema.json",
+            "with-no-parameters.json",
+            "with-output-schema-for-structured-content.json"
+        ],
+        "ToolListChangedNotification": [
+            "tools-list-changed.json"
+        ],
+        "ToolResultContent": [
+            "get-weather-tool-result.json"
+        ],
+        "ToolUseContent": [
+            "get-weather-tool-use.json"
+        ],
+        "UnsupportedProtocolVersionError": [
+            "unsupported-version.json"
+        ],
+        "UntitledMultiSelectEnumSchema": [
+            "color-multi-select-schema.json"
+        ],
+        "UntitledSingleSelectEnumSchema": [
+            "color-select-schema.json"
+        ]
+    }
+}

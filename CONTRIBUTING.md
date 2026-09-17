@@ -51,7 +51,7 @@ By the time you open a PR, the "what" and "why" should already be settled in an 
 
 This repository has two main branches:
 
-- **`main`** – v2 of the SDK (currently in development). This is a monorepo with split packages.
+- **`main`** – v2 of the SDK (the stable release line). This is a monorepo with split packages.
 - **`v1.x`** – stable v1 release. Bug fixes and patches for v1 should target this branch.
 
 **Which branch should I use as a base?**
@@ -112,16 +112,19 @@ Then:
 
 ### Running Examples
 
-See [`examples/server/README.md`](examples/server/README.md) and [`examples/client/README.md`](examples/client/README.md) for a full list of runnable examples.
+See [`examples/README.md`](examples/README.md) for the full list of runnable examples — one self-verifying client/server pair per directory.
 
 Quick start:
 
 ```bash
-# Run a server example
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
+# Run any story's server
+pnpm --filter @mcp-examples/tools server -- --http --port 3000
 
-# Run a client example (in another terminal)
-pnpm --filter @modelcontextprotocol/examples-client exec tsx src/simpleStreamableHttp.ts
+# Run its client (in another terminal)
+pnpm --filter @mcp-examples/tools client -- --http http://127.0.0.1:3000/
+
+# Run every story over every transport × era leg
+pnpm run:examples
 ```
 
 ## Releasing v1.x Patches

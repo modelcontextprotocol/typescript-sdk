@@ -7,7 +7,8 @@ export default defineConfig({
     entry: ['src/index.ts'],
 
     // 2. Output Configuration
-    format: ['esm'],
+    format: ['esm', 'cjs'],
+    fixedExtension: true,
     outDir: 'dist',
     clean: true, // Recommended: Cleans 'dist' before building
     sourcemap: true,
@@ -28,7 +29,7 @@ export default defineConfig({
         // consumers already have its types). `paths: {}` disables the dev source
         // mappings; `preserveSymlinks` keeps `node_modules` in the resolved path so
         // rolldown-plugin-dts recognises the dep as external instead of inlining the
-        // whole upstream type graph (which OOMs once core's surface gets large enough).
+        // whole upstream type graph (which OOMs once core-internal's surface gets large enough).
         //
         // TODO: drop this override once tsdown pulls rolldown-plugin-dts >=0.21.0
         // (sxzz/rolldown-plugin-dts@03998d41 honours rolldown `external` before the

@@ -1,0 +1,26 @@
+{
+    "name": "@mcp-examples/repl",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "ajv": "catalog:runtimeShared",
+        "express": "catalog:runtimeServerOnly",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@types/express": "catalog:devTools",
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "excluded": "interactive REPL — run manually"
+    }
+}

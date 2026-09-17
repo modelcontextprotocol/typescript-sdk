@@ -1,0 +1,23 @@
+{
+  "_meta": {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": {
+      "name": "ExampleClient",
+      "version": "1.0.0"
+    },
+    "io.modelcontextprotocol/clientCapabilities": {}
+  },
+  "ref": {
+    "type": "ref/prompt",
+    "name": "code_review"
+  },
+  "argument": {
+    "name": "framework",
+    "value": "fla"
+  },
+  "context": {
+    "arguments": {
+      "language": "python"
+    }
+  }
+}

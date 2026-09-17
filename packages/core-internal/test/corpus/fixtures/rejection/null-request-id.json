@@ -1,0 +1,9 @@
+{
+    "description": "A request id of null is invalid (ids are strings or integers); the message is rejected at classification.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": null,
+        "method": "ping"
+    },
+    "expect": "onerror"
+}

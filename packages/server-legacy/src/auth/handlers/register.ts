@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/core';
-import { OAuthClientMetadataSchema } from '@modelcontextprotocol/core';
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/core-internal';
+import { OAuthClientMetadataSchema } from '@modelcontextprotocol/core-internal';
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 import express from 'express';

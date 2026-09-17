@@ -12,6 +12,10 @@ export interface Diagnostic {
     line: number;
     message: string;
     category?: 'v2-gap';
+    /** Heuristic "verify this" advisories: dropped by the runner for files no transform changed, so re-runs over migrated trees stay quiet. */
+    advisoryOnly?: boolean;
+    /** Machine-readable marker for cross-stage plumbing (e.g. the runner feeding manifest edits). */
+    tag?: 'zod-injected';
     insertComment?: boolean;
     resolveCurrentLine?: () => number;
 }
@@ -56,6 +60,17 @@ export interface PackageJsonChange {
     added: string[];
     removed: string[];
     packageJsonPath: string;
+    /**
+     * True for the manifest the codemod writes (the nearest one walking up from the
+     * target directory) — or, under dry-run, the one it would write. False entries
+     * describe edits to other manifests — typically workspace members — that are
+     * reported for the user to apply themselves; those are never written.
+     */
+    applied: boolean;
+    /** Context on how the change set was computed (e.g. hoisted member usage credited to this manifest). */
+    notes?: string[];
+    /** Manifest-level findings that need the user's attention (e.g. an incompatible zod range). */
+    warnings?: string[];
 }
 
 export interface RunnerResult {
@@ -63,6 +78,10 @@ export interface RunnerResult {
     totalChanges: number;
     diagnostics: Diagnostic[];
     fileResults: FileResult[];
-    packageJsonChanges?: PackageJsonChange;
+    packageJsonChanges?: PackageJsonChange[];
     commentCount: number;
+    /** Source files importing a v2 `@modelcontextprotocol/*` package after the run. */
+    mcpImportFiles: number;
+    /** Source files still importing the v1 `@modelcontextprotocol/sdk` package after the run (possible under `--transforms` subsets). */
+    v1ImportFiles: number;
 }

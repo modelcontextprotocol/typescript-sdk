@@ -47,7 +47,7 @@
  */
 
 import { readFileSync, writeFileSync, readdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -484,6 +484,11 @@ function findMarkdownFiles(dir: string): string[] {
   const files: string[] = [];
   const entries = readdirSync(dir, { withFileTypes: true, recursive: true });
 
+  // Generated API reference markdown (docs/api/, produced by `pnpm docs:api`) is skipped — its
+  // fences carry source="..." attributes copied from JSDoc whose relative paths don't resolve
+  // from the generated location.
+  const generatedApiDir = join(dir, 'api') + sep;
+
   for (const entry of entries) {
     if (!entry.isFile()) continue;
 
@@ -491,6 +496,8 @@ function findMarkdownFiles(dir: string): string[] {
     if (!entry.name.endsWith('.md')) continue;
 
     const fullPath = join(entry.parentPath, entry.name);
+    if (fullPath.startsWith(generatedApiDir)) continue;
+
     files.push(fullPath);
   }
 
@@ -498,30 +505,53 @@ function findMarkdownFiles(dir: string): string[] {
 }
 
 /**
+ * Directory names that are never descended into when looking for package sources.
+ *
+ * `node_modules` is the critical one: pnpm fills it with symlinks pointing back
+ * into the store, whose packages link onward in turn. Entering it means walking
+ * that graph along every distinct link path, re-visiting the same directories
+ * over and over.
+ *
+ * `batch-test` holds the codemod's cloned fixture repositories — whole external
+ * monorepos that `pnpm-workspace.yaml` already excludes from the workspace, and
+ * whose sources this script must never rewrite.
+ */
+const SKIPPED_DIRS = new Set(['node_modules', 'dist', 'batch-test']);
+
+/**
  * Find all package src directories under the packages directory.
+ *
+ * Descends explicitly rather than using `readdirSync`'s `recursive` option. That
+ * option follows symlinks and collects every entry it visits into a single array
+ * before returning, so filtering unwanted directories out of the result is too
+ * late to keep the walk bounded — the traversal has already happened.
+ *
  * @param packagesDir The packages directory
  * @returns Array of absolute paths to src directories
  */
 function findPackageSrcDirs(packagesDir: string): string[] {
   const srcDirs: string[] = [];
-  const entries = readdirSync(packagesDir, {
-    withFileTypes: true,
-    recursive: true,
-  });
 
-  for (const entry of entries) {
-    if (!entry.isDirectory()) continue;
-    if (entry.name !== 'src') continue;
+  const descend = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      // isDirectory() is false for a symlink, so pnpm's links are never entered.
+      if (!entry.isDirectory()) continue;
+      if (SKIPPED_DIRS.has(entry.name)) continue;
 
-    const fullPath = join(entry.parentPath, entry.name);
+      const fullPath = join(dir, entry.name);
 
-    // Only include src dirs that are direct children of a package
-    // (e.g., packages/core/src, packages/middleware/express/src)
-    // Skip nested src dirs like node_modules/*/src
-    if (fullPath.includes('node_modules')) continue;
+      // A package owns a single src dir; everything below it is that package's
+      // own tree, which findSourceFiles walks.
+      if (entry.name === 'src') {
+        srcDirs.push(fullPath);
+        continue;
+      }
 
-    srcDirs.push(fullPath);
-  }
+      descend(fullPath);
+    }
+  };
+
+  descend(packagesDir);
 
   return srcDirs;
 }

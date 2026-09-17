@@ -1,0 +1,23 @@
+{
+  "role": "assistant",
+  "content": [
+    {
+      "type": "tool_use",
+      "id": "call_abc123",
+      "name": "get_weather",
+      "input": {
+        "city": "Paris"
+      }
+    },
+    {
+      "type": "tool_use",
+      "id": "call_def456",
+      "name": "get_weather",
+      "input": {
+        "city": "London"
+      }
+    }
+  ],
+  "model": "claude-3-sonnet-20240307",
+  "stopReason": "toolUse"
+}

@@ -1,0 +1,15 @@
+{
+  "type": "array",
+  "title": "Color Selection",
+  "description": "Choose your favorite colors",
+  "minItems": 1,
+  "maxItems": 2,
+  "items": {
+    "anyOf": [
+      { "const": "#FF0000", "title": "Red" },
+      { "const": "#00FF00", "title": "Green" },
+      { "const": "#0000FF", "title": "Blue" }
+    ]
+  },
+  "default": ["#FF0000", "#00FF00"]
+}

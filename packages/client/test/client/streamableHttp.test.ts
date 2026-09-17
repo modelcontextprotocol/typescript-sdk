@@ -1,5 +1,5 @@
-import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
@@ -149,6 +149,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
@@ -176,6 +177,123 @@ describe('StreamableHTTPClientTransport', () => {
         const lastCall = calls.at(-1)!;
         expect(lastCall[1].headers).toBeDefined();
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
+    });
+
+    it('should not store session ID from an error response, then store it from a later successful initialize', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        // A failed initialize (e.g. a legacy server rejecting a version probe) that carries a session ID
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 400,
+            statusText: 'Bad Request',
+            text: () => Promise.resolve('Bad Request'),
+            headers: new Headers({ 'mcp-session-id': 'poisoned-session-id' })
+        });
+
+        await expect(transport.send(message)).rejects.toThrow();
+        expect(transport.sessionId).toBeUndefined();
+
+        // The fallback initialize succeeds and its session ID is captured
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'real-session-id' })
+        });
+
+        await transport.send(message);
+        expect(transport.sessionId).toBe('real-session-id');
+    });
+
+    it('should not attach a session ID to an initialize POST, clear a stale ID on a sessionless handshake, and adopt a newly returned one', async () => {
+        const initMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        const staleTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+
+        // Sessionless handshake: the response carries no session ID
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream' })
+        });
+
+        await staleTransport.send(initMessage);
+
+        const initCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+        expect(initCall[1].headers.get('mcp-session-id')).toBeNull();
+
+        // The sessionless handshake cleared the stale ID, so an ordinary request carries none
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await staleTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBeNull();
+
+        await staleTransport.close().catch(() => {});
+
+        // When the handshake DOES return a new ID, subsequent requests carry it instead of the preset
+        const replacedTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'preset-session-id'
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'new-session-id' })
+        });
+
+        await replacedTransport.send(initMessage);
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await replacedTransport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+        expect((globalThis.fetch as Mock).mock.calls.at(-1)![1].headers.get('mcp-session-id')).toBe('new-session-id');
+
+        await replacedTransport.close().catch(() => {});
+    });
+
+    it('should ignore a session ID on a successful non-initialize response', async () => {
+        const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'session-a'
+        });
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers({ 'mcp-session-id': 'session-b' })
+        });
+
+        await sessionTransport.send({ jsonrpc: '2.0', method: 'notifications/roots/list_changed' } as JSONRPCMessage);
+        expect(sessionTransport.sessionId).toBe('session-a');
+
+        await sessionTransport.close().catch(() => {});
     });
 
     it('should accept protocolVersion constructor option and include it in request headers', async () => {
@@ -212,6 +330,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
@@ -252,6 +371,7 @@ describe('StreamableHTTPClientTransport', () => {
             method: 'initialize',
             params: {
                 clientInfo: { name: 'test-client', version: '1.0' },
+                capabilities: {},
                 protocolVersion: '2025-03-26'
             },
             id: 'init-id'
@@ -460,6 +580,15 @@ describe('StreamableHTTPClientTransport', () => {
         ).toBe(true);
     });
 
+    it('declares hasPerRequestStream so the protocol layer routes 2026-era cancellation to stream-close', () => {
+        // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
+        // closing the per-request SSE stream IS the cancel signal on
+        // Streamable HTTP. Protocol.request() keys on this flag (plus the
+        // negotiated era) to abort `requestSignal` instead of POSTing
+        // `notifications/cancelled`.
+        expect(transport.hasPerRequestStream).toBe(true);
+    });
+
     it('should support custom reconnection options', () => {
         // Create a transport with custom reconnection options
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
@@ -626,6 +755,169 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
 
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('OAuth-derived Authorization overrides a stale caller-supplied Authorization', async () => {
+        // Regression test for #2208: the SDK-derived common headers must be
+        // merged on top of caller-supplied headers, so OAuth-derived tokens
+        // (or any SDK-computed value) win over a stale placeholder the
+        // caller might have set in `requestInit.headers` (e.g. an env-var
+        // API key that's no longer valid).
+        const tokens: OAuthTokens = {
+            access_token: 'oauth-access-token',
+            token_type: 'Bearer'
+        };
+        mockAuthProvider.tokens.mockResolvedValue(tokens);
+        const requestInit = {
+            headers: {
+                Authorization: 'Bearer stale-placeholder',
+                'mcp-protocol-version': 'caller-supplied',
+                'X-Caller-Header': 'preserved'
+            }
+        };
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit,
+            authProvider: mockAuthProvider
+        });
+        transport.setProtocolVersion('2025-03-26');
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        // On the SSE GET: the OAuth-derived token wins over the stale placeholder, and so
+        // does the transport-managed protocol version.
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        // Caller-supplied non-auth headers still pass through.
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+
+        // Same precedence on POST.
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+        expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([
+        [
+            'a Headers instance',
+            (): NonNullable<RequestInit['headers']> =>
+                new Headers({
+                    authorization: 'Bearer stale-placeholder',
+                    'MCP-Protocol-Version': 'caller-supplied',
+                    'x-caller-header': 'preserved'
+                })
+        ],
+        [
+            'a lowercase plain object',
+            (): NonNullable<RequestInit['headers']> => ({
+                authorization: 'Bearer stale-placeholder',
+                'MCP-Protocol-Version': 'caller-supplied',
+                'x-caller-header': 'preserved'
+            })
+        ],
+        [
+            'a tuple array',
+            (): NonNullable<RequestInit['headers']> => [
+                ['authorization', 'Bearer stale-placeholder'],
+                ['MCP-Protocol-Version', 'caller-supplied'],
+                ['x-caller-header', 'preserved']
+            ]
+        ]
+    ])('transport-managed headers replace caller-supplied ones regardless of name casing (%s)', async (_label, makeHeaders) => {
+        // #2208 follow-up: header names compare case-insensitively. A `Headers` instance
+        // normalizes names to lowercase and a caller may spell them any way; a key-exact
+        // object merge would keep both spellings and the Fetch `Headers` constructor would
+        // then combine them into one two-token value. The transport must send exactly its
+        // own value.
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 'oauth-access-token', token_type: 'Bearer' });
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { headers: makeHeaders() },
+            authProvider: mockAuthProvider
+        });
+        transport.setProtocolVersion('2025-03-26');
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-03-26');
+        expect((actualReqInit.headers as Headers).get('x-caller-header')).toBe('preserved');
+    });
+
+    it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+        // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+        // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+        // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+        // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+        // a repeated *transport-managed* name is still replaced outright by the transport's
+        // own value rather than combined with it.
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 'oauth-access-token', token_type: 'Bearer' });
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: [
+                    ['Authorization', 'Bearer stale-1'],
+                    ['Authorization', 'Bearer stale-2'],
+                    ['x-multi', 'a'],
+                    ['x-multi', 'b']
+                ]
+            },
+            authProvider: mockAuthProvider
+        });
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('x-multi')).toBe('a, b');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer oauth-access-token');
+        expect((actualReqInit.headers as Headers).get('x-multi')).toBe('a, b');
+    });
+
+    it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+        // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+        // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: { headers: null as unknown as RequestInit['headers'] }
+        });
+
+        let actualReqInit: RequestInit = {};
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+        await transport['_startOrAuthSse']({});
+        expect(actualReqInit.headers).toBeInstanceOf(Headers);
+        expect((actualReqInit.headers as Headers).get('accept')).toContain('text/event-stream');
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(actualReqInit.headers).toBeInstanceOf(Headers);
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
     });
 
@@ -931,11 +1223,14 @@ describe('StreamableHTTPClientTransport', () => {
         expect(new Headers(secondPost[1]?.headers).get('authorization')).toBe('Bearer new-access-token');
         expect(firstPost[1]?.body).toBe(JSON.stringify(message));
         expect(secondPost[1]?.body).toBe(JSON.stringify(message));
-        expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-            access_token: 'new-access-token',
-            token_type: 'Bearer',
-            refresh_token: 'new-refresh-token'
-        });
+        expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+            expect.objectContaining({
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                refresh_token: 'new-refresh-token'
+            }),
+            expect.anything()
+        );
         expect(mockAuthProvider.redirectToAuthorization).not.toHaveBeenCalled();
     });
 
@@ -977,11 +1272,14 @@ describe('StreamableHTTPClientTransport', () => {
         // Verify fetch was called twice
         expect(fetchMock).toHaveBeenCalledTimes(2);
 
-        // Verify auth was called with the new scope
+        // Verify auth was called with the union scope (no prior scope → just the
+        // challenged scope) and forced fresh authorization (no prior token scope
+        // means the union is a strict superset of the empty grant).
         expect(authSpy).toHaveBeenCalledWith(
             mockAuthProvider,
             expect.objectContaining({
                 scope: 'new_scope',
+                forceReauthorization: true,
                 resourceMetadataUrl: new URL('http://example.com/resource')
             })
         );
@@ -989,7 +1287,7 @@ describe('StreamableHTTPClientTransport', () => {
         authSpy.mockRestore();
     });
 
-    it('prevents infinite upscoping on repeated 403', async () => {
+    it('caps step-up retries per send (bounded counter)', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -1014,19 +1312,94 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth'), 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        // First send: should trigger upscoping
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+        // First send: one step-up retry (default cap = 1), then fails.
+        await expect(transport.send(message)).rejects.toThrow(/403 insufficient_scope after step-up re-authorization/);
 
         expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
         expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
 
-        // Second send: should fail immediately without re-calling auth
+        // Second send: counter is per-send-chain, not transport-wide — a fresh
+        // send tries step-up once again (cross-request tracking is host
+        // responsibility).
         fetchMock.mockClear();
         authSpy.mockClear();
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+        await expect(transport.send(message)).rejects.toThrow(/403 insufficient_scope after step-up re-authorization/);
 
-        expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
-        expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(authSpy).toHaveBeenCalledTimes(1);
+
+        authSpy.mockRestore();
+    });
+
+    it('step-up scope is the union of transport-tracked, token-granted, and challenged scopes', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: mockAuthProvider,
+            maxStepUpRetries: 2
+        });
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 't', token_type: 'Bearer', scope: 'a b' });
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' };
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="b c"' }),
+                text: () => Promise.resolve('')
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="d"' }),
+                text: () => Promise.resolve('')
+            })
+            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+        const authModule = await import('../../src/client/auth');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        expect(authSpy).toHaveBeenCalledTimes(2);
+        // First step-up: union(undefined, token 'a b', challenge 'b c') = 'a b c'
+        expect(authSpy.mock.calls[0]![1].scope?.split(' ').sort()).toEqual(['a', 'b', 'c']);
+        // Second step-up: union(tracked 'a b c', token 'a b', challenge 'd') = 'a b c d'
+        expect(authSpy.mock.calls[1]![1].scope?.split(' ').sort()).toEqual(['a', 'b', 'c', 'd']);
+
+        authSpy.mockRestore();
+    });
+
+    it("throws InsufficientScopeError on 403 when onInsufficientScope is 'throw'", async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: mockAuthProvider,
+            onInsufficientScope: 'throw'
+        });
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' };
+
+        (globalThis.fetch as Mock).mockResolvedValue({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+                'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="files:write", error_description="needs write"'
+            }),
+            text: () => Promise.resolve('Insufficient scope')
+        });
+
+        const authModule = await import('../../src/client/auth');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        const { InsufficientScopeError } = await import('../../src/client/authErrors');
+
+        const sendPromise = transport.send(message);
+        await expect(sendPromise).rejects.toBeInstanceOf(InsufficientScopeError);
+        await expect(sendPromise).rejects.toMatchObject({
+            requiredScope: 'files:write',
+            errorDescription: 'needs write'
+        });
+        expect(authSpy).not.toHaveBeenCalled();
 
         authSpy.mockRestore();
     });
@@ -1255,6 +1628,407 @@ describe('StreamableHTTPClientTransport', () => {
             // The response was received, so no need to reconnect.
             expect(fetchMock).toHaveBeenCalledTimes(1);
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
+        });
+
+        it('per-request requestSignal abort: no onerror, no reconnect (McpSubscription.close())', async () => {
+            // ARRANGE — a POST stream that has been primed with an SSE event id
+            // (server-side resumability), so without the per-request abort
+            // guard the transport WOULD schedule a GET+Last-Event-ID reconnect.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    // Priming event with an id — would arm POST-stream resumability.
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                // Propagate abort to the stream the way fetch does.
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: primedStream
+                });
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — McpSubscription.close() aborts the per-request signal.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — intentional per-request abort: no onerror, no reconnect.
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
+            // ARRANGE — a POST stream with NO priming event id (so the
+            // graceful-close path does NOT schedule a reconnect): the
+            // per-request stream simply ends.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const unprimedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    // An ack frame with no SSE event id — does NOT arm POST-stream resumability.
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{}}\n\n'
+                        )
+                    );
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: unprimedStream
+                })
+            );
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(onStreamEnd).not.toHaveBeenCalled();
+
+            // ACT — server gracefully closes the SSE stream.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ASSERT — non-deliberate stream end without reconnecting:
+            // onRequestStreamEnd fired exactly once; no further fetches.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('onRequestStreamEnd does NOT fire on a deliberate per-request abort', async () => {
+            // Same shape as the no-onerror/no-reconnect test, but assert the
+            // stream-end callback is NEVER invoked when `requestSignal` was the
+            // abort source.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: stream
+                });
+            });
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — deliberate per-request abort.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — deliberate abort: onRequestStreamEnd never fires.
+            expect(onStreamEnd).not.toHaveBeenCalled();
+        });
+
+        it('onRequestStreamEnd fires when reconnection attempts are exhausted (maxRetries reached)', async () => {
+            // ARRANGE — a primed POST stream (so a non-deliberate close
+            // schedules a GET resume); every GET resume fails; maxRetries 1
+            // means the second schedule hits the exhausted branch.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedStream
+            });
+            // The GET resume fails with a 5xx → reconnect catch reschedules → exhausted.
+            fetchMock.mockResolvedValue({ ok: false, status: 503, statusText: 'unavailable', headers: new Headers() });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(onStreamEnd).not.toHaveBeenCalled();
+
+            // ACT — server closes the primed POST stream non-deliberately.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — exhausted: onRequestStreamEnd fired exactly once (the
+            // max-retries branch); the exhausted onerror surfaced.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('Maximum reconnection attempts') })
+            );
+        });
+
+        it('onRequestStreamEnd fires when the per-request POST stream ERRORS without reconnecting', async () => {
+            // ARRANGE — a POST stream with NO priming event id; the body
+            // errors (network drop). The error-branch `else` (no reconnect,
+            // not intentional-abort) must fire onRequestStreamEnd.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const failingStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{}}\n\n'
+                        )
+                    );
+                    queueMicrotask(() => controller.error(new Error('network drop')));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — error-branch fired exactly once; no reconnection
+            // attempted (POST stream wasn't primed).
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('onRequestStreamEnd does NOT fire on transport.close()', async () => {
+            // The transport-wide abort is the OTHER deliberate teardown
+            // (`isIntentionalAbort()` checks both signals): a per-request
+            // stream-end callback must not fire when close() tore the stream
+            // down — `_onclose` is the settle path for that.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: stream
+                });
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — transport-wide close.
+            await transport.close();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — deliberate transport close: onRequestStreamEnd never fires.
+            expect(onStreamEnd).not.toHaveBeenCalled();
+        });
+
+        it('onRequestStreamEnd fires when a primed POST→GET resume hits 405 (non-resumable terminal)', async () => {
+            // R1 regression: against a server that stamps SSE event ids on the
+            // listen POST stream but returns 405 on the GET resume,
+            // `_startOrAuthSse` resolved without a stream and nothing fired —
+            // the subscription dead-ended silently. The 405 is now a terminal
+            // per-request stream-end. ALSO asserts the GET resume carried the
+            // per-request `requestSignal` (the close-after-reconnect path).
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5,
+                    maxRetries: 3,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            let getSignal: AbortSignal | null | undefined;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedStream
+            });
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                getSignal = init.signal;
+                return Promise.resolve({ ok: false, status: 405, headers: new Headers() });
+            });
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — server closes the primed POST stream → schedules a GET resume → 405.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — onRequestStreamEnd fired exactly once on the 405; the
+            // resume was a single GET (no further retries — 405 resolves).
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
+            // requestSignal threaded through the GET reconnect: aborting the
+            // per-request signal aborts the resume's fetch signal.
+            expect(getSignal).toBeDefined();
+            expect(getSignal?.aborted).toBe(false);
+            requestAbort.abort();
+            expect(getSignal?.aborted).toBe(true);
+        });
+
+        it('per-request requestSignal abort BEFORE response headers: no misleading onerror; send() still rejects', async () => {
+            // ARRANGE — fetch is in flight (pending promise) when the
+            // requestSignal aborts; fetch rejects with AbortError before the
+            // SSE stream handler ever runs. _send's catch must apply the same
+            // intentional-abort guard as _handleSseStream.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+                    })
+            );
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            const sent = transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            // Let _send reach the in-flight fetch.
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — abort before headers.
+            requestAbort.abort(new Error('intentional'));
+
+            // ASSERT — send() rejects (so listen()'s send-catch settles), but no onerror.
+            await expect(sent).rejects.toThrow();
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
+        it('anySignal fallback removes the sibling listener (no leak on the transport-lifetime signal)', async () => {
+            // ARRANGE — force the manual fallback path (Node 20.0–20.2).
+            const nativeAny = AbortSignal.any;
+            (AbortSignal as { any?: unknown }).any = undefined;
+            try {
+                transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+                const fetchMock = globalThis.fetch as Mock;
+                fetchMock.mockResolvedValue({ ok: true, status: 202, headers: new Headers() });
+                await transport.start();
+
+                const transportSignal = (transport as unknown as { _abortController: AbortController })._abortController.signal;
+                const addSpy = vi.spyOn(transportSignal, 'addEventListener');
+                const removeSpy = vi.spyOn(transportSignal, 'removeEventListener');
+
+                // ACT — N sends each with a fresh request-scoped signal that
+                // aborts after the send completes (the McpSubscription.close()
+                // pattern). Each send registers one fallback listener on the
+                // transport-lifetime signal; aborting the request-scoped
+                // signal must remove it.
+                for (let i = 0; i < 5; i++) {
+                    const requestAbort = new AbortController();
+                    await transport.send(
+                        { jsonrpc: '2.0', method: 'subscriptions/listen', id: `listen-${i}`, params: {} },
+                        { requestSignal: requestAbort.signal }
+                    );
+                    requestAbort.abort();
+                }
+
+                // ASSERT — every listener registered on the transport-lifetime
+                // signal was removed; nothing accrues per send().
+                expect(addSpy.mock.calls.length).toBeGreaterThan(0);
+                expect(removeSpy.mock.calls.length).toBe(addSpy.mock.calls.length);
+            } finally {
+                (AbortSignal as { any?: unknown }).any = nativeAny;
+            }
         });
 
         it('should NOT reconnect a POST stream when error response was received', async () => {
@@ -1752,12 +2526,15 @@ describe('StreamableHTTPClientTransport', () => {
             expect(tokenCalls.length).toBeGreaterThan(0);
 
             // Verify tokens were saved
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
 
             // Global fetch should never have been called
             expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -2031,12 +2808,15 @@ describe('StreamableHTTPClientTransport', () => {
             expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect((error as SdkHttpError).status).toBe(401);
             expect((error as SdkHttpError).statusText).toBe('Unauthorized');
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'refresh-token' // Refresh token is preserved
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'refresh-token' // Refresh token is preserved
+                }),
+                expect.anything()
+            );
         });
     });
 

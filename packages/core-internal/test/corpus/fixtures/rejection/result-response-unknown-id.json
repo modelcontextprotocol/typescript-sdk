@@ -1,0 +1,9 @@
+{
+    "description": "A result response whose id matches no in-flight request is reported out-of-band.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 99,
+        "result": {}
+    },
+    "expect": "onerror"
+}

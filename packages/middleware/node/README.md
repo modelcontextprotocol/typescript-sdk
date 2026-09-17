@@ -16,6 +16,13 @@ npm install @modelcontextprotocol/server @modelcontextprotocol/node
 
 - `NodeStreamableHTTPServerTransport`
 - `StreamableHTTPServerTransportOptions` (type alias for `WebStandardStreamableHTTPServerTransportOptions`)
+- `toNodeHandler(handler, opts?)` — adapt a web-standard `{ fetch }` MCP handler to a Node `(req, res, parsedBody?)` handler
+- `hostHeaderValidation(allowedHostnames)` / `localhostHostValidation()` — `Host` header guards for hand-wired `node:http` servers
+- `originValidation(allowedOriginHostnames)` / `localhostOriginValidation()` — `Origin` header guards for hand-wired `node:http` servers
+- `ToNodeHandlerOptions`, `FetchLikeMcpHandler`, `NodeMcpRequestHandler` (types for `toNodeHandler`)
+- `toWebRequest(req, parsedBody?, opts?)` — the Node `IncomingMessage` → web-standard `Request` conversion `toNodeHandler` performs internally, exported on its own (for example to feed `isLegacyRequest()` from a hand-wired `(req, res)` handler)
+- `ToWebRequestOptions` (options type for `toWebRequest`)
+- `NodeIncomingMessageLike`, `NodeServerResponseLike` (structural Node request/response shapes)
 
 ## Usage
 
@@ -40,16 +47,27 @@ app.post('/mcp', async (req, res) => {
 
 ### Node.js `http` server
 
+Plain `node:http` has no middleware chain, so bind loopback explicitly and
+compose the `Host`/`Origin` guards in front of the transport — matching the
+defaults the framework app factories (`createMcpExpressApp`,
+`createMcpHonoApp`, `createMcpFastifyApp`) apply for you. The guards answer
+rejected requests with `403` themselves and return `false`, so the handler
+must not touch the request further.
+
 ```ts
 import { createServer } from 'node:http';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { localhostHostValidation, localhostOriginValidation, NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
+const validateHost = localhostHostValidation();
+const validateOrigin = localhostOriginValidation();
+
 createServer(async (req, res) => {
+    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res);
-}).listen(3000);
+}).listen(3000, '127.0.0.1');
 ```
