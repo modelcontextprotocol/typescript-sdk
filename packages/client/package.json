@@ -40,6 +40,16 @@
                 "default": "./dist/stdio.cjs"
             }
         },
+        "./ext/tasks": {
+            "import": {
+                "types": "./dist/ext/tasks/index.d.mts",
+                "default": "./dist/ext/tasks/index.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/tasks/index.d.cts",
+                "default": "./dist/ext/tasks/index.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -115,6 +125,9 @@
             ],
             "stdio": [
                 "dist/stdio.d.mts"
+            ],
+            "ext/tasks": [
+                "dist/ext/tasks/index.d.mts"
             ]
         }
     },
