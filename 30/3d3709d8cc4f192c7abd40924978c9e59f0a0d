@@ -1,0 +1,25 @@
+examples/README.md
+  s_a5c48038294d8c::t_1c06ed39d5e7e1 57
+examples/ext-tasks/README.md
+  s_a5c48038294d8c::t_b7a278b6c3e556 1,8-10
+pnpm-lock.yaml
+  s_a5c48038294d8c::t_81cbfacd3142ce 597,604,607,610,613
+scripts/examples/run-examples.ts
+  s_a5c48038294d8c::t_5e94c5ede82dc3 191
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "303d3709d8cc4f192c7abd40924978c9e59f0a0d",
+  "prompts": {},
+  "sessions": {
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
