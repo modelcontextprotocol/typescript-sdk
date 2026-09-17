@@ -1218,8 +1218,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const init = {
                 ...this._requestInit,
                 method: 'DELETE',
-                headers,
-                signal: this._abortController?.signal
+                headers
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
