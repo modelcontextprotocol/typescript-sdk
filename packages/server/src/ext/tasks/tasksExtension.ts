@@ -94,7 +94,6 @@ const updateTaskHandlerParamsSchema = getTaskParamsSchema.extend({ inputResponse
 
 export class TasksExtension implements ServerExtension {
     readonly id = TASKS_EXTENSION_ID;
-    readonly capability = {};
     readonly store: TaskStore;
     readonly #defaultTtlMs: number | null;
     readonly #defaultPollIntervalMs: number;

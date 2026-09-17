@@ -60,7 +60,6 @@ const ackSchema = z.looseObject({});
 
 export class TasksClientExtension implements ClientExtension {
     readonly id = TASKS_EXTENSION_ID;
-    readonly capability = {};
     #client: Client | undefined;
 
     install(client: Client): void {
