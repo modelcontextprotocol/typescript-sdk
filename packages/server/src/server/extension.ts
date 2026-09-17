@@ -1,5 +1,3 @@
-import type { JSONObject } from '@modelcontextprotocol/core-internal';
-
 import type { Server } from './server';
 
 /**
@@ -21,15 +19,10 @@ export interface ServerExtension {
     /**
      * The extension identifier, prefix-qualified (`io.modelcontextprotocol/tasks`,
      * `com.example/feature-flags`). Advertised as the key under
-     * `capabilities.extensions`.
+     * `capabilities.extensions`. Settings for that key, if any, are the
+     * extension's to register in `install` via `registerCapabilities`.
      */
     readonly id: string;
-    /**
-     * The extension's settings object, advertised as the value under
-     * `capabilities.extensions[id]`. `{}` (the default) means supported with
-     * no settings.
-     */
-    readonly capability?: JSONObject;
     /** Installs the extension's handlers and middleware onto the server. Called once, at construction. */
     install(server: Server): void;
 }

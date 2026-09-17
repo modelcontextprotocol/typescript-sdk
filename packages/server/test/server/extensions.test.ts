@@ -52,9 +52,9 @@ async function exchange(server: Server, request: JSONRPCRequest): Promise<Record
 function gateExtension(log: string[]): ServerExtension {
     return {
         id: EXT_ID,
-        capability: { exampleData: true },
         install(server) {
             log.push('installed');
+            server.registerCapabilities({ extensions: { [EXT_ID]: { exampleData: true } } });
             server.setRequestHandler('gate/status', { params: z.looseObject({}) }, () => ({ armed: true }));
             server.use('tools/call', (request, ctx, next) => {
                 const envelope = ctx.mcpReq.envelope as Record<string, Record<string, unknown>> | undefined;
@@ -72,14 +72,14 @@ function gateExtension(log: string[]): ServerExtension {
 }
 
 describe('ServerOptions.extensions', () => {
-    it('advertises the extension capability and installs it at construction', () => {
+    it('advertises the extension and lets install set its settings', () => {
         const log: string[] = [];
         const server = new Server({ name: 's', version: '1' }, { extensions: [gateExtension(log)] });
         expect(log).toEqual(['installed']);
         expect(server.getCapabilities().extensions).toEqual({ [EXT_ID]: { exampleData: true } });
     });
 
-    it('defaults the advertised settings to {} and passes through McpServer', () => {
+    it('advertises {} when install sets no settings, and passes through McpServer', () => {
         const ext: ServerExtension = { id: 'com.example/plain', install: () => {} };
         const mcp = new McpServer({ name: 's', version: '1' }, { extensions: [ext] });
         expect(mcp.server.getCapabilities().extensions).toEqual({ 'com.example/plain': {} });

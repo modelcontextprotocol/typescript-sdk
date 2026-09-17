@@ -21,9 +21,9 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 20));
 function gateExtension(log: string[]): ClientExtension {
     return {
         id: EXT_ID,
-        capability: { exampleData: true },
         install(client) {
             log.push('installed');
+            client.registerCapabilities({ extensions: { [EXT_ID]: { exampleData: true } } });
             client.setRequestHandler('gate/ping', { params: z.looseObject({}) }, () => ({ pong: true }));
             client.acceptResultType('tools/call', 'task');
         }
@@ -90,7 +90,7 @@ describe('ClientOptions.extensions', () => {
         expect(log).toEqual(['installed']);
     });
 
-    it('defaults the advertised settings to {}', async () => {
+    it('advertises {} when install sets no settings', async () => {
         const { clientTx, written } = await scriptedServer('legacy');
         const client = new Client({ name: 'c', version: '1' }, { extensions: [{ id: 'com.example/plain', install: () => {} }] });
         await client.connect(clientTx);

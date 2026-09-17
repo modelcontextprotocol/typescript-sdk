@@ -1,5 +1,3 @@
-import type { JSONObject } from '@modelcontextprotocol/core-internal';
-
 import type { Client } from './client';
 
 /**
@@ -9,6 +7,7 @@ import type { Client } from './client';
  *
  * Pass extensions at construction — `new Client(info, { extensions: [ext] })`.
  * The client advertises each extension under `capabilities.extensions[id]`
+ * (as `{}`: supported, no settings)
  * (in `initialize` on a legacy connection, in every request's
  * `_meta` client-capabilities envelope on a 2026-07-28 connection) and then
  * calls `install`, which is where the extension registers handlers for
@@ -20,15 +19,10 @@ export interface ClientExtension {
     /**
      * The extension identifier, prefix-qualified (`io.modelcontextprotocol/tasks`,
      * `com.example/feature-flags`). Advertised as the key under
-     * `capabilities.extensions`.
+     * `capabilities.extensions`. Settings for that key, if any, are the
+     * extension's to register in `install` via `registerCapabilities`.
      */
     readonly id: string;
-    /**
-     * The extension's settings object, advertised as the value under
-     * `capabilities.extensions[id]`. `{}` (the default) means supported with
-     * no settings.
-     */
-    readonly capability?: JSONObject;
     /** Installs the extension's handlers and middleware onto the client. Called once, at construction. */
     install(client: Client): void;
 }

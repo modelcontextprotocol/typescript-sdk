@@ -360,7 +360,7 @@ export class Server extends Protocol<ServerContext> {
         }
 
         for (const extension of options?.extensions ?? []) {
-            this.registerCapabilities({ extensions: { [extension.id]: extension.capability ?? {} } });
+            this.registerCapabilities({ extensions: { [extension.id]: {} } });
             extension.install(this);
         }
     }
