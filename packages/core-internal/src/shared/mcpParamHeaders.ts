@@ -351,8 +351,7 @@ export function validateMcpParamHeaders(
             // Server MUST NOT expect the header for a null/absent value.
             continue;
         }
-        const bodyString = mcpParamPrimitiveToString(bodyRaw);
-        if (bodyString === undefined) {
+        if (typeof bodyRaw === 'object' || typeof bodyRaw === 'function') {
             // Body carries a non-primitive where the schema declares one;
             // params validation owns that fault. Skip the header check.
             continue;
@@ -372,6 +371,7 @@ export function validateMcpParamHeaders(
                 `the ${headerKey} header carries an invalid Base64 sentinel value`
             );
         }
+        const bodyString = mcpParamPrimitiveToString(bodyRaw);
         // Integer/number-typed declarations compare numerically (the spec's
         // SHOULD — `42.0` and `42` are equal). The strict-decimal gate is
         // applied to the *header* side only (so `'0x1a'`, `' 42 '`, `'1e3'`
@@ -382,9 +382,12 @@ export function validateMcpParamHeaders(
         // body-vs-schema fault that params validation owns; fall back to
         // string comparison and let dispatch emit `-32602` instead so an
         // identical non-numeric pair never reports a mismatch.
-        const numericComparable =
-            (decl.type === 'integer' || decl.type === 'number') && CANONICAL_DECIMAL.test(decoded) && typeof bodyRaw === 'number';
-        const equal = numericComparable ? Number(decoded) === bodyRaw : decoded === bodyString;
+        // Integers outside the safe-integer range cannot be compared
+        // numerically because double-precision floats lose integer precision.
+        const isSafeNumeric =
+            typeof bodyRaw === 'number' && Number.isFinite(bodyRaw) && (!Number.isInteger(bodyRaw) || Number.isSafeInteger(bodyRaw));
+        const numericComparable = (decl.type === 'integer' || decl.type === 'number') && CANONICAL_DECIMAL.test(decoded) && isSafeNumeric;
+        const equal = numericComparable ? Number(decoded) === bodyRaw : bodyString !== undefined && decoded === bodyString;
         if (!equal) {
             return paramHeaderMismatchRejection(
                 'param-header-mismatch',
