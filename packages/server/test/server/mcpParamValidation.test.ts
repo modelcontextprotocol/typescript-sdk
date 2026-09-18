@@ -34,6 +34,11 @@ const REGION_INPUT_SCHEMA = {
     properties: { region: { type: 'string', 'x-mcp-header': 'Region' }, query: { type: 'string' } }
 } as const;
 
+const COUNT_INPUT_SCHEMA = {
+    type: 'object',
+    properties: { n: { type: 'integer', 'x-mcp-header': 'N' } }
+} as const;
+
 function makeFactory(): () => McpServer {
     return () => {
         const s = new McpServer({ name: 'param-server', version: '1.0.0' });
@@ -98,6 +103,35 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(response.status).toBe(400);
         const body = (await response.json()) as { error: { code: number } };
         expect(body.error.code).toBe(-32_020);
+    });
+
+    // Nothing downstream faults an unsafe integer, so the rung must reject the missing header
+    // itself. The spy proves it happened before dispatch; the status alone would not.
+    it('an unsafe-integer body with no header is rejected 400/-32020 before the handler runs', async () => {
+        const toolHandler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ran' }] }));
+        const mcp = createMcpHandler(() => {
+            const s = new McpServer({ name: 'param-server', version: '1.0.0' });
+            s.registerTool('count', { inputSchema: fromJsonSchema<{ n?: number }>(COUNT_INPUT_SCHEMA) }, toolHandler);
+            return s;
+        });
+        // Raw JSON so 2^53 reaches the wire exactly as reported.
+        const body = `{"jsonrpc":"2.0","id":7,"method":"tools/call","params":{"name":"count","arguments":{"n":9007199254740992},"_meta":${JSON.stringify(ENVELOPE)}}}`;
+        const response = await mcp.fetch(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': MODERN,
+                    'mcp-method': 'tools/call',
+                    'mcp-name': 'count'
+                },
+                body
+            })
+        );
+        expect(response.status).toBe(400);
+        expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
+        expect(toolHandler).not.toHaveBeenCalled();
     });
 
     // sep-2243-server-not-expect-null (globally-untested manifest check).
