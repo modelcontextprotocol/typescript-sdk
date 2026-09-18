@@ -303,6 +303,38 @@ describe('createMcpHandler — modern path', () => {
         expect(closeCalls).toBe(1);
     });
 
+    it('does not grow an unbounded onclose chain when the factory reuses one instance across requests (#2607)', async () => {
+        const shared = new McpServer({ name: 'reused-server', version: '1.0.0' });
+        shared.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+
+        // Intercept assignments to the underlying Server's `onclose` field to count how many
+        // times createMcpHandler installs its inflight-tracking wrapper on this one instance.
+        let oncloseSetCount = 0;
+        let currentOnClose: (() => void) | undefined;
+        Object.defineProperty(shared.server, 'onclose', {
+            configurable: true,
+            get: () => currentOnClose,
+            set: (fn: (() => void) | undefined) => {
+                oncloseSetCount += 1;
+                currentOnClose = fn;
+            }
+        });
+
+        const handler = createMcpHandler(() => shared);
+
+        for (let i = 0; i < 5; i++) {
+            const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' })));
+            expect(response.status).toBe(200);
+        }
+
+        // Wrapped exactly once, no matter how many requests reused this instance: a growing
+        // chain here is what eventually overflows the stack when onclose finally runs.
+        expect(oncloseSetCount).toBe(1);
+        expect(() => currentOnClose?.()).not.toThrow();
+    });
+
     it('rejects a malformed envelope behind a present claim with invalid params naming the offending key', async () => {
         const { factory, state } = testFactory();
         const handler = createMcpHandler(factory);
