@@ -35,9 +35,10 @@ export class UriTemplate {
      * pass through unchanged so an already-encoded literal is not encoded twice
      * (`encodeURI` alone would turn `caf%C3%A9` into `caf%25C3%25A9`).
      *
-     * Applied to both directions: `expand()` emits the encoded form and `match()`
-     * builds its pattern from it, so an expanded URI matches the template it came
-     * from — as does the pct-encoded URI a `new URL()` round-trip produces.
+     * Applied once in the constructor, so both directions read the same literal:
+     * `expand()` emits the encoded form and `match()` builds its pattern from it.
+     * An expanded URI therefore matches the template it came from — as does the
+     * pct-encoded URI a `new URL()` round-trip produces.
      */
     private static encodeLiteral(text: string): string {
         let result = '';
@@ -71,7 +72,9 @@ export class UriTemplate {
     constructor(template: string) {
         UriTemplate.validateLength(template, MAX_TEMPLATE_LENGTH, 'Template');
         this.template = template;
-        this.parts = this.parse(template);
+        // Literals are encoded once here rather than on every expand()/match():
+        // they come from the template, so the result is the same every time.
+        this.parts = this.parse(template).map(part => (typeof part === 'string' ? UriTemplate.encodeLiteral(part) : part));
     }
 
     toString(): string {
@@ -212,7 +215,7 @@ export class UriTemplate {
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
-                result += UriTemplate.encodeLiteral(part);
+                result += part;
                 continue;
             }
 
@@ -296,9 +299,10 @@ export class UriTemplate {
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
-                // Encoded so the pattern lines up with what expand() emits: the
-                // server matches against a `new URL()` round-trip (RFC 6570 §3.1).
-                pattern += this.escapeRegExp(UriTemplate.encodeLiteral(part));
+                // Already encoded in the constructor, so the pattern lines up with
+                // what expand() emits and with the URI the server resolves through
+                // `new URL()` (RFC 6570 §3.1).
+                pattern += this.escapeRegExp(part);
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
