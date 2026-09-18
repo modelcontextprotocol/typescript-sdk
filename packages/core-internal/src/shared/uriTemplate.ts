@@ -24,6 +24,30 @@ export class UriTemplate {
             throw new Error(`${context} exceeds maximum length of ${max} characters (got ${str.length})`);
         }
     }
+
+    /**
+     * Percent-encodes a literal run per RFC 6570 §3.1.
+     *
+     * A template may be written with characters the URI grammar does not allow —
+     * `ucschar` (`file:///docs/café/`) or a space — and §3.1 requires those to be
+     * pct-encoded as UTF-8 when the template is expanded. Reserved and unreserved
+     * characters are structural and stay as written, and existing `%XX` triplets
+     * pass through unchanged so an already-encoded literal is not encoded twice
+     * (`encodeURI` alone would turn `caf%C3%A9` into `caf%25C3%25A9`).
+     *
+     * Applied to both directions: `expand()` emits the encoded form and `match()`
+     * builds its pattern from it, so an expanded URI matches the template it came
+     * from — as does the pct-encoded URI a `new URL()` round-trip produces.
+     */
+    private static encodeLiteral(text: string): string {
+        let result = '';
+        let last = 0;
+        for (const match of text.matchAll(/%[0-9A-Fa-f]{2}/g)) {
+            result += encodeURI(text.slice(last, match.index)) + match[0];
+            last = match.index + match[0].length;
+        }
+        return result + encodeURI(text.slice(last));
+    }
     private readonly template: string;
     private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
 
@@ -175,7 +199,7 @@ export class UriTemplate {
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
-                result += part;
+                result += UriTemplate.encodeLiteral(part);
                 continue;
             }
 
@@ -259,7 +283,9 @@ export class UriTemplate {
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
-                pattern += this.escapeRegExp(part);
+                // Encoded so the pattern lines up with what expand() emits: the
+                // server matches against a `new URL()` round-trip (RFC 6570 §3.1).
+                pattern += this.escapeRegExp(UriTemplate.encodeLiteral(part));
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
