@@ -2,6 +2,7 @@ import type {
     BaseMetadata,
     CacheHint,
     CallToolResult,
+    CallToolResultInput,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
@@ -1308,8 +1309,8 @@ export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args exte
     ? (
           args: InferRawShape<Args>,
           ctx: ServerContext
-      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
-    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
+      ) => CallToolResultInput | InputRequiredResult | Promise<CallToolResultInput | InputRequiredResult>
+    : (ctx: ServerContext) => CallToolResultInput | InputRequiredResult | Promise<CallToolResultInput | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
@@ -1331,7 +1332,7 @@ export type BaseToolCallback<
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
 export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult | InputRequiredResult,
+    CallToolResultInput | InputRequiredResult,
     ServerContext,
     Args
 >;
@@ -1343,6 +1344,16 @@ export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = und
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
+ */
+/**
+ * Invocation seam between a registered handler and the `tools/call` route.
+ *
+ * The declared result is the PARSED shape, while a handler may legally omit
+ * `content` (#2755) — `Server._wrapHandler` normalizes that to `content: []`
+ * before era validation, so the two agree by the time anything validates.
+ * In between they do not, which is why `appendTextFallbackForNonObject`
+ * reads `result.content ?? []`: that guard is load-bearing, not defensive
+ * habit, and must survive a reader who trusts this signature.
  */
 type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | InputRequiredResult>;
 

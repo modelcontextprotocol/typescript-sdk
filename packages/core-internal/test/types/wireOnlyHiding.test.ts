@@ -24,6 +24,7 @@ import type * as z from 'zod/v4';
 
 import type {
     CallToolResult,
+    CallToolResultInput,
     CancelTaskResult,
     CompleteResult,
     CreateMessageResult,
@@ -59,6 +60,7 @@ describe('wire-only members are hidden from the public result types', () => {
         expectTypeOf<DeclaresResultType<EmptyResult>>().toEqualTypeOf<false>();
         expectTypeOf<DeclaresResultType<InitializeResult>>().toEqualTypeOf<false>();
         expectTypeOf<DeclaresResultType<CallToolResult>>().toEqualTypeOf<false>();
+        expectTypeOf<DeclaresResultType<CallToolResultInput>>().toEqualTypeOf<false>();
         expectTypeOf<DeclaresResultType<ListToolsResult>>().toEqualTypeOf<false>();
         expectTypeOf<DeclaresResultType<ReadResourceResult>>().toEqualTypeOf<false>();
         expectTypeOf<DeclaresResultType<CompleteResult>>().toEqualTypeOf<false>();
