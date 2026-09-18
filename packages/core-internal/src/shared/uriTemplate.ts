@@ -43,10 +43,23 @@ export class UriTemplate {
         let result = '';
         let last = 0;
         for (const match of text.matchAll(/%[0-9A-Fa-f]{2}/g)) {
-            result += encodeURI(text.slice(last, match.index)) + match[0];
+            result += UriTemplate.encodeLiteralRun(text.slice(last, match.index)) + match[0];
             last = match.index + match[0].length;
         }
-        return result + encodeURI(text.slice(last));
+        return result + UriTemplate.encodeLiteralRun(text.slice(last));
+    }
+
+    /**
+     * Encodes one run of literal text that holds no `%XX` triplet.
+     *
+     * `encodeURI` escapes `[` and `]`, which RFC 3986 reserves for an IPv6 host
+     * literal — §3.1 leaves reserved characters to the template author, and
+     * `new URL('http://[::1]/x')` keeps them — so they are restored here. The
+     * restore runs per gap rather than over the whole literal, so a `%5B` the
+     * author wrote themselves still passes through as a triplet.
+     */
+    private static encodeLiteralRun(text: string): string {
+        return encodeURI(text).replaceAll('%5B', '[').replaceAll('%5D', ']');
     }
     private readonly template: string;
     private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
