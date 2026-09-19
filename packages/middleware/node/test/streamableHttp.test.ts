@@ -105,6 +105,23 @@ async function readSSEEvent(response: Response): Promise<string> {
 }
 
 /**
+ * Read from an SSE response until the accumulated text satisfies the predicate,
+ * or the stream ends. Fetch may deliver SSE events in separate chunks, so tests
+ * must not assume a single read contains every event.
+ */
+async function readSSEEventUntil(reader: ReadableStreamDefaultReader<Uint8Array>, predicate: (text: string) => boolean): Promise<string> {
+    const decoder = new TextDecoder();
+    let text = '';
+    for (;;) {
+        const { value, done } = await reader.read();
+        if (value) text += decoder.decode(value, { stream: true });
+        if (predicate(text)) break;
+        if (done) break;
+    }
+    return text;
+}
+
+/**
  * Helper to send JSON-RPC request
  */
 async function sendPostRequest(
@@ -727,9 +744,8 @@ describe('Zod v4', () => {
 
             const reader = response.body?.getReader();
 
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may arrive in any order or in separate chunks
+            const text = await readSSEEventUntil(reader!, t => t.includes('"id":"req-1"') && t.includes('"id":"req-2"'));
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1482,8 +1498,7 @@ describe('Zod v4', () => {
 
             // Read the notification from the SSE stream
             const reader = sseResponse.body?.getReader();
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            const text = await readSSEEventUntil(reader!, t => t.includes('First notification from MCP server') && t.includes('id: '));
 
             // Verify the notification was sent with an event ID
             expect(text).toContain('id: ');
@@ -1515,8 +1530,7 @@ describe('Zod v4', () => {
 
             // Read the replayed notification
             const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            const reconnectText = await readSSEEventUntil(reconnectReader!, t => t.includes('Second notification from MCP server'));
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
