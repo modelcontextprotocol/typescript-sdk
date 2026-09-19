@@ -1545,10 +1545,10 @@ describe('Zod v4', () => {
 
             expect(reconnectResponse.status).toBe(200);
 
-            // Read the replayed notification
+            // Read the replayed notification. As with the initial stream, the replayed event
+            // can arrive separately from other SSE data, so accumulate until it is present.
             const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            const reconnectText = await readUntilContains(reconnectReader!, ['id: ', 'Second notification from MCP server']);
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
