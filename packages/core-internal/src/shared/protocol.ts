@@ -1366,7 +1366,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken, headers, onRequestStreamEnd: callerOnRequestStreamEnd } = options ?? {};
+        const {
+            relatedRequestId,
+            resumptionToken,
+            onresumptiontoken,
+            headers,
+            onRequestStreamEnd: callerOnRequestStreamEnd
+        } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
         // bounds the WHOLE flow, so the budget is measured from the original
         // request, not from when an extension takes over after the first leg.
