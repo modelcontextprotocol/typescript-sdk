@@ -1116,6 +1116,19 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
@@ -1152,7 +1165,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
