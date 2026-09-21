@@ -8,7 +8,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { ElicitRequestFormParams } from '@modelcontextprotocol/core-internal';
+import type { ElicitRequestFormParams, ElicitResult } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/cfWorker';
@@ -338,7 +338,9 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should handle multiple sequential elicitation requests`, async () => {
         let requestCount = 0;
-        client.setRequestHandler('elicitation/create', request => {
+        // Annotated so each branch widens to the shared result type instead of
+        // inferring a union whose members carry `age?: undefined` etc.
+        client.setRequestHandler('elicitation/create', (request): ElicitResult => {
             requestCount++;
             if (request.params.message.includes('name')) {
                 return { action: 'accept', content: { name: 'Alice' } };
@@ -996,12 +998,12 @@ describe('declared-dialect requestedSchema (default validator)', () => {
 
         const requestedSchema = {
             $schema: 'http://json-schema.org/draft-07/schema#',
-            type: 'object',
-            properties: { name: { type: 'string', minLength: 1 } },
+            type: 'object' as const,
+            properties: { name: { type: 'string' as const, minLength: 1 } },
             required: ['name']
-        } as const;
+        };
 
-        let content: Record<string, unknown> = { name: 'John' };
+        let content: { [key: string]: string | number | boolean | string[] } = { name: 'John' };
         client.setRequestHandler('elicitation/create', () => ({ action: 'accept', content }));
 
         await expect(server.elicitInput({ mode: 'form', message: 'name?', requestedSchema })).resolves.toMatchObject({

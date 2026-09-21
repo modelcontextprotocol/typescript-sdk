@@ -36,7 +36,7 @@ const SERVER_VERSION_NONCE = randomUUID();
  */
 const WRANGLER_BIN = (() => {
     const pkgPath = createRequire(import.meta.url).resolve('wrangler/package.json');
-    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler;
+    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler!;
     return path.resolve(path.dirname(pkgPath), bin);
 })();
 
