@@ -862,7 +862,13 @@ export function applyPublicAuth(clientId: string, params: URLSearchParams): void
 
 /** Loopback hosts exempt from the in-transit `https:` requirement (RFC 8252 §7.3). */
 function isLoopbackHost(hostname: string): boolean {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+    return (
+        hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname === '::1'
+    );
 }
 
 /**
