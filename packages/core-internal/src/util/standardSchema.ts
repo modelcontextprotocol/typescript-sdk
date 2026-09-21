@@ -170,6 +170,19 @@ let warnedZodFallback = false;
 export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
 
 /**
+ * Process-wide memo for {@linkcode standardSchemaToJsonSchema}. In the
+ * per-request-factory `createMcpHandler` model the app builds a fresh
+ * `McpServer` per request, so the per-instance `_toolInputSchemaJson` memo
+ * never hits and every request re-converts every registered tool's schema.
+ * Apps in that model hoist their schema definitions to module scope, so keying
+ * by schema identity converts each schema once per process instead of once per
+ * `McpServer` instance. The WeakMap keeps entries collectible with their
+ * schema, so per-request schema objects (no reuse) cost nothing beyond one
+ * un-hittable entry that is collected with the schema.
+ */
+const jsonSchemaConversionMemo = new WeakMap<StandardJSONSchemaV1, Partial<Record<'input' | 'output', Record<string, unknown>>>>();
+
+/**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
  * MCP requires `type: "object"` at the root of tool `inputSchema` and prompt
@@ -179,8 +192,27 @@ export const JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12';
  * and throws on an explicit non-object `type` (e.g. `z.string()`). For
  * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
  * applied only when the root is provably object-shaped.
+ *
+ * Successful conversions are memoized process-wide, keyed by schema identity
+ * and `io` direction (see {@linkcode jsonSchemaConversionMemo}). Repeat calls
+ * with the same schema instance return the SAME object — callers must treat
+ * the result as read-only. A conversion that throws is not memoized, so a
+ * throwing schema keeps throwing from the same call sites it always has.
  */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
+    const memoized = jsonSchemaConversionMemo.get(schema);
+    const hit = memoized?.[io];
+    if (hit !== undefined) return hit;
+    const result = convertStandardSchemaToJsonSchema(schema, io);
+    if (memoized === undefined) {
+        jsonSchemaConversionMemo.set(schema, { [io]: result });
+    } else {
+        memoized[io] = result;
+    }
+    return result;
+}
+
+function convertStandardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output'): Record<string, unknown> {
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
