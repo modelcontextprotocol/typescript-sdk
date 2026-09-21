@@ -1496,7 +1496,8 @@ describe('OAuth Authorization', () => {
 
         it('calls saveDiscoveryState after discovery when provider implements it', async () => {
             const saveDiscoveryState = vi.fn();
-            const provider = createMockProvider({ saveDiscoveryState });
+            const saveResourceUrl = vi.fn();
+            const provider = createMockProvider({ saveDiscoveryState, saveResourceUrl });
 
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -1529,6 +1530,9 @@ describe('OAuth Authorization', () => {
                     authorizationServerMetadata: validAuthMetadata
                 })
             );
+            expect(saveResourceUrl).toHaveBeenCalledWith('https://resource.example.com');
+            const authorizationUrl = vi.mocked(provider.redirectToAuthorization).mock.calls[0]![0];
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://resource.example.com');
         });
 
         it('restores full discovery state from cache including resource metadata', async () => {
@@ -1580,7 +1584,7 @@ describe('OAuth Authorization', () => {
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -1785,6 +1789,16 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(codeVerifier).toBe('test_verifier');
+        });
+
+        it('preserves a string resource indicator without URL normalization', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                resource: 'https://api.example.com'
+            });
+
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com');
         });
 
         it('includes scope parameter when provided', async () => {
@@ -3351,6 +3365,75 @@ describe('OAuth Authorization', () => {
             const authUrl: URL = redirectCall[0];
             // Should use the PRM's resource value, not the full requested URL
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
+        });
+
+        it('sends a pathless PRM resource verbatim on the authorization and token requests (#1968)', async () => {
+            // RFC 9728 publishes the resource identifier and RFC 8707 requires it to be
+            // sent unchanged. `new URL('https://example.com').href` is 'https://example.com/',
+            // and authorization servers that match the indicator exactly (Microsoft Entra
+            // ID: AADSTS9010010) reject the extra slash.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://example.com',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['https://example.com/mcp:tools']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ access_token: 'access123', token_type: 'bearer', expires_in: 3600 })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+            (mockProvider.codeVerifier as Mock).mockResolvedValue('verifier123');
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+
+            // Authorization request: the redirect carries the metadata value byte for byte.
+            const redirectResult = await auth(mockProvider, { serverUrl: 'https://example.com/mcp' });
+            expect(redirectResult).toBe('REDIRECT');
+            const authUrl: URL = (mockProvider.redirectToAuthorization as Mock).mock.calls[0]![0];
+            expect(authUrl.searchParams.get('resource')).toBe('https://example.com');
+
+            // Token request: the authorization-code exchange sends the same value.
+            const exchangeResult = await auth(mockProvider, {
+                serverUrl: 'https://example.com/mcp',
+                authorizationCode: 'code123'
+            });
+            expect(exchangeResult).toBe('AUTHORIZED');
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
+            expect(tokenCall).toBeDefined();
+            const body = tokenCall![1].body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://example.com');
         });
 
         it('excludes resource parameter when Protected Resource Metadata is not present', async () => {

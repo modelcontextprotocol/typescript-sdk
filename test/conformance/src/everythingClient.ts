@@ -23,6 +23,7 @@ import {
 import * as z from 'zod/v4';
 
 import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider';
+import { DpopOAuthProvider } from './helpers/dpopClient';
 import { logger } from './helpers/logger';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry';
 
@@ -504,6 +505,51 @@ registerScenarios(
     ],
     runAuthClient
 );
+
+// ============================================================================
+// DPoP sender-constrained tokens (SEP-1932 / RFC 9449, draft extension)
+// ============================================================================
+
+/**
+ * Identical to {@linkcode runAuthClient} except the provider carries a DPoP session
+ * ({@linkcode DpopOAuthProvider}) — every DPoP-specific behavior (token-request proof, the
+ * `DPoP` Authorization scheme, a fresh per-request proof, AS/RS `use_dpop_nonce` retry) is the
+ * SDK's own (`@modelcontextprotocol/client`'s `dpop.ts` / `auth.ts` / `streamableHttp.ts`),
+ * exercised end-to-end here rather than re-implemented. One handler drives both `auth/dpop`
+ * (nonce-less) and `auth/dpop-nonce` — which posture runs depends only on whether the referee's
+ * authorization server / MCP server issue a nonce challenge, which the SDK reacts to automatically.
+ */
+async function runDpopAuthClient(serverUrl: string): Promise<void> {
+    const client = new Client(
+        { name: 'test-dpop-auth-client', version: '1.0.0' },
+        { capabilities: {}, versionNegotiation: { mode: 'auto' } }
+    );
+
+    const provider = new DpopOAuthProvider(
+        'http://localhost:3000/callback',
+        { client_name: 'test-dpop-auth-client', redirect_uris: ['http://localhost:3000/callback'] },
+        CIMD_CLIENT_METADATA_URL
+    );
+    const dpopFetch = withOAuthRetry('test-dpop-auth-client', new URL(serverUrl), handle401, CIMD_CLIENT_METADATA_URL, provider)(fetch);
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: dpopFetch
+    });
+
+    await client.connect(transport);
+    logger.debug('Successfully connected to MCP server (DPoP)');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await client.callTool({ name: 'test-tool', arguments: {} });
+    logger.debug('Successfully called tool');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenarios(['auth/dpop', 'auth/dpop-nonce'], runDpopAuthClient);
 
 // ============================================================================
 // Client Credentials scenarios

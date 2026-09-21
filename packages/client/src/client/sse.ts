@@ -3,7 +3,6 @@ import {
     brandedHasInstance,
     createFetchWithInit,
     JSONRPCMessageSchema,
-    normalizeHeaders,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -24,6 +23,8 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
 import type { IssuerMismatchError } from './authErrors';
 import { markAuthSeamEscape } from './authSeam';
+import type { Middleware } from './middleware';
+import { withDpopFromProvider } from './middleware';
 
 export class SseError extends Error {
     static {
@@ -95,15 +96,23 @@ export type SSEClientTransportOptions = {
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
      *
-     * NOTE: Setting this property will prevent an `Authorization` header from
-     * being automatically attached to the SSE request, if an {@linkcode SSEClientTransportOptions.authProvider | authProvider} is
-     * also given. This can be worked around by setting the `Authorization` header
-     * manually.
+     * A custom `fetch` supplied here is still wrapped by the transport: the
+     * transport-managed headers, including the `Authorization` header derived from
+     * {@linkcode SSEClientTransportOptions.authProvider | authProvider}, are attached to the
+     * SSE request and take precedence over a same-named entry in `requestInit.headers`
+     * (see {@linkcode SSEClientTransportOptions.requestInit | requestInit}).
      */
     eventSourceInit?: EventSourceInit;
 
     /**
      * Customizes recurring `POST` requests to the server.
+     *
+     * The transport-managed headers take precedence over a same-named entry in
+     * `headers`: `Authorization` when
+     * {@linkcode SSEClientTransportOptions.authProvider | authProvider} yields a token, and
+     * `mcp-protocol-version`. A caller-supplied `Authorization` value is therefore only sent
+     * while the provider has no token, which lets a static API key fall back to OAuth once
+     * the provider obtains one.
      */
     requestInit?: RequestInit;
 
@@ -132,6 +141,7 @@ export class SSEClientTransport implements Transport {
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _dpop?: Middleware;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -145,22 +155,41 @@ export class SSEClientTransport implements Transport {
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
         this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
+        this._fetch = opts?.fetch;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
             this._authProvider = adaptOAuthProvider(opts.authProvider, {
                 skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
             });
+            // SEP-1932 / RFC 9449: see the matching comment in StreamableHTTPClientTransport. The
+            // EventSource stream's fetch is wrapped at use, since `eventSourceInit.fetch` may
+            // override `_fetch` there.
+            if (opts.authProvider.dpop) {
+                this._dpop = withDpopFromProvider(opts.authProvider);
+                this._fetch = this._dpop(opts.fetch ?? fetch);
+            }
         } else {
             this._authProvider = opts?.authProvider;
         }
-        this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
     }
 
     private _last401Response?: Response;
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: RequestInit['headers'] & Record<string, string> = {};
+        // Start from the caller-supplied `requestInit.headers` and `set()` the
+        // transport-managed headers on top. `Headers.set` compares names
+        // case-insensitively, so Authorization / mcp-protocol-version replace a
+        // same-named caller entry whatever its spelling. (A plain-object spread would
+        // keep `authorization` and `Authorization` side by side, and the Fetch `Headers`
+        // constructor would then combine them into one two-token value.) This lets
+        // a stale static `Authorization` placeholder (e.g. an env-var API key) fall back
+        // to the OAuth token once the provider has one, and keeps this transport in step
+        // with StreamableHTTPClientTransport. See #2208.
+        // `|| undefined` keeps the old tolerance for a falsy `headers` value (e.g. `null`
+        // from a JS caller or a JSON config forwarded verbatim): the Fetch `Headers`
+        // constructor accepts `undefined` but throws on `null`.
+        const headers = new Headers(this._requestInit?.headers || undefined);
         let token: string | undefined;
         try {
             token = await this._authProvider?.token();
@@ -170,22 +199,19 @@ export class SSEClientTransport implements Transport {
             throw markAuthSeamEscape(error);
         }
         if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+            headers.set('Authorization', `Bearer ${token}`);
         }
         if (this._protocolVersion) {
-            headers['mcp-protocol-version'] = this._protocolVersion;
+            headers.set('mcp-protocol-version', this._protocolVersion);
         }
-
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-        return new Headers({
-            ...headers,
-            ...extraHeaders
-        });
+        return headers;
     }
 
     private _startOrAuth(): Promise<void> {
-        const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
+        const eventSourceFetch = this._eventSourceInit?.fetch;
+        const fetchImpl = (
+            eventSourceFetch ? (this._dpop?.(eventSourceFetch as FetchLike) ?? eventSourceFetch) : (this._fetch ?? fetch)
+        ) as typeof fetch;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,

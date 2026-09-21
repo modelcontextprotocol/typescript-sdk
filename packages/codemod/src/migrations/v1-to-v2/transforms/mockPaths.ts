@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
 import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics';
-import { isSdkSpecifier } from '../../../utils/importUtils';
+import { isSdkSpecifier, MOCK_CALLERS, MOCK_METHODS } from '../../../utils/importUtils';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
 import type { ImportMapping } from '../mappings/importMap';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
@@ -28,18 +28,10 @@ function routeSymbols(symbols: string[], mapping: ImportMapping): { target?: str
     return { mixed: false };
 }
 
-export const MOCK_METHODS: ReadonlySet<string> = new Set([
-    'mock',
-    'doMock',
-    'unmock',
-    'dontMock',
-    'deepUnmock',
-    'requireActual',
-    'importActual',
-    'requireMock',
-    'createMockFromModule'
-]);
-export const MOCK_CALLERS: ReadonlySet<string> = new Set(['vi', 'jest']);
+// Defined in utils/importUtils (shared with the project analyzer, which cannot import from this
+// module without a cycle — this module imports resolveTypesPackage from utils/projectAnalyzer);
+// re-exported here for existing consumers (runner.ts).
+export { MOCK_CALLERS, MOCK_METHODS } from '../../../utils/importUtils';
 
 export const mockPathsTransform: Transform = {
     name: 'Mock and dynamic import path rewrites',
