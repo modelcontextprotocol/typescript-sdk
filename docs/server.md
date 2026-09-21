@@ -140,6 +140,9 @@ server.registerTool(
 );
 ```
 
+When a tool declares an `outputSchema`, an error result (`isError: true`) may omit `structuredContent`, but whatever it does send is still validated against that schema by SDK clients. Report failures through `content` or by throwing, and keep error payloads of a different shape
+out of `structuredContent`, or the client rejects the response with `-32602` instead of handing your error to the caller.
+
 This snippet is illustrative only; for runnable servers that expose tools, see:
 
 - [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
