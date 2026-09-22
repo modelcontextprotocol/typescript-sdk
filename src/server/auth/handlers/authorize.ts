@@ -142,8 +142,16 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         let state;
         try {
             // Parse and validate authorization parameters
-            const parseResult = RequestAuthorizationParamsSchema.safeParse(req.method === 'POST' ? req.body : req.query);
+            const params = req.method === 'POST' ? req.body : req.query;
+            const parseResult = RequestAuthorizationParamsSchema.safeParse(params);
             if (!parseResult.success) {
+                // RFC 6749 §4.1.2.1: if the request contained a state, error
+                // redirects MUST echo it so the client can correlate the
+                // response. Recover it from the raw params before failing.
+                const rawState = (params as { state?: unknown }).state;
+                if (typeof rawState === 'string') {
+                    state = rawState;
+                }
                 throw new InvalidRequestError(parseResult.error.message);
             }
 
