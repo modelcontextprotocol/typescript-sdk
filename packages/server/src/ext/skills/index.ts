@@ -22,6 +22,7 @@ import {
     SKILLS_GET_METHOD,
     SKILLS_LIST_METHOD
 } from '@modelcontextprotocol/core/ext/skills';
+import { isModernProtocolVersion } from '@modelcontextprotocol/core-internal';
 import { ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal/public';
 
 import type { Server } from '../../server/server';
@@ -56,7 +57,11 @@ export interface InstallSkillsOptions {
      */
     pageSize?: number;
 
-    /** Cache hints to stamp onto `skills/list` and `skills/get` results. */
+    /**
+     * Cache hints for `skills/list` and `skills/get` on protocol revision
+     * 2026-07-28 onward. Defaults to `ttlMs: 0` and `cacheScope: 'private'`;
+     * omitted entirely from responses on older protocol revisions.
+     */
     cacheHint?: SkillsCacheHint;
 }
 
@@ -120,7 +125,10 @@ export function installSkills(server: Server, options: InstallSkillsOptions): Sk
 
     server.registerCapabilities({ extensions: { [SKILLS_EXTENSION_ID]: {} } });
 
-    const hints = cacheHint === undefined ? {} : { ttlMs: cacheHint.ttlMs ?? 0, cacheScope: cacheHint.cacheScope ?? 'private' };
+    const hints = { ttlMs: cacheHint?.ttlMs ?? 0, cacheScope: cacheHint?.cacheScope ?? 'private' };
+    // Resolve at request time: installation precedes protocol negotiation.
+    // Use the instance's negotiated era, not caller-supplied request metadata.
+    const hintsForRequest = () => (isModernProtocolVersion(server.getNegotiatedProtocolVersion() ?? '') ? hints : {});
 
     server.setRequestHandler(
         SKILLS_LIST_METHOD,
@@ -132,7 +140,7 @@ export function installSkills(server: Server, options: InstallSkillsOptions): Sk
             return {
                 skills: page,
                 ...(end < ordered.length ? { nextCursor: String(end) } : {}),
-                ...hints
+                ...hintsForRequest()
             };
         }
     );
@@ -142,7 +150,7 @@ export function installSkills(server: Server, options: InstallSkillsOptions): Sk
         if (skill === undefined) {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown skill URI: ${params.uri}`);
         }
-        return { skill, ...hints };
+        return { skill, ...hintsForRequest() };
     });
 
     return { skills: byUri };

@@ -9,13 +9,14 @@ import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
-    setNegotiatedProtocolVersion
+    setNegotiatedProtocolVersion,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
 import { SKILLS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/skills';
 import { describe, expect, it } from 'vitest';
 
-import { installSkills } from '../../../src/ext/skills';
+import { installSkills, type InstallSkillsOptions, type SkillsCacheHint } from '../../../src/ext/skills';
 import { invoke } from '../../../src/server/invoke';
 import { Server } from '../../../src/server/server';
 
@@ -39,15 +40,19 @@ const skill = (name: string): Skill => ({
     resources: [{ uri: `skill://${name}/SKILL.md`, digest: digest('a'), size: 64 }]
 });
 
-function serverWith(skills: readonly Skill[], options: { pageSize?: number; cacheHint?: { ttlMs?: number } } = {}): Server {
+function serverWith(skills: readonly Skill[], options: Omit<InstallSkillsOptions, 'skills'> = {}): Server {
     const server = new Server({ name: 'skills-server', version: '1.0.0' }, { capabilities: { resources: {} } });
     installSkills(server, { skills, ...options });
     return server;
 }
 
-async function call(server: Server, message: JSONRPCRequest): Promise<Record<string, unknown>> {
-    setNegotiatedProtocolVersion(server, MODERN_REVISION);
-    const response = await invoke(server, message, { classification: MODERN });
+async function call(
+    server: Server,
+    message: JSONRPCRequest,
+    classification: MessageClassification = MODERN
+): Promise<Record<string, unknown>> {
+    setNegotiatedProtocolVersion(server, classification.revision);
+    const response = await invoke(server, message, { classification });
     const body = (await response.json()) as Record<string, unknown>;
     return body;
 }
@@ -98,19 +103,36 @@ describe('skills/list', () => {
         expect(errorOf(await call(server, request('skills/list', { cursor: '99' }))).code).toBe(-32_602);
         expect(errorOf(await call(server, request('skills/list', { cursor: 'nope' }))).code).toBe(-32_602);
     });
+});
 
-    it('carries the era-stamped resultType and the extension-supplied cache hints', async () => {
-        const server = serverWith([skill('alpha')], { cacheHint: { ttlMs: 60_000 } });
-        const result = resultOf(await call(server, request('skills/list')));
-        expect(result['resultType']).toBe('complete');
-        expect(result['ttlMs']).toBe(60_000);
-        expect(result['cacheScope']).toBe('private');
+describe.each(['skills/list', 'skills/get'])('%s cache hints on the wire', method => {
+    const params = method === 'skills/get' ? { uri: 'skill://alpha/SKILL.md' } : {};
+    const payload = method === 'skills/get' ? { skill: skill('alpha') } : { skills: [skill('alpha')] };
+
+    it.each<{ name: string; cacheHint?: SkillsCacheHint; ttlMs: number; cacheScope: string }>([
+        { name: 'omitted', ttlMs: 0, cacheScope: 'private' },
+        { name: 'empty', cacheHint: {}, ttlMs: 0, cacheScope: 'private' },
+        { name: 'TTL only', cacheHint: { ttlMs: 60_000 }, ttlMs: 60_000, cacheScope: 'private' },
+        { name: 'scope only', cacheHint: { cacheScope: 'public' }, ttlMs: 0, cacheScope: 'public' },
+        { name: 'both', cacheHint: { ttlMs: 60_000, cacheScope: 'public' }, ttlMs: 60_000, cacheScope: 'public' }
+    ])('fills modern fields when the hint is $name', async ({ cacheHint, ttlMs, cacheScope }) => {
+        const server = serverWith([skill('alpha')], { cacheHint });
+        const result = resultOf(await call(server, request(method, params)));
+        expect(result).toMatchObject({ ...payload, resultType: 'complete', ttlMs, cacheScope });
     });
 
-    it('omits the cache fields when no hint is configured', async () => {
-        const result = resultOf(await call(serverWith([skill('alpha')]), request('skills/list')));
-        expect('ttlMs' in result).toBe(false);
-        expect('cacheScope' in result).toBe(false);
+    it.each(SUPPORTED_PROTOCOL_VERSIONS)('omits modern fields on %s even with configured hints', async revision => {
+        for (const cacheHint of [undefined, { ttlMs: 60_000, cacheScope: 'public' }] as const) {
+            const server = serverWith([skill('alpha')], { cacheHint });
+            const result = resultOf(await call(server, { jsonrpc: '2.0', id: 1, method, params }, { era: 'legacy', revision }));
+            expect(result).toEqual(payload);
+        }
+    });
+
+    it('does not let modern-looking metadata override the negotiated legacy era', async () => {
+        const server = serverWith([skill('alpha')], { cacheHint: { ttlMs: 60_000, cacheScope: 'public' } });
+        const result = resultOf(await call(server, request(method, params), { era: 'legacy', revision: '2025-11-25' }));
+        expect(result).toEqual(payload);
     });
 });
 
