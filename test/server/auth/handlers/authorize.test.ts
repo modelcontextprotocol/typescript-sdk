@@ -324,6 +324,40 @@ describe('Authorization Handler', () => {
         });
     });
 
+    describe('State preservation on error redirects (RFC 6749 §4.1.2.1)', () => {
+        it('includes state in the error redirect when request parameters fail validation', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'plain', // invalid - only S256 is supported
+                state: 'csrf-state-42'
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('state')).toBe('csrf-state-42');
+        });
+
+        it('includes state in the error redirect for POST requests', async () => {
+            const response = await supertest(app).post('/authorize').type('form').send({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                code_challenge_method: 'S256',
+                state: 'post-csrf-state-7'
+                // Missing code_challenge
+            });
+
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('state')).toBe('post-csrf-state-7');
+        });
+    });
+
     describe('Resource parameter validation', () => {
         it('propagates resource parameter', async () => {
             const mockProviderWithResource = vi.spyOn(mockProvider, 'authorize');
