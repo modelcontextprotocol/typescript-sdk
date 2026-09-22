@@ -64,6 +64,7 @@ import { createListenRouter, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
 import { McpServer } from './mcp';
 import type { PerRequestResponseMode } from './perRequestTransport';
 import { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import type { Server } from './server';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope, serverIdentityOf } from './server';
 import type { ServerEventBus, ServerNotifier } from './serverEventBus';
@@ -828,6 +829,26 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                         return rejectionResponse(rejection, route.message.id);
                     }
                 }
+            }
+        }
+
+        // Run scope preflight after Mcp-Param headers have been checked against
+        // the body. Active whenever the factory's instance registers a
+        // per-primitive scopeChallenge callback — no handler-level
+        // configuration exists: the challenge's resource_metadata parameter is
+        // derived from the verified AuthInfo (stamped by the bearer-auth gate,
+        // or the token's RFC 8707 resource identifier) and omitted otherwise.
+        if (route.messageKind === 'request' && product instanceof McpServer) {
+            try {
+                const challenge = await findScopeChallenge([route.message], authInfo, context => product.resolveScopeChallenge(context));
+                if (challenge !== undefined) {
+                    void product.close().catch(reportError);
+                    return createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));
+                }
+            } catch (error) {
+                void product.close().catch(reportError);
+                reportError(toError(error));
+                return internalServerErrorResponse(route.message.id);
             }
         }
 
