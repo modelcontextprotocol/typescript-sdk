@@ -905,8 +905,8 @@ export class McpServer {
                 }
                 if (typeof updates.title !== 'undefined') registeredTool.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredTool.description = updates.description;
-                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = objectFromShape(updates.paramsSchema);
-                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = objectFromShape(updates.outputSchema);
+                if (typeof updates.paramsSchema !== 'undefined') registeredTool.inputSchema = getZodSchemaObject(updates.paramsSchema);
+                if (typeof updates.outputSchema !== 'undefined') registeredTool.outputSchema = getZodSchemaObject(updates.outputSchema);
                 if (typeof updates.callback !== 'undefined') registeredTool.handler = updates.callback;
                 if (typeof updates.annotations !== 'undefined') registeredTool.annotations = updates.annotations;
                 if (typeof updates._meta !== 'undefined') registeredTool._meta = updates._meta;
@@ -1312,7 +1312,7 @@ export type RegisteredTool = {
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<InputArgs extends ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat>(updates: {
+    update<InputArgs extends ZodRawShapeCompat | AnySchema, OutputArgs extends ZodRawShapeCompat | AnySchema>(updates: {
         name?: string | null;
         title?: string;
         description?: string;
