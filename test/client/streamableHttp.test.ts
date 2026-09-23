@@ -1041,6 +1041,67 @@ describe('StreamableHTTPClientTransport', () => {
             // Resumption token callback may be invoked, but the primary assertion
             // here is that no JSON parse errors occurred for the priming event.
         });
+
+        it('should release the SSE reader lock when the stream closes (regression for #1959)', async () => {
+            // Regression test for issue #1959: _handleSseStream acquired a reader via
+            // getReader() but never called releaseLock() on either the success or error
+            // path. That kept the decoder + parser pipeline alive across reconnects,
+            // leaking ~50MB per reconnect cycle.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            // Spy on every reader's releaseLock so we can verify the SSE pipeline is
+            // tidied up on both graceful close and error paths.
+            const releaseSpy = vi.spyOn(ReadableStreamDefaultReader.prototype, 'releaseLock');
+
+            // Graceful-close stream: a single notification then close.
+            const gracefulStream = new ReadableStream({
+                start(controller) {
+                    controller.enqueue(
+                        new TextEncoder().encode('id: evt-1\ndata: {"jsonrpc":"2.0","method":"notifications/x","params":{}}\n\n')
+                    );
+                    controller.close();
+                }
+            });
+
+            // Error stream: pipeline aborts mid-read.
+            const erroringStream = new ReadableStream({
+                start(controller) {
+                    controller.error(new Error('boom'));
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: gracefulStream
+            });
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: erroringStream
+            });
+
+            await transport.start();
+            await transport['_startOrAuthSse']({});
+            await transport['_startOrAuthSse']({});
+            await vi.advanceTimersByTimeAsync(50);
+
+            // releaseLock should have fired for both the graceful-close path and the
+            // error path. Other readers (e.g. those internal to pipeThrough) may also
+            // call releaseLock; we just need both of ours to be released.
+            expect(releaseSpy.mock.calls.length).toBeGreaterThanOrEqual(2);
+            releaseSpy.mockRestore();
+        });
     });
 
     it('invalidates all credentials on InvalidClientError during auth', async () => {
