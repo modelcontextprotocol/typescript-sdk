@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { Notification, TextContent } from '@modelcontextprotocol/core-internal';
+import type { Notification, ServerContext, TextContent } from '@modelcontextprotocol/core-internal';
 import {
     getDisplayName,
     InMemoryTransport,
@@ -411,16 +411,15 @@ describe('Zod v4', () => {
             expect(template.listCallback).toBe(list);
 
             const abortController = new AbortController();
+            // The callback only reads what the fixture provides, so a partial
+            // context is cast rather than fully constructed.
             const result = await template.listCallback?.({
-                signal: abortController.signal,
-                requestId: 'not-implemented',
-                sendRequest: () => {
-                    throw new Error('Not implemented');
-                },
-                sendNotification: () => {
-                    throw new Error('Not implemented');
+                mcpReq: {
+                    id: 'not-implemented',
+                    method: 'resources/list',
+                    signal: abortController.signal
                 }
-            });
+            } as unknown as ServerContext);
             expect(result?.resources).toHaveLength(1);
             expect(list).toHaveBeenCalled();
         });
@@ -598,11 +597,13 @@ describe('Zod v4', () => {
                     name: z.string(),
                     value: z.number()
                 }),
-                callback: async ({ name, value }) => ({
+                // `update()` is not generic over the new schema, so its `callback`
+                // receives `args: unknown`; narrow it at the boundary.
+                callback: async args => ({
                     content: [
                         {
                             type: 'text',
-                            text: `Updated: ${name}, ${value}`
+                            text: `Updated: ${(args as { name: string }).name}, ${(args as { value: number }).value}`
                         }
                     ]
                 })
@@ -850,7 +851,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            mcpServer.registerResource('test://resource', 'Test Resource', async () => ({
+            mcpServer.registerResource('test-resource', 'test://resource', {}, async () => ({
                 contents: [{ uri: 'test://resource', text: 'Test' }]
             }));
 
@@ -871,7 +872,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            mcpServer.registerPrompt('test-prompt', async () => ({
+            mcpServer.registerPrompt('test-prompt', {}, async () => ({
                 messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
             }));
 
