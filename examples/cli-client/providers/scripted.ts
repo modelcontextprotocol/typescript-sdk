@@ -28,7 +28,7 @@ export class ScriptedProvider implements LLMProvider {
         const turn = this.turns[this.next++];
         if (!turn) {
             return Promise.resolve({
-                text: '(scripted provider has no turns left — run with --provider anthropic|openai|gemini for a real model)',
+                text: '(scripted provider has no turns left — run with --provider anthropic|openai|gemini|minimax for a real model)',
                 toolCalls: [],
                 stopReason: 'end_turn',
                 model: 'scripted'
