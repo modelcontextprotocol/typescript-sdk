@@ -11,7 +11,7 @@ import { createMcpHandler, McpServer, SUBSCRIPTION_ID_META_KEY } from '@modelcon
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta, wire } from '../helpers/index';
+import { modernEnvelopeMeta, modernStandardHeaders, wire } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
@@ -72,7 +72,7 @@ verifies('subscriptions:listen:ack-first-stamped', async () => {
             headers: {
                 'Content-Type': 'application/json',
                 Accept: 'application/json, text/event-stream',
-                'mcp-method': 'subscriptions/listen'
+                ...modernStandardHeaders('subscriptions/listen')
             },
             body: JSON.stringify({
                 jsonrpc: '2.0',
@@ -270,7 +270,7 @@ verifies('subscriptions:listen:capacity-guard', async () => {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
-                    'mcp-method': 'subscriptions/listen'
+                    ...modernStandardHeaders('subscriptions/listen')
                 },
                 body: JSON.stringify({
                     jsonrpc: '2.0',

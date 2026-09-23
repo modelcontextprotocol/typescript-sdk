@@ -477,6 +477,23 @@ describe('SEP-2243 Streamable HTTP transport seams', () => {
         expect(sent().get('mcp-name')).toBe('route');
     });
 
+    it('Mcp-Name mirrors params.taskId on tasks/get, tasks/update, and tasks/cancel (SEP-2663)', async () => {
+        const { tx, sent } = transportWithCapture();
+        await tx.start();
+        for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+            await tx.send(modernRequest(method, { taskId: 'task-123' }));
+            expect(sent().get('mcp-method')).toBe(method);
+            expect(sent().get('mcp-name')).toBe('task-123');
+        }
+        // tasks/list carries no routing name — off the source table, no header.
+        await tx.send(modernRequest('tasks/list', {}));
+        expect(sent().get('mcp-name')).toBeNull();
+        // A non-string params.taskId has nothing to mirror — no header, so the
+        // server's later rungs (not -32020) answer the malformed body.
+        await tx.send(modernRequest('tasks/get', { taskId: 42 }));
+        expect(sent().get('mcp-name')).toBeNull();
+    });
+
     it('per-request TransportSendOptions.headers cannot override reserved standard/auth headers', async () => {
         const { tx, sent } = transportWithCapture();
         await tx.start();

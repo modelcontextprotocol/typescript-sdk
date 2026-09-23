@@ -140,15 +140,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'protocol:cancel:initialize-not-cancellable': {
-        transports: STATEFUL_TRANSPORTS,
+        transports: ['inMemory'],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements',
         behavior: 'The client never sends notifications/cancelled for the initialize request.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: 'SDK sends notifications/cancelled for initialize when connect() is aborted; spec says initialize MUST NOT be cancelled.'
-            }
-        ]
+        note: "The behavior itself is transport-agnostic (shared/protocol.ts), but the test must tap the client's outbound messages before connect() resolves, which only the in-memory wiring supports."
     },
     'protocol:cancel:late-response-ignored': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#timing-considerations',
@@ -2921,6 +2916,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'An AuthProvider supplied to StreamableHTTPClientTransport has token() called before each request and the returned token is attached as an Authorization: Bearer header on the HTTP requests.',
         transports: ['streamableHttp'],
         note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
+    'client-auth:authprovider:token-overrides-requestinit': {
+        source: 'sdk',
+        behavior:
+            'When an AuthProvider yields a token, the Authorization header the transport derives from it takes precedence over a same-named header configured in requestInit.headers on every HTTP request, so a stale static credential falls back to the provider token; other configured headers still pass through.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's header merge order (#2208); the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
     'client-auth:authprovider:onunauthorized-retry': {
         source: 'sdk',

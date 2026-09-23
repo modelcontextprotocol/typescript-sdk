@@ -724,7 +724,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        // `requestId` is optional on the 2025-era wire schema. Absent is the
+        // only thing that means "no id": `0` and `''` are legal request ids.
+        if (notification.params.requestId === undefined) {
             return;
         }
         // Handle request cancellation
@@ -1451,19 +1453,29 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 this._progressHandlers.delete(messageId);
 
                 if (requestAbort === undefined) {
-                    this._transport
-                        ?.send(
-                            this._envelopeOutbound({
-                                jsonrpc: '2.0',
-                                method: 'notifications/cancelled',
-                                params: {
-                                    requestId: messageId,
-                                    reason: String(reason)
-                                }
-                            }),
-                            { relatedRequestId, resumptionToken, onresumptiontoken }
-                        )
-                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    // "A client MUST NOT attempt to cancel its `initialize`
+                    // request" (spec basic/lifecycle, mirrored on
+                    // `CancelledNotification`). The handshake is the one request
+                    // whose cancellation is forbidden outright, so an abort or
+                    // timeout on it settles purely locally: the promise still
+                    // rejects below, but nothing goes on the wire. Only the
+                    // legacy era can reach this — `initialize` is absent from the
+                    // modern registry, which negotiates via `server/discover`.
+                    if (request.method !== 'initialize') {
+                        this._transport
+                            ?.send(
+                                this._envelopeOutbound({
+                                    jsonrpc: '2.0',
+                                    method: 'notifications/cancelled',
+                                    params: {
+                                        requestId: messageId,
+                                        reason: String(reason)
+                                    }
+                                }),
+                                { relatedRequestId, resumptionToken, onresumptiontoken }
+                            )
+                            .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                    }
                 } else {
                     // Modern-era per-request-stream transport: aborting the
                     // request's underlying stream IS the spec cancel signal.
@@ -1611,7 +1623,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID that could be lost).
-        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        // Absent is the only thing that means "no id" here too: `0` and `''` are
+        // legal request ids, and the pending set is keyed by method alone, so
+        // treating them as absent lets a related notification be coalesced away.
+        const canDebounce =
+            debouncedMethods.includes(notification.method) && !notification.params && options?.relatedRequestId === undefined;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.

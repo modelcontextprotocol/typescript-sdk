@@ -656,6 +656,27 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        // Same-tick coverage for every legal request id: the pending set is keyed
+        // by method alone, so a related notification that wrongly passes the
+        // debounce gate is coalesced away entirely. Awaiting between the two
+        // sends would flush the microtask and hide that, so they are fired in one
+        // tick. `0` and `''` are the ids a truthiness guard swallows.
+        test.each([0, 123, '', 'req-1'])('should NOT coalesce same-tick notifications related to requestId %j', async relatedRequestId => {
+            // ARRANGE
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — two related notifications in the same tick, no await between
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            await flushMicrotasks();
+
+            // ASSERT — both go out, each still carrying its related request id
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenNthCalledWith(1, expect.any(Object), { relatedRequestId });
+            expect(sendSpy).toHaveBeenNthCalledWith(2, expect.any(Object), { relatedRequestId });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });
@@ -775,50 +796,55 @@ describe('protocol tests', () => {
     });
 
     describe('notifications/cancelled behavior', () => {
-        test('should abort request handler when notifications/cancelled is received', async () => {
-            await protocol.connect(transport);
+        // Every legal JSON-RPC request id must cancel, including the ones a
+        // truthiness guard swallows: `0` (the first id every peer assigns,
+        // since the counter is zero-based) and the empty string.
+        test.each([0, 123, '', 'req-1'])(
+            'should abort request handler when notifications/cancelled carries requestId %j',
+            async requestId => {
+                await protocol.connect(transport);
 
-            // Set up a request handler that checks if it was aborted
-            let wasAborted = false;
-            protocol.setRequestHandler('ping', async (_request, ctx) => {
-                // Simulate a long-running operation
-                await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = ctx.mcpReq.signal.aborted;
-                return {};
-            });
-
-            // Simulate an incoming request
-            const requestId = 123;
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    id: requestId,
-                    method: 'ping',
-                    params: {}
+                // Set up a request handler that checks if it was aborted
+                let wasAborted = false;
+                protocol.setRequestHandler('ping', async (_request, ctx) => {
+                    // Simulate a long-running operation
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    wasAborted = ctx.mcpReq.signal.aborted;
+                    return {};
                 });
+
+                // Simulate an incoming request
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        method: 'ping',
+                        params: {}
+                    });
+                }
+
+                // Wait a bit for the handler to start
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // Send cancellation notification
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        method: 'notifications/cancelled',
+                        params: {
+                            requestId: requestId,
+                            reason: 'User cancelled'
+                        }
+                    });
+                }
+
+                // Wait for the handler to complete
+                await new Promise(resolve => setTimeout(resolve, 150));
+
+                // Verify the request was aborted
+                expect(wasAborted).toBe(true);
             }
-
-            // Wait a bit for the handler to start
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            // Send cancellation notification
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    method: 'notifications/cancelled',
-                    params: {
-                        requestId: requestId,
-                        reason: 'User cancelled'
-                    }
-                });
-            }
-
-            // Wait for the handler to complete
-            await new Promise(resolve => setTimeout(resolve, 150));
-
-            // Verify the request was aborted
-            expect(wasAborted).toBe(true);
-        });
+        );
     });
 
     // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
@@ -839,6 +865,23 @@ describe('protocol tests', () => {
 
         const cancelledSent = (sent: JSONRPCMessage[]): JSONRPCMessage[] =>
             sent.filter(m => 'method' in m && m.method === 'notifications/cancelled');
+
+        /**
+         * Connects a fresh protocol over a single-channel transport (stdio /
+         * in-memory shape: no `hasPerRequestStream`) at `version`, recording
+         * every outbound message.
+         */
+        const connectSingleChannel = async (version: string) => {
+            const sent: JSONRPCMessage[] = [];
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage) => {
+                sent.push(m);
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, version);
+            return { proto, sent };
+        };
 
         test('modern era + per-request-stream transport: abort closes the stream, NO notifications/cancelled', async () => {
             const tx = new PerRequestStreamTransport();
@@ -862,15 +905,7 @@ describe('protocol tests', () => {
         });
 
         test('modern era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled', async () => {
-            // stdio / in-memory shape: hasPerRequestStream is undefined.
-            const sent: JSONRPCMessage[] = [];
-            const tx = new MockTransport();
-            tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
-                sent.push(m);
-            };
-            const proto = createTestProtocol();
-            await proto.connect(tx);
-            setNegotiatedProtocolVersion(proto, '2026-07-28');
+            const { proto, sent } = await connectSingleChannel('2026-07-28');
 
             const ac = new AbortController();
             const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
@@ -910,6 +945,53 @@ describe('protocol tests', () => {
 
             expect(tx.lastRequestSignal?.aborted).toBe(true);
             expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+
+        // "A client MUST NOT attempt to cancel its `initialize` request." The
+        // handshake is exempt from the POST path above on every transport: an
+        // abort or timeout rejects the caller locally and sends nothing. Both
+        // triggers are covered because they reach cancel() by different routes
+        // (the caller's signal vs the timeout handler).
+        describe('the initialize handshake is never cancelled on the wire', () => {
+            test('aborting an in-flight initialize sends NO notifications/cancelled', async () => {
+                // ARRANGE
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
+
+                // ACT
+                const ac = new AbortController();
+                const pending = testRequest(proto, { method: 'initialize', params: {} }, z.object({}), { signal: ac.signal });
+                ac.abort('user cancel');
+
+                // ASSERT — rejects locally, wire stays clean
+                await expect(pending).rejects.toThrow();
+                expect(cancelledSent(sent)).toHaveLength(0);
+            });
+
+            test('timing out an in-flight initialize sends NO notifications/cancelled', async () => {
+                // ARRANGE
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
+
+                // ACT
+                const pending = testRequest(proto, { method: 'initialize', params: {} }, z.object({}), { timeout: 0 });
+
+                // ASSERT
+                await expect(pending).rejects.toThrow();
+                expect(cancelledSent(sent)).toHaveLength(0);
+            });
+
+            test('every other method still POSTs notifications/cancelled (regression guard)', async () => {
+                // ARRANGE
+                const { proto, sent } = await connectSingleChannel('2025-11-25');
+
+                // ACT
+                const ac = new AbortController();
+                const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+                ac.abort('user cancel');
+
+                // ASSERT
+                await expect(pending).rejects.toThrow();
+                expect(cancelledSent(sent)).toHaveLength(1);
+            });
         });
     });
 });

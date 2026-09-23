@@ -12,12 +12,14 @@ import { randomUUID } from 'node:crypto';
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type {
+    AuthInfo,
     CallToolResult,
     EventId,
     EventStore,
     GetPromptResult,
     InputRequests,
     InputRequiredResult,
+    JSONRPCRequest,
     ReadResourceResult,
     ServerContext,
     StreamId
@@ -44,6 +46,28 @@ import * as z from 'zod/v4';
 // Server state
 const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
+
+const SCOPE_CHALLENGE_LOW_TOKEN = 'mcp-conformance-scope-low';
+const SCOPE_CHALLENGE_FULL_TOKEN = 'mcp-conformance-scope-full';
+const SCOPE_CHALLENGE_BASELINE_SCOPE = 'mcp:conformance:baseline';
+const SCOPE_CHALLENGE_SCOPES = {
+    tool: ['mcp:conformance:tools:call', 'mcp:conformance:tools:test_simple_text'],
+    staticResource: ['mcp:conformance:resources:read', 'mcp:conformance:resources:static'],
+    templateResource: ['mcp:conformance:resources:read', 'mcp:conformance:resources:template:123'],
+    prompt: ['mcp:conformance:prompts:get', 'mcp:conformance:prompts:test_simple_prompt']
+} as const;
+
+type ConformanceScopeChallengeHandler = (context: {
+    request: JSONRPCRequest;
+    authInfo?: AuthInfo;
+}) => { scopes: readonly [string, ...string[]] } | undefined;
+
+function requireConformanceScopes(...scopes: readonly [string, ...string[]]): ConformanceScopeChallengeHandler {
+    return ({ authInfo }) => {
+        if (authInfo === undefined || scopes.every(scope => authInfo.scopes.includes(scope))) return;
+        return { scopes };
+    };
+}
 
 // Session management
 const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
@@ -244,17 +268,15 @@ function createMcpServer() {
     );
 
     // Simple text tool
-    mcpServer.registerTool(
-        'test_simple_text',
-        {
-            description: 'Tests simple text content response'
-        },
-        async (): Promise<CallToolResult> => {
-            return {
-                content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
-            };
-        }
-    );
+    const simpleTextToolConfig = {
+        description: 'Tests simple text content response',
+        scopeChallenge: requireConformanceScopes(...SCOPE_CHALLENGE_SCOPES.tool)
+    };
+    mcpServer.registerTool('test_simple_text', simpleTextToolConfig, async (): Promise<CallToolResult> => {
+        return {
+            content: [{ type: 'text', text: 'This is a simple text response for testing.' }]
+        };
+    });
 
     // Image content tool
     mcpServer.registerTool(
@@ -1092,26 +1114,23 @@ function createMcpServer() {
     // ===== RESOURCES =====
 
     // Static text resource
-    mcpServer.registerResource(
-        'static-text',
-        'test://static-text',
-        {
-            title: 'Static Text Resource',
-            description: 'A static text resource for testing',
-            mimeType: 'text/plain'
-        },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [
-                    {
-                        uri: 'test://static-text',
-                        mimeType: 'text/plain',
-                        text: 'This is the content of the static text resource.'
-                    }
-                ]
-            };
-        }
-    );
+    const staticTextResourceConfig = {
+        title: 'Static Text Resource',
+        description: 'A static text resource for testing',
+        mimeType: 'text/plain',
+        scopeChallenge: requireConformanceScopes(...SCOPE_CHALLENGE_SCOPES.staticResource)
+    };
+    mcpServer.registerResource('static-text', 'test://static-text', staticTextResourceConfig, async (): Promise<ReadResourceResult> => {
+        return {
+            contents: [
+                {
+                    uri: 'test://static-text',
+                    mimeType: 'text/plain',
+                    text: 'This is the content of the static text resource.'
+                }
+            ]
+        };
+    });
 
     // Static binary resource
     mcpServer.registerResource(
@@ -1136,14 +1155,16 @@ function createMcpServer() {
     );
 
     // Resource template
+    const resourceTemplateConfig = {
+        title: 'Resource Template',
+        description: 'A resource template with parameter substitution',
+        mimeType: 'application/json',
+        scopeChallenge: requireConformanceScopes(...SCOPE_CHALLENGE_SCOPES.templateResource)
+    };
     mcpServer.registerResource(
         'template',
         new ResourceTemplate('test://template/{id}/data', { list: undefined }),
-        {
-            title: 'Resource Template',
-            description: 'A resource template with parameter substitution',
-            mimeType: 'application/json'
-        },
+        resourceTemplateConfig,
         async (uri, variables): Promise<ReadResourceResult> => {
             const id = variables.id;
             return {
@@ -1202,26 +1223,24 @@ function createMcpServer() {
     // ===== PROMPTS =====
 
     // Simple prompt
-    mcpServer.registerPrompt(
-        'test_simple_prompt',
-        {
-            title: 'Simple Test Prompt',
-            description: 'A simple prompt without arguments'
-        },
-        async (): Promise<GetPromptResult> => {
-            return {
-                messages: [
-                    {
-                        role: 'user',
-                        content: {
-                            type: 'text',
-                            text: 'This is a simple prompt for testing.'
-                        }
+    const simplePromptConfig = {
+        title: 'Simple Test Prompt',
+        description: 'A simple prompt without arguments',
+        scopeChallenge: requireConformanceScopes(...SCOPE_CHALLENGE_SCOPES.prompt)
+    };
+    mcpServer.registerPrompt('test_simple_prompt', simplePromptConfig, async (): Promise<GetPromptResult> => {
+        return {
+            messages: [
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'This is a simple prompt for testing.'
                     }
-                ]
-            };
-        }
-    );
+                }
+            ]
+        };
+    });
 
     // Prompt with arguments
     mcpServer.registerPrompt(
@@ -1386,9 +1405,12 @@ function createMcpServer() {
 // `createMcpServer()` fixture definition the 2025 sessions use. Legacy traffic
 // never reaches this handler (see the routing in the POST handler below), so
 // the 2025 stateful session path is unchanged.
-const modernHandler = createMcpHandler(() => createMcpServer(), {
-    onerror: error => console.error('Modern-era MCP handler error:', error)
-});
+const PORT = process.env.PORT || 3000;
+const scopeChallengeResourceMetadataUrl = `http://localhost:${PORT}/.well-known/oauth-protected-resource/mcp`;
+const modernHandlerOptions = {
+    onerror: (error: Error) => console.error('Modern-era MCP handler error:', error)
+};
+const modernHandler = createMcpHandler(() => createMcpServer(), modernHandlerOptions);
 const modernNodeHandler = toNodeHandler(modernHandler);
 
 /** Normalize a possibly-repeated HTTP header to its first value. */
@@ -1401,6 +1423,38 @@ function headerValue(value: string | string[] | undefined): string | undefined {
 const app = express();
 app.use(express.json());
 
+app.use((req, _res, next) => {
+    const authorization = req.header('authorization');
+    const token = authorization?.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : undefined;
+    if (token === SCOPE_CHALLENGE_LOW_TOKEN) {
+        req.auth = {
+            token,
+            clientId: 'mcp-conformance-scope-challenge',
+            scopes: [SCOPE_CHALLENGE_BASELINE_SCOPE],
+            // Scope-challenge 403s derive their resource_metadata parameter
+            // from the verified AuthInfo (a real deployment's bearer-auth gate
+            // stamps this from its resourceMetadataUrl option).
+            resourceMetadataUrl: scopeChallengeResourceMetadataUrl
+        };
+    } else if (token === SCOPE_CHALLENGE_FULL_TOKEN) {
+        req.auth = {
+            token,
+            clientId: 'mcp-conformance-scope-challenge',
+            resourceMetadataUrl: scopeChallengeResourceMetadataUrl,
+            scopes: [
+                SCOPE_CHALLENGE_BASELINE_SCOPE,
+                ...new Set([
+                    ...SCOPE_CHALLENGE_SCOPES.tool,
+                    ...SCOPE_CHALLENGE_SCOPES.staticResource,
+                    ...SCOPE_CHALLENGE_SCOPES.templateResource,
+                    ...SCOPE_CHALLENGE_SCOPES.prompt
+                ])
+            ]
+        };
+    }
+    next();
+});
+
 // DNS rebinding protection: reject non-localhost Host headers
 app.use(localhostHostValidation());
 
@@ -1409,7 +1463,7 @@ app.use(
     cors({
         origin: '*',
         exposedHeaders: ['Mcp-Session-Id'],
-        allowedHeaders: ['Content-Type', 'mcp-session-id', 'last-event-id', 'mcp-protocol-version', 'mcp-method']
+        allowedHeaders: ['Authorization', 'Content-Type', 'mcp-session-id', 'last-event-id', 'mcp-protocol-version', 'mcp-method']
     })
 );
 
@@ -1560,7 +1614,6 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
 const httpServer = app.listen(PORT, () => {
     console.log(`MCP Conformance Test Server running on http://localhost:${PORT}`);
     console.log(`  - MCP endpoint: http://localhost:${PORT}/mcp`);

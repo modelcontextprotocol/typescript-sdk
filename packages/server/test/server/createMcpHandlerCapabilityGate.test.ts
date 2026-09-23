@@ -36,6 +36,7 @@ function postEcho(clientCapabilities: ClientCapabilities): Request {
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': MODERN_REVISION,
             'mcp-method': 'tools/call',
             'mcp-name': 'echo'
         },

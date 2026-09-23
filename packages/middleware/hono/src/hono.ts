@@ -1,4 +1,4 @@
-import { isJsonContentType } from '@modelcontextprotocol/server';
+import { DEFAULT_MAX_REQUEST_BODY_SIZE, isJsonContentType, readRequestBody } from '@modelcontextprotocol/server';
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
@@ -36,6 +36,28 @@ export interface CreateMcpHonoAppOptions {
      * is rejected with `403`.
      */
     allowedOrigins?: string[];
+
+    /**
+     * Upper bound, in bytes, on a JSON request body the app's body-parsing
+     * middleware reads. A larger body is answered `413` before being parsed.
+     * Must be a positive number. The counterpart of `createMcpExpressApp`'s
+     * `jsonLimit`.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
+}
+
+/**
+ * Reads (bounded, via the transport's own reader) and parses a JSON body from a
+ * clone of the request, so the original stream stays readable. Returning only the
+ * parsed value keeps the decoded text from outliving the parse.
+ */
+async function parseJsonBody(request: Request, maxBytes: number): Promise<{ tooLarge: true } | { tooLarge: false; value: unknown }> {
+    const body = await readRequestBody(request, maxBytes);
+    if (body.tooLarge) {
+        return { tooLarge: true };
+    }
+    return { tooLarge: false, value: JSON.parse(body.text) };
 }
 
 /**
@@ -47,41 +69,20 @@ export interface CreateMcpHonoAppOptions {
  *
  * This also installs a small JSON body parsing middleware (similar to `express.json()`)
  * that stashes the parsed body into `c.set('parsedBody', ...)` when the `Content-Type`
- * media type is `application/json`.
+ * media type is `application/json`. It runs after the Host/Origin validation, and JSON
+ * bodies over `maxRequestBodySize` (4 MiB by default) are answered `413` before being parsed.
  *
  * @param options - Configuration options
  * @returns A configured Hono application
  */
 export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     const { host = '127.0.0.1', allowedHosts, allowedOrigins } = options;
+    const maxRequestBodySize = options.maxRequestBodySize ?? DEFAULT_MAX_REQUEST_BODY_SIZE;
+    if (typeof maxRequestBodySize !== 'number' || !Number.isFinite(maxRequestBodySize) || maxRequestBodySize <= 0) {
+        throw new RangeError(`maxRequestBodySize must be a positive number of bytes, got ${String(maxRequestBodySize)}`);
+    }
 
     const app = new Hono();
-
-    // Similar to `express.json()`: parse JSON bodies and make them available to MCP adapters via `parsedBody`.
-    app.use('*', async (c: Context, next) => {
-        // If an upstream middleware already set parsedBody, keep it.
-        if (c.get('parsedBody') !== undefined) {
-            return await next();
-        }
-
-        // Parsed media type, never a substring match — see isJsonContentType.
-        // A body left unparsed here is answered 415 by the transport's own
-        // Content-Type check downstream.
-        if (!isJsonContentType(c.req.header('content-type'))) {
-            return await next();
-        }
-
-        try {
-            // Parse from a clone so we don't consume the original request stream.
-            const parsed = await c.req.raw.clone().json();
-            c.set('parsedBody', parsed);
-        } catch {
-            // Mirror express.json() behavior loosely: reject invalid JSON.
-            return c.text('Invalid JSON', 400);
-        }
-
-        return await next();
-    });
 
     // If allowedHosts is explicitly provided, use that for validation.
     if (allowedHosts) {
@@ -110,6 +111,43 @@ export function createMcpHonoApp(options: CreateMcpHonoAppOptions = {}): Hono {
     } else if (['127.0.0.1', 'localhost', '::1'].includes(host)) {
         app.use('*', localhostOriginValidation());
     }
+
+    // Similar to `express.json()`: parse JSON bodies (up to maxRequestBodySize; larger ones are
+    // answered 413) and make them available to MCP adapters via `parsedBody`.
+    app.use('*', async (c: Context, next) => {
+        // If an upstream middleware already set parsedBody, keep it.
+        if (c.get('parsedBody') !== undefined) {
+            return await next();
+        }
+
+        // Parsed media type, never a substring match — see isJsonContentType.
+        // A body left unparsed here is answered 415 by the transport's own
+        // Content-Type check downstream.
+        if (!isJsonContentType(c.req.header('content-type'))) {
+            return await next();
+        }
+
+        try {
+            // Parse from a clone so we don't consume the original request stream.
+            const parsed = await parseJsonBody(c.req.raw.clone(), maxRequestBodySize);
+            if (parsed.tooLarge) {
+                return c.json(
+                    {
+                        jsonrpc: '2.0',
+                        error: { code: -32_000, message: `Payload Too Large: Request body must not exceed ${maxRequestBodySize} bytes` },
+                        id: null
+                    },
+                    413
+                );
+            }
+            c.set('parsedBody', parsed.value);
+        } catch {
+            // Mirror express.json() behavior loosely: reject invalid JSON.
+            return c.text('Invalid JSON', 400);
+        }
+
+        return await next();
+    });
 
     return app;
 }

@@ -68,7 +68,12 @@ export const OAuthMetadataSchema = z.looseObject({
     code_challenge_methods_supported: z.array(z.string()).optional(),
     client_id_metadata_document_supported: z.boolean().optional(),
     // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
-    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined),
+    /**
+     * RFC 9449 §5.1 (DPoP, SEP-1932): the JWS `alg` values this authorization server accepts for
+     * DPoP proofs at the token endpoint. A server supporting DPoP MUST publish this field.
+     */
+    dpop_signing_alg_values_supported: z.array(z.string()).optional()
 });
 
 /**

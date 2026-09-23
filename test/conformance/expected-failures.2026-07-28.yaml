@@ -12,8 +12,16 @@
 # 2025 legs.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json. Newer conformance releases are adopted by
-# deliberately bumping the pin and reconciling this file in the same change.
+# release pinned in package.json (0.2.0-alpha.11). Newer conformance releases
+# are adopted by deliberately bumping the pin and reconciling this file in the
+# same change.
+#
+# alpha.10 -> alpha.11 reconciliation: `json-schema-2020-12-preservation`
+# (client leg; everythingClient negotiates via server/discover like tools_call)
+# passes at 2026-07-28 — the referee reports it as added-after-release, unscored
+# on the frozen 2026-07-28 set — and `server-session-lifecycle` is not
+# applicable at 2026-07-28 (removed in that revision, skipped by
+# --spec-version), so both sections stay empty.
 #
 # NOTE: the SDK's modern-path rejection codes are aligned with what this
 # referee asserts — both sides have adopted the spec#2907 / conformance#353
