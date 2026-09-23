@@ -105,6 +105,40 @@ async function readSSEEvent(response: Response): Promise<string> {
 }
 
 /**
+ * Read an SSE response until the expected messages arrive.
+ *
+ * Fetch is allowed to split a single logical SSE response across multiple
+ * chunks, so callers must not assume that the first read contains a complete
+ * event or the whole response.
+ */
+async function readSSEUntil(response: Response, predicate: (text: string) => boolean, timeoutMs = 2000): Promise<string> {
+    const reader = response.body?.getReader();
+    if (!reader) {
+        throw new Error('Expected an SSE response body');
+    }
+
+    const decoder = new TextDecoder();
+    let text = '';
+    const timeout = setTimeout(() => {
+        void reader.cancel();
+    }, timeoutMs);
+
+    try {
+        while (!predicate(text)) {
+            const { value, done } = await reader.read();
+            if (done) {
+                break;
+            }
+            text += decoder.decode(value, { stream: true });
+        }
+        return text + decoder.decode();
+    } finally {
+        clearTimeout(timeout);
+        await reader.cancel().catch(() => {});
+    }
+}
+
+/**
  * Helper to send JSON-RPC request
  */
 async function sendPostRequest(
@@ -725,11 +759,10 @@ describe('Zod v4', () => {
             expect(response.status).toBe(200);
             expect(response.headers.get('content-type')).toBe('text/event-stream');
 
-            const reader = response.body?.getReader();
-
-            // The responses may come in any order or together in one chunk
-            const { value } = await reader!.read();
-            const text = new TextDecoder().decode(value);
+            // The responses may come in any order and may be split across chunks.
+            const text = await readSSEUntil(response, accumulated => {
+                return accumulated.includes('"id":"req-1"') && accumulated.includes('"id":"req-2"');
+            });
 
             // Check that both responses were sent on the same stream
             expect(text).toContain('"id":"req-1"');
@@ -1513,10 +1546,11 @@ describe('Zod v4', () => {
 
             expect(reconnectResponse.status).toBe(200);
 
-            // Read the replayed notification
-            const reconnectReader = reconnectResponse.body?.getReader();
-            const reconnectData = await reconnectReader!.read();
-            const reconnectText = new TextDecoder().decode(reconnectData.value);
+            // Read the replayed notification, which may arrive after an earlier
+            // event in a separate fetch chunk.
+            const reconnectText = await readSSEUntil(reconnectResponse, accumulated =>
+                accumulated.includes('Second notification from MCP server')
+            );
 
             // Verify we received the second notification that was sent after our stored eventId
             expect(reconnectText).toContain('Second notification from MCP server');
