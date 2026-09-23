@@ -209,8 +209,14 @@ export class McpServer {
                     return await this.handleAutomaticTaskPolling(tool, request, extra);
                 }
 
-                // Normal execution path
-                const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+                // Normal execution path. Per SEP-1303, input validation failures
+                // are returned as Tool Execution Errors (`isError: true`), not
+                // JSON-RPC protocol errors, so the model can self-correct.
+                const validation = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+                if ('errorResult' in validation) {
+                    return validation.errorResult;
+                }
+                const args = validation.data;
                 const result = await this.executeToolHandler(tool, args, extra);
 
                 // Return CreateTaskResult immediately for task requests
@@ -254,6 +260,14 @@ export class McpServer {
 
     /**
      * Validates tool input arguments against the tool's input schema.
+     *
+     * Per SEP-1303 (spec 2025-11-25), validation failures are returned as a
+     * Tool Execution Error (a `CallToolResult` with `isError: true`) so the
+     * caller can surface the problem to the model for self-correction. This
+     * is preferred over throwing a JSON-RPC protocol error, which would be
+     * opaque to the model.
+     *
+     * Returns either `{ data }` on success or `{ errorResult }` on failure.
      */
     private async validateToolInput<
         Tool extends RegisteredTool,
@@ -262,9 +276,9 @@ export class McpServer {
                 ? SchemaOutput<InputSchema>
                 : undefined
             : undefined
-    >(tool: Tool, args: Args, toolName: string): Promise<Args> {
+    >(tool: Tool, args: Args, toolName: string): Promise<{ data: Args } | { errorResult: CallToolResult }> {
         if (!tool.inputSchema) {
-            return undefined as Args;
+            return { data: undefined as Args };
         }
 
         // Try to normalize to object schema first (for raw shapes and object schemas)
@@ -275,10 +289,12 @@ export class McpServer {
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
-            throw new McpError(ErrorCode.InvalidParams, `Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`);
+            return {
+                errorResult: this.createToolError(`Input validation error: Invalid arguments for tool ${toolName}: ${errorMessage}`)
+            };
         }
 
-        return parseResult.data as unknown as Args;
+        return { data: parseResult.data as unknown as Args };
     }
 
     /**
@@ -369,8 +385,13 @@ export class McpServer {
             throw new Error('No task store provided for task-capable tool.');
         }
 
-        // Validate input and create task
-        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+        // Validate input and create task. Per SEP-1303, surface validation
+        // failures as Tool Execution Errors instead of protocol errors.
+        const validation = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+        if ('errorResult' in validation) {
+            return validation.errorResult;
+        }
+        const args = validation.data;
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
         const taskExtra = { ...extra, taskStore: extra.taskStore };
 
