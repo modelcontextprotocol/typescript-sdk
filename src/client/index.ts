@@ -785,26 +785,32 @@ export class Client<
      * Called after listTools() to pre-compile validators for better performance.
      */
     private cacheToolMetadata(tools: Tool[]): void {
-        this._cachedToolOutputValidators.clear();
-        this._cachedKnownTaskTools.clear();
-        this._cachedRequiredTaskTools.clear();
+        // Build the replacement collections separately, so that a schema which fails to
+        // compile leaves the metadata of the last successful listTools() untouched.
+        const toolOutputValidators = new Map<string, JsonSchemaValidator<unknown>>();
+        const knownTaskTools = new Set<string>();
+        const requiredTaskTools = new Set<string>();
 
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
                 const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                this._cachedToolOutputValidators.set(tool.name, toolValidator);
+                toolOutputValidators.set(tool.name, toolValidator);
             }
 
             // If the tool supports task-based execution, cache that information
             const taskSupport = tool.execution?.taskSupport;
             if (taskSupport === 'required' || taskSupport === 'optional') {
-                this._cachedKnownTaskTools.add(tool.name);
+                knownTaskTools.add(tool.name);
             }
             if (taskSupport === 'required') {
-                this._cachedRequiredTaskTools.add(tool.name);
+                requiredTaskTools.add(tool.name);
             }
         }
+
+        this._cachedToolOutputValidators = toolOutputValidators;
+        this._cachedKnownTaskTools = knownTaskTools;
+        this._cachedRequiredTaskTools = requiredTaskTools;
     }
 
     /**

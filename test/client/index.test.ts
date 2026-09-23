@@ -2333,6 +2333,91 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+
+    /***
+     * Test: Keep Previously Cached Metadata when a Later listTools() Fails to Compile
+     */
+    test('should keep previously cached tool metadata when a later listTools() fails to compile', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        const validTools: Tool[] = [
+            {
+                name: 'validated-tool',
+                inputSchema: { type: 'object', properties: {} },
+                outputSchema: {
+                    type: 'object',
+                    properties: { result: { type: 'string' } },
+                    required: ['result'],
+                    additionalProperties: false
+                }
+            },
+            {
+                name: 'task-only-tool',
+                inputSchema: { type: 'object', properties: {} },
+                execution: { taskSupport: 'required' }
+            }
+        ];
+
+        // Accepted by ListToolsResultSchema (the root is a valid object schema), but
+        // rejected by the JSON Schema validator because of the unknown nested type.
+        const uncompilableTools: Tool[] = [
+            {
+                name: 'broken-tool',
+                inputSchema: { type: 'object', properties: {} },
+                outputSchema: {
+                    type: 'object',
+                    properties: { value: { type: 'not-a-json-schema-type' } }
+                }
+            }
+        ];
+
+        const catalogs = [validTools, uncompilableTools];
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools: catalogs.shift() ?? validTools }));
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            structuredContent: { unexpected: 'value' }
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Cache the metadata of the first, valid catalog.
+        await client.listTools();
+
+        // The refresh fails while compiling the replacement output schema.
+        await expect(client.listTools()).rejects.toThrow();
+
+        // The metadata of the last successful catalog must still be in effect.
+        await expect(client.callTool({ name: 'validated-tool' })).rejects.toThrow(
+            /Structured content does not match the tool's output schema/
+        );
+        await expect(client.callTool({ name: 'task-only-tool' })).rejects.toThrow(/requires task-based execution/);
+    });
 });
 
 describe('Task-based execution', () => {
