@@ -741,8 +741,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         onTimeout: () => void,
         resetTimeoutOnProgress: boolean = false
     ) {
+        // Cap the pending timer so maxTotalTimeout is a hard ceiling even
+        // when no progress notifications arrive.
+        const delay = maxTotalTimeout ? Math.min(timeout, maxTotalTimeout) : timeout;
         this._timeoutInfo.set(messageId, {
-            timeoutId: setTimeout(onTimeout, timeout),
+            timeoutId: setTimeout(onTimeout, delay),
             startTime: Date.now(),
             timeout,
             maxTotalTimeout,
@@ -764,8 +767,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
             });
         }
 
+        const remainingBudget = info.maxTotalTimeout ? info.maxTotalTimeout - totalElapsed : undefined;
+        const delay = remainingBudget === undefined ? info.timeout : Math.min(info.timeout, remainingBudget);
+
         clearTimeout(info.timeoutId);
-        info.timeoutId = setTimeout(info.onTimeout, info.timeout);
+        info.timeoutId = setTimeout(info.onTimeout, delay);
         return true;
     }
 
@@ -1564,7 +1570,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => {
+                const info = this._timeoutInfo.get(messageId);
+                if (info?.maxTotalTimeout) {
+                    const totalElapsed = Date.now() - info.startTime;
+                    if (totalElapsed >= info.maxTotalTimeout) {
+                        cancel(
+                            new SdkError(SdkErrorCode.RequestTimeout, 'Maximum total timeout exceeded', {
+                                maxTotalTimeout: info.maxTotalTimeout,
+                                totalElapsed
+                            })
+                        );
+                        return;
+                    }
+                }
+                cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            };
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
