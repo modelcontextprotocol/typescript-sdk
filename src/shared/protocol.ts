@@ -857,12 +857,6 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const { progressToken, ...params } = notification.params;
         const messageId = Number(progressToken);
 
-        const handler = this._progressHandlers.get(messageId);
-        if (!handler) {
-            this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
-            return;
-        }
-
         const responseHandler = this._responseHandlers.get(messageId);
         const timeoutInfo = this._timeoutInfo.get(messageId);
 
@@ -874,9 +868,19 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
                 this._cleanupTimeout(messageId);
+                const handler = this._progressHandlers.get(messageId);
+                if (handler) {
+                    handler(params);
+                }
                 responseHandler(error as Error);
                 return;
             }
+        }
+
+        const handler = this._progressHandlers.get(messageId);
+        if (!handler) {
+            this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
+            return;
         }
 
         handler(params);
