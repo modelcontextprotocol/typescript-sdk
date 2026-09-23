@@ -335,6 +335,37 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         const r = validateMcpParamHeaders(intDecl, { n: 'abc' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: 'xyz' }));
         expect(r).toMatchObject({ kind: 'reject', cell: 'param-header-mismatch' });
     });
+
+    test('unsafe integer in annotated field without mirrored header rejects as param-header-missing', () => {
+        const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
+        const r = validateMcpParamHeaders(intDecl, { n: 9_007_199_254_740_992 }, new Headers());
+        expect(r).toMatchObject({
+            kind: 'reject',
+            httpStatus: 400,
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-missing'
+        });
+    });
+
+    test('unsafe integer in annotated field with mirrored header rejects as param-header-mismatch', () => {
+        const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
+        const r = validateMcpParamHeaders(
+            intDecl,
+            { n: 9_007_199_254_740_992 },
+            new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '9007199254740992' })
+        );
+        expect(r).toMatchObject({
+            kind: 'reject',
+            httpStatus: 400,
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-mismatch'
+        });
+    });
+
+    test('non-primitive object in annotated field skips parity check (params validation owns that fault)', () => {
+        const strDecl = [{ path: ['region'], headerName: 'Region', type: 'string' }] as const;
+        expect(validateMcpParamHeaders(strDecl, { region: { nested: 1 } }, new Headers())).toBeUndefined();
+    });
 });
 
 describe('paramHeaderMismatchRejection — consumes the inbound-classifier −32020 shape verbatim', () => {
