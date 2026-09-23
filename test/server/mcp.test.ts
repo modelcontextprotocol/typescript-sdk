@@ -1147,6 +1147,57 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
         });
 
+        test('should accept omitted arguments for tools with optional args', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: {
+                        limit: z.number().optional(),
+                        offset: z.number().optional()
+                    }
+                },
+                async ({ limit, offset }) => ({
+                    content: [
+                        {
+                            type: 'text',
+                            text: `limit: ${limit ?? 'default'}, offset: ${offset ?? 'default'}`
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test'
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(result.isError).toBeUndefined();
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'limit: default, offset: default'
+                }
+            ]);
+        });
+
         /***
          * Test: Preventing Duplicate Tool Registration
          */
@@ -3575,6 +3626,62 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     GetPromptResultSchema
                 )
             ).rejects.toThrow(/Invalid arguments/);
+        });
+
+        test('should accept omitted arguments for prompts with optional args', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test',
+                {
+                    argsSchema: {
+                        context: z.string().optional()
+                    }
+                },
+                async ({ context }) => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: `context: ${context ?? 'none'}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'prompts/get',
+                    params: {
+                        name: 'test'
+                    }
+                },
+                GetPromptResultSchema
+            );
+
+            expect(result.messages).toEqual([
+                {
+                    role: 'assistant',
+                    content: {
+                        type: 'text',
+                        text: 'context: none'
+                    }
+                }
+            ]);
         });
 
         /***
