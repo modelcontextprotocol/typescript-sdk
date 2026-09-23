@@ -55,3 +55,37 @@ export function isJsonContentType(header: string | null | undefined): boolean {
     }
     return mediaTypeEssence(header) === 'application/json';
 }
+
+/**
+ * Parses an `Accept` header value into a set of media ranges (RFC 9110 §12.5.1).
+ *
+ * Each comma-separated range is lowercased and stripped of its parameters
+ * (e.g. `;q=0.9`), so a value like `application/json; q=0.9` yields the range
+ * `application/json`. Wildcards (the `*` forms) are kept as-is so callers
+ * can honor the media-range matching rules of RFC 9110 §12.5.1 instead of
+ * doing a substring search of the raw header — a substring search both lets
+ * forged types through (`application/jsonx`) and rejects legal wildcards.
+ */
+export function parseAcceptRanges(header: string | null | undefined): Set<string> {
+    const ranges = new Set<string>();
+    if (!header) {
+        return ranges;
+    }
+    for (const part of header.split(',')) {
+        const range = part.split(';', 1)[0]?.trim().toLowerCase();
+        if (range) {
+            ranges.add(range);
+        }
+    }
+    return ranges;
+}
+
+/**
+ * Whether an `Accept` header value includes the given media type, following
+ * the media-range matching rules of RFC 9110 §12.5.1: an exact `type/subtype`
+ * range matches, and so do the `type/*` and `*` wildcard forms.
+ */
+export function acceptIncludes(header: string | null | undefined, type: string, subtype: string): boolean {
+    const ranges = parseAcceptRanges(header);
+    return ranges.has(`${type}/${subtype}`) || ranges.has(`${type}/*`) || ranges.has('*/*');
+}
