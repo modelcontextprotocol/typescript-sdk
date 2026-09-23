@@ -55,23 +55,17 @@ export const DEFAULT_INHERITED_ENV_VARS =
     process.platform === 'win32'
         ? [
               'APPDATA',
-              'COMSPEC',
               'HOMEDRIVE',
               'HOMEPATH',
               'LOCALAPPDATA',
               'PATH',
-              'PATHEXT',
               'PROCESSOR_ARCHITECTURE',
-              'PROGRAMDATA',
-              'PROGRAMFILES',
-              'PROGRAMFILES(X86)',
-              'PROGRAMW6432',
               'SYSTEMDRIVE',
               'SYSTEMROOT',
               'TEMP',
               'USERNAME',
               'USERPROFILE',
-              'WINDIR'
+              'PROGRAMFILES'
           ]
         : /* list inspired by the default env inheritance of sudo */
           ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
