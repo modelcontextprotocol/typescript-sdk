@@ -5,6 +5,7 @@ export default defineConfig({
     entry: [
         'src/index.ts',
         'src/stdio.ts',
+        'src/ext/tasks/index.ts',
         'src/shimsNode.ts',
         'src/shimsWorkerd.ts',
         'src/shimsBrowser.ts',
@@ -28,6 +29,7 @@ export default defineConfig({
                 'fast-uri': ['../core-internal/src/validators/fastUriShim.d.ts'],
                 '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
                 '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core-internal/ext/tasks': ['../core-internal/src/ext/tasks/index.ts'],
                 '@modelcontextprotocol/core-internal/validators/ajv': ['../core-internal/src/validators/ajvProvider.ts'],
                 '@modelcontextprotocol/core-internal/validators/cfWorker': ['../core-internal/src/validators/cfWorkerProvider.ts']
             }
