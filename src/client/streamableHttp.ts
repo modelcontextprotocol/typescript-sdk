@@ -1,6 +1,13 @@
 import { mediaTypeEssence } from '../shared/mediaType.js';
 import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
-import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
+import {
+    isInitializedNotification,
+    isJSONRPCRequest,
+    isJSONRPCErrorResponse,
+    isJSONRPCResultResponse,
+    JSONRPCMessage,
+    JSONRPCMessageSchema
+} from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -351,7 +358,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
+                            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {

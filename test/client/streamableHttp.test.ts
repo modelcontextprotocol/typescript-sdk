@@ -941,6 +941,61 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
         });
 
+        it('should NOT reconnect a POST stream when an error response was received', async () => {
+            // ARRANGE
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            // A JSON-RPC error response is a terminal response to a request, just
+            // like a result response, so it must also prevent reconnection.
+            const streamWithError = new ReadableStream({
+                start(controller) {
+                    // Priming event with ID (enables potential reconnection)
+                    controller.enqueue(new TextEncoder().encode('id: priming-123\ndata: \n\n'));
+                    // The terminal error response to the request
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'id: response-456\ndata: {"jsonrpc":"2.0","error":{"code":-32000,"message":"boom"},"id":"request-1"}\n\n'
+                        )
+                    );
+                    // Stream closes normally
+                    controller.close();
+                }
+            });
+
+            const fetchMock = global.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: streamWithError
+            });
+
+            const requestMessage: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                id: 'request-1',
+                params: {}
+            };
+
+            // ACT
+            await transport.start();
+            await transport.send(requestMessage);
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT
+            // Fetch was called ONCE only - the error response completed the request,
+            // so there is no need to reconnect.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            expect(fetchMock.mock.calls[0][1]?.method).toBe('POST');
+        });
+
         it('should not attempt reconnection after close() is called', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
