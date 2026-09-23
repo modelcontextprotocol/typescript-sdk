@@ -3114,6 +3114,85 @@ async function createTestServerWithDnsProtection(config: {
     };
 }
 
+describe('WebStandardStreamableHTTPServerTransport - JSON response mode lifecycle', () => {
+    it('settles an in-flight request when the transport closes mid-handler', async () => {
+        // close() runs every stream mapping's cleanup. JSON mode's cleanup only dropped the map
+        // entry, leaving the Promise returned by handleRequest() unsettled — so the HTTP request
+        // hung until the client gave up rather than failing.
+        //
+        // Driven through handleRequest() rather than a real socket so close() is known to land
+        // while the handler is genuinely parked.
+        let releaseTool!: () => void;
+        const toolGate = new Promise<void>(resolve => {
+            releaseTool = resolve;
+        });
+        let signalToolStarted!: () => void;
+        const toolStarted = new Promise<void>(resolve => {
+            signalToolStarted = resolve;
+        });
+
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        mcpServer.tool('slow', 'Parks until released', {}, async (): Promise<CallToolResult> => {
+            signalToolStarted();
+            await toolGate;
+            return { content: [] };
+        });
+
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            })
+        );
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        const inFlight = transport.handleRequest(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream',
+                    'Content-Type': 'application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'slow', arguments: {} },
+                    id: 'slow-1'
+                })
+            })
+        );
+
+        await toolStarted;
+        await transport.close();
+
+        // The only timer here fires solely on a regression: with the fix the response is already
+        // resolved by the time close() returns. Cleared either way so a pass leaves nothing pending.
+        let hangTimer: ReturnType<typeof setTimeout> | undefined;
+        const outcome = await Promise.race([
+            inFlight.then(response => ({ hung: false, status: response.status })),
+            new Promise<{ hung: true; status: number }>(resolve => {
+                hangTimer = setTimeout(() => resolve({ hung: true, status: 0 }), 2000);
+            })
+        ]).finally(() => {
+            if (hangTimer !== undefined) clearTimeout(hangTimer);
+        });
+        releaseTool();
+
+        expect(outcome.hung).toBe(false);
+        expect(outcome.status).toBe(503);
+    });
+});
+
 describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
     let transport: WebStandardStreamableHTTPServerTransport;
     let mcpServer: McpServer;
