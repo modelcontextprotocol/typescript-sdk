@@ -2333,6 +2333,220 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+    /***
+     * Test: Error Result Without structuredContent Is Accepted
+     *
+     * A tool that declares an outputSchema is still allowed to fail without structured
+     * output: the "MUST return structuredContent" guard is skipped for error results.
+     */
+    test('should not require structuredContent on an error result', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'failing-tool',
+                    description: 'A tool that fails',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            score: { type: 'number' }
+                        },
+                        required: ['score'],
+                        additionalProperties: false
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            isError: true,
+            content: [{ type: 'text', text: 'authentication required' }]
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // List tools to cache the schemas
+        await client.listTools();
+
+        const result = await client.callTool({ name: 'failing-tool' });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toBeUndefined();
+    });
+
+    /***
+     * Test: Error Result With structuredContent Is Still Validated
+     *
+     * Present-but-invalid structured content is rejected even when the tool reports
+     * isError, so a server must not put an error payload of its own shape in
+     * structuredContent. See #2748 - the server half of the SDK skips output
+     * validation on error results, so this combination is reachable from SDK code.
+     */
+    test('should validate structuredContent on an error result', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'failing-tool',
+                    description: 'A tool that fails',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            score: { type: 'number' }
+                        },
+                        required: ['score'],
+                        additionalProperties: false
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            isError: true,
+            content: [{ type: 'text', text: '{"code":"AUTH_REQUIRED"}' }],
+            structuredContent: { code: 'AUTH_REQUIRED' }
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // List tools to cache the schemas
+        await client.listTools();
+
+        await expect(client.callTool({ name: 'failing-tool' })).rejects.toThrow(
+            /Structured content does not match the tool's output schema/
+        );
+    });
+
+    /***
+     * Test: Validation Only Happens Once a Validator Has Been Cached
+     *
+     * Validators come from tools/list, so a client that never lists tools sees no
+     * validation at all. This is what makes the previous case look intermittent:
+     * the same call throws or succeeds depending on an earlier tools/list.
+     */
+    test('should not validate structuredContent when tools have never been listed', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => ({
+            tools: [
+                {
+                    name: 'failing-tool',
+                    description: 'A tool that fails',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            score: { type: 'number' }
+                        },
+                        required: ['score'],
+                        additionalProperties: false
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            isError: true,
+            content: [{ type: 'text', text: '{"code":"AUTH_REQUIRED"}' }],
+            structuredContent: { code: 'AUTH_REQUIRED' }
+        }));
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // Deliberately no listTools() here, so no validator is cached
+        const result = await client.callTool({ name: 'failing-tool' });
+        expect(result.structuredContent).toEqual({ code: 'AUTH_REQUIRED' });
+    });
 });
 
 describe('Task-based execution', () => {
