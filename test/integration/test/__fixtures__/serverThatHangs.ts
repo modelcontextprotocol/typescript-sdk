@@ -30,14 +30,10 @@ transport.onclose = () => {
 };
 
 const doNotExitImmediately = async (signal: NodeJS.Signals) => {
-    // The transport closes itself when the client hangs up stdin, so this send may
-    // reject — ignore that; this fixture intentionally keeps hanging regardless.
-    await server
-        .sendLoggingMessage({
-            level: 'debug',
-            data: `received signal ${signal}`
-        })
-        .catch(() => {});
+    await server.sendLoggingMessage({
+        level: 'debug',
+        data: `received signal ${signal}`
+    });
     // Clear keepalive but delay exit to simulate slow shutdown
     clearInterval(keepAlive);
     setInterval(() => {}, 30_000);

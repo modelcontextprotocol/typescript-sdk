@@ -24,23 +24,17 @@ const SAFELIST =
     process.platform === 'win32'
         ? [
               'APPDATA',
-              'COMSPEC',
               'HOMEDRIVE',
               'HOMEPATH',
               'LOCALAPPDATA',
               'PATH',
-              'PATHEXT',
               'PROCESSOR_ARCHITECTURE',
-              'PROGRAMDATA',
-              'PROGRAMFILES',
-              'PROGRAMFILES(X86)',
-              'PROGRAMW6432',
               'SYSTEMDRIVE',
               'SYSTEMROOT',
               'TEMP',
               'USERNAME',
               'USERPROFILE',
-              'WINDIR'
+              'PROGRAMFILES'
           ]
         : ['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER'];
 

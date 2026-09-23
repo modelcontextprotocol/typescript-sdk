@@ -1241,7 +1241,7 @@ rejection now throws `RegistrationRejectedError` (carrying `status`, `body`,
 
 `exchangeAuthorization()`, `refreshAuthorization()`, `fetchToken()`, and the Cross-App
 Access helpers throw `InsecureTokenEndpointError` when the token endpoint is not
-`https:` (loopback `localhost` / `*.localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
+`https:` (loopback `localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
 every path including refresh — switch any plain-`http:` AS on a non-loopback host to
 TLS; there is no opt-out. Storage confidentiality of `refresh_token` remains your
 `saveTokens()` implementation's responsibility.
