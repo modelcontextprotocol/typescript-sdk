@@ -1,4 +1,4 @@
-import { isJsonContentType, mediaTypeEssence } from '../../src/shared/mediaType.js';
+import { isJsonContentType, listsMediaType, mediaTypeEssence } from '../../src/shared/mediaType.js';
 
 describe('mediaTypeEssence', () => {
     it('parses well-formed headers', () => {
@@ -62,5 +62,35 @@ describe('isJsonContentType', () => {
         expect(isJsonContentType('')).toBe(false);
         expect(isJsonContentType('text/plain')).toBe(false);
         expect(isJsonContentType('multipart/form-data')).toBe(false);
+    });
+});
+
+describe('listsMediaType', () => {
+    it('matches comma-separated Accept values by parsed media type', () => {
+        expect(listsMediaType('application/json, text/event-stream', 'application/json')).toBe(true);
+        expect(listsMediaType('application/json, text/event-stream', 'text/event-stream')).toBe(true);
+        expect(listsMediaType('Application/JSON; q=0.9, text/event-stream; charset=utf-8', 'application/json')).toBe(true);
+        expect(listsMediaType('application/json; q=0.001, text/event-stream', 'application/json')).toBe(true);
+        expect(listsMediaType('text/plain; note="a,b", application/json', 'application/json')).toBe(true);
+    });
+
+    it('never matches required media types by substring or wildcard', () => {
+        expect(listsMediaType('application/jsonx, text/event-stream-bogus', 'application/json')).toBe(false);
+        expect(listsMediaType('application/jsonx, text/event-stream-bogus', 'text/event-stream')).toBe(false);
+        expect(listsMediaType('text/plain; note=application/json', 'application/json')).toBe(false);
+        expect(listsMediaType('*/*, application/*', 'application/json')).toBe(false);
+    });
+
+    it('rejects media ranges with zero or invalid quality values', () => {
+        expect(listsMediaType('application/json; q=0, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=0.000, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=bogus, text/event-stream', 'application/json')).toBe(false);
+        expect(listsMediaType('application/json; q=1.1, text/event-stream', 'application/json')).toBe(false);
+    });
+
+    it('rejects missing or empty Accept values', () => {
+        expect(listsMediaType(null, 'application/json')).toBe(false);
+        expect(listsMediaType(undefined, 'application/json')).toBe(false);
+        expect(listsMediaType('', 'application/json')).toBe(false);
     });
 });
