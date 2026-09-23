@@ -3114,6 +3114,56 @@ async function createTestServerWithDnsProtection(config: {
     };
 }
 
+describe('WebStandardStreamableHTTPServerTransport - concurrent DELETE', () => {
+    it('fires onsessionclosed once when two DELETEs overlap', async () => {
+        // The first DELETE parks on the callback await. `_closed` is only set by close(), which runs
+        // in the finally *after* that await, and neither validateSession nor validateProtocolVersion
+        // consults it — so a second DELETE passes the same guards and fires the callback again for a
+        // session already being torn down.
+        //
+        // Driven through handleRequest() rather than a real socket so the second DELETE is known to
+        // have reached the handler before the callback is released; over HTTP the release wins the
+        // race and the two requests simply serialize, which hides the bug.
+        let releaseCallback!: () => void;
+        const callbackGate = new Promise<void>(resolve => {
+            releaseCallback = resolve;
+        });
+        const onsessionclosed = vi.fn().mockReturnValue(callbackGate);
+
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessionclosed
+        });
+        await mcpServer.connect(transport);
+
+        const initResponse = await transport.handleRequest(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json' },
+                body: JSON.stringify(TEST_MESSAGES.initialize)
+            })
+        );
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+        expect(sessionId).toBeDefined();
+
+        const sendDelete = (): Promise<Response> =>
+            transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'DELETE',
+                    headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+                })
+            );
+
+        const first = sendDelete();
+        const second = sendDelete();
+        releaseCallback();
+        await Promise.all([first, second]);
+
+        expect(onsessionclosed).toHaveBeenCalledTimes(1);
+    });
+});
+
 describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
     let transport: WebStandardStreamableHTTPServerTransport;
     let mcpServer: McpServer;
