@@ -1386,15 +1386,17 @@ describe('Zod v4', () => {
                         resultType: z.string()
                     })
                 },
-                async ({ input }) => ({
-                    // Only return content without structuredContent
-                    content: [
-                        {
-                            type: 'text',
-                            text: `Processed: ${input}`
-                        }
-                    ]
-                })
+                // Deliberately malformed runtime fixture: compile-time callers are rejected.
+                async ({ input }) =>
+                    ({
+                        // Only return content without structuredContent
+                        content: [
+                            {
+                                type: 'text',
+                                text: `Processed: ${input}`
+                            }
+                        ]
+                    }) as never
             );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
@@ -1508,25 +1510,27 @@ describe('Zod v4', () => {
                         timestamp: z.string()
                     })
                 },
-                async ({ input }) => ({
-                    content: [
-                        {
-                            type: 'text',
-                            text: JSON.stringify({
-                                processedInput: input,
-                                resultType: 'structured',
-                                // Missing required 'timestamp' field
-                                someExtraField: 'unexpected' // Extra field not in schema
-                            })
+                // Deliberately malformed runtime fixture: compile-time callers are rejected.
+                async ({ input }) =>
+                    ({
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify({
+                                    processedInput: input,
+                                    resultType: 'structured',
+                                    // Missing required 'timestamp' field
+                                    someExtraField: 'unexpected' // Extra field not in schema
+                                })
+                            }
+                        ],
+                        structuredContent: {
+                            processedInput: input,
+                            resultType: 'structured',
+                            // Missing required 'timestamp' field
+                            someExtraField: 'unexpected' // Extra field not in schema
                         }
-                    ],
-                    structuredContent: {
-                        processedInput: input,
-                        resultType: 'structured',
-                        // Missing required 'timestamp' field
-                        someExtraField: 'unexpected' // Extra field not in schema
-                    }
-                })
+                    }) as never
             );
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

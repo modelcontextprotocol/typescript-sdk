@@ -116,7 +116,11 @@ server.registerTool(
 );
 ```
 
-The SDK validates `structuredContent` against `outputSchema` before the result leaves your server, and advertises the derived JSON Schema in `tools/list` so clients can validate it too.
+When you supply an `outputSchema` with an inferred output type, TypeScript checks that successful callbacks return matching `structuredContent`. In this example, a string, a missing `price`, or a non-numeric `price` produces a compiler error. Successful output cannot be `undefined`; `null` is valid when the schema permits it. Results with `isError: true` and [input-required results](input-required.md) do not need matching structured output.
+
+The callback returns the schema's output type, including when coercion or defaults make its input and output types differ. Output validation does not replace the returned value with parsed or transformed data.
+
+The SDK also validates `structuredContent` against `outputSchema` before the result leaves your server, and advertises the derived JSON Schema in `tools/list` so clients can validate it too. Runtime validation remains necessary for JavaScript callers and constraints TypeScript cannot check, such as numeric ranges.
 
 Calling `product-details` with `{ name: 'Travel mug' }` returns both renderings:
 

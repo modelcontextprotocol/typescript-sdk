@@ -138,8 +138,8 @@ verifies('standardschema:tool:output-schema-validation', async ({ transport }: T
         s.registerTool(
             'get-server-status-corrupt',
             { inputSchema: type({}), outputSchema },
-            // intentionally nonconforming structuredContent (server-side output validation must reject it)
-            () => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] })
+            // Deliberately malformed runtime fixture: compile-time callers are rejected.
+            () => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] }) as never
         );
         return s;
     };
