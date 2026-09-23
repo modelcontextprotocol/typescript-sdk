@@ -167,6 +167,23 @@ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMet
 
 HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
 
+## `MCP error -32603: Cannot read properties of null (reading '_def')`
+
+On SDK v1, `server.tool()` (and `registerTool` before 1.22) expects a **Zod raw shape** — `{ name: z.string() }` — not a `ZodObject`. Passing `z.object({ name: z.string() })` fails without ever naming the mistake:
+
+- v1 ≤ 1.21: `tools/list` crashes with this error.
+- v1 ≤ 1.26 via `server.tool()`: no error anywhere, but the published schema is an empty `{"type":"object"}` — clients strip every argument and the handler receives none.
+- v1 ≥ 1.28: registration throws a clear error, and `registerTool` has normalized `z.object()` since 1.22.
+
+Fix the call site — unwrap to the raw shape:
+
+```diff
+- server.tool('greet', 'desc', z.object({ name: z.string() }), handler);
++ server.tool('greet', 'desc', { name: z.string() }, handler);
+```
+
+On v2 the direction reverses: `registerTool` takes schema objects (`z.object(...)`), with raw shapes only on deprecated overloads — see the [v1→v2 migration guide](./migration/upgrade-to-v2.md#standard-schema-objects-raw-shapes-deprecated).
+
 ## Recap
 
 - Every heading on this page is the exact message you searched for.
