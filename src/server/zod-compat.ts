@@ -23,6 +23,7 @@ export interface ZodV3Internal {
         values?: unknown[];
         shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
         description?: string;
+        schema?: AnySchema; // present on ZodEffects (.refine/.superRefine/.transform)
     };
     shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
     value?: unknown;
@@ -35,6 +36,7 @@ export interface ZodV4Internal {
             value?: unknown;
             values?: unknown[];
             shape?: Record<string, AnySchema> | (() => Record<string, AnySchema>);
+            in?: AnySchema; // present on pipe types (from .transform())
         };
     };
     value?: unknown;
@@ -103,6 +105,26 @@ export async function safeParseAsync<S extends AnySchema>(
     return result as { success: true; data: SchemaOutput<S> } | { success: false; error: unknown };
 }
 
+// --- ZodEffects unwrapping ---
+/**
+ * Unwrap ZodEffects wrappers (.superRefine(), .refine(), .transform()) to
+ * find the inner schema. ZodEffects chains store the wrapped schema in
+ * `_def.schema`. This walks the chain up to `maxDepth` levels to prevent
+ * infinite loops on malformed schemas.
+ *
+ * Returns the innermost non-ZodEffects schema, or the original schema if
+ * it is not a ZodEffects.
+ */
+function unwrapZodEffects(schema: AnySchema, maxDepth = 10): AnySchema {
+    let current = schema;
+    for (let i = 0; i < maxDepth; i++) {
+        const v3 = current as unknown as ZodV3Internal;
+        if (v3._def?.typeName !== 'ZodEffects' || !v3._def.schema) break;
+        current = v3._def.schema;
+    }
+    return current;
+}
+
 // --- Shape extraction ---
 export function getObjectShape(schema: AnyObjectSchema | undefined): Record<string, AnySchema> | undefined {
     if (!schema) return undefined;
@@ -113,9 +135,24 @@ export function getObjectShape(schema: AnyObjectSchema | undefined): Record<stri
     if (isZ4Schema(schema)) {
         const v4Schema = schema as unknown as ZodV4Internal;
         rawShape = v4Schema._zod?.def?.shape;
+
+        // If no shape found, check if it's a v4 pipe (from .transform())
+        if (!rawShape && v4Schema._zod?.def?.type === 'pipe' && v4Schema._zod?.def?.in) {
+            const inner = v4Schema._zod.def.in as unknown as ZodV4Internal;
+            rawShape = inner._zod?.def?.shape;
+        }
     } else {
         const v3Schema = schema as unknown as ZodV3Internal;
         rawShape = v3Schema.shape;
+
+        // If no shape found, check if this is a ZodEffects wrapping a ZodObject
+        if (!rawShape) {
+            const inner = unwrapZodEffects(schema as AnySchema);
+            if (inner !== schema) {
+                const innerV3 = inner as unknown as ZodV3Internal;
+                rawShape = innerV3.shape;
+            }
+        }
     }
 
     if (!rawShape) return undefined;
@@ -177,11 +214,37 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
         if (def && (def.type === 'object' || def.shape !== undefined)) {
             return schema as AnyObjectSchema;
         }
+
+        // Check if it's a v4 pipe type (from .transform()) wrapping an object.
+        // In Zod v4, .transform() creates a pipe with def.in pointing to the
+        // input schema. Walk through pipes to find the inner object schema.
+        if (def?.type === 'pipe' && def.in) {
+            const inner = def.in as unknown as ZodV4Internal;
+            const innerDef = inner._zod?.def;
+            if (innerDef && (innerDef.type === 'object' || innerDef.shape !== undefined)) {
+                return schema as AnyObjectSchema;
+            }
+        }
     } else {
         // Check if it's a v3 object
         const v3Schema = schema as unknown as ZodV3Internal;
         if (v3Schema.shape !== undefined) {
             return schema as AnyObjectSchema;
+        }
+
+        // Check if it's a v3 ZodEffects wrapping an object schema.
+        // ZodEffects are created by .superRefine(), .refine(), .transform(), etc.
+        // They lack .shape but have _def.schema pointing to the inner schema.
+        // Walk the chain to find the inner ZodObject.
+        const inner = unwrapZodEffects(schema as AnySchema);
+        if (inner !== schema) {
+            const innerV3 = inner as unknown as ZodV3Internal;
+            if (innerV3.shape !== undefined) {
+                // Return the original ZodEffects schema — zodToJsonSchema() and
+                // z4mini.toJSONSchema() can traverse ZodEffects to extract the
+                // correct JSON Schema from the full chain.
+                return schema as AnyObjectSchema;
+            }
         }
     }
 
