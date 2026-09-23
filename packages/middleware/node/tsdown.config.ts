@@ -1,5 +1,7 @@
 import { defineConfig } from 'tsdown';
 
+import { stripDtsSourceMappingUrl } from '../../../common/tsdown/stripDtsSourceMappingUrl.mjs';
+
 export default defineConfig({
     failOnWarn: 'ci-only',
     // 1. Entry Points
@@ -21,6 +23,11 @@ export default defineConfig({
     // 4. Type Definitions
     //    Bundles d.ts files into a single output
     dts: {
+        // Declaration maps would reference src/ (and, where bundled, the private
+        // core-internal's src/), which is not shipped ("files": ["dist"]); tsc cannot
+        // embed sourcesContent into .d.ts maps, so the shipped maps could never resolve
+        // on a consumer's machine. Don't emit them (#2233).
+        sourcemap: false,
         resolver: 'tsc',
         // The dev tsconfig.json maps @modelcontextprotocol/* to workspace source via
         // `paths` so typecheck/IDE work without a prior build. For declaration emit we
@@ -40,5 +47,7 @@ export default defineConfig({
             paths: {},
             preserveSymlinks: true
         }
-    }
+    },
+    // Drop the dangling sourceMappingURL comment rolldown leaves on the (map-less) declaration output.
+    inputOptions: stripDtsSourceMappingUrl
 });
