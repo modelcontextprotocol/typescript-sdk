@@ -165,6 +165,7 @@ test('DEFAULT_INHERITED_ENV_VARS matches the host platform', () => {
                 'PATH',
                 'PATHEXT',
                 'PROCESSOR_ARCHITECTURE',
+                'PROGRAMDATA',
                 'PROGRAMFILES',
                 'PROGRAMFILES(X86)',
                 'PROGRAMW6432',

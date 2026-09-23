@@ -62,6 +62,7 @@ export const DEFAULT_INHERITED_ENV_VARS =
               'PATH',
               'PATHEXT',
               'PROCESSOR_ARCHITECTURE',
+              'PROGRAMDATA',
               'PROGRAMFILES',
               'PROGRAMFILES(X86)',
               'PROGRAMW6432',

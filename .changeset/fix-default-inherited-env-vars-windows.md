@@ -2,4 +2,4 @@
 '@modelcontextprotocol/client': patch
 ---
 
-Add missing Windows environment variables to `DEFAULT_INHERITED_ENV_VARS`: `PATHEXT`, `COMSPEC`, `PROGRAMFILES(X86)`, `PROGRAMW6432`, and `WINDIR`. Without `PATHEXT`, spawning common tools like `npm` or `git` from a stdio MCP server fails with `ENOENT` on Windows because Node can't resolve the `.cmd`/`.exe` extension.
+On Windows, stdio servers spawned by `StdioClientTransport` now also inherit `COMSPEC`, `PATHEXT`, `PROGRAMDATA`, `PROGRAMFILES(X86)`, `PROGRAMW6432`, and `WINDIR` (added to `DEFAULT_INHERITED_ENV_VARS`). Programs a server launches can depend on them: PowerShell finds no native executables without `PATHEXT`, and Windows OpenSSH exits 255 without `ProgramData`.
