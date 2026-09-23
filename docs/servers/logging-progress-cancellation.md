@@ -119,7 +119,27 @@ warning { invalid: [ 'b.txt' ] }
 [ { type: 'text', text: '1 of 2 records are valid' } ]
 ```
 
-How the client's log level reaches `ctx.mcpReq.log` differs by protocol era — see [Protocol versions](../protocol-versions.md).
+## Let the client set the level
+
+Declaring `logging` also installs the `logging/setLevel` handler, so a client raises the threshold for its session with `setLoggingLevel` and `ctx.mcpReq.log` drops anything below it.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#setLoggingLevel_warning"
+await client.setLoggingLevel('warning');
+
+const filtered = await client.callTool({ name: 'validate-records', arguments: { records: ['c.csv', 'd.txt'] } });
+console.log(filtered.content);
+```
+
+The same tool now delivers only the `warning`; the `info` message never leaves the server:
+
+```
+warning { invalid: [ 'd.txt' ] }
+[ { type: 'text', text: '1 of 2 records are valid' } ]
+```
+
+::: info
+On a 2026-07-28 request the client's level arrives per request, not per session — see [Protocol versions](../protocol-versions.md).
+:::
 
 ## Stop work when the request is cancelled
 
@@ -202,4 +222,5 @@ Resolve an identifier against a fixed list, as `fetch-source` does. A tool that 
 - Every handler receives a context as its second argument; the request-scoped helpers live on `ctx.mcpReq`.
 - `ctx.mcpReq.notify` sends `notifications/progress` when the request carried a `progressToken`; `progress` must increase on each one.
 - `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; MCP logging is deprecated (SEP-2577).
+- Declaring `logging` also installs `logging/setLevel`; after `client.setLoggingLevel(level)` the SDK drops messages below that level for the session.
 - `ctx.mcpReq.signal` aborts on cancellation and disconnect — check it in long loops and forward it to your own I/O.

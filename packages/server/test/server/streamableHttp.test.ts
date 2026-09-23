@@ -1547,3 +1547,92 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive', () => {
         expect(vi.getTimerCount()).toBe(0);
     });
 });
+
+describe('WebStandardStreamableHTTPServerTransport request body limits', () => {
+    let transport: WebStandardStreamableHTTPServerTransport;
+
+    beforeEach(() => {
+        transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    });
+
+    /** A POST whose body yields up to `chunks` 1 MiB chunks on demand, counting pulls. */
+    function streamedPost(chunks: number, headers: Record<string, string> = {}): { request: Request; pulls: () => number } {
+        let pulled = 0;
+        const body = new ReadableStream<Uint8Array>(
+            {
+                pull(controller) {
+                    if (pulled >= chunks) {
+                        return controller.close();
+                    }
+                    pulled++;
+                    controller.enqueue(new Uint8Array(1024 * 1024).fill(32));
+                }
+            },
+            { highWaterMark: 0 }
+        );
+        const request = new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: { Accept: 'application/json, text/event-stream', 'Content-Type': 'application/json', ...headers },
+            body,
+            duplex: 'half'
+        });
+        return { request, pulls: () => pulled };
+    }
+
+    it('answers 413 when Content-Length exceeds the body size limit without reading the body', async () => {
+        const { request, pulls } = streamedPost(1, { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        const response = await transport.handleRequest(request);
+        expect(response.status).toBe(413);
+        expectErrorResponse(await response.json(), -32_000, /Payload Too Large/);
+        expect(pulls()).toBe(0);
+    });
+
+    it('answers 413 once a streamed body without Content-Length exceeds the limit', async () => {
+        const { request, pulls } = streamedPost(8);
+        const response = await transport.handleRequest(request);
+        expect(response.status).toBe(413);
+        expect(pulls()).toBeLessThan(8);
+    });
+
+    it('maxRequestBodySize sets the bound on both read paths and is validated at construction', async () => {
+        const strict = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: 1024 });
+        const declared = await strict.handleRequest(streamedPost(1, { 'Content-Length': '1025' }).request);
+        expect(declared.status).toBe(413);
+        expectErrorResponse(await declared.json(), -32_000, /must not exceed 1024 bytes/);
+        const streamed = streamedPost(2);
+        const overLimit = await strict.handleRequest(streamed.request);
+        expect(overLimit.status).toBe(413);
+        expect(streamed.pulls()).toBe(1);
+
+        const roomy = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: 8 * 1024 * 1024 });
+        const onmessage = vi.fn();
+        roomy.onmessage = onmessage;
+        const padded: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'notifications/initialized',
+            params: { pad: 'x'.repeat(5 * 1024 * 1024) }
+        };
+        const accepted = await roomy.handleRequest(createRequest('POST', padded));
+        expect(accepted.status).toBe(202);
+        expect(onmessage).toHaveBeenCalledTimes(1);
+
+        for (const invalid of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+            expect(
+                () => new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: invalid })
+            ).toThrow(RangeError);
+        }
+    });
+
+    it('answers 400 for a JSON-RPC batch longer than 100 messages and dispatches none of it', async () => {
+        const batch = Array.from({ length: 101 }, (_, i): JSONRPCMessage => ({ jsonrpc: '2.0', method: 'ping', id: i }));
+        const onmessage = vi.fn();
+        transport.onmessage = onmessage;
+        const read = await transport.handleRequest(createRequest('POST', batch));
+        const preParsed = await transport.handleRequest(createRequest('POST', batch), { parsedBody: batch });
+        for (const response of [read, preParsed]) {
+            expect(response.status).toBe(400);
+            expectErrorResponse(await response.json(), -32_600, /Batch must not exceed 100 messages/);
+        }
+        expect(onmessage).not.toHaveBeenCalled();
+    });
+});

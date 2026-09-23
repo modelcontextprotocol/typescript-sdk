@@ -7,9 +7,11 @@
  * `-32020` (`HeaderMismatch`) when the required `MCP-Protocol-Version` header
  * is absent, when the required `Mcp-Method` header is
  * absent, when the required `Mcp-Name` header is absent on a `tools/call` /
- * `prompts/get` / `resources/read` request, when the `Mcp-Name` header
- * carries an invalid Base64 sentinel, and when its (decoded) value disagrees
- * with the body's `params.name` / `params.uri`. Never enforced on
+ * `prompts/get` / `resources/read` request or (per SEP-2663's Streamable
+ * HTTP binding) a `tasks/get` / `tasks/update` / `tasks/cancel` request,
+ * when the `Mcp-Name` header carries an invalid Base64 sentinel, and when
+ * its (decoded) value disagrees with the body's `params.name` /
+ * `params.uri` / `params.taskId`. Never enforced on
  * notifications or on methods without an `Mcp-Name` source.
  *
  * The classifier itself is left unchanged by these rungs (it stays a
@@ -21,7 +23,12 @@
 import { describe, expect, test } from 'vitest';
 
 import type { InboundHttpRequest, InboundLadderRejection, InboundModernRoute } from '../../src/shared/inboundClassification';
-import { classifyInboundRequest, MCP_NAME_HEADER_SOURCE, validateStandardRequestHeaders } from '../../src/shared/inboundClassification';
+import {
+    classifyInboundRequest,
+    MCP_NAME_HEADER_SOURCE,
+    mcpNameSource,
+    validateStandardRequestHeaders
+} from '../../src/shared/inboundClassification';
 import { encodeMcpParamValue } from '../../src/shared/mcpParamHeaders';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants';
 
@@ -269,8 +276,66 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
         expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
     });
 
-    test('the Mcp-Name source map covers exactly the spec table', () => {
-        expect(MCP_NAME_HEADER_SOURCE).toEqual({ 'tools/call': 'name', 'prompts/get': 'name', 'resources/read': 'uri' });
+    test('the Mcp-Name source map covers exactly the spec table (SEP-2243 core + SEP-2663 tasks)', () => {
+        expect(MCP_NAME_HEADER_SOURCE).toEqual({
+            'tools/call': 'name',
+            'prompts/get': 'name',
+            'resources/read': 'uri',
+            'tasks/get': 'taskId',
+            'tasks/update': 'taskId',
+            'tasks/cancel': 'taskId'
+        });
+    });
+
+    test('a tasks/get without an Mcp-Name header is rejected and names params.taskId (SEP-2663)', () => {
+        const { request, route } = modernPost('tasks/get', { taskId: 'task-123' }, { mcpMethod: 'tasks/get' });
+        const result = validateStandardRequestHeaders(request, route);
+        expectRejection(result, 'name-header-missing');
+        expect(result?.message).toContain('params.taskId');
+    });
+
+    test('a matching Mcp-Name on tasks/get, tasks/update, and tasks/cancel compares against params.taskId', () => {
+        for (const method of ['tasks/get', 'tasks/update', 'tasks/cancel']) {
+            const { request, route } = modernPost(method, { taskId: 'task-123' }, { mcpMethod: method, mcpName: 'task-123' });
+            expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+        }
+    });
+
+    test('an Mcp-Name header disagreeing with params.taskId is rejected (name-header-mismatch)', () => {
+        const { request, route } = modernPost(
+            'tasks/update',
+            { taskId: 'task-123', inputResponses: {} },
+            { mcpMethod: 'tasks/update', mcpName: 'some-other-task' }
+        );
+        const result = validateStandardRequestHeaders(request, route);
+        expectRejection(result, 'name-header-mismatch');
+        expect(result?.message).toContain('"some-other-task"');
+    });
+
+    test('a tasks/list stays off-table: no Mcp-Name required', () => {
+        const { request, route } = modernPost('tasks/list', {}, { mcpMethod: 'tasks/list' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+    });
+
+    test('an Mcp-Name header on a tasks/get whose params.taskId is not a string passes this rung (the body is answered further down)', () => {
+        // Nothing to cross-check against: the header is present and the body
+        // carries no string source value, so the mismatch branch must not fire.
+        const { request, route } = modernPost('tasks/get', { taskId: 42 }, { mcpMethod: 'tasks/get', mcpName: 'task-123' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+    });
+
+    test('mcpNameSource resolves the shared table for both sides', () => {
+        expect(mcpNameSource('tools/call', { name: 'echo' })).toEqual({ field: 'name', value: 'echo' });
+        expect(mcpNameSource('resources/read', { uri: 'file:///x' })).toEqual({ field: 'uri', value: 'file:///x' });
+        expect(mcpNameSource('tasks/update', { taskId: 'task-123', inputResponses: {} })).toEqual({ field: 'taskId', value: 'task-123' });
+        // On-table, but no string value to mirror.
+        expect(mcpNameSource('tasks/get', { taskId: 42 })).toEqual({ field: 'taskId', value: undefined });
+        expect(mcpNameSource('tasks/get', undefined)).toEqual({ field: 'taskId', value: undefined });
+        expect(mcpNameSource('tasks/get', ['task-123'])).toEqual({ field: 'taskId', value: undefined });
+        // Off-table, including Object.prototype collisions.
+        expect(mcpNameSource('tasks/list', { taskId: 'task-123' })).toBeUndefined();
+        expect(mcpNameSource('constructor', { name: 'x' })).toBeUndefined();
+        expect(mcpNameSource('__proto__', { name: 'x' })).toBeUndefined();
     });
 
     test('a method colliding with Object.prototype members is treated as off-table (passes through to dispatch)', () => {

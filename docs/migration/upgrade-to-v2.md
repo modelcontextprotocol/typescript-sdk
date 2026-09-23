@@ -808,6 +808,13 @@ value to the spec-required `application/json, text/event-stream` (v1 let it repl
 them). The required media types are always present; additional types are kept for
 proxy/gateway routing.
 
+Transport-managed headers now take precedence over same-named entries in
+`requestInit.headers`: `Authorization` when `authProvider` yields a token,
+`mcp-protocol-version`, and (Streamable HTTP) `mcp-session-id`. v1 let the configured
+header win, so a static `Authorization` placeholder kept overriding the OAuth token even
+after the provider obtained one. A configured `Authorization` value is still sent while
+the provider has no token, which is what lets a static API key fall back to OAuth.
+
 `hostHeaderValidation()` and `localhostHostValidation()` moved to
 `@modelcontextprotocol/express`. The `(allowedHostnames: string[])` signature is the
 same as every released v1.x — only the import path changes. Framework-agnostic helpers
@@ -1116,6 +1123,22 @@ OAuth `onUnauthorized` behavior, for composing your own adapter).
   discovery state so the callback-leg check on retry does not mask the original error.
   A provider whose `invalidateCredentials()` implementation special-cases the `'all'`
   scope must handle the split calls.
+- **Token persistence failures after a refresh now propagate.** v1 wrapped both
+  `refreshAuthorization()` and the `saveTokens()` that persists its result in one
+  `try`/`catch`, so a provider's persistence error was discarded alongside AS-side refresh
+  failures and `auth()` fell through to a fresh authorization request, returning
+  `'REDIRECT'`. Only the refresh call is guarded now — persisting runs after it and rejects
+  to the caller. Against an AS that rotates refresh tokens this was destructive rather than
+  merely quiet: the exchange has already succeeded, so the old refresh token is invalidated
+  server-side the moment the new one is issued, and dropping the new token set leaves
+  nothing usable on either side. A provider whose `saveTokens()` can throw (transient
+  storage errors, file-lock contention) must handle the rejection from `auth()` — and from
+  the transport 401-retry paths built on it — where v1 silently re-authorized. Refresh
+  failures themselves keep their control flow: a `ServerError` or an unknown error still
+  falls through to a new authorization request, and `invalid_grant` / `invalid_client` /
+  `unauthorized_client` are still recovered by discarding stored credentials and retrying.
+  Both routes now emit a `console.warn` naming the cause, so an unexplained re-auth prompt
+  can be traced to the failure that triggered it.
 
 #### OAuth client flow errors (new)
 

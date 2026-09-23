@@ -57,6 +57,40 @@ async function serve(request: Request): Promise<Response> {
 //#endregion isLegacyRequest_route
 
 // ---------------------------------------------------------------------------
+// "Know where SSE went" — the frozen v1 transport on two Express routes. The
+// app never listens here: docs companions never bind a port.
+// ---------------------------------------------------------------------------
+
+//#region SSEServerTransport_express
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+
+const sessions = new Map<string, SSEServerTransport>();
+const sseApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['sse.example.com'], jsonLimit: '4mb' });
+
+sseApp.get('/sse', async (_req, res) => {
+    const transport = new SSEServerTransport('/messages', res);
+    sessions.set(transport.sessionId, transport);
+    transport.onclose = () => sessions.delete(transport.sessionId);
+    await buildServer().connect(transport);
+});
+
+sseApp.post('/messages', async (req, res) => {
+    const sessionId = req.query.sessionId;
+    if (typeof sessionId !== 'string') {
+        res.status(400).send('Missing sessionId parameter');
+        return;
+    }
+    const transport = sessions.get(sessionId);
+    if (!transport) {
+        res.status(404).send('Session not found');
+        return;
+    }
+    await transport.handlePostMessage(req, res, req.body);
+});
+//#endregion SSEServerTransport_express
+
+// ---------------------------------------------------------------------------
 // Harness (not shown on the page). A 2025-era client opens with a claim-less
 // `initialize` POST; build that request twice and send it to the strict
 // handler, then through the `isLegacyRequest` branch. The page quotes both

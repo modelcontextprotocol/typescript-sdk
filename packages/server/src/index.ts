@@ -10,7 +10,9 @@ export type { CompletableSchema, CompleteCallback } from './server/completable';
 export { completable, isCompletable } from './server/completable';
 export type {
     CreateMcpHandlerOptions,
+    IsLegacyRequestOptions,
     LegacyHttpHandler,
+    LegacyStatelessFallbackOptions,
     McpHandlerRequestOptions,
     McpHttpHandler,
     McpRequestContext,
@@ -63,6 +65,8 @@ export { InMemoryServerEventBus } from './server/serverEventBus';
 // StdioServerTransport and the serveStdio entry are exported from the './stdio' subpath — server stdio
 // has only type-level Node imports (erased at compile time), but matching the client's `./stdio` subpath
 // gives consumers a consistent shape across packages.
+export type { ScopeChallenge, ScopeChallengeHandler } from './server/scopeChallenge';
+export { requireScopes } from './server/scopeChallenge';
 export type {
     EventId,
     EventStore,
@@ -71,6 +75,9 @@ export type {
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp';
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp';
+// Request-body bound shared by the HTTP entry points; the reader is exported for
+// adapter authors that pre-parse bodies (the way isJsonContentType is).
+export { DEFAULT_MAX_REQUEST_BODY_SIZE, readRequestBody } from './server/requestBody';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema';

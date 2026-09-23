@@ -27,6 +27,29 @@
  * it as the handler's pass-through `authInfo`.
  */
 import type { AuthInfo, McpHandlerRequestOptions } from '@modelcontextprotocol/server';
+import { DEFAULT_MAX_REQUEST_BODY_SIZE } from '@modelcontextprotocol/server';
+
+/**
+ * The rejection {@linkcode toWebRequest} produces for a body over the size
+ * limit, recognisable by `name` and `status` without matching message text.
+ */
+class RequestBodyTooLargeError extends Error {
+    readonly status = 413;
+    constructor(maxBytes: number) {
+        super(`Payload Too Large: Request body must not exceed ${maxBytes} bytes`);
+        this.name = 'RequestBodyTooLargeError';
+    }
+}
+
+function resolveMaxRequestBodySize(value: number | undefined): number {
+    if (value === undefined) {
+        return DEFAULT_MAX_REQUEST_BODY_SIZE;
+    }
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+        throw new RangeError(`maxRequestBodySize must be a positive number of bytes, got ${String(value)}`);
+    }
+    return value;
+}
 
 /**
  * Minimal duck-typed shape of a Node.js `IncomingMessage` accepted by
@@ -79,6 +102,15 @@ export interface ToNodeHandlerOptions {
      * `handler.fetch` and surface via the entry's `onerror` option as before.
      */
     onerror?: (error: Error) => void;
+    /**
+     * Upper bound, in bytes, on a request body the adapter buffers from the
+     * Node stream (when no `parsedBody` is supplied). A larger body is answered
+     * `413` without calling `handler.fetch`. Raise it together with the
+     * handler's own `maxRequestBodySize`; the adapter's bound applies first.
+     * Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -95,6 +127,7 @@ export interface ToNodeHandlerOptions {
  * conversion / `handler.fetch` throw) before the `500` response is written.
  */
 export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandlerOptions): NodeMcpRequestHandler {
+    const maxRequestBodySize = resolveMaxRequestBodySize(opts?.maxRequestBodySize);
     return async (req, res, parsedBody) => {
         // Express passes (req, res, next) when the handler is mounted as a
         // middleware function; a function third argument is `next`, not a body.
@@ -115,18 +148,28 @@ export function toNodeHandler(handler: FetchLikeMcpHandler, opts?: ToNodeHandler
 
         let response: Response;
         try {
-            const request = await toWebRequest(req, parsedBody, { signal: abort.signal });
+            const request = await toWebRequest(req, parsedBody, { signal: abort.signal, maxRequestBodySize });
             response = await handler.fetch(request, {
                 ...(req.auth !== undefined && { authInfo: req.auth }),
                 ...(parsedBody !== undefined && { parsedBody })
             });
         } catch (error) {
-            try {
-                opts?.onerror?.(error instanceof Error ? error : new Error(String(error)));
-            } catch {
-                // Reporting must never alter the response.
+            if (error instanceof RequestBodyTooLargeError) {
+                // A normal answer, not an adapter failure. `connection: close` has
+                // an HTTP/1.1 server end the socket after answering instead of
+                // idling a connection whose request stream was left partly unread.
+                response = Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_000, message: error.message }, id: null },
+                    { status: 413, headers: { connection: 'close' } }
+                );
+            } else {
+                try {
+                    opts?.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                } catch {
+                    // Reporting must never alter the response.
+                }
+                response = internalServerErrorResponse(echoableRequestId(parsedBody));
             }
-            response = internalServerErrorResponse(echoableRequestId(parsedBody));
         }
 
         const headers: Record<string, string> = {};
@@ -190,6 +233,14 @@ function singleHeaderValue(value: string | string[] | undefined): string | undef
 export interface ToWebRequestOptions {
     /** An `AbortSignal` to attach to the constructed `Request` (`request.signal`). */
     signal?: AbortSignal;
+    /**
+     * Upper bound, in bytes, on the body read from the Node stream (when no
+     * `parsedBody` is supplied); the returned promise rejects past it with an
+     * `Error` whose `name` is `'RequestBodyTooLargeError'` and `status` is `413`.
+     * Must be a positive number.
+     * @default 4194304 (4 MiB)
+     */
+    maxRequestBodySize?: number;
 }
 
 /**
@@ -203,12 +254,15 @@ export interface ToWebRequestOptions {
  * await ((await isLegacyRequest(probe)) ? legacy(req, res) : modern(req, res, req.body));
  * ```
  *
- * With no `parsedBody` the Node stream is read to completion — read the body
- * from the returned `Request` afterwards, not from `req`. When a body parser
- * already consumed the stream (`express.json()`), pass the parsed value as
- * `parsedBody` and nothing is read from `req`.
+ * With no `parsedBody` the Node stream is read to completion (up to
+ * `maxRequestBodySize`, 4 MiB by default — a longer body rejects with an error
+ * carrying `name: 'RequestBodyTooLargeError'` and `status: 413`) — read the
+ * body from the returned `Request` afterwards, not from `req`. When a body
+ * parser already consumed the stream (`express.json()`), pass the parsed value
+ * as `parsedBody` and nothing is read from `req`.
  */
 export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: unknown, options?: ToWebRequestOptions): Promise<Request> {
+    const maxRequestBodySize = resolveMaxRequestBodySize(options?.maxRequestBodySize);
     const method = (req.method ?? 'GET').toUpperCase();
     // HTTP/2 requests carry their authority as the `:authority` pseudo-header,
     // usually with no `host` entry at all (mirrors Node's `request.authority`).
@@ -237,9 +291,17 @@ export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: un
     let body: string | undefined;
     if (method !== 'GET' && method !== 'HEAD') {
         if (parsedBody === undefined) {
+            if (Number(singleHeaderValue(req.headers['content-length'])) > maxRequestBodySize) {
+                throw new RequestBodyTooLargeError(maxRequestBodySize);
+            }
             const decoder = new TextDecoder();
             let collected = '';
+            let received = 0;
             for await (const chunk of req) {
+                received += typeof chunk === 'string' ? new TextEncoder().encode(chunk).byteLength : (chunk as Uint8Array).byteLength;
+                if (received > maxRequestBodySize) {
+                    throw new RequestBodyTooLargeError(maxRequestBodySize);
+                }
                 collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
             }
             collected += decoder.decode();

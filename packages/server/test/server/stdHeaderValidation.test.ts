@@ -7,8 +7,10 @@
  * body-primary classifier returns a modern route. A missing
  * `MCP-Protocol-Version` header, a missing `Mcp-Method`
  * header, a missing `Mcp-Name` header on a `tools/call` / `prompts/get` /
- * `resources/read` request, an `Mcp-Name` value disagreeing with
- * `params.name` / `params.uri`, and an invalid `Mcp-Name` Base64 sentinel are
+ * `resources/read` request or (SEP-2663) a `tasks/get` / `tasks/update` /
+ * `tasks/cancel` request, an `Mcp-Name` value disagreeing with
+ * `params.name` / `params.uri` / `params.taskId`, and an invalid `Mcp-Name`
+ * Base64 sentinel are
  * all rejected `400` / `-32020` (`HeaderMismatch`) on the
  * `standard-header-validation` rung — the same shape the classifier already
  * emits for the `MCP-Protocol-Version` and `Mcp-Method` mismatch cells on the
@@ -233,6 +235,15 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         const handler = createMcpHandler(makeFactory());
         const response = await handler.fetch(modernRequest('tools/list', {}, { 'mcp-method': 'tools/list' }));
         expect(response.status).toBe(200);
+    });
+
+    it('a missing Mcp-Name header on tasks/get is rejected 400/-32020 at the entry (SEP-2663)', async () => {
+        const handler = createMcpHandler(makeFactory());
+        const error = await expectHeaderMismatch(
+            await handler.fetch(modernRequest('tasks/get', { taskId: 'task-123' }, { 'mcp-method': 'tasks/get' }))
+        );
+        expect(error.message).toContain('params.taskId="task-123"');
+        expect(error.message).toContain('Mcp-Name header is absent');
     });
 });
 
