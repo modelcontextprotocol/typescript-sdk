@@ -4,6 +4,7 @@ import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
 import { UnauthorizedError } from '../../src/client/auth';
+import { readInvalidReplyEscape } from '../../src/client/invalidReplySeam';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
@@ -387,7 +388,7 @@ describe('StreamableHTTPClientTransport', () => {
             ok: true,
             status: 200,
             headers: new Headers({ 'content-type': 'application/json' }),
-            json: () => Promise.resolve(responseMessage)
+            text: () => Promise.resolve(JSON.stringify(responseMessage))
         });
 
         const messageSpy = vi.fn();
@@ -396,6 +397,71 @@ describe('StreamableHTTPClientTransport', () => {
         await transport.send(message);
 
         expect(messageSpy).toHaveBeenCalledWith(responseMessage);
+    });
+
+    it('should handle non-streaming JSON response from a custom fetch response-like implementing only json()', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const responseMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            result: { success: true },
+            id: 'test-id'
+        };
+
+        // Partial response mock with `json()` but no `text()` — the transport
+        // must fall back to `json()` rather than throw `response.text is not a function`.
+        const customFetch = vi.fn().mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            json: () => Promise.resolve(responseMessage)
+        });
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            fetch: customFetch
+        });
+
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        await transport.send(message);
+
+        expect(messageSpy).toHaveBeenCalledWith(responseMessage);
+        expect(globalThis.fetch).not.toHaveBeenCalled();
+    });
+
+    it('should stamp a 2xx JSON parse failure with the raw body text for the invalid-reply seam', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        // A completed 2xx exchange whose application/json body is not JSON (a
+        // proxy's HTML error page mislabeled as JSON, an empty body): the parse
+        // failure must carry the raw text on the stamp so the no-fallback modes
+        // can surface the offending body on `error.data.body`.
+        const bodyText = '<html>gateway error page</html>';
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: () => Promise.resolve(bodyText)
+        });
+
+        const rejection: unknown = await transport.send(message).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+
+        expect(rejection).toBeInstanceOf(SyntaxError);
+        expect(readInvalidReplyEscape(rejection)).toEqual({ body: bodyText });
     });
 
     it('should attempt initial GET connection and handle 405 gracefully', async () => {
