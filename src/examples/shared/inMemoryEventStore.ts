@@ -20,8 +20,7 @@ export class InMemoryEventStore implements EventStore {
      * Extracts the stream ID from an event ID
      */
     private getStreamIdFromEventId(eventId: string): string {
-        const parts = eventId.split('_');
-        return parts.length > 0 ? parts[0] : '';
+        return this.events.get(eventId)?.streamId ?? '';
     }
 
     /**
