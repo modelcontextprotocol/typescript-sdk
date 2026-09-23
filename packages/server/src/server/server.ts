@@ -19,9 +19,11 @@ import type {
     InitializeResult,
     JSONRPCRequest,
     JsonSchemaType,
+    JsonSchemaValidator,
     jsonSchemaValidator,
     ListRootsRequest,
     ListRootsResult,
+    ListToolsResult,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
@@ -91,10 +93,11 @@ export type ServerOptions = ProtocolOptions & {
     instructions?: string;
 
     /**
-     * JSON Schema validator for elicitation response validation.
+     * JSON Schema validator for tool input and elicitation response validation.
      *
-     * The validator is used to validate user input returned from elicitation
-     * requests against the requested schema.
+     * The validator is used to validate low-level tool calls against the
+     * schema advertised by `tools/list`, and to validate user input returned
+     * from elicitation requests against the requested schema.
      *
      * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
@@ -207,6 +210,7 @@ export type ServerOptions = ProtocolOptions & {
 let writeClientIdentity: (server: Server, identity: PerRequestClientIdentity) => void;
 let installDiscoverHandler: (server: Server, servedModernVersions: readonly string[]) => void;
 let readServerIdentity: (server: Server) => Implementation;
+const highLevelServers = new WeakSet<object>();
 
 /** Connection-scoped client-identity fields backfilled per request from a validated `_meta` envelope. */
 export interface PerRequestClientIdentity {
@@ -252,6 +256,17 @@ export function serverIdentityOf(server: Server): Implementation {
 }
 
 /**
+ * Package-internal: the high-level {@linkcode server/mcp.McpServer | McpServer} validates and parses
+ * tool arguments through Standard Schema, which may intentionally differ from
+ * the JSON Schema it advertises (for example, a coercing schema). Mark its
+ * underlying Server so the low-level JSON Schema validation seam does not run
+ * a second, narrower validation pass.
+ */
+export function disableLowLevelToolInputValidation(server: Server): void {
+    highLevelServers.add(server);
+}
+
+/**
  * An MCP server on top of a pluggable transport.
  *
  * This server will automatically respond to the initialization flow as initiated from the client.
@@ -285,6 +300,7 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _toolInputValidators: Map<string, JsonSchemaValidator<unknown>> | undefined;
     private _cacheHints?: ServerOptions['cacheHints'];
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
@@ -473,6 +489,18 @@ export class Server extends Protocol<ServerContext> {
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
+        const handlerWithToolSchemaCapture =
+            method === 'tools/list' && !highLevelServers.has(this)
+                ? async (request: JSONRPCRequest, ctx: ServerContext): Promise<Result> => {
+                      const result = await handler(request, ctx);
+                      const validatedResult = codecForVersion(this._negotiatedProtocolVersion).validateResult('tools/list', result);
+                      if (validatedResult.ok) {
+                          this._rememberToolInputSchemas(request, validatedResult.value as ListToolsResult);
+                      }
+                      return result;
+                  }
+                : handler;
+
         if (method !== 'tools/call') {
             const cacheHint = (this._cacheHints as Record<string, CacheHint | undefined> | undefined)?.[method];
             const isInputRequiredCapable = INPUT_REQUIRED_CAPABLE_METHODS.has(method);
@@ -481,7 +509,7 @@ export class Server extends Protocol<ServerContext> {
                 // whose result vocabulary does not include it is never
                 // mis-typed onto the wire.
                 return async (request, ctx) => {
-                    const result = await handler(request, ctx);
+                    const result = await handlerWithToolSchemaCapture(request, ctx);
                     if (isInputRequiredResult(result)) {
                         throw new ProtocolError(
                             ProtocolErrorCode.InternalError,
@@ -494,8 +522,8 @@ export class Server extends Protocol<ServerContext> {
             }
             return async (request, ctx) => {
                 const result = isInputRequiredCapable
-                    ? await this._invokeInputRequiredCapableHandler(method, handler, request, ctx)
-                    : await handler(request, ctx);
+                    ? await this._invokeInputRequiredCapableHandler(method, handlerWithToolSchemaCapture, request, ctx)
+                    : await handlerWithToolSchemaCapture(request, ctx);
                 if (isInputRequiredResult(result)) {
                     if (!isInputRequiredCapable) {
                         throw new ProtocolError(
@@ -530,7 +558,35 @@ export class Server extends Protocol<ServerContext> {
                 );
             }
 
-            const result = await this._invokeInputRequiredCapableHandler('tools/call', handler, request, ctx);
+            const validatedCall = validatedRequest.value;
+            const toolName = validatedCall.params.name;
+            const handlerWithToolInputValidation = async (callRequest: JSONRPCRequest, callCtx: ServerContext): Promise<Result> => {
+                const validator = this._toolInputValidators?.get(toolName);
+                if (validator !== undefined) {
+                    try {
+                        const validationResult = validator(validatedCall.params.arguments ?? {});
+                        if (!validationResult.valid) {
+                            return {
+                                content: [
+                                    {
+                                        type: 'text',
+                                        text: `Input validation error: Invalid arguments for tool ${toolName}: ${validationResult.errorMessage}`
+                                    }
+                                ],
+                                isError: true
+                            };
+                        }
+                    } catch {
+                        // A malformed or unsupported schema should not change the
+                        // low-level handler's existing behavior. Wire validation
+                        // still rejects an invalid tools/list response.
+                    }
+                }
+
+                return await handlerWithToolSchemaCapture(callRequest, callCtx);
+            };
+
+            const result = await this._invokeInputRequiredCapableHandler('tools/call', handlerWithToolInputValidation, request, ctx);
             if (isInputRequiredResult(result)) {
                 // Already checked by the seam; the CallToolResult schema does
                 // not apply to it (no widening — InputRequiredResult travels
@@ -555,6 +611,39 @@ export class Server extends Protocol<ServerContext> {
 
             return validationResult.value;
         };
+    }
+
+    private _rememberToolInputSchemas(request: JSONRPCRequest, result: ListToolsResult): void {
+        if (!Array.isArray(result.tools)) {
+            return;
+        }
+
+        const cursor = request.params && typeof request.params === 'object' ? (request.params as { cursor?: unknown }).cursor : undefined;
+        if (cursor === undefined) {
+            this._toolInputValidators = undefined;
+        }
+
+        for (const tool of result.tools) {
+            if (typeof tool?.name !== 'string') {
+                continue;
+            }
+
+            try {
+                (this._toolInputValidators ??= new Map()).set(
+                    tool.name,
+                    this._jsonSchemaValidator.getValidator(tool.inputSchema as JsonSchemaType)
+                );
+            } catch {
+                // Let the normal tools/list response validation report an
+                // invalid schema without changing low-level dispatch behavior.
+                this._toolInputValidators?.delete(tool.name);
+            }
+        }
+    }
+
+    protected override _onclose(): void {
+        this._toolInputValidators = undefined;
+        super._onclose();
     }
 
     /**

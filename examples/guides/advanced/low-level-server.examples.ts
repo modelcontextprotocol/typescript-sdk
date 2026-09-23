@@ -17,7 +17,7 @@
 /* eslint-disable no-console, import/no-duplicates */
 // Harness imports. The page's lead block (the first region) carries its own
 // `Server` import so the rendered fence stands alone.
-import { createMcpHandler, fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
@@ -72,55 +72,25 @@ server.setRequestHandler('tools/call', async request => {
 // page's lead region stays self-contained.
 // ---------------------------------------------------------------------------
 
-const { Client, InMemoryTransport, ProtocolError } = await import('@modelcontextprotocol/client');
+const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
 
 const client = new Client({ name: 'low-level-docs-harness', version: '1.0.0' });
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await server.connect(serverTransport);
 await client.connect(clientTransport);
+await client.listTools();
 
 // The handler answers a valid call exactly like the McpServer version.
 const result = await client.callTool({ name: 'search', arguments: { query: 'mug' } });
 console.log(result.content);
 
-// Nothing validated `query`, so a wrongly-typed argument reaches the handler
-// and crashes it: the client sees a JSON-RPC error, not a tool result.
-const crashed = await client.callTool({ name: 'search', arguments: { query: 42 } }).catch((error: unknown) => error);
-if (!(crashed instanceof ProtocolError)) {
-    throw new Error(`low-level-server.md expected the unvalidated call to reject: ${JSON.stringify(crashed)}`);
+// The low-level Server now validates a declared inputSchema before dispatch,
+// so a wrongly-typed argument returns a tool error without invoking the handler.
+const rejectedBySchema = await client.callTool({ name: 'search', arguments: { query: 42 } });
+if (rejectedBySchema.isError !== true) {
+    throw new Error(`low-level-server.md expected schema validation to return isError: ${JSON.stringify(rejectedBySchema)}`);
 }
-console.log(`${crashed.name} ${crashed.code}: ${crashed.message}`);
-
-// ---------------------------------------------------------------------------
-// "Validate arguments yourself"
-// ---------------------------------------------------------------------------
-
-//#region lowLevel_validate
-const SearchArguments = fromJsonSchema<{ query: string }>({
-    type: 'object',
-    properties: { query: { type: 'string' } },
-    required: ['query']
-});
-
-server.setRequestHandler('tools/call', async request => {
-    if (request.params.name !== 'search') {
-        return { content: [{ type: 'text', text: `Unknown tool: ${request.params.name}` }], isError: true };
-    }
-    const parsed = await SearchArguments['~standard'].validate(request.params.arguments ?? {});
-    if (parsed.issues) {
-        return { content: [{ type: 'text', text: parsed.issues.map(issue => issue.message).join('; ') }], isError: true };
-    }
-    const hits = catalog.filter(product => product.name.toLowerCase().includes(parsed.value.query.toLowerCase()));
-    return { content: [{ type: 'text', text: hits.map(product => product.name).join('\n') }] };
-});
-//#endregion lowLevel_validate
-
-// The same wrongly-typed call now comes back as an ordinary isError result.
-const rejected = await client.callTool({ name: 'search', arguments: { query: 42 } });
-console.log(rejected);
-if (rejected.isError !== true) {
-    throw new Error(`low-level-server.md expected the validated call to return isError: ${JSON.stringify(rejected)}`);
-}
+console.log(rejectedBySchema);
 
 await client.close();
 await server.close();

@@ -81,7 +81,7 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         const server = new McpServer({ name: 't', version: '1.0.0' });
 
         let received: { x: number } | undefined;
-        server.registerTool('echo', { inputSchema: { x: z.number() } }, async args => {
+        server.registerTool('echo', { inputSchema: { x: z.coerce.number() } }, async args => {
             received = args;
             return { content: [{ type: 'text' as const, text: String(args.x) }] };
         });
@@ -108,7 +108,7 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
             jsonrpc: '2.0',
             id: 2,
             method: 'tools/call',
-            params: { name: 'echo', arguments: { x: 7 } }
+            params: { name: 'echo', arguments: { x: '7' } }
         } as JSONRPCMessage);
 
         await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 2)).toBe(true));
