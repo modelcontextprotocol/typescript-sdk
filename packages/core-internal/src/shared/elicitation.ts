@@ -28,7 +28,12 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
 
 function convertStandardElicitationSchema(schema: StandardSchemaWithJSON): Record<string, unknown> {
     try {
-        return standardSchemaToJsonSchema(schema, 'input');
+        // `unrepresentable: 'throw'`: the restricted form grammar must reject shapes it
+        // cannot round-trip. A `z.date()` rewritten to `string`/`date-time` would pass the
+        // wire checks, but the accepted response (a JSON string) could never satisfy the
+        // same `z.date()` schema on handler re-entry — keep the documented loud failure
+        // (`z.iso.date()`/`z.iso.datetime()` are the supported ways to elicit dates).
+        return standardSchemaToJsonSchema(schema, 'input', { unrepresentable: 'throw' });
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         throw new ProtocolError(
