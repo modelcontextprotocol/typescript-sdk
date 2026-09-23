@@ -445,7 +445,10 @@ export class Server<
         return this._clientVersion;
     }
 
-    private getCapabilities(): ServerCapabilities {
+    /**
+     * Returns the current server capabilities.
+     */
+    public getCapabilities(): ServerCapabilities {
         return this._capabilities;
     }
 
