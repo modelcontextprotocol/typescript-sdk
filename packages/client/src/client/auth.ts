@@ -1707,7 +1707,11 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
 }
 
 /**
- * Determines if fallback to root discovery should be attempted
+ * Determines if fallback to root discovery should be attempted.
+ *
+ * Path-inserted well-known URLs often 401/403 behind CDNs or bot protection
+ * instead of 404, so any 4xx triggers fallback. 502 Bad Gateway is also
+ * treated as a routing miss; other 5xx responses are not retried.
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
     if (!response) return true; // CORS error — always try fallback
@@ -1739,9 +1743,12 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery.
+    // The root well-known URL must stay on the metadata-server / authorization-server host
+    // (opts.metadataServerUrl), not the resource URL used only for the path prefix.
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
-        const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
+        const fallbackBase = opts?.metadataServerUrl ?? issuer;
+        const rootUrl = new URL(`/.well-known/${wellKnownType}`, fallbackBase);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
     }
 
@@ -1778,7 +1785,9 @@ export async function discoverOAuthMetadata(
     }
     protocolVersion ??= LATEST_PROTOCOL_VERSION;
 
-    const response = await discoverMetadataWithFallback(authorizationServerUrl, 'oauth-authorization-server', fetchFn, {
+    // Path comes from `issuer` (often the MCP resource URL); host comes from the
+    // authorization server so root fallback stays on the AS origin (#2784).
+    const response = await discoverMetadataWithFallback(issuer, 'oauth-authorization-server', fetchFn, {
         protocolVersion,
         metadataServerUrl: authorizationServerUrl
     });
