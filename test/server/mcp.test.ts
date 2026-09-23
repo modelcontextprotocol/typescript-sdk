@@ -6931,4 +6931,69 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             taskStore.cleanup();
         });
     });
+
+    describe('tools/list emits JSON Schema 2020-12 ($schema dialect — SEP-1613)', () => {
+        const DIALECT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
+
+        test('inputSchema advertises draft/2020-12 $schema', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool('echo', { inputSchema: { value: z.string() } }, async ({ value }) => ({
+                content: [{ type: 'text', text: value }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools[0].inputSchema.$schema).toBe(DIALECT_2020_12);
+        });
+
+        test('outputSchema advertises draft/2020-12 $schema', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            mcpServer.registerTool(
+                'lookup',
+                {
+                    inputSchema: { id: z.string() },
+                    outputSchema: { id: z.string(), name: z.string() }
+                },
+                async ({ id }) => ({
+                    content: [{ type: 'text', text: id }],
+                    structuredContent: { id, name: 'x' }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(result.tools[0].outputSchema?.$schema).toBe(DIALECT_2020_12);
+        });
+
+        // Tuples are a 2020-12-only differentiator: draft-07 emits `items: [...]`,
+        // 2020-12 emits `prefixItems`. Zod v3 has no tuple → prefixItems path even
+        // under 2020-12 (it always emits draft-07-shaped items), so this assertion
+        // is meaningful only for Zod v4.
+        if (entry.isV4) {
+            test('Zod v4 tuples emit prefixItems under 2020-12', async () => {
+                const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+                const client = new Client({ name: 'test client', version: '1.0' });
+
+                mcpServer.registerTool('point', { inputSchema: { coords: z.tuple([z.number(), z.number()]) } }, async () => ({
+                    content: [{ type: 'text', text: 'ok' }]
+                }));
+
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+                await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+                const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+                const coords = (result.tools[0].inputSchema.properties as Record<string, unknown>).coords as Record<string, unknown>;
+                expect(coords).toHaveProperty('prefixItems');
+                expect(coords).not.toHaveProperty('items');
+            });
+        }
+    });
 });

@@ -149,6 +149,7 @@ export class McpServer {
                                 const obj = normalizeObjectSchema(tool.inputSchema);
                                 return obj
                                     ? (toJsonSchemaCompat(obj, {
+                                          target: 'draft-2020-12',
                                           strictUnions: true,
                                           pipeStrategy: 'input'
                                       }) as Tool['inputSchema'])
@@ -163,6 +164,7 @@ export class McpServer {
                             const obj = normalizeObjectSchema(tool.outputSchema);
                             if (obj) {
                                 toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
+                                    target: 'draft-2020-12',
                                     strictUnions: true,
                                     pipeStrategy: 'output'
                                 }) as Tool['outputSchema'];
