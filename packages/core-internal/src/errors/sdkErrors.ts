@@ -24,6 +24,14 @@ export enum SdkErrorCode {
     // Transport errors
     /** Request timed out waiting for response */
     RequestTimeout = 'REQUEST_TIMEOUT',
+    /**
+     * Request was cancelled through `RequestOptions.signal`. Distinct from
+     * {@linkcode SdkErrorCode.RequestTimeout} so callers can tell a deliberate
+     * cancellation apart from a timeout expiry. The abort reason is carried in
+     * the message; an abort reason that is already an `SdkError` is rethrown
+     * verbatim and keeps its own code.
+     */
+    RequestAborted = 'REQUEST_ABORTED',
     /** Connection was closed */
     ConnectionClosed = 'CONNECTION_CLOSED',
     /** Failed to send message */
