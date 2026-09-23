@@ -1,5 +1,14 @@
 # @modelcontextprotocol/client
 
+## 2.1.1
+
+### Patch Changes
+
+- [#2597](https://github.com/modelcontextprotocol/typescript-sdk/pull/2597) [`7f7a94c`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7f7a94c22017e121a960e071bb50ec75e34450bd) Thanks [@arimu1](https://github.com/arimu1)! - Treat hostnames ending in `.localhost` as loopback for the SEP-2207 token-endpoint https guard (RFC 6761 §6.3), so host-based multi-tenant local OAuth works. The SDK does not resolve the name itself: `*.localhost` reaches the local machine only if the system resolver follows RFC 6761.
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.1.1
+
 ## 2.1.0
 
 ### Minor Changes

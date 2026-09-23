@@ -1,5 +1,12 @@
 # @modelcontextprotocol/core-internal
 
+## 2.0.2
+
+### Patch Changes
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.1.1
+
 ## 2.0.1
 
 ### Patch Changes
