@@ -866,7 +866,8 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * SEP-2207: refuse to send credentials to a non-TLS, non-loopback token endpoint.
+ * Refuses to send credentials to a non-TLS, non-loopback token endpoint
+ * (MCP authorization spec, OAuth 2.1 §1.5).
  * Throws {@linkcode InsecureTokenEndpointError}. Loopback hosts are exempt.
  */
 export function assertSecureTokenEndpoint(tokenEndpoint: string | URL): URL {
