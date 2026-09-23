@@ -1366,7 +1366,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
+        const {
+            relatedRequestId,
+            resumptionToken,
+            onresumptiontoken,
+            headers,
+            onRequestStreamEnd: callerOnRequestStreamEnd
+        } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
         // bounds the WHOLE flow, so the budget is measured from the original
         // request, not from when an extension takes over after the first leg.
@@ -1569,7 +1575,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
             this._transport
-                .send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers, requestSignal: requestAbort?.signal })
+                .send(outbound, {
+                    relatedRequestId,
+                    resumptionToken,
+                    onresumptiontoken,
+                    headers,
+                    requestSignal: requestAbort?.signal,
+                    onRequestStreamEnd: () => {
+                        callerOnRequestStreamEnd?.();
+                        cancel(new SdkError(SdkErrorCode.ConnectionClosed, 'Response stream ended before a response was received'));
+                    }
+                })
                 .catch(error => {
                     this._progressHandlers.delete(messageId);
                     reject(error);
