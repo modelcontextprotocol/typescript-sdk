@@ -9,7 +9,7 @@
 
 import { Client } from '../../src/client/index.js';
 import { InMemoryTransport } from '../../src/inMemory.js';
-import { ElicitRequestFormParams, ElicitRequestSchema } from '../../src/types.js';
+import { ElicitRequestFormParams, ElicitRequestSchema, type ElicitResult } from '../../src/types.js';
 import { AjvJsonSchemaValidator } from '../../src/validation/ajv-provider.js';
 import { CfWorkerJsonSchemaValidator } from '../../src/validation/cfworker-provider.js';
 import { Server } from '../../src/server/index.js';
@@ -338,7 +338,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should handle multiple sequential elicitation requests`, async () => {
         let requestCount = 0;
-        client.setRequestHandler(ElicitRequestSchema, request => {
+        client.setRequestHandler(ElicitRequestSchema, (request): ElicitResult => {
             requestCount++;
             if (request.params.message.includes('name')) {
                 return { action: 'accept', content: { name: 'Alice' } };

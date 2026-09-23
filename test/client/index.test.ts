@@ -35,6 +35,85 @@ import * as z3 from 'zod/v3';
 import * as z4 from 'zod/v4';
 
 describe('Zod v4', () => {
+    test('should reject invalid standard request handler results at typecheck time', () => {
+        const client = new Client(
+            {
+                name: 'TypecheckClient',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    elicitation: {},
+                    roots: {},
+                    sampling: {}
+                }
+            }
+        );
+
+        client.setRequestHandler(
+            ListRootsRequestSchema,
+            // @ts-expect-error roots/list results must include roots
+            async () => ({})
+        );
+        client.setRequestHandler(
+            CreateMessageRequestSchema,
+            // @ts-expect-error sampling/createMessage results must include model, role, and content
+            async () => ({})
+        );
+        client.setRequestHandler(
+            ElicitRequestSchema,
+            // @ts-expect-error elicitation/create results must include action
+            async () => ({})
+        );
+        client.setRequestHandler(
+            ElicitRequestSchema,
+            // @ts-expect-error elicitation/create action must be a protocol action
+            async () => ({ action: 'approve' })
+        );
+        client.setRequestHandler(
+            ElicitRequestSchema,
+            // @ts-expect-error elicitation/create content values must match the requested schema value types
+            async () => ({ action: 'accept', content: { nested: {} } })
+        );
+
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: {
+                type: 'text',
+                text: 'Test response'
+            }
+        }));
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            stopReason: 'toolUse',
+            content: [{ type: 'tool_use', id: 'call_1', name: 'test_tool', input: { arg: 'value' } }]
+        }));
+        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+            task: {
+                taskId: 'sampling-task',
+                status: 'working',
+                ttl: null,
+                createdAt: '2026-05-16T00:00:00.000Z',
+                lastUpdatedAt: '2026-05-16T00:00:00.000Z'
+            }
+        }));
+        client.setRequestHandler(ElicitRequestSchema, async () => ({
+            action: 'accept',
+            content: { confirmed: true }
+        }));
+        client.setRequestHandler(ElicitRequestSchema, async () => ({
+            task: {
+                taskId: 'elicitation-task',
+                status: 'working',
+                ttl: null,
+                createdAt: '2026-05-16T00:00:00.000Z',
+                lastUpdatedAt: '2026-05-16T00:00:00.000Z'
+            }
+        }));
+    });
+
     /***
      * Test: Type Checking
      * Test that custom request/notification/result schemas can be used with the Client class.
@@ -724,7 +803,7 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 
     // This should throw because roots listing is not a declared capability
     expect(() => {
-        client.setRequestHandler(ListRootsRequestSchema, () => ({}));
+        client.setRequestHandler(ListRootsRequestSchema, () => ({ roots: [] }));
     }).toThrow('Client does not support roots capability');
 });
 
@@ -2707,7 +2786,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2800,7 +2879,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2892,7 +2971,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'result-user' }
                 };
 
@@ -2983,7 +3062,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
