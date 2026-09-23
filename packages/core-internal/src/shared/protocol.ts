@@ -46,7 +46,7 @@ import {
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../types/index';
-import type { StandardSchemaV1 } from '../util/standardSchema';
+import type { StandardSchemaV1, StandardSchemaValidationResult } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
@@ -263,6 +263,31 @@ function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(
  * typedMapAlignment suite pins (the result map deliberately excludes the
  * `tasks/*` methods, so the spec-method overload refuses them up front).
  */
+/**
+ * Validate a decoded complete result against the caller or registry schema.
+ *
+ * `decodeResult` consumes the 2026 `resultType` discriminator as part of
+ * complete-result lifting. Caller schemas that still model the wire envelope
+ * (Inspector `ModernListSkillsResultSchema`, `ModernGetSkillEnvelopeSchema`,
+ * `ModernDirectoryReadResultSchema`) re-require `resultType: "complete"` and
+ * would otherwise reject every spec-conforming payload. Restore the
+ * already-checked discriminator only when the lifted object fails, so
+ * post-lift schemas that omit the field (core list methods, strict
+ * `EmptyResult`) keep working unchanged.
+ */
+function validateLiftedCompleteResult<T extends StandardSchemaV1>(
+    resultSchema: T,
+    lifted: unknown,
+    era: string
+): Promise<StandardSchemaValidationResult<StandardSchemaV1.InferOutput<T>>> {
+    return validateStandardSchema(resultSchema, lifted).then(parseResult => {
+        if (parseResult.success || era !== MODERN_WIRE_REVISION || !isPlainObject(lifted)) {
+            return parseResult;
+        }
+        return validateStandardSchema(resultSchema, { ...lifted, resultType: 'complete' });
+    });
+}
+
 function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV1 | undefined {
     // Probe for result-registry membership through the function-only
     // contract: a `not-in-era` outcome means no result entry for this method
@@ -1551,7 +1576,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
                 const result = decoded.result;
 
-                validateStandardSchema(resultSchema, result).then(parseResult => {
+                validateLiftedCompleteResult(resultSchema, result, codec.era).then(parseResult => {
                     if (parseResult.success) {
                         resolve(parseResult.data);
                     } else {
