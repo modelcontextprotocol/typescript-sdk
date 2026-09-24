@@ -1,19 +1,20 @@
 {
-    "comment": "Vendored schema.json twins (TEST-ONLY conformance oracles; never bundled, never runtime). RAW upstream bytes - never reformat: each file is locked to the sha256/bytes below by schemaTwinConformance. Refresh via `pnpm fetch:schema-twins [sha]`, ATOMICALLY with the matching spec.types anchor (see packages/core-internal/src/types/README.md lifecycle rule 4).",
+    "comment": "Vendored schema.json twins (TEST-ONLY conformance oracles; never bundled, never runtime). RAW upstream bytes - never reformat: each file is locked to its per-revision sourceCommit/sha256/bytes by schemaTwinConformance. Refresh via `pnpm fetch:schema-twins [revision] [sha]` (see packages/core-internal/src/types/README.md lifecycle rule 4).",
     "source": {
-        "repository": "modelcontextprotocol/modelcontextprotocol",
-        "commit": "71e306956a4959c9655e5036be215d41986596e6"
+        "repository": "modelcontextprotocol/modelcontextprotocol"
     },
     "files": {
         "2026-07-28": {
-            "sha256": "9281c4890630e2d1e61792fa23b4084c4ea360cd58519610cd050545ab7b8708",
-            "bytes": 180695,
-            "upstreamPath": "schema/draft/schema.json"
+            "sha256": "ef70b61f99b6d2e5e3b46863822eab08dff6a45bedc7a08914e0e5b133f40203",
+            "bytes": 181474,
+            "upstreamPath": "schema/2026-07-28/schema.json",
+            "sourceCommit": "271ecc9accafdd9b83a3c869fa67c22953b2af80"
         },
         "2025-11-25": {
             "sha256": "7b2d96fd95efd2216aa953606b83f5a740ddeaa5ebd3a5d27b45a8296545a118",
             "bytes": 174326,
-            "upstreamPath": "schema/2025-11-25/schema.json"
+            "upstreamPath": "schema/2025-11-25/schema.json",
+            "sourceCommit": "0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65"
         }
     }
 }

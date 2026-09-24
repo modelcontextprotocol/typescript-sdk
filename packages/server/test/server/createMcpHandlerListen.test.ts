@@ -256,7 +256,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
                 _meta: {
                     'io.modelcontextprotocol/subscriptionId': 1,
                     // #3002: the close result carries the serving instance's
-                    // identity like every other result (SubscriptionsListenResultMeta
+                    // identity like every other result (SubscriptionsListenResultMetaObject
                     // extends ResultMetaObject).
                     'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
                 }
