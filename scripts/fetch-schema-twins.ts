@@ -9,13 +9,19 @@
  * formatting of any kind (the directory is .prettierignore'd) — and each file
  * is locked to the manifest's source commit, sha256, and byte count.
  *
- * Each revision owns its source commit independently. Refreshing one released
- * revision must not move another revision's oracle.
+ * Each revision records its own source commit. Released revision directories
+ * can continue to change upstream, so freezing one revision must not move a
+ * different revision's oracle.
+ *
+ * Refresh ATOMICALLY with the matching spec.types anchor (see
+ * packages/core-internal/src/types/README.md lifecycle rule 4).
  *
  * Usage:
- *   pnpm fetch:schema-twins
- *   pnpm fetch:schema-twins <revision>
- *   pnpm fetch:schema-twins <revision> <sha>
+ *   pnpm fetch:schema-twins [sha]   # default: each manifest entry's current source commit
+ *
+ * Passing a SHA preserves the previous CLI behavior and repins all twins to
+ * that repository snapshot. With no SHA, each twin regenerates from its own
+ * recorded source commit.
  */
 
 import { createHash } from 'node:crypto';
@@ -58,23 +64,14 @@ async function main(): Promise<void> {
         throw new Error(`Unexpected schema-twin source repository: ${manifest.source.repository}`);
     }
 
-    const [providedRevision, providedSHA, ...extraArgs] = process.argv.slice(2);
-    if (extraArgs.length > 0) {
-        throw new Error('Usage: pnpm fetch:schema-twins [revision] [sha]');
-    }
-    if (providedRevision !== undefined && !(providedRevision in manifest.files)) {
-        throw new Error(
-            `Unsupported revision "${providedRevision}". Available revisions: ${Object.keys(manifest.files).join(', ')}`
-        );
-    }
+    const providedSHA = process.argv[2];
 
     for (const [revision, entry] of Object.entries(manifest.files)) {
-        if (providedRevision !== undefined && revision !== providedRevision) continue;
-
         const sha = providedSHA ?? entry.sourceCommit;
         console.log(`[${revision}] Fetching ${entry.upstreamPath} at ${sha}`);
         const bytes = await fetchRawBytes(sha, entry.upstreamPath);
 
+        // Verbatim: the twin IS the upstream artifact, byte for byte.
         writeFileSync(join(TWINS_DIR, `${revision}.schema.json`), bytes);
         entry.sourceCommit = sha;
         entry.sha256 = createHash('sha256').update(bytes).digest('hex');
