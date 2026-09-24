@@ -805,17 +805,11 @@ const wireParityChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SubscriptionsListenResultMetaObject: (
-        sdk: WSubscriptionsListenResultMeta,
-        spec: SpecTypes.SubscriptionsListenResultMetaObject
-    ) => {
+    SubscriptionsListenResultMetaObject: (sdk: WSubscriptionsListenResultMeta, spec: SpecTypes.SubscriptionsListenResultMetaObject) => {
         sdk = spec;
         spec = sdk;
     },
-    SubscriptionsListenResultResponse: (
-        sdk: WSubscriptionsListenResultResponse,
-        spec: SpecTypes.SubscriptionsListenResultResponse
-    ) => {
+    SubscriptionsListenResultResponse: (sdk: WSubscriptionsListenResultResponse, spec: SpecTypes.SubscriptionsListenResultResponse) => {
         sdk = spec;
         spec = sdk;
     },
