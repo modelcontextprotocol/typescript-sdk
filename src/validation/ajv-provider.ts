@@ -11,7 +11,18 @@ function createDefaultAjvInstance(): Ajv {
         strict: false,
         validateFormats: true,
         validateSchema: false,
-        allErrors: true
+        allErrors: true,
+        // Servers may use custom formats Ajv does not know (e.g. google-duration).
+        // Ajv skips validation for those with one warning per subschema, which
+        // spams listTools output. Drop only that noise; keep other warnings.
+        logger: {
+            log: console.log.bind(console),
+            error: console.error.bind(console),
+            warn: (message: string, ...params: unknown[]) => {
+                if (message.startsWith('unknown format')) return;
+                console.warn(message, ...params);
+            }
+        }
     });
 
     const addFormats = _addFormats as unknown as typeof _addFormats.default;
