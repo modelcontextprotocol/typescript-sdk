@@ -1698,10 +1698,10 @@ export class Client extends Protocol<ClientContext> {
      * methods' no-`cursor` auto-aggregate path. Page 1's result object is
      * mutated in place (its items array is extended; `nextCursor` is
      * cleared); page-1 metadata (`ttlMs`, `cacheScope`, `_meta`) is preserved.
-     * A `nextCursor` that repeats stops the walk (defence against a
-     * non-converging server, mcp.d's `drainList` guard);
-     * {@linkcode ClientOptions.listMaxPages} is a hard cap — hitting it
-     * throws, so a partial aggregate is never cached. The
+     * Cursors are opaque, so the walk stops only when a page carries no
+     * `nextCursor`; {@linkcode ClientOptions.listMaxPages} is the hard cap
+     * against a non-converging server — hitting it throws, so a partial
+     * aggregate is never cached or returned. The
      * captured-generation guard skips the write when a `list_changed` landed
      * mid-walk, so the eviction is never overwritten by a stale aggregate.
      * `finalize` runs on the complete aggregate before the cache write — the
@@ -1732,9 +1732,15 @@ export class Client extends Protocol<ClientContext> {
         const generation = this._cache.captureGeneration(method);
         const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
         let cursor = acc.nextCursor;
-        const seen = new Set<string>();
         let pages = 1;
-        while (cursor !== undefined && !seen.has(cursor)) {
+        // Cursors are opaque (the 2026-07-28 pagination rules: no determination
+        // may be made from a cursor's value, only from whether one was
+        // provided), so a repeated cursor is legal — a server may keep its
+        // pagination position server side and hand out the same token for
+        // every page. The walk therefore stops only on a missing `nextCursor`
+        // and relies on `listMaxPages` — which throws instead of returning a
+        // truncated aggregate — as the non-convergence guard.
+        while (cursor !== undefined) {
             if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
                 throw new SdkError(
                     SdkErrorCode.ListPaginationExceeded,
@@ -1742,7 +1748,6 @@ export class Client extends Protocol<ClientContext> {
                     { method, listMaxPages: this._listMaxPages }
                 );
             }
-            seen.add(cursor);
             const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
             append(acc, page);
             cursor = page.nextCursor;
