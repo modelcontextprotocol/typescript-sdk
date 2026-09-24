@@ -133,7 +133,7 @@ export const withOAuth =
 
             // If we still have a 401 after re-auth attempt, throw an error
             if (response.status === 401 && isTargetOrigin) {
-                const url = typeof input === 'string' ? input : (input as Request).url ?? input.toString();
+                const url = requestUrl ? requestUrl.toString() : String(input);
                 throw new UnauthorizedError(`Authentication failed for ${url}`);
             }
 
