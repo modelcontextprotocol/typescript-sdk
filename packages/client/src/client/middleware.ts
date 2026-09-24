@@ -104,7 +104,8 @@ export const withOAuth =
                     const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
 
                     // Use provided baseUrl or extract from request URL
-                    const serverUrl = baseUrl || (requestOrigin ?? (typeof input === 'string' ? new URL(input).origin : 'http://localhost'));
+                    const serverUrl =
+                        baseUrl || (requestOrigin ?? (typeof input === 'string' ? new URL(input).origin : 'http://localhost'));
 
                     const result = await auth(provider, {
                         serverUrl,
