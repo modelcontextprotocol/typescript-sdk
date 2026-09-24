@@ -411,7 +411,7 @@ describe('withOAuth', () => {
         expect(mockAuth).not.toHaveBeenCalled();
     });
 
-    it('should handle Request object and attach tokens only when origin matches baseUrl', async () => {
+    it('should handle URL object and attach tokens only when origin matches baseUrl', async () => {
         mockProvider.tokens.mockResolvedValue({
             access_token: 'secret-token',
             token_type: 'Bearer',
@@ -422,16 +422,16 @@ describe('withOAuth', () => {
 
         const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
 
-        // 1. Same-origin Request object
-        const sameOriginRequest = new Request('https://api.example.com/endpoint');
-        await enhancedFetch(sameOriginRequest);
+        // 1. Same-origin URL object
+        const sameOriginUrl = new URL('https://api.example.com/endpoint');
+        await enhancedFetch(sameOriginUrl);
 
         const sameOriginHeaders = mockFetch.mock.calls[0]![1]?.headers as Headers;
         expect(sameOriginHeaders.get('Authorization')).toBe('Bearer secret-token');
 
-        // 2. Cross-origin Request object
-        const crossOriginRequest = new Request('https://external.example.org/endpoint');
-        await enhancedFetch(crossOriginRequest);
+        // 2. Cross-origin URL object
+        const crossOriginUrl = new URL('https://external.example.org/endpoint');
+        await enhancedFetch(crossOriginUrl);
 
         const crossOriginHeaders = mockFetch.mock.calls[1]![1]?.headers as Headers;
         expect(crossOriginHeaders.get('Authorization')).toBeNull();
