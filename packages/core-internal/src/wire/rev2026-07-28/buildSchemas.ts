@@ -1070,7 +1070,7 @@ function build() {
     const SubscriptionsListenRequestSchema = wireRequest('subscriptions/listen', subscriptionsListenParamsShape);
 
     /**
-     * Anchor SubscriptionsListenResultMeta — required subscriptionId stamp on
+     * Anchor SubscriptionsListenResultMetaObject — required subscriptionId stamp on
      * the graceful-close result. Extends `ResultMetaObject` since spec PR
      * #3002 (composed, so the serverInfo key and its leniency stay single-sourced).
      */
@@ -1276,6 +1276,7 @@ function build() {
     const ReadResourceResultResponseSchema = wireResultResponse(z.union([ReadResourceResultSchema, InputRequiredResultSchema]));
     const CompleteResultResponseSchema = wireResultResponse(CompleteResultSchema);
     const DiscoverResultResponseSchema = wireResultResponse(DiscoverResultSchema);
+    const SubscriptionsListenResultResponseSchema = wireResultResponse(SubscriptionsListenResultSchema);
 
     return {
         JSONValueSchema,
@@ -1411,7 +1412,8 @@ function build() {
         ListResourceTemplatesResultResponseSchema,
         ReadResourceResultResponseSchema,
         CompleteResultResponseSchema,
-        DiscoverResultResponseSchema
+        DiscoverResultResponseSchema,
+        SubscriptionsListenResultResponseSchema
     };
 }
 

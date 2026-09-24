@@ -105,7 +105,7 @@ export interface ListenRouter {
      * against what the serving instance advertises (honoring a filter without
      * capabilities would fail open and deliver unadvertised types).
      * `serverInfo` is the serving instance's identity, stamped onto the
-     * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMeta`
+     * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMetaObject`
      * extends `ResultMetaObject`, so the serverInfo SHOULD applies there too).
      */
     serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities, serverInfo: Implementation): Response;
@@ -305,7 +305,7 @@ export class StdioListenRouter {
     private _serverCapabilities: ServerCapabilities | undefined;
     /**
      * The serving instance's identity, stamped onto the graceful-close
-     * results' `_meta` (the spec's `SubscriptionsListenResultMeta` extends
+     * results' `_meta` (the spec's `SubscriptionsListenResultMetaObject` extends
      * `ResultMetaObject`). Handed over together with the capabilities.
      */
     private _serverInfo: Implementation | undefined;

@@ -32,7 +32,7 @@ review rounds and grows over time.
 ## Checklist
 
 **Protocol & spec**
-- Types match [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) exactly (optional vs required fields)
+- Types match the schema for the protocol revision being changed (`schema/<revision>/schema.ts` for released revisions; `schema/draft/schema.ts` only for unreleased work)
 - Correct `ProtocolError` codes (enum `ProtocolErrorCode`); HTTP status codes match spec (e.g., 404 vs 410)
 - Works for both stdio and Streamable HTTP transports — no transport-specific assumptions
 - Cross-SDK consistency: check what `python-sdk` does for the same feature
@@ -61,7 +61,7 @@ When verifying spec compliance, consult the spec directly rather than relying on
 
 - MCP documentation server: `https://modelcontextprotocol.io/mcp`
 - Full spec text (single file, LLM-friendly): `https://modelcontextprotocol.io/llms-full.txt` — fetch to a temp file and grep for the relevant section
-- Schema source of truth: [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts)
+- Schema source of truth: the revision-matched `schema.ts` in `modelcontextprotocol/modelcontextprotocol` (`schema/<revision>/schema.ts` for released revisions; `schema/draft/schema.ts` only for unreleased work)
 
 ## Recurring Catches
 

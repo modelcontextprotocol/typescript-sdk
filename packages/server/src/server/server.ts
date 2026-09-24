@@ -244,7 +244,7 @@ export function installModernOnlyHandlers(server: Server, servedModernVersions: 
  * Package-internal: the instance's implementation identity, for the serving
  * entries to stamp onto entry-built results (the `subscriptions/listen`
  * graceful-close result — built outside the encode seam, but the spec's
- * `SubscriptionsListenResultMeta` extends `ResultMetaObject`, so it carries
+ * `SubscriptionsListenResultMetaObject` extends `ResultMetaObject`, so it carries
  * the serverInfo SHOULD like every other result). Not public API.
  */
 export function serverIdentityOf(server: Server): Implementation {
