@@ -67,6 +67,29 @@ describe('manual mode (allowInputRequired)', () => {
         await protocol.close();
     });
 
+    test('preserves the result-level _meta on the handed-back value', async () => {
+        const protocol = await wireWithRawResult({
+            ...INPUT_REQUIRED_BODY,
+            _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'peer', version: '1.0.0' }, 'example.com/displayHint': 'inline' }
+        });
+
+        const result = await protocol.request(
+            { method: 'tools/call', params: { name: 'echo', arguments: {} } },
+            {
+                allowInputRequired: true
+            }
+        );
+
+        // `Result._meta` is a result-level field, so an `input_required` result
+        // carries it like any other complete result would.
+        expect((result as Record<string, unknown>)['_meta']).toEqual({
+            'io.modelcontextprotocol/serverInfo': { name: 'peer', version: '1.0.0' },
+            'example.com/displayHint': 'inline'
+        });
+
+        await protocol.close();
+    });
+
     test('discrimination happens on the raw body, before the consumer-provided result schema runs', async () => {
         const protocol = await wireWithRawResult(INPUT_REQUIRED_BODY);
 

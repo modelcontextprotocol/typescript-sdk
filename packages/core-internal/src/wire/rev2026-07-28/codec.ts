@@ -29,7 +29,7 @@ import type * as z from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
-import type { CallToolResult, Implementation, Result } from '../../types/types';
+import type { CallToolResult, Implementation, Result, ResultMetaObject } from '../../types/types';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
 import { appendTextFallbackForNonObject } from '../textFallback';
 import { buildSchemas2026 } from './buildSchemas';
@@ -202,6 +202,11 @@ export const rev2026Codec: WireCodec & {
             const rawInputRequests = raw['inputRequests'];
             const inputRequests = isPlainObject(rawInputRequests) ? rawInputRequests : {};
             const requestState = raw['requestState'];
+            // `_meta` is a result-level field (the anchor types `Result._meta`
+            // on every result, `input_required` included — see
+            // `stampServerInfoMeta`), so it must cross this seam with the rest
+            // of the payload instead of being dropped on the floor.
+            const meta = raw['_meta'] as ResultMetaObject | undefined;
             if (Object.keys(inputRequests).length === 0 && typeof requestState !== 'string') {
                 // At-least-one rule, client side: with neither inputRequests
                 // nor requestState there is nothing to fulfil and nothing to
@@ -220,7 +225,8 @@ export const rev2026Codec: WireCodec & {
             return {
                 kind: 'input_required',
                 inputRequests,
-                ...(typeof requestState === 'string' && { requestState })
+                ...(typeof requestState === 'string' && { requestState }),
+                ...(meta !== undefined && { _meta: meta })
             };
         }
         if (rawResultType !== 'complete') {

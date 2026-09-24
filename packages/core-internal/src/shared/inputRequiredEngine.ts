@@ -13,7 +13,7 @@
  * `droppedInputResponseKeys` context fields), and the named extension point.
  */
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
-import type { InputRequiredResult, JSONRPCRequest, RequestMeta, Result } from '../types/types';
+import type { InputRequiredResult, JSONRPCRequest, RequestMeta, Result, ResultMetaObject } from '../types/types';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import type { WireCodec } from '../wire/codec';
 import type {
@@ -237,10 +237,15 @@ export function runInputRequiredFlow<T extends StandardSchemaV1>(
  * codec's decoded payload — what an `allowInputRequired: true` caller
  * receives instead of the auto-fulfilled complete result.
  */
-export function manualInputRequiredValue(decoded: { inputRequests: Record<string, unknown>; requestState?: string }): InputRequiredResult {
+export function manualInputRequiredValue(decoded: {
+    inputRequests: Record<string, unknown>;
+    requestState?: string;
+    _meta?: ResultMetaObject;
+}): InputRequiredResult {
     return {
         resultType: 'input_required',
         inputRequests: decoded.inputRequests as InputRequiredResult['inputRequests'],
-        ...(decoded.requestState !== undefined && { requestState: decoded.requestState })
+        ...(decoded.requestState !== undefined && { requestState: decoded.requestState }),
+        ...(decoded._meta !== undefined && { _meta: decoded._meta })
     };
 }

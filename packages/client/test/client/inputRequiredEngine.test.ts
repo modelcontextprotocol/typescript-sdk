@@ -371,4 +371,31 @@ describe('manual mode', () => {
 
         await client.close();
     });
+
+    it('carries the result-level _meta through to the manual caller', async () => {
+        const { clientTx } = await scriptedModernServer(() => ({
+            resultType: 'input_required',
+            inputRequests: { github_login: ELICIT_ENTRY },
+            requestState: 'manual-state',
+            _meta: {
+                'io.modelcontextprotocol/serverInfo': { name: 'scripted-mrtr-server', version: '1.0.0' },
+                'example.com/displayHint': 'inline'
+            }
+        }));
+
+        const client = makeClient({ inputRequired: { autoFulfill: false } });
+        await client.connect(clientTx);
+
+        const first = (await client.callTool({ name: 'deploy', arguments: {} }, { allowInputRequired: true })) as unknown as Record<
+            string,
+            unknown
+        >;
+        expect(first.resultType).toBe('input_required');
+        expect(first._meta).toEqual({
+            'io.modelcontextprotocol/serverInfo': { name: 'scripted-mrtr-server', version: '1.0.0' },
+            'example.com/displayHint': 'inline'
+        });
+
+        await client.close();
+    });
 });
