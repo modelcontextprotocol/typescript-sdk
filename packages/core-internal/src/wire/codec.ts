@@ -57,6 +57,7 @@ import type {
     RequestMethod,
     RequestTypeMap,
     Result,
+    ResultMetaObject,
     ResultTypeMap
 } from '../types/types';
 import { rev2025Codec } from './rev2025-11-25/codec';
@@ -147,6 +148,12 @@ export type DecodedResult =
            */
           inputRequests: Record<string, unknown>;
           requestState?: string;
+          /**
+           * Result-level `_meta`, carried through the seam so the manual
+           * caller and the driver see the peer's metadata (the anchor types
+           * `Result._meta` on every result, `input_required` included).
+           */
+          _meta?: ResultMetaObject;
       }
     | { kind: 'invalid'; error: SdkError };
 
