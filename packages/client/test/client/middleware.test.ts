@@ -371,6 +371,71 @@ describe('withOAuth', () => {
             fetchFn: mockFetch
         });
     });
+
+    it('should not attach Authorization header to cross-origin requests when baseUrl is provided', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'secret-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        // Make a cross-origin request to an external server
+        await enhancedFetch('https://thirdparty.example.org/webhook');
+
+        expect(mockFetch).toHaveBeenCalledWith(
+            'https://thirdparty.example.org/webhook',
+            expect.objectContaining({
+                headers: expect.any(Headers)
+            })
+        );
+
+        const callArgs = mockFetch.mock.calls[0];
+        const headers = callArgs![1]?.headers as Headers;
+        expect(headers.get('Authorization')).toBeNull();
+    });
+
+    it('should not attempt 401 re-auth for cross-origin requests when baseUrl is provided', async () => {
+        const unauthorizedResponse = new Response('Unauthorized', { status: 401 });
+        mockFetch.mockResolvedValue(unauthorizedResponse);
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        const response = await enhancedFetch('https://thirdparty.example.org/webhook');
+
+        expect(response.status).toBe(401);
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(mockAuth).not.toHaveBeenCalled();
+    });
+
+    it('should handle Request object and attach tokens only when origin matches baseUrl', async () => {
+        mockProvider.tokens.mockResolvedValue({
+            access_token: 'secret-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        mockFetch.mockResolvedValue(new Response('success', { status: 200 }));
+
+        const enhancedFetch = withOAuth(mockProvider, 'https://api.example.com')(mockFetch);
+
+        // 1. Same-origin Request object
+        const sameOriginRequest = new Request('https://api.example.com/endpoint');
+        await enhancedFetch(sameOriginRequest);
+
+        const sameOriginHeaders = mockFetch.mock.calls[0]![1]?.headers as Headers;
+        expect(sameOriginHeaders.get('Authorization')).toBe('Bearer secret-token');
+
+        // 2. Cross-origin Request object
+        const crossOriginRequest = new Request('https://external.example.org/endpoint');
+        await enhancedFetch(crossOriginRequest);
+
+        const crossOriginHeaders = mockFetch.mock.calls[1]![1]?.headers as Headers;
+        expect(crossOriginHeaders.get('Authorization')).toBeNull();
+    });
 });
 
 describe('withLogging', () => {
