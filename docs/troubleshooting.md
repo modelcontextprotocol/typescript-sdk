@@ -167,11 +167,50 @@ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMet
 
 HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
 
+## `Cannot read properties of null (reading '_def')` or tool arguments missing
+
+On SDK v1, passing a `z.object({...})` schema where a raw Zod shape (`{ field: z.string() }`) is expected causes silent failures or crashes depending on the API and version:
+
+- **Silent empty schema (v1 ≤ 1.26.0):** Calling `server.tool(...)` with `z.object({...})` publishes an empty schema (`{"type":"object"}`) with no properties. Clients silently strip all arguments, and the tool handler receives no input parameters.
+- **`tools/list` crash (v1 ≤ 1.21.0):** Calling `registerTool` with `z.object({...})` crashes when clients call `tools/list` with `TypeError: Cannot read properties of null (reading '_def')`.
+
+### Solution
+
+- **On v1:** Pass a raw shape object (`{ name: z.string() }`) directly instead of wrapping in `z.object()`.
+- **On v2:** Pass `z.object({...})` (or any schema conforming to the [Standard Schema spec](https://standardschema.dev/)).
+
+```typescript
+// v1: pass raw shape object
+server.tool(
+    'greet',
+    {
+        name: z.string().describe('User name'),
+    },
+    async ({ name }) => {
+        return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    }
+);
+
+// v2: pass z.object({...})
+server.registerTool(
+    'greet',
+    {
+        description: 'Greet a user',
+        inputSchema: z.object({ name: z.string().describe('User name') }),
+    },
+    async ({ name }) => {
+        return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+    }
+);
+```
+
+
 ## Recap
 
 - Every heading on this page is the exact message you searched for.
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
+- `Cannot read properties of null (reading '_def')` or missing tool arguments on v1 means `z.object()` was passed instead of a raw shape.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
