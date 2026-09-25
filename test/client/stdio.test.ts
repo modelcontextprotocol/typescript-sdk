@@ -76,6 +76,34 @@ test('should return child process pid', async () => {
     expect(client.pid).toBeNull();
 });
 
+test.runIf(process.platform === 'win32')('should pass an explicit Path to the child instead of the inherited PATH on Windows', async () => {
+    // Use the absolute node path: the child's PATH is replaced, so a bare `node` would not resolve.
+    const client = new StdioClientTransport({
+        command: process.execPath,
+        args: [
+            '-e',
+            "const keys = Object.keys(process.env).filter(k => k.toUpperCase() === 'PATH'); process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'env', params: { keys, explicit: process.env.PATH === 'C:\\\\explicit-only' } }) + '\\n')"
+        ],
+        env: { Path: 'C:\\explicit-only' }
+    });
+
+    const received = new Promise<JSONRPCMessage>((resolve, reject) => {
+        client.onmessage = resolve;
+        client.onerror = reject;
+        client.onclose = () => reject(new Error('child exited before reporting its environment'));
+    });
+
+    await client.start();
+    const message = await received;
+    await client.close();
+
+    expect(message).toEqual({
+        jsonrpc: '2.0',
+        method: 'env',
+        params: { keys: ['Path'], explicit: true }
+    });
+});
+
 test('should respect custom maxBufferSize option', async () => {
     const client = new StdioClientTransport({
         command: 'node',
