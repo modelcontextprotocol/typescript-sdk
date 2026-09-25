@@ -1172,6 +1172,9 @@ async function authInternal(
                 if (error instanceof TypeError) {
                     throw error;
                 }
+                if (error instanceof OAuthProtectedResourceMetadataValidationError) {
+                    throw error;
+                }
                 // RFC 9728 not available — selectResourceURL will handle undefined
             }
         }
@@ -1617,6 +1620,13 @@ export function extractResourceMetadataUrl(res: Response): URL | undefined {
     }
 }
 
+class OAuthProtectedResourceMetadataValidationError extends Error {
+    constructor(cause: unknown) {
+        super(`Invalid OAuth protected resource metadata: ${cause instanceof Error ? cause.message : String(cause)}`);
+        this.name = 'OAuthProtectedResourceMetadataValidationError';
+    }
+}
+
 /**
  * Looks up {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728}
  * OAuth 2.0 Protected Resource Metadata.
@@ -1643,7 +1653,11 @@ export async function discoverOAuthProtectedResourceMetadata(
         await response.text?.().catch(() => {});
         throw new Error(`HTTP ${response.status} trying to load well-known OAuth protected resource metadata.`);
     }
-    return OAuthProtectedResourceMetadataSchema.parse(await response.json());
+    const parseResult = OAuthProtectedResourceMetadataSchema.safeParse(await response.json());
+    if (!parseResult.success) {
+        throw new OAuthProtectedResourceMetadataValidationError(parseResult.error);
+    }
+    return parseResult.data;
 }
 
 /**
@@ -2035,6 +2049,9 @@ export async function discoverOAuthServerInfo(
         // transient reachability problems, not "server doesn't support PRM" — propagate so the
         // caller sees the real error instead of silently falling back to a different auth server.
         if (error instanceof TypeError) {
+            throw error;
+        }
+        if (error instanceof OAuthProtectedResourceMetadataValidationError) {
             throw error;
         }
         // RFC 9728 not supported -- fall back to treating the server URL as the authorization server
