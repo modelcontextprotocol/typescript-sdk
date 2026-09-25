@@ -275,6 +275,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             // `@modelcontextprotocol/core/internal` at runtime, and the registry copy of core may
             // not carry that subpath yet — the test must exercise the workspace pair together.
             const tarballName = packWorkspacePackage(tempDir, 'server');
+            const clientTarballName = packWorkspacePackage(tempDir, 'client');
             const coreTarballName = packWorkspacePackage(tempDir, 'core');
 
             // Write package.json
@@ -284,6 +285,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
                 type: 'module',
                 dependencies: {
                     '@modelcontextprotocol/core': `file:./${coreTarballName}`,
+                    '@modelcontextprotocol/client': `file:./${clientTarballName}`,
                     '@modelcontextprotocol/server': `file:./${tarballName}`
                 }
             };
@@ -299,8 +301,15 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 
             // Write server source
             const serverSource = `
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
+
+const unhandledRejections = [];
+addEventListener('unhandledrejection', event => {
+    unhandledRejections.push(event.reason?.stack ?? String(event.reason));
+    event.preventDefault();
+});
 
 const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
@@ -315,7 +324,30 @@ const transport = new WebStandardStreamableHTTPServerTransport();
 await server.connect(transport);
 
 export default {
-    fetch: (request) => transport.handleRequest(request)
+    async fetch(request) {
+        if (new URL(request.url).pathname === '/legacy-handshake-close') {
+            const firstRejection = unhandledRejections.length;
+            for (let ticks = 0; ticks < 30; ticks++) {
+                const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+                const testServer = new McpServer({ name: 'downstream', version: '1.0.0' });
+                await testServer.connect(serverTransport);
+                const client = new Client(
+                    { name: 'probe', version: '1.0.0' },
+                    { versionNegotiation: { mode: 'legacy' } }
+                );
+                const connecting = client.connect(clientTransport).catch(() => {});
+                for (let tick = 0; tick < ticks; tick++) await Promise.resolve();
+                await clientTransport.close();
+                await connecting;
+                await testServer.close();
+            }
+            // workerd reports unhandled rejections at the end of a turn. Yield
+            // once so the listener above can observe any detached rejection.
+            await new Promise(resolve => setTimeout(resolve, 0));
+            return Response.json({ unhandledRejections: unhandledRejections.slice(firstRejection) });
+        }
+        return transport.handleRequest(request);
+    }
 };
 `;
             fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
@@ -370,5 +402,12 @@ export default {
         expect(result.content).toEqual([{ type: 'text', text: 'Hello, Workers!' }]);
 
         await client.close();
+    }, 30_000);
+
+    it('should not leave an unhandled rejection when the client closes during legacy initialize', async () => {
+        const response = await fetch(`http://127.0.0.1:${port}/legacy-handshake-close`);
+        expect(response.ok).toBe(true);
+        const result = (await response.json()) as { unhandledRejections: string[] };
+        expect(result.unhandledRejections).toEqual([]);
     }, 30_000);
 });

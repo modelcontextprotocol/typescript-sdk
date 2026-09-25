@@ -1075,6 +1075,14 @@ export class Client extends Protocol<ClientContext> {
 
             this._instructions = result.instructions;
 
+            // The transport can close after the initialize response settles but
+            // before this async continuation sends the initialized notification.
+            // Fail the handshake explicitly instead of sending through a detached
+            // connection (which can surface as an unhandled rejection in workerd).
+            if (this.transport === undefined) {
+                throw new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed during initialize handshake');
+            }
+
             await this.notification({
                 method: 'notifications/initialized'
             });
