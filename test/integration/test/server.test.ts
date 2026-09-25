@@ -1956,6 +1956,33 @@ test('should respect log level for transport with sessionId', async () => {
     expect(clientTransport.onmessage).toHaveBeenCalled();
 });
 
+test('should respect log level for transport with sessionId when sendLoggingMessage omits sessionId', async () => {
+    // Session-bearing transports (Streamable HTTP, SSE) store the level set by
+    // logging/setLevel under the transport's session id. The documented call
+    // `sendLoggingMessage(params)` must honor it, as it does on stdio.
+    const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: { logging: {} } });
+    const client = new Client({ name: 'test client', version: '1.0' });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    clientTransport.sessionId = 'test-session-id';
+    serverTransport.sessionId = 'test-session-id';
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    await client.setLoggingLevel('warning');
+
+    const received: string[] = [];
+    clientTransport.onmessage = message => {
+        if ('method' in message && message.method === 'notifications/message') {
+            received.push(message.params?.level as string);
+        }
+    };
+
+    await server.sendLoggingMessage({ level: 'debug', data: 'Debug message' });
+    await server.sendLoggingMessage({ level: 'warning', data: 'Warning message' });
+
+    expect(received).toEqual(['warning']);
+});
+
 describe('createMcpExpressApp', () => {
     test('should create an Express app', () => {
         const app = createMcpExpressApp();
