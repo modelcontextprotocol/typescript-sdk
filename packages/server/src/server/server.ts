@@ -435,8 +435,11 @@ export class Server extends Protocol<ServerContext> {
     private readonly LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
     // Is a message with the given level ignored in the log level set for the given session id?
+    // Without an explicit session id, use the connected transport's: `logging/setLevel` stored
+    // the level under it, so on Streamable HTTP or SSE `sendLoggingMessage(params)` would
+    // otherwise skip the filter the client asked for.
     private isMessageIgnored = (level: LoggingLevel, sessionId?: string): boolean => {
-        const currentLevel = this._loggingLevels.get(sessionId);
+        const currentLevel = this._loggingLevels.get(sessionId ?? this.transport?.sessionId);
         return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
     };
 
