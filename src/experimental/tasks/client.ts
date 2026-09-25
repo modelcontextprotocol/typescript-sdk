@@ -10,7 +10,13 @@ import type { RequestOptions } from '../../shared/protocol.js';
 import type { ResponseMessage } from '../../shared/responseMessage.js';
 import type { AnyObjectSchema, SchemaOutput } from '../../server/zod-compat.js';
 import type { CallToolRequest, ClientRequest, Notification, Request, Result } from '../../types.js';
-import { CallToolResultSchema, type CompatibilityCallToolResultSchema, McpError, ErrorCode } from '../../types.js';
+import {
+    CallToolResultSchema,
+    type CompatibilityCallToolResultSchema,
+    GetTaskPayloadResultSchema,
+    McpError,
+    ErrorCode
+} from '../../types.js';
 
 import type { GetTaskResult, ListTasksResult, CancelTaskResult } from './types.js';
 
@@ -178,23 +184,27 @@ export class ExperimentalClientTasks<
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
+     * @param resultSchema - Zod schema for validating the result, defaults to `GetTaskPayloadResultSchema`
      * @param options - Optional request options
      * @returns The task result
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult<T extends AnyObjectSchema = typeof GetTaskPayloadResultSchema>(
+        taskId: string,
+        resultSchema?: T,
+        options?: RequestOptions
+    ): Promise<SchemaOutput<T>> {
         // Delegate to the client's underlying Protocol method
         return (
             this._client as unknown as {
                 getTaskResult: <U extends AnyObjectSchema>(
                     params: { taskId: string },
-                    resultSchema?: U,
+                    resultSchema: U,
                     options?: RequestOptions
                 ) => Promise<SchemaOutput<U>>;
             }
-        ).getTaskResult({ taskId }, resultSchema, options);
+        ).getTaskResult({ taskId }, (resultSchema ?? GetTaskPayloadResultSchema) as T, options);
     }
 
     /**
