@@ -1839,6 +1839,18 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.has('state')).toBe(false);
         });
 
+        it("omits consent prompt parameter for 'offline_access' when skipOfflineAccessConsentPrompt is set", async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                scope: 'read write profile offline_access',
+                skipOfflineAccessConsentPrompt: true
+            });
+
+            expect(authorizationUrl.searchParams.get('scope')).toBe('read write profile offline_access');
+            expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+        });
+
         // OpenID Connect requires that the user is prompted for consent if the scope includes 'offline_access'
         it("includes consent prompt parameter if scope includes 'offline_access'", async () => {
             const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
@@ -4982,6 +4994,55 @@ describe('OAuth Authorization', () => {
                 expect(result).toBe('REDIRECT');
                 const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
                 expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read');
+                expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
+            });
+
+            it('auth() omits prompt=consent for offline_access when provider.skipOfflineAccessConsentPrompt is true', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve({ ok: false, status: 404 });
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://api.example.com',
+                                authorization_endpoint: 'https://api.example.com/authorize',
+                                token_endpoint: 'https://api.example.com/token',
+                                response_types_supported: ['code'],
+                                scopes_supported: ['mcp:read', 'offline_access']
+                            })
+                        });
+                    }
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+                const redirectToAuthorization = vi.fn();
+                const provider: OAuthClientProvider = {
+                    get redirectUrl() {
+                        return 'http://localhost:3000/callback';
+                    },
+                    get clientMetadata() {
+                        return {
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            scope: 'mcp:read',
+                            grant_types: ['authorization_code', 'refresh_token']
+                        };
+                    },
+                    skipOfflineAccessConsentPrompt: true,
+                    clientInformation: () => ({ client_id: 'static' }),
+                    tokens: () => undefined,
+                    saveTokens: vi.fn(),
+                    redirectToAuthorization,
+                    saveCodeVerifier: vi.fn(),
+                    codeVerifier: () => 'v'
+                };
+
+                const result = await auth(provider, { serverUrl: 'https://api.example.com/mcp' });
+                expect(result).toBe('REDIRECT');
+                const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
+                expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read offline_access');
                 expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
             });
         });

@@ -254,6 +254,19 @@ export interface OAuthClientProvider {
     clientMetadataUrl?: string;
 
     /**
+     * When `true`, {@linkcode auth} does not add `prompt=consent` to the authorization
+     * request when the requested scope includes `offline_access`.
+     *
+     * OIDC Core §11 allows omitting it when other conditions already permit offline
+     * access, e.g. an administrator granted tenant-wide consent. Some authorization
+     * servers (such as Microsoft Entra ID with user consent disabled) reject a forced
+     * consent prompt from non-admin users even though consent is already in place.
+     *
+     * @default false
+     */
+    skipOfflineAccessConsentPrompt?: boolean;
+
+    /**
      * Metadata about this OAuth client.
      */
     get clientMetadata(): OAuthClientMetadata;
@@ -1431,7 +1444,8 @@ async function authInternal(
         state,
         redirectUrl: provider.redirectUrl,
         scope: resolvedScope,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt: provider.skipOfflineAccessConsentPrompt
     });
 
     await provider.saveCodeVerifier(codeVerifier);
@@ -2073,7 +2087,8 @@ export async function startAuthorization(
         redirectUrl,
         scope,
         state,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt
     }: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
@@ -2081,6 +2096,11 @@ export async function startAuthorization(
         scope?: string;
         state?: string;
         resource?: string | URL;
+        /**
+         * When `true`, `prompt=consent` is not added for an `offline_access` scope.
+         * See {@linkcode OAuthClientProvider.skipOfflineAccessConsentPrompt}.
+         */
+        skipOfflineAccessConsentPrompt?: boolean;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2120,7 +2140,7 @@ export async function startAuthorization(
         authorizationUrl.searchParams.set('scope', scope);
     }
 
-    if (scope?.split(' ').includes('offline_access')) {
+    if (!skipOfflineAccessConsentPrompt && scope?.split(' ').includes('offline_access')) {
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
