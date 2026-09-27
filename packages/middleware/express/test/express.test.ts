@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import supertest from 'supertest';
 import { vi } from 'vitest';
 
 import { createMcpExpressApp } from '../src/express';
@@ -107,6 +108,43 @@ describe('@modelcontextprotocol/express', () => {
     });
 
     describe('createMcpExpressApp', () => {
+        test('validates Host/Origin before the JSON body parser runs', async () => {
+            const app = createMcpExpressApp();
+            app.post('/mcp', (req: Request, res: Response) => {
+                res.json({ parsed: req.body });
+            });
+
+            const disallowedHost = await supertest(app)
+                .post('/mcp')
+                .set('Host', 'evil.example.com')
+                .set('Content-Type', 'application/json')
+                .send('{not json');
+            expect(disallowedHost.status).toBe(403);
+
+            const disallowedOrigin = await supertest(app)
+                .post('/mcp')
+                .set('Host', 'localhost:3000')
+                .set('Origin', 'http://evil.example.com')
+                .set('Content-Type', 'application/json')
+                .send('{not json');
+            expect(disallowedOrigin.status).toBe(403);
+
+            const invalidJson = await supertest(app)
+                .post('/mcp')
+                .set('Host', 'localhost:3000')
+                .set('Content-Type', 'application/json')
+                .send('{not json');
+            expect(invalidJson.status).toBe(400);
+
+            const allowed = await supertest(app)
+                .post('/mcp')
+                .set('Host', 'localhost:3000')
+                .set('Content-Type', 'application/json')
+                .send({ ok: true });
+            expect(allowed.status).toBe(200);
+            expect(allowed.body).toEqual({ parsed: { ok: true } });
+        });
+
         test('should enable localhost DNS rebinding protection by default', () => {
             const app = createMcpExpressApp();
 

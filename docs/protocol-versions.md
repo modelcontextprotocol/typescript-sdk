@@ -171,6 +171,7 @@ This table is the only copy of the era differences in these docs. `getProtocolEr
 | `ctx.mcpReq.log()` level filter       | session-scoped `logging/setLevel`                                        | per-request `logLevel` `_meta` envelope key (absent = no logs)     |
 | HTTP `400` with a JSON-RPC error body | `SdkHttpError`                                                           | `ProtocolError`, delivered in-band                                 |
 | Era-mismatched spec method (outbound) | n/a                                                                      | `SdkError(MethodNotSupportedByProtocolVersion)`                    |
+| Liveness check                        | `client.ping()`                                                          | not defined — outbound call rejects per the era-mismatch row       |
 
 ## Separate deprecation from era
 

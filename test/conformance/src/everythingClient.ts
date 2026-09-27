@@ -23,6 +23,7 @@ import {
 import * as z from 'zod/v4';
 
 import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider';
+import { DpopOAuthProvider } from './helpers/dpopClient';
 import { logger } from './helpers/logger';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry';
 
@@ -506,6 +507,51 @@ registerScenarios(
 );
 
 // ============================================================================
+// DPoP sender-constrained tokens (SEP-1932 / RFC 9449, draft extension)
+// ============================================================================
+
+/**
+ * Identical to {@linkcode runAuthClient} except the provider carries a DPoP session
+ * ({@linkcode DpopOAuthProvider}) — every DPoP-specific behavior (token-request proof, the
+ * `DPoP` Authorization scheme, a fresh per-request proof, AS/RS `use_dpop_nonce` retry) is the
+ * SDK's own (`@modelcontextprotocol/client`'s `dpop.ts` / `auth.ts` / `streamableHttp.ts`),
+ * exercised end-to-end here rather than re-implemented. One handler drives both `auth/dpop`
+ * (nonce-less) and `auth/dpop-nonce` — which posture runs depends only on whether the referee's
+ * authorization server / MCP server issue a nonce challenge, which the SDK reacts to automatically.
+ */
+async function runDpopAuthClient(serverUrl: string): Promise<void> {
+    const client = new Client(
+        { name: 'test-dpop-auth-client', version: '1.0.0' },
+        { capabilities: {}, versionNegotiation: { mode: 'auto' } }
+    );
+
+    const provider = new DpopOAuthProvider(
+        'http://localhost:3000/callback',
+        { client_name: 'test-dpop-auth-client', redirect_uris: ['http://localhost:3000/callback'] },
+        CIMD_CLIENT_METADATA_URL
+    );
+    const dpopFetch = withOAuthRetry('test-dpop-auth-client', new URL(serverUrl), handle401, CIMD_CLIENT_METADATA_URL, provider)(fetch);
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: dpopFetch
+    });
+
+    await client.connect(transport);
+    logger.debug('Successfully connected to MCP server (DPoP)');
+
+    await client.listTools();
+    logger.debug('Successfully listed tools');
+
+    await client.callTool({ name: 'test-tool', arguments: {} });
+    logger.debug('Successfully called tool');
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenarios(['auth/dpop', 'auth/dpop-nonce'], runDpopAuthClient);
+
+// ============================================================================
 // Client Credentials scenarios
 // ============================================================================
 
@@ -801,6 +847,62 @@ async function runJsonSchemaRefNoDerefClient(serverUrl: string): Promise<void> {
 }
 
 registerScenario('json-schema-ref-no-deref', runJsonSchemaRefNoDerefClient);
+
+// ============================================================================
+// JSON Schema 2020-12 keyword preservation scenario (SEP-1613, SEP-2106)
+// ============================================================================
+
+/** The tool whose `inputSchema` carries the full JSON Schema 2020-12 fixture. */
+const JSON_SCHEMA_2020_12_TOOL = 'json_schema_2020_12_tool';
+/** The permissive echo tool that hands the observed schema back to the referee. */
+const JSON_SCHEMA_ECHO_TOOL = 'json_schema_echo';
+
+/**
+ * The scenario advertises a focal tool whose inputSchema uses `$schema`,
+ * `$defs` (with `$anchor`), `additionalProperties`, composition
+ * (`allOf`/`anyOf`) and conditional (`if`/`then`/`else`) keywords. The client
+ * lists tools and passes that inputSchema back verbatim — exactly as
+ * `listTools()` exposes it — through `tools/call json_schema_echo`, so the
+ * referee can diff what survived the SDK's parsing against its fixture.
+ *
+ * The scenario spans both eras: under a 2026-07-28 run the client negotiates
+ * the modern lifecycle via server/discover (as tools_call does) and drives the
+ * same list → echo flow.
+ */
+async function runJsonSchema2020_12PreservationClient(serverUrl: string): Promise<void> {
+    const client = new Client(
+        { name: 'json-schema-2020-12-preservation-client', version: '1.0.0' },
+        isModernConformanceRun() ? { capabilities: {}, versionNegotiation: { mode: 'auto' } } : { capabilities: {} }
+    );
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Successfully connected to MCP server');
+
+    const tools = await client.listTools();
+    logger.debug(
+        'Available tools:',
+        tools.tools.map(t => t.name)
+    );
+
+    const focal = tools.tools.find(t => t.name === JSON_SCHEMA_2020_12_TOOL);
+    if (!focal) {
+        throw new Error(`Tool '${JSON_SCHEMA_2020_12_TOOL}' not advertised by the server`);
+    }
+    logger.debug('Observed inputSchema:', JSON.stringify(focal.inputSchema, null, 2));
+
+    const result = await client.callTool({
+        name: JSON_SCHEMA_ECHO_TOOL,
+        arguments: { schema: focal.inputSchema }
+    });
+    logger.debug('Echo result:', JSON.stringify(result, null, 2));
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('json-schema-2020-12-preservation', runJsonSchema2020_12PreservationClient);
 
 // ============================================================================
 // Main entry point

@@ -60,6 +60,28 @@ server.registerPrompt(
 );
 //#endregion registerPrompt_messages
 
+//#region registerPrompt_image
+server.registerPrompt(
+    'describe-image',
+    {
+        description: 'Describe an image for alt text',
+        argsSchema: z.object({ imageBase64: z.string().describe('Base64-encoded PNG') })
+    },
+    ({ imageBase64 }) => ({
+        messages: [
+            {
+                role: 'user' as const,
+                content: { type: 'image' as const, data: imageBase64, mimeType: 'image/png' }
+            },
+            {
+                role: 'user' as const,
+                content: { type: 'text' as const, text: 'Write one sentence of alt text for this image.' }
+            }
+        ]
+    })
+);
+//#endregion registerPrompt_image
+
 //#region registerPrompt_embedResource
 const styleGuide = '- Prefer const over let.\n- No single-letter identifiers.';
 
@@ -151,6 +173,18 @@ try {
     console.log(code, message);
 }
 //#endregion getPrompt_invalid
+
+// "Add an image to a message" — the image message the page quotes; the
+// argument is a real (1x1) PNG.
+const described = await client.getPrompt({
+    name: 'describe-image',
+    arguments: { imageBase64: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' }
+});
+console.log(described.messages[0]);
+const imageMessage = described.messages[0]?.content;
+if (imageMessage?.type !== 'image' || imageMessage.mimeType !== 'image/png') {
+    throw new Error(`prompts.md claim failed: describe-image first message is ${JSON.stringify(imageMessage)}`);
+}
 
 // "Embed a resource in a message" — the embedded-resource message the page quotes.
 const review = await client.getPrompt({

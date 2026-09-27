@@ -148,7 +148,7 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
     constructor(tokenEndpoint: string) {
         super(
             `Refusing to send credentials to non-https token endpoint '${tokenEndpoint}'. ` +
-                `OAuth token requests MUST use TLS (localhost / 127.0.0.1 / ::1 are exempt).`
+                `OAuth token requests MUST use TLS (localhost / *.localhost / 127.0.0.1 / ::1 are exempt).`
         );
         this.tokenEndpoint = tokenEndpoint;
     }
