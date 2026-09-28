@@ -50,6 +50,12 @@ export interface BearerAuthOptions {
      *
      * Typically built with `getOAuthProtectedResourceMetadataUrl`, exported
      * from this package.
+     *
+     * When verification succeeds the value is also stamped onto the returned
+     * {@link AuthInfo} (`authInfo.resourceMetadataUrl`, unless the verifier
+     * already set one), so challenges built after authentication — such as
+     * per-operation `insufficient_scope` scope challenges — advertise the
+     * same document without being configured separately.
      */
     resourceMetadataUrl?: string;
 }
@@ -62,18 +68,27 @@ function headerQuotedValue(value: string): string {
     return value.replaceAll(/[\\"]/g, String.raw`\$&`).replaceAll(/[^\u0020-\u007E]/g, ' ');
 }
 
-function buildWwwAuthenticateHeader(
+/**
+ * Build a `WWW-Authenticate: Bearer …` challenge header value (RFC 6750).
+ *
+ * The single formatter behind every challenge this package emits — the
+ * bearer-auth 401/403 answers and the per-operation scope-challenge 403 — so
+ * all challenges from one server agree on parameter order and quoting. Every
+ * parameter value is emitted as an HTTP quoted-string with `\` and `"`
+ * escaped and non-printable characters replaced.
+ */
+export function buildWwwAuthenticateHeader(
     errorCode: string,
     description: string,
-    requiredScopes: string[],
+    requiredScopes: readonly string[],
     resourceMetadataUrl: string | undefined
 ): string {
     let header = `Bearer error="${headerQuotedValue(errorCode)}", error_description="${headerQuotedValue(description)}"`;
     if (requiredScopes.length > 0) {
-        header += `, scope="${requiredScopes.join(' ')}"`;
+        header += `, scope="${headerQuotedValue(requiredScopes.join(' '))}"`;
     }
     if (resourceMetadataUrl) {
-        header += `, resource_metadata="${resourceMetadataUrl}"`;
+        header += `, resource_metadata="${headerQuotedValue(resourceMetadataUrl)}"`;
     }
     return header;
 }
@@ -118,6 +133,14 @@ export async function verifyBearerToken(authorizationHeader: string | null | und
         throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token has no expiration time');
     } else if (authInfo.expiresAt < Date.now() / 1000) {
         throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token has expired');
+    }
+
+    // Hand the gate's discovery configuration inward with the verified token,
+    // so challenges built after authentication (per-operation scope
+    // challenges) advertise the same metadata document. A verifier-set value
+    // wins over the gate's configuration.
+    if (options.resourceMetadataUrl !== undefined && authInfo.resourceMetadataUrl === undefined) {
+        return { ...authInfo, resourceMetadataUrl: options.resourceMetadataUrl };
     }
 
     return authInfo;
