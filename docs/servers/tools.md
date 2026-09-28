@@ -129,6 +129,69 @@ Calling `product-details` with `{ name: 'Travel mug' }` returns both renderings:
 
 The wire encoding of structured results differs by protocol era — see [Protocol versions](../protocol-versions.md).
 
+## Return other content types
+
+One result can mix content blocks: `image` and `audio` carry base64 `data` with a `mimeType`; `resource` embeds a resource's contents inline; `resource_link` names a resource by `uri` without its bytes.
+
+```ts source="../../examples/guides/servers/tools.examples.ts#registerTool_contentTypes"
+// Base64 payloads; read yours from disk: readFileSync('card.png').toString('base64')
+const cardPng = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
+const spokenNameWav = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+server.registerTool(
+    'product-card',
+    {
+        description: 'Render one product as an image, a spoken name, and its catalog record',
+        inputSchema: z.object({ name: z.string() })
+    },
+    async ({ name }) => {
+        const product = catalog.find(candidate => candidate.name === name);
+        if (!product) throw new Error(`No product named ${name}`);
+        return {
+            content: [
+                { type: 'image', data: cardPng, mimeType: 'image/png' },
+                { type: 'audio', data: spokenNameWav, mimeType: 'audio/wav' },
+                {
+                    type: 'resource',
+                    resource: {
+                        uri: `catalog://products/${encodeURIComponent(product.name)}`,
+                        mimeType: 'application/json',
+                        text: JSON.stringify(product)
+                    }
+                }
+            ]
+        };
+    }
+);
+```
+
+Calling `product-card` with `{ name: 'Travel mug' }` returns the three blocks as written:
+
+```
+[
+  {
+    type: 'image',
+    data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+    mimeType: 'image/png'
+  },
+  {
+    type: 'audio',
+    data: 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=',
+    mimeType: 'audio/wav'
+  },
+  {
+    type: 'resource',
+    resource: {
+      uri: 'catalog://products/Travel%20mug',
+      mimeType: 'application/json',
+      text: '{"name":"Travel mug","price":24}'
+    }
+  }
+]
+```
+
+The blocks reach the client exactly as returned, and the embedded `resource` arrives without a `resources/read` round trip.
+
 ## Annotate the tool
 
 `title` is the display name; `annotations` are behavior hints for the client.
@@ -156,4 +219,5 @@ A tool that takes no arguments omits `inputSchema`. Annotations never change how
 - The one schema yields the advertised JSON Schema, argument validation, and the handler's argument types.
 - Arguments that fail the schema come back as an `isError: true` tool result; the handler never runs.
 - `outputSchema` plus `structuredContent` add machine-readable results, validated before they leave the server.
+- `content` blocks are `text`, `image`, `audio`, `resource_link`, or an embedded `resource`; one result can mix them.
 - `title` and `annotations` describe the tool to clients and never change execution.

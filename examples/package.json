@@ -31,6 +31,7 @@
         "@modelcontextprotocol/hono": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-legacy": "workspace:^",
         "@valibot/to-json-schema": "catalog:devTools",
         "ajv": "catalog:runtimeShared",
         "arktype": "catalog:devTools",

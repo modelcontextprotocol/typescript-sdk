@@ -31,7 +31,7 @@ import { createMcpHandler, isLegacyRequest, McpServer, WebStandardStreamableHTTP
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta } from '../helpers/index';
+import { modernEnvelopeMeta, modernStandardHeaders } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 
 const LEGACY = '2025-11-25';
@@ -172,8 +172,7 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async () => {
             headers: {
                 'content-type': 'application/json',
                 accept: 'application/json, text/event-stream',
-                'mcp-method': 'tools/call',
-                'mcp-name': 'greet'
+                ...modernStandardHeaders('tools/call', 'greet')
             },
             body: JSON.stringify({
                 jsonrpc: '2.0',

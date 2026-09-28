@@ -11,6 +11,7 @@
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
             "@modelcontextprotocol/server/validators/ajv": ["./node_modules/@modelcontextprotocol/server/src/validators/ajv.ts"],
             "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
+            "@modelcontextprotocol/server-legacy/sse": ["./node_modules/@modelcontextprotocol/server-legacy/src/sse/index.ts"],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
