@@ -206,7 +206,9 @@ export const rev2026Codec: WireCodec & {
             // on every result, `input_required` included — see
             // `stampServerInfoMeta`), so it must cross this seam with the rest
             // of the payload instead of being dropped on the floor.
-            const meta = raw['_meta'] as ResultMetaObject | undefined;
+            // Same tolerant parse as complete results: non-object drops, malformed serverInfo drops.
+            const metaParse = raw['_meta'] === undefined ? undefined : buildSchemas2026().ResultMetaSchema.safeParse(raw['_meta']);
+            const meta = metaParse?.success ? (metaParse.data as ResultMetaObject) : undefined;
             if (Object.keys(inputRequests).length === 0 && typeof requestState !== 'string') {
                 // At-least-one rule, client side: with neither inputRequests
                 // nor requestState there is nothing to fulfil and nothing to
