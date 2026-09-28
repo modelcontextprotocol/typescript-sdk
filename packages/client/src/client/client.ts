@@ -1588,7 +1588,8 @@ export class Client extends Protocol<ClientContext> {
      * `nextCursor` for the next call) and does not write the response cache.
      * The auto-aggregate path is capped by
      * {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64); the per-page path
-     * is not.
+     * is not. If the walk stops early because the server repeated a `nextCursor`, that
+     * `nextCursor` stays on the result.
      *
      * Returns an empty list if the server does not advertise prompts capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
@@ -1628,7 +1629,8 @@ export class Client extends Protocol<ClientContext> {
      * `nextCursor` for the next call) and does not write the response cache.
      * The auto-aggregate path is capped by
      * {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64); the per-page path
-     * is not.
+     * is not. If the walk stops early because the server repeated a `nextCursor`, that
+     * `nextCursor` stays on the result.
      *
      * Returns an empty list if the server does not advertise resources capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
@@ -1666,7 +1668,8 @@ export class Client extends Protocol<ClientContext> {
      * complete aggregated list with no `nextCursor`; the aggregate is
      * also written to the {@linkcode ResponseCacheStore}. Pass an explicit
      * `{ cursor }` to fetch a single page — see
-     * {@linkcode listResources | listResources()} for the per-page contract.
+     * {@linkcode listResources | listResources()} for the per-page contract. If the walk stops early because the server repeated a `nextCursor`, that
+     * `nextCursor` stays on the result.
      *
      * Returns an empty list if the server does not advertise resources capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
@@ -1751,7 +1754,10 @@ export class Client extends Protocol<ClientContext> {
         // delete, not `= undefined`: the cache's JSON codec drops
         // explicit-undefined properties, so only absence keeps
         // `'nextCursor' in result` identical between wire and cache hit.
-        delete acc.nextCursor;
+        // A walk that stopped on a repeated cursor keeps that cursor so an
+        // incomplete aggregate can be told apart from a complete one.
+        if (cursor === undefined) delete acc.nextCursor;
+        else acc.nextCursor = cursor;
         finalize?.(acc);
         if (bypass) return acc;
         // The aggregate is ALWAYS written: even when the resolved TTL is ≤0
@@ -2496,7 +2502,8 @@ export class Client extends Protocol<ClientContext> {
      * per-page path returns the server's raw page (with `nextCursor` for the
      * next call) and does not write the response cache. The auto-aggregate
      * path is capped by {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64);
-     * the per-page path is not.
+     * the per-page path is not. If the walk stops early because the server repeated a `nextCursor`, that
+     * `nextCursor` stays on the result.
      *
      * Returns an empty list if the server does not advertise tools capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).

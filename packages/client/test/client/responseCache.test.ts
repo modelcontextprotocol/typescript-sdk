@@ -326,6 +326,8 @@ interface ScriptOptions {
     listHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     readHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     serverInfo?: { name: string; version: string };
+    /** When set, every `tools/list` page carries this `nextCursor` (a server that repeats a cursor). */
+    repeatCursor?: string;
 }
 
 async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): Promise<Scripted> {
@@ -353,7 +355,7 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
             params.push(r.params as { cursor?: string; _meta?: unknown } | undefined);
             const cursor = (r.params as { cursor?: string } | undefined)?.cursor;
             const idx = cursor === undefined ? 0 : Number(cursor);
-            const next = idx + 1 < pages.length ? String(idx + 1) : undefined;
+            const next = opts.repeatCursor ?? (idx + 1 < pages.length ? String(idx + 1) : undefined);
             void serverTx.send({
                 jsonrpc: '2.0',
                 id: r.id,
@@ -491,6 +493,36 @@ describe('Client response-cache substrate', () => {
         // The per-page path is never capped.
         const page = await client.listTools({ cursor: '2' });
         expect(page.tools.map(t => t.name)).toEqual(['a']);
+    });
+
+    it('the auto-aggregate path keeps nextCursor on the result and the cache entry when a repeated cursor stops the walk', async () => {
+        const store = new InMemoryResponseCacheStore();
+        // Every page answers with the same `nextCursor` (`''`), so the walk
+        // fetches page 1, follows `''` once, sees `''` again and stops.
+        const { clientTx, listCount } = await scriptedModernServer([[TOOL_A]], { repeatCursor: '' });
+        const client = modernClient(store);
+        await client.connect(clientTx);
+
+        const result = await client.listTools();
+        expect(listCount()).toBe(2);
+        expect(result.tools.map(t => t.name)).toEqual(['a', 'a']);
+        // The repeated cursor stays on the aggregate so an early-stopped walk
+        // is distinguishable from a complete one (#2735).
+        expect(result.nextCursor).toBe('');
+
+        const entry = store.get({ method: 'tools/list', partition: part() });
+        expect((JSON.parse(entry!.value) as { nextCursor?: string }).nextCursor).toBe('');
+    });
+
+    it('the auto-aggregate path leaves no nextCursor key on the result when the walk reaches the last page', async () => {
+        const { clientTx } = await scriptedModernServer([[TOOL_A], [TOOL_B]]);
+        const client = modernClient();
+        await client.connect(clientTx);
+
+        const result = await client.listTools();
+        expect(result.tools.map(t => t.name)).toEqual(['a', 'b']);
+        // Absent, not `undefined`: keeps `'nextCursor' in result` identical between wire and cache hit.
+        expect(result).not.toHaveProperty('nextCursor');
     });
 
     it('listPrompts/listResources/listResourceTemplates auto-aggregate and write the response cache', async () => {
