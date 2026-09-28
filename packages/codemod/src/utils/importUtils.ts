@@ -16,6 +16,25 @@ export function isSdkSpecifier(specifier: string): boolean {
     return specifier === SDK_PREFIX || specifier.startsWith(SDK_PREFIX + '/');
 }
 
+/**
+ * Mock-framework methods whose first string argument is a module specifier. The single source of
+ * truth shared by the mock-paths transform (which rewrites these specifiers), the runner (which
+ * detects them), and the project analyzer (which counts them toward project-type inference) —
+ * keep the three consumers in sync by editing only this set.
+ */
+export const MOCK_METHODS: ReadonlySet<string> = new Set([
+    'mock',
+    'doMock',
+    'unmock',
+    'dontMock',
+    'deepUnmock',
+    'requireActual',
+    'importActual',
+    'requireMock',
+    'createMockFromModule'
+]);
+export const MOCK_CALLERS: ReadonlySet<string> = new Set(['vi', 'jest']);
+
 export function getSdkImports(sourceFile: SourceFile): ImportDeclaration[] {
     return sourceFile.getImportDeclarations().filter(imp => {
         return isSdkSpecifier(imp.getModuleSpecifierValue());

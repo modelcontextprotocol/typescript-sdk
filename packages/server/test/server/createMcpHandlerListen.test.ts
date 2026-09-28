@@ -19,8 +19,9 @@ import { createMcpHandler } from '../../src/server/createMcpHandler';
 import { McpServer } from '../../src/server/mcp';
 import type { ServerEventBus } from '../../src/server/serverEventBus';
 
+const MODERN_REVISION = '2026-07-28';
 const ENVELOPE = {
-    [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+    [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
     [CLIENT_INFO_META_KEY]: { name: 'listen-test-client', version: '1.0.0' },
     [CLIENT_CAPABILITIES_META_KEY]: {}
 };
@@ -31,6 +32,7 @@ function listenRequest(id: string | number, filter: Record<string, unknown>): Re
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': MODERN_REVISION,
             'mcp-method': 'subscriptions/listen'
         },
         body: JSON.stringify({
@@ -212,6 +214,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': MODERN_REVISION,
                     'mcp-method': 'subscriptions/listen'
                 },
                 body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: { _meta: ENVELOPE } })

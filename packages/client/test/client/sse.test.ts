@@ -303,6 +303,26 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers.authorization).toBe(authToken);
         });
 
+        it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+            // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+            // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: null as unknown as RequestInit['headers'] }
+            });
+
+            await transport.start();
+            expect(lastServerRequest.headers.accept).toBe('text/event-stream');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+            await transport.send(message);
+            expect(lastServerRequest.headers['content-type']).toBe('application/json');
+        });
+
         it('passes custom headers to fetch requests', async () => {
             const customHeaders = {
                 Authorization: 'Bearer test-token',
@@ -658,6 +678,123 @@ describe('SSEClientTransport', () => {
 
             expect(lastServerRequest.headers.authorization).toBe('Bearer test-token');
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('lets the auth provider token override a stale caller-supplied Authorization header', async () => {
+            // Regression test for #2208: transport-managed headers are merged on top of
+            // requestInit.headers, so a static Authorization placeholder (e.g. an env-var
+            // API key) gives way to the provider's token on both the SSE GET and POSTs.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-placeholder',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            // SSE GET
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // POST
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('replaces a caller-supplied Authorization header regardless of name casing (Headers instance)', async () => {
+            // #2208 follow-up: `Headers` normalizes names to lowercase; the transport must
+            // still send exactly its own token, not a combined two-token value.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: new Headers({
+                        authorization: 'Bearer stale-placeholder',
+                        'x-custom-header': 'custom-value'
+                    })
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+            // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+            // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+            // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+            // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+            // a repeated *transport-managed* name is still replaced outright by the transport's
+            // own value rather than combined with it.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer stale-1'],
+                        ['Authorization', 'Bearer stale-2'],
+                        ['x-multi', 'a'],
+                        ['x-multi', 'b']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
         });
 
         it('refreshes expired token during SSE connection', async () => {
