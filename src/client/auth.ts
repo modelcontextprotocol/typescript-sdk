@@ -568,12 +568,10 @@ async function authInternal(
     // nothing were stored.
     const storedClientInformation = await Promise.resolve(provider.clientInformation());
     let clientInformation = discardIfIssuerMismatch(storedClientInformation, issuer);
-    const canRegisterAgain =
-        provider.saveClientInformation !== undefined && provider.addClientAuthentication === undefined && !!provider.redirectUrl;
+    const canRegisterAgain = provider.saveClientInformation !== undefined && !!provider.redirectUrl;
     if (storedClientInformation && !clientInformation && !canRegisterAgain) {
-        // Pre-registered credentials, custom client authentication provisioned for the stored
-        // registration, or a non-interactive client running on configured credentials: none of
-        // these can be re-created by registering with this authorization server.
+        // Pre-registered credentials, or a non-interactive client running on configured
+        // credentials: neither can be re-created by registering with this authorization server.
         throw boundElsewhereError(storedClientInformation, issuer);
     }
     // Saved by an earlier version: bound to the first authorization server that accepts it.

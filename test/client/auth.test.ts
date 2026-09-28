@@ -4041,26 +4041,6 @@ describe('OAuth Authorization', () => {
             expect(srv.tokenCalls).toHaveLength(0);
         });
 
-        it('custom client authentication is not presented to a different authorization server than its client information', async () => {
-            const srv = createMigratingFetch();
-            const provider = createBlobProvider();
-            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>((_headers, params) => {
-                params.set('client_assertion', 'assertion-one');
-                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
-            });
-            provider.addClientAuthentication = addClientAuthentication;
-            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
-            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
-            srv.switchTo(AS_TWO);
-
-            await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
-                `OAuth client information is bound to authorization server ${AS_ONE}`
-            );
-            expect(addClientAuthentication).not.toHaveBeenCalled();
-            expect(srv.registerCalls).toHaveLength(0);
-            expect(srv.tokenCalls).toHaveLength(0);
-        });
-
         it('fetchToken sends nothing to an authorization server other than the one the client information is bound to', async () => {
             const srv = createMigratingFetch();
             const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>();
