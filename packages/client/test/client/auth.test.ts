@@ -2476,6 +2476,8 @@ describe('OAuth Authorization', () => {
         it('assertSecureTokenEndpoint: throws on non-loopback http, returns URL for loopback', () => {
             expect(() => assertSecureTokenEndpoint('http://10.0.0.5/token')).toThrow(InsecureTokenEndpointError);
             expect(assertSecureTokenEndpoint('http://127.0.0.1:3000/token')).toBeInstanceOf(URL);
+            expect(assertSecureTokenEndpoint('http://tenant.example.localhost:3300/token')).toBeInstanceOf(URL);
+            expect(assertSecureTokenEndpoint('http://localhost/token')).toBeInstanceOf(URL);
         });
 
         it('rejects a non-https token_endpoint before sending credentials', async () => {
@@ -2544,24 +2546,27 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls.some(c => c[0].toString().includes('/token'))).toBe(false);
         });
 
-        it.each(['http://localhost:9001/token', 'http://127.0.0.1:9001/token', 'http://[::1]:9001/token'])(
-            'permits loopback host %s',
-            async tokenEndpoint => {
-                mockFetch.mockResolvedValueOnce(Response.json({ access_token: 't', token_type: 'Bearer' }));
-                await expect(
-                    refreshAuthorization('http://localhost:9001', {
-                        metadata: {
-                            issuer: 'http://localhost:9001',
-                            authorization_endpoint: 'http://localhost:9001/authorize',
-                            token_endpoint: tokenEndpoint,
-                            response_types_supported: ['code']
-                        },
-                        clientInformation,
-                        refreshToken: 'rt'
-                    })
-                ).resolves.toBeDefined();
-            }
-        );
+        it.each([
+            'http://localhost:9001/token',
+            'http://127.0.0.1:9001/token',
+            'http://[::1]:9001/token',
+            'http://tenant.example.localhost:3300/token',
+            'http://app.localhost:9001/token'
+        ])('permits loopback host %s', async tokenEndpoint => {
+            mockFetch.mockResolvedValueOnce(Response.json({ access_token: 't', token_type: 'Bearer' }));
+            await expect(
+                refreshAuthorization('http://localhost:9001', {
+                    metadata: {
+                        issuer: 'http://localhost:9001',
+                        authorization_endpoint: 'http://localhost:9001/authorize',
+                        token_endpoint: tokenEndpoint,
+                        response_types_supported: ['code']
+                    },
+                    clientInformation,
+                    refreshToken: 'rt'
+                })
+            ).resolves.toBeDefined();
+        });
     });
 
     // SEP-2207 verify-only: behaviors already correct at the v2 baseline,
@@ -4647,6 +4652,7 @@ describe('OAuth Authorization', () => {
         describe('SEP-837: application_type heuristic default', () => {
             it.each([
                 ['http://localhost:3000/callback', 'native'],
+                ['http://tenant.example.localhost:3300/callback', 'native'],
                 ['http://127.0.0.1:8080/cb', 'native'],
                 ['http://[::1]:8080/cb', 'native'],
                 ['myapp://oauth/callback', 'native'],
