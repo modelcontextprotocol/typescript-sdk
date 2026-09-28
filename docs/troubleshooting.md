@@ -167,11 +167,38 @@ The Resource Server helpers did not move there: `requireBearerAuth`, `mcpAuthMet
 
 HTTP SSE streams emit a `: keepalive` comment every 15 seconds by default so client body-idle timeouts and intermediaries do not terminate an otherwise idle connection. Configure the interval with `keepAliveMs` on the transport or `createMcpHandler`; set it to `0` to disable heartbeats.
 
+## `inputSchema is {"type":"object"} and clients do not send arguments`
+
+On SDK v1, positional `server.tool()` expects a Zod raw shape. Passing `z.object({ name: z.string() })` in that slot publishes an empty schema on v1.12 through v1.27: `tools/list` shows `{"type":"object"}` with no properties, registration logs nothing, and clients omit every argument so the handler receives none.
+
+Pass the raw shape:
+
+```diff
+- server.tool('greet', 'Greet a user', z.object({ name: z.string() }), handler);
++ server.tool('greet', 'Greet a user', { name: z.string() }, handler);
+```
+
+v1.28 and later v1 releases throw at registration instead of publishing the empty schema. On v2, `registerTool` expects a Standard Schema object such as `z.object({ name: z.string() })` — see [Upgrading from v1.x to v2](./migration/upgrade-to-v2.md#standard-schema-objects-raw-shapes-deprecated). Passing that same `ZodObject` to v1 `registerTool` on v1.12 through v1.21 makes `tools/list` fail with `Cannot read properties of null (reading '_def')`.
+
+## `MCP error -32603: Cannot read properties of null (reading '_def')`
+
+`tools/list` fails with this error when v1 `registerTool` received a `ZodObject` on v1.12 through v1.21. Those releases expect `inputSchema` to be the raw shape and wrap it with `z.object()` themselves.
+
+Unwrap it:
+
+```diff
+- server.registerTool('greet', { description: 'Greet a user', inputSchema: z.object({ name: z.string() }) }, handler);
++ server.registerTool('greet', { description: 'Greet a user', inputSchema: { name: z.string() } }, handler);
+```
+
+v1.22 and later normalize a `ZodObject` passed to `registerTool`. On v2, keep the wrapper — `inputSchema: z.object({ name: z.string() })` is the Standard Schema form. See [Upgrading from v1.x to v2](./migration/upgrade-to-v2.md#standard-schema-objects-raw-shapes-deprecated).
+
 ## Recap
 
 - Every heading on this page is the exact message you searched for.
 - On stdio, `stdout` carries JSON-RPC; log with `console.error`.
 - `TS2589` means two `zod` copies in the dependency tree.
+- An empty v1 `inputSchema`, or `Cannot read properties of null (reading '_def')` on `tools/list`, means a `ZodObject` was passed where a raw shape was required.
 - The SDK raises `ERA_NEGOTIATION_FAILED` and `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` locally — neither is a wire error.
 - Server SSE and the Authorization Server helpers live in `@modelcontextprotocol/server-legacy`.
 
