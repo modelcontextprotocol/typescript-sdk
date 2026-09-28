@@ -102,7 +102,7 @@ function checkedExpectedIssuer(expectedIssuer: string | undefined): string | und
                 "server receives this client's credentials; pass your authorization server's issuer URL as " +
                 '`expectedIssuer` so they are only sent there.'
         );
-    } else if (!expectedIssuer) {
+    } else if (typeof expectedIssuer !== 'string' || !expectedIssuer) {
         throw new Error("expectedIssuer must be the authorization server's issuer URL");
     }
     return expectedIssuer;

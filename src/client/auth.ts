@@ -408,7 +408,14 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
  * difference (`String(new URL(...))` is slash-suffixed, advertised values often are not).
  */
 function issuersMatch(a: string, b: string): boolean {
-    return a === b || (a.endsWith('/') && a.slice(0, -1) === b) || (b.endsWith('/') && b.slice(0, -1) === a);
+    let [x, y] = [a, b];
+    try {
+        // Two URLs are compared as parsed, so the spelling of scheme, host or default port does not matter.
+        [x, y] = [new URL(a).href, new URL(b).href];
+    } catch {
+        // Not two URLs: compared as written.
+    }
+    return x === y || (x.endsWith('/') && x.slice(0, -1) === y) || (y.endsWith('/') && y.slice(0, -1) === x);
 }
 
 /**
@@ -421,8 +428,14 @@ function issuersMatch(a: string, b: string): boolean {
 function discardIfIssuerMismatch<T extends { issuer?: string }>(stored: T | null | undefined, issuer: string): T | undefined {
     // `null`: a `JSON.parse(storage.getItem(...))`-style getter with nothing stored.
     if (!stored) return undefined;
-    return stored.issuer == null || issuersMatch(stored.issuer, issuer) ? stored : undefined;
+    // A stamp that is not a string (raw storage) counts as no stamp.
+    if (typeof stored.issuer !== 'string') return stored.issuer == null ? stored : { ...stored, issuer: undefined };
+    return issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
+
+// `issuer` is added by the client when it stores a value; authorization server responses are parsed without it.
+const TokenResponseSchema = OAuthTokensSchema.omit({ issuer: true });
+const RegistrationResponseSchema = OAuthClientInformationFullSchema.omit({ issuer: true });
 
 function boundElsewhereError(stored: { issuer?: string }, issuer: string): Error {
     return new Error(
@@ -1349,7 +1362,7 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse(await response.json());
+    return TokenResponseSchema.parse(await response.json());
 }
 
 /**
@@ -1488,13 +1501,16 @@ export async function fetchToken(
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
-    // Nothing is prepared for or sent to an authorization server other than the one the client
-    // information is stamped for.
-    const storedClientInformation = await provider.clientInformation();
-    const clientInformation = discardIfIssuerMismatch(storedClientInformation, String(authorizationServerUrl));
-    if (storedClientInformation && !clientInformation) {
-        throw boundElsewhereError(storedClientInformation, String(authorizationServerUrl));
-    }
+    // Nothing is sent to an authorization server other than the one the client information is stamped for.
+    const readClientInformation = async () => {
+        const storedClientInformation = await provider.clientInformation();
+        const checked = discardIfIssuerMismatch(storedClientInformation, String(authorizationServerUrl));
+        if (storedClientInformation && !checked) {
+            throw boundElsewhereError(storedClientInformation, String(authorizationServerUrl));
+        }
+        return checked;
+    };
+    let clientInformation = await readClientInformation();
 
     const scope = provider.clientMetadata.scope;
 
@@ -1515,6 +1531,9 @@ export async function fetchToken(
         const codeVerifier = await provider.codeVerifier();
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
+
+    // A provider may fill in its client information while the request is prepared.
+    clientInformation ??= await readClientInformation();
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
@@ -1574,5 +1593,5 @@ export async function registerClient(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return RegistrationResponseSchema.parse(await response.json());
 }

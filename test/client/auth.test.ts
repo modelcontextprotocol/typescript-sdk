@@ -4161,5 +4161,123 @@ describe('OAuth Authorization', () => {
             });
             expect(srv.tokenCalls.at(-1)?.authorization).toBeNull();
         });
+
+        it.each(['https://other.example.com', 42])('an issuer of %j in a token or registration response is not returned', async issuer => {
+            const srv = createMigratingFetch();
+            const fetchFn = async (url: string | URL, init?: RequestInit) => {
+                const response = await srv.fetchFn(url, init);
+                return init?.method === 'POST' ? Response.json({ ...(await response.json()), issuer }, response) : response;
+            };
+            const metadata = asMetadata(AS_ONE);
+            const clientInformation = { client_id: 'cid' };
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(false),
+                clientInformation: () => clientInformation,
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+
+            const results = [
+                await registerClient(AS_ONE, { metadata, clientMetadata: { redirect_uris: [] }, fetchFn }),
+                await exchangeAuthorization(AS_ONE, {
+                    metadata,
+                    clientInformation,
+                    authorizationCode: 'code',
+                    codeVerifier: 'v',
+                    redirectUri: 'http://localhost:3000/callback',
+                    fetchFn
+                }),
+                await refreshAuthorization(AS_ONE, { metadata, clientInformation, refreshToken: 'rt', fetchFn }),
+                await fetchToken(provider, AS_ONE, { metadata, fetchFn })
+            ];
+            for (const result of results) {
+                expect(result).not.toHaveProperty('issuer');
+            }
+        });
+
+        it('a stamp and the authorization server are compared as parsed URLs', async () => {
+            const requestsSent = async (issuer: string, authorizationServerUrl: string) => {
+                const srv = createMigratingFetch();
+                const provider: OAuthClientProvider = {
+                    ...createBlobProvider(false),
+                    clientInformation: () => ({ client_id: 'cid', client_secret: 'bound-secret', issuer })
+                };
+                const options = { metadata: asMetadata(AS_ONE), authorizationCode: 'code', fetchFn: srv.fetchFn };
+                await fetchToken(provider, authorizationServerUrl, options).catch(() => {});
+                return [issuer, authorizationServerUrl, srv.tokenCalls.length];
+            };
+
+            for (const [issuer, url] of [
+                ['https://AS-ONE.example.com', AS_ONE],
+                ['HTTPS://as-one.example.com:443', AS_ONE],
+                [AS_ONE, 'https://AS-ONE.example.com/'],
+                [AS_ONE, 'https://as-one.example.com:443'],
+                ['https://as-one.example.com/a/./b', 'https://as-one.example.com/a/b/'],
+                ['as-one.example.com', 'as-one.example.com/']
+            ]) {
+                expect(await requestsSent(issuer, url)).toEqual([issuer, url, 1]);
+            }
+
+            // Another scheme, host, port or path is another authorization server.
+            for (const [issuer, url] of [
+                [AS_ONE, 'http://as-one.example.com'],
+                [AS_ONE, 'https://as-one.example.com.'],
+                [AS_ONE, 'https://as-one.example.com.example.org'],
+                [AS_ONE, 'https://as-one.example.com@example.org'],
+                [AS_ONE, 'https://a@as-one.example.com'],
+                [AS_ONE, 'https://as-one.example.com/#f'],
+                [AS_ONE, 'https://as-one.example.com:8443'],
+                [AS_ONE, 'https://as-one.example.com/tenant'],
+                ['https://as-one.example.com/Tenant', 'https://as-one.example.com/tenant'],
+                ['https://as-one.example.com/tenant', 'https://as-one.example.com/tenant//'],
+                ['https://as-one.example.com/?tenant=a', 'https://as-one.example.com/?tenant=b'],
+                ['as-one.example.com', AS_ONE]
+            ]) {
+                expect(await requestsSent(issuer, url)).toEqual([issuer, url, 0]);
+            }
+        });
+
+        const notStrings = [{ issuer: 42 }, { issuer: false }, { issuer: { href: AS_ONE } }, { issuer: [AS_ONE] }];
+        it.each(notStrings)('a stored issuer of $issuer counts as no stamp', async ({ issuer }) => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider(false);
+            provider.stored.info = { client_id: 'cid', client_secret: 's', issuer } as unknown as OAuthClientInformationMixed;
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt', issuer } as unknown as OAuthTokens;
+
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), authorizationCode: 'code', fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => c.authorization)).toEqual([`Basic ${btoa('cid:s')}`]);
+
+            // auth() binds it after its first successful use, as it does for a value with no stamp.
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(provider.stored.info?.issuer).toBe(AS_ONE);
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+        });
+
+        it('fetchToken uses client information that the provider fills in while preparing the request', async () => {
+            const srv = createMigratingFetch();
+            let filled: OAuthClientInformationMixed | undefined;
+            const prepareTokenRequest = vi.fn(() => {
+                filled = { client_id: 'cid', client_secret: 'lazy-secret', issuer: AS_ONE };
+                return new URLSearchParams({ grant_type: 'client_credentials' });
+            });
+            const provider: OAuthClientProvider = { ...createBlobProvider(false), clientInformation: () => filled, prepareTokenRequest };
+
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => [c.origin, c.authorization])).toEqual([[AS_ONE, `Basic ${btoa('cid:lazy-secret')}`]]);
+
+            // The value read after preparing goes through the same check.
+            filled = undefined;
+            await expect(fetchToken(provider, AS_TWO, { metadata: asMetadata(AS_TWO), fetchFn: srv.fetchFn })).rejects.toThrow(
+                `OAuth client information is bound to authorization server ${AS_ONE}`
+            );
+            expect(srv.tokenCalls).toHaveLength(1);
+
+            // A value that is there before preparing is checked before the request is prepared.
+            prepareTokenRequest.mockClear();
+            await expect(fetchToken(provider, AS_TWO, { metadata: asMetadata(AS_TWO), fetchFn: srv.fetchFn })).rejects.toThrow(
+                `OAuth client information is bound to authorization server ${AS_ONE}`
+            );
+            expect(prepareTokenRequest).not.toHaveBeenCalled();
+            expect(srv.tokenCalls).toHaveLength(1);
+        });
     });
 });

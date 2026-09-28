@@ -343,6 +343,13 @@ describe('auth-extensions providers are bound to one authorization server', () =
         expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
     });
 
+    it.each(['https://AS-ONE.example.com', 'https://as-one.example.com:443'])('accepts expectedIssuer spelled %s', async expectedIssuer => {
+        const srv = createMigratingFetch();
+        const provider = new ClientCredentialsProvider({ clientId: 'client-one', clientSecret: 'configured-secret', expectedIssuer });
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+        expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+    });
+
     it.each(providers)('%s without expectedIssuer stays with the first authorization server it is used with', async (_name, create) => {
         const srv = createMigratingFetch();
         const provider = create({});
@@ -383,7 +390,7 @@ describe('auth-extensions providers are bound to one authorization server', () =
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Omitting `expectedIssuer` is deprecated'));
     });
 
-    it.each([null, ''])('rejects expectedIssuer %j at construction', value => {
+    it.each([null, '', 42, new URL(AS_ONE)])('rejects expectedIssuer %j at construction', value => {
         expect(() => new ClientCredentialsProvider({ clientId: 'c', clientSecret: 's', expectedIssuer: value as string })).toThrow(
             'expectedIssuer must be'
         );
