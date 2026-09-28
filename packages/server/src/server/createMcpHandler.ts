@@ -867,11 +867,15 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // Track the instance until its exchange tears down so close() can abort it.
         const previousOnClose = server.onclose;
         inflight.add(server);
-        server.onclose = () => {
+        const onExchangeClose = () => {
             inflight.delete(server);
-            server.onclose = previousOnClose;
+            // Restore by identity so a handler installed during the exchange is kept.
+            if (server.onclose === onExchangeClose) {
+                server.onclose = previousOnClose;
+            }
             previousOnClose?.();
         };
+        server.onclose = onExchangeClose;
 
         try {
             const response = await invoke(product, route.message, {
