@@ -3796,6 +3796,7 @@ describe('OAuth Authorization', () => {
          */
         function createMigratingFetch(opts: { prm?: boolean; claimedIssuer?: Record<string, string> } = {}) {
             let active = AS_ONE;
+            let rejecting: string | undefined;
             const registerCalls: string[] = [];
             const tokenCalls: Array<{ origin: string; body: URLSearchParams; authorization: string | null }> = [];
             const requests: string[] = [];
@@ -3823,11 +3824,19 @@ describe('OAuth Authorization', () => {
                 if (u.pathname === '/token') {
                     const body = new URLSearchParams(String(init?.body));
                     tokenCalls.push({ origin: u.origin, body, authorization: new Headers(init?.headers).get('authorization') });
+                    if (u.origin === rejecting) return new Response(null, { status: 404 });
                     return Response.json({ access_token: `at-${u.host}`, token_type: 'Bearer', refresh_token: `rt-${u.host}` });
                 }
                 return new Response(null, { status: 404 });
             };
-            return { fetchFn, registerCalls, tokenCalls, requests, switchTo: (as: string) => (active = as) };
+            return {
+                fetchFn,
+                registerCalls,
+                tokenCalls,
+                requests,
+                switchTo: (as: string) => (active = as),
+                rejectTokenRequestsAt: (origin: string) => (rejecting = origin)
+            };
         }
 
         type Stored = { info?: OAuthClientInformationMixed; tokens?: OAuthTokens };
@@ -3983,6 +3992,30 @@ describe('OAuth Authorization', () => {
             expect(srv.registerCalls).toEqual([AS_TWO]);
         });
 
+        it('unstamped stored credentials are only bound to an authorization server that accepted them', async () => {
+            const srv = createMigratingFetch();
+            let prmAvailable = false;
+            const fetchFn = async (url: string | URL, init?: RequestInit) =>
+                !prmAvailable && String(url).includes('oauth-protected-resource')
+                    ? new Response(null, { status: 503 })
+                    : srv.fetchFn(url, init);
+            const provider = createBlobProvider(false);
+            provider.stored.info = { client_id: 'legacy-cid', client_secret: 'legacy-secret', issuer: null as unknown as undefined };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-legacy' };
+
+            // Discovery falls back to the resource origin, where the refresh is not accepted.
+            srv.rejectTokenRequestsAt('https://api.example.com');
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn })).toBe('REDIRECT');
+            expect(provider.stored.info?.issuer).toBeNull();
+            expect(provider.stored.tokens?.issuer).toBeUndefined();
+
+            prmAvailable = true;
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn })).toBe('AUTHORIZED');
+            expect(srv.registerCalls).toEqual([]);
+            expect(provider.stored.info?.issuer).toBe(AS_ONE);
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+        });
+
         it('cached discovery state keeps its authorization server binding', async () => {
             const srv = createMigratingFetch();
             const provider = createBlobProvider();
@@ -4098,20 +4131,18 @@ describe('OAuth Authorization', () => {
             expect(srv.tokenCalls).toEqual([]);
         });
 
-        it('binding unstamped storage on first use never fails a flow that worked without it', async () => {
+        it('binding unstamped client information never fails a flow that worked without it', async () => {
             const srv = createMigratingFetch();
             const provider = createBlobProvider(false);
             provider.stored.info = { client_id: 'pre-registered' };
-            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer' };
-            provider.saveClientInformation = () => {
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-legacy' };
+            provider.saveClientInformation = vi.fn(() => {
                 throw new Error('client is pre-registered');
-            };
-            const saveTokens = vi.spyOn(provider, 'saveTokens');
+            });
 
-            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
-            // Without a refresh token there is nothing to bind: no write, no message.
-            expect(saveTokens).not.toHaveBeenCalled();
-            expect(warn).not.toHaveBeenCalled();
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(provider.saveClientInformation).toHaveBeenCalledWith({ client_id: 'pre-registered', issuer: AS_ONE });
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
         });
 
         it('a provider whose storage getters return null is treated as having nothing stored', async () => {

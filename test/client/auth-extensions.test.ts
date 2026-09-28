@@ -361,6 +361,18 @@ describe('auth-extensions providers are bound to one authorization server', () =
         expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE, AS_ONE]);
     });
 
+    it.each(providers)('%s without expectedIssuer recovers after a failed first attempt', async (_name, create) => {
+        const srv = createMigratingFetch();
+        const provider = create({});
+
+        // Discovery fails once and falls back to the resource origin, which has no token endpoint.
+        const unavailable = async (url: string | URL) =>
+            new Response(null, { status: String(url).includes('oauth-protected-resource') ? 503 : 404 });
+        await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: unavailable })).rejects.toThrow();
+
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+    });
+
     it.each(providers)('%s logs one deprecation message at construction when expectedIssuer is omitted', async (_name, create) => {
         const srv = createMigratingFetch();
         const provider = create({});

@@ -91,7 +91,7 @@ export interface OAuthClientProvider {
      *
      * The object carries `issuer`, the authorization server it was obtained from. Store it
      * unchanged so that {@linkcode auth} does not reuse the registration with a different one.
-     * Client information stored without `issuer` is passed here once, with it, on first use.
+     * Client information stored without `issuer` is passed here, with it, after its first successful use.
      */
     saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
@@ -107,7 +107,6 @@ export interface OAuthClientProvider {
      *
      * The object carries `issuer`, the authorization server that issued the tokens. Store it
      * unchanged so that {@linkcode auth} does not present the refresh token to a different one.
-     * A refresh token stored without `issuer` is passed here once, with it, on first use.
      */
     saveTokens(tokens: OAuthTokens): void | Promise<void>;
 
@@ -416,12 +415,13 @@ function issuersMatch(a: string, b: string): boolean {
  * {@linkcode auth} stamps everything it passes to `saveClientInformation` / `saveTokens` with
  * `issuer`, the authorization server URL used for discovery. This returns `stored` unless its
  * stamp names a different authorization server, in which case the caller behaves as if nothing
- * were stored. A value without a stamp (saved by an earlier version) is returned as-is.
+ * were stored. A value without a stamp (saved by an earlier version) is returned as-is, and
+ * is stamped once this authorization server has accepted it.
  */
 function discardIfIssuerMismatch<T extends { issuer?: string }>(stored: T | null | undefined, issuer: string): T | undefined {
     // `null`: a `JSON.parse(storage.getItem(...))`-style getter with nothing stored.
     if (!stored) return undefined;
-    return stored.issuer === undefined || issuersMatch(stored.issuer, issuer) ? stored : undefined;
+    return stored.issuer == null || issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
 
 function boundElsewhereError(stored: { issuer?: string }, issuer: string): Error {
@@ -576,15 +576,15 @@ async function authInternal(
         // these can be re-created by registering with this authorization server.
         throw boundElsewhereError(storedClientInformation, issuer);
     }
-    if (clientInformation && clientInformation.issuer === undefined) {
-        // Saved by an earlier version: bind it to the first authorization server it is used with.
-        clientInformation = { ...clientInformation, issuer };
+    // Saved by an earlier version: bound to the first authorization server that accepts it.
+    const unstampedClientInformation = clientInformation?.issuer == null ? clientInformation : undefined;
+    const bindClientInformation = async () => {
         try {
-            await provider.saveClientInformation?.(clientInformation);
+            if (unstampedClientInformation) await provider.saveClientInformation?.({ ...unstampedClientInformation, issuer });
         } catch {
             // A provider that only expects this call after a registration keeps working, unbound.
         }
-    }
+    };
     if (!clientInformation) {
         if (authorizationCode !== undefined) {
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
@@ -635,23 +635,21 @@ async function authInternal(
             fetchFn
         });
 
+        await bindClientInformation();
         await provider.saveTokens({ ...tokens, issuer });
         return 'AUTHORIZED';
     }
 
     // A refresh token stamped for a different authorization server reads back as `undefined`,
     // so it is never posted to this one's token endpoint.
-    let tokens = discardIfIssuerMismatch(await provider.tokens(), issuer);
-    if (tokens?.refresh_token && tokens.issuer === undefined) {
-        // Saved by an earlier version: bind it to the first authorization server it is used with.
+    const tokens = discardIfIssuerMismatch(await provider.tokens(), issuer);
+    if (tokens?.refresh_token && tokens.issuer == null) {
         // eslint-disable-next-line no-console
         console.warn(
             "[mcp-sdk] stored OAuth tokens have no 'issuer' property (saved by an earlier version, or by a provider that " +
-                'does not keep it). They are used as-is and bound to the current authorization server; make sure your ' +
-                'OAuthClientProvider stores what saveTokens() and saveClientInformation() receive unchanged.'
+                'does not keep it) and are used as-is; make sure your OAuthClientProvider stores what saveTokens() and ' +
+                'saveClientInformation() receive unchanged.'
         );
-        tokens = { ...tokens, issuer };
-        await provider.saveTokens(tokens);
     }
 
     // Handle token refresh or new authorization
@@ -667,6 +665,7 @@ async function authInternal(
                 fetchFn
             });
 
+            await bindClientInformation();
             await provider.saveTokens({ ...newTokens, issuer });
             return 'AUTHORIZED';
         } catch (error) {
