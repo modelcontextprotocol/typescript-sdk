@@ -326,7 +326,12 @@ interface ScriptOptions {
     listHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     readHint?: { ttlMs?: number; cacheScope?: 'public' | 'private' };
     serverInfo?: { name: string; version: string };
-    /** When set, every `tools/list` page carries this `nextCursor` (a server that repeats a cursor). */
+    /**
+     * When set, every `tools/list` page but the last carries this one `nextCursor`
+     * (a server that repeats a cursor). The server keeps its own position and
+     * serves the scripted pages in order; each response carries a `_meta` value
+     * that differs per response.
+     */
     repeatCursor?: string;
 }
 
@@ -335,6 +340,7 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
     let lists = 0;
     const wireCounts = new Map<string, number>();
     const params: ({ cursor?: string; _meta?: unknown } | undefined)[] = [];
+    let served = 0;
     serverTx.onmessage = m => {
         const r = m as JSONRPCRequest;
         if (r.id === undefined) return;
@@ -354,8 +360,8 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
             lists++;
             params.push(r.params as { cursor?: string; _meta?: unknown } | undefined);
             const cursor = (r.params as { cursor?: string } | undefined)?.cursor;
-            const idx = cursor === undefined ? 0 : Number(cursor);
-            const next = opts.repeatCursor ?? (idx + 1 < pages.length ? String(idx + 1) : undefined);
+            const idx = opts.repeatCursor !== undefined ? served++ : cursor === undefined ? 0 : Number(cursor);
+            const next = idx + 1 < pages.length ? (opts.repeatCursor ?? String(idx + 1)) : undefined;
             void serverTx.send({
                 jsonrpc: '2.0',
                 id: r.id,
@@ -364,6 +370,7 @@ async function scriptedModernServer(pages: Tool[][], opts: ScriptOptions = {}): 
                     ttlMs: opts.listHint?.ttlMs ?? 0,
                     cacheScope: opts.listHint?.cacheScope ?? 'private',
                     tools: pages[idx] ?? [],
+                    ...(opts.repeatCursor !== undefined && { _meta: { 'scripted/page': idx } }),
                     ...(next !== undefined && { nextCursor: next })
                 }
             });
@@ -495,34 +502,59 @@ describe('Client response-cache substrate', () => {
         expect(page.tools.map(t => t.name)).toEqual(['a']);
     });
 
-    it('the auto-aggregate path keeps nextCursor on the result and the cache entry when a repeated cursor stops the walk', async () => {
-        const store = new InMemoryResponseCacheStore();
-        // Every page answers with the same `nextCursor` (`''`), so the walk
-        // fetches page 1, follows `''` once, sees `''` again and stops.
-        const { clientTx, listCount } = await scriptedModernServer([[TOOL_A]], { repeatCursor: '' });
-        const client = modernClient(store);
-        await client.connect(clientTx);
-
-        const result = await client.listTools();
-        expect(listCount()).toBe(2);
-        expect(result.tools.map(t => t.name)).toEqual(['a', 'a']);
-        // The repeated cursor stays on the aggregate so an early-stopped walk
-        // is distinguishable from a complete one (#2735).
-        expect(result.nextCursor).toBe('');
-
-        const entry = store.get({ method: 'tools/list', partition: part() });
-        expect((JSON.parse(entry!.value) as { nextCursor?: string }).nextCursor).toBe('');
-    });
-
-    it('the auto-aggregate path leaves no nextCursor key on the result when the walk reaches the last page', async () => {
-        const { clientTx } = await scriptedModernServer([[TOOL_A], [TOOL_B]]);
+    it('follows a cursor that repeats until nextCursor is absent', async () => {
+        // The server hands out the same cursor (`''`) on every page and tracks
+        // its own position; the walk ends when `nextCursor` is absent (#2735).
+        const { clientTx, listCount } = await scriptedModernServer([[TOOL_A], [TOOL_B], [TOOL_A, TOOL_B]], { repeatCursor: '' });
         const client = modernClient();
         await client.connect(clientTx);
 
         const result = await client.listTools();
-        expect(result.tools.map(t => t.name)).toEqual(['a', 'b']);
-        // Absent, not `undefined`: keeps `'nextCursor' in result` identical between wire and cache hit.
+        expect(result.tools.map(t => t.name)).toEqual(['a', 'b', 'a', 'b']);
+        expect(listCount()).toBe(3);
         expect(result).not.toHaveProperty('nextCursor');
+    });
+
+    it('a page with the same items and cursor as the one before ends the walk and is not appended', async () => {
+        const store = new InMemoryResponseCacheStore();
+        // Every response is `[a, b]` with the same `nextCursor` (`''`); only
+        // `_meta` differs. Page 2 makes no progress, so it ends the walk.
+        const { clientTx, listCount } = await scriptedModernServer(
+            [
+                [TOOL_A, TOOL_B],
+                [TOOL_A, TOOL_B],
+                [TOOL_A, TOOL_B]
+            ],
+            {
+                repeatCursor: ''
+            }
+        );
+        const client = modernClient(store);
+        await client.connect(clientTx);
+
+        const result = await client.listTools();
+        expect(result.tools.map(t => t.name)).toEqual(['a', 'b']);
+        expect(listCount()).toBe(2);
+        expect(result).not.toHaveProperty('nextCursor');
+
+        const entry = store.get({ method: 'tools/list', partition: part() });
+        expect((JSON.parse(entry!.value) as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);
+    });
+
+    it('listMaxPages still ends a walk whose cursor repeats while the pages keep changing', async () => {
+        const { clientTx, listCount } = await scriptedModernServer([[TOOL_A], [TOOL_B], [TOOL_A], [TOOL_B], [TOOL_A]], {
+            repeatCursor: ''
+        });
+        const client = new Client(
+            { name: 'cache-client', version: '1.0.0' },
+            { versionNegotiation: { mode: { pin: MODERN } }, listMaxPages: 3 }
+        );
+        await client.connect(clientTx);
+
+        const error = await client.listTools().catch(e => e as SdkError);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.ListPaginationExceeded);
+        expect(listCount()).toBe(3);
     });
 
     it('listPrompts/listResources/listResourceTemplates auto-aggregate and write the response cache', async () => {

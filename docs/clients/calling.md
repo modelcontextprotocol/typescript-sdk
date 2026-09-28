@@ -49,7 +49,7 @@ The `orders` server hands out its three tools two per page, and `heldCursor` nam
 ```
 
 ::: warning
-`ClientOptions.listMaxPages` (default 64) caps the aggregate walk; a server whose pagination never terminates rejects the call with an `SdkError` whose code is `LIST_PAGINATION_EXCEEDED`. `listMaxPages: 0` removes the cap. Explicit-`cursor` calls are never capped. If the walk stops early because the server repeated a `nextCursor`, that `nextCursor` stays on the result, so an incomplete list is distinguishable from a complete one.
+`ClientOptions.listMaxPages` (default 64) caps the aggregate walk; a server whose pagination never terminates rejects the call with an `SdkError` whose code is `LIST_PAGINATION_EXCEEDED`. `listMaxPages: 0` removes the cap. Explicit-`cursor` calls are never capped.
 :::
 
 ## Read structured output
