@@ -817,12 +817,23 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         return;
                     }
 
+                    const code = Number.isSafeInteger(error['code']) ? (error['code'] as number) : ErrorCode.InternalError;
+                    const prefix = `MCP error ${code}: `;
+                    let errorMessage: string;
+                    if (error instanceof McpError) {
+                        errorMessage = error.rawMessage;
+                    } else if (typeof error['message'] === 'string') {
+                        errorMessage = error['message'].startsWith(prefix) ? error['message'].slice(prefix.length) : error['message'];
+                    } else {
+                        errorMessage = 'Internal error';
+                    }
+
                     const errorResponse: JSONRPCErrorResponse = {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
-                            code: Number.isSafeInteger(error['code']) ? error['code'] : ErrorCode.InternalError,
-                            message: error.message ?? 'Internal error',
+                            code,
+                            message: errorMessage,
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };
