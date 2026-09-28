@@ -161,6 +161,9 @@ describe('OAuthTokensSchema', () => {
             'access_token',
             'expires_in',
             'id_token',
+            // Not wire format: the client-side SEP-2352 stamp (see the schema's comment);
+            // wire parse sites strip any AS-supplied value via withoutIssuer() before parsing.
+            'issuer',
             'refresh_token',
             'scope',
             'token_type'

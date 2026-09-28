@@ -274,6 +274,53 @@ describe('createMcpHandler — modern path', () => {
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
     });
 
+    it('restores a reused server onclose handler after each modern exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+
+        const originalOnClose = vi.fn();
+        reused.server.onclose = originalOnClose;
+
+        const handler = createMcpHandler(() => reused);
+
+        for (let i = 0; i < 3; i++) {
+            const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: `hello-${i}` })));
+            expect(response.status).toBe(200);
+            await response.text();
+            expect(reused.server.onclose).toBe(originalOnClose);
+        }
+
+        expect(originalOnClose).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps an onclose handler that was installed during the exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        const installedDuringExchange = vi.fn();
+        let chained: (() => void) | undefined;
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => {
+            if (chained === undefined) {
+                const previous = reused.server.onclose;
+                chained = () => {
+                    installedDuringExchange();
+                    previous?.();
+                };
+                reused.server.onclose = chained;
+            }
+            return { content: [{ type: 'text', text }] };
+        });
+
+        const handler = createMcpHandler(() => reused);
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'hello' })));
+        expect(response.status).toBe(200);
+        await response.text();
+
+        expect(reused.server.onclose).toBe(chained);
+        expect(installedDuringExchange).toHaveBeenCalledTimes(1);
+    });
+
     it('closes and releases the per-request instance when a modern exchange fails internally', async () => {
         const { factory, state } = testFactory();
         const onerror = vi.fn();
@@ -536,6 +583,44 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_700);
+    });
+
+    it('answers 413 for a request body over the size limit before creating a server', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const streamed = postRequest('x'.repeat(4 * 1024 * 1024 + 1));
+        const declared = postRequest('{}', { 'Content-Length': String(4 * 1024 * 1024 + 1) });
+        for (const request of [streamed, declared]) {
+            const response = await handler.fetch(request);
+            expect(response.status).toBe(413);
+            expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_000);
+        }
+        expect(state.contexts).toHaveLength(0);
+    });
+
+    it('maxRequestBodySize moves the bound for the entry, its stateless legacy leg, and isLegacyRequest', async () => {
+        const { factory, state } = testFactory();
+        const paddedPing = { jsonrpc: '2.0', id: 1, method: 'ping', params: { pad: 'x'.repeat(5 * 1024 * 1024) } };
+
+        const roomy = createMcpHandler(factory, { maxRequestBodySize: 8 * 1024 * 1024 });
+        const served = await roomy.fetch(postRequest(paddedPing));
+        expect(served.status).toBe(200);
+        expect(await served.text()).toContain('"result":{}');
+        expect(state.contexts).toHaveLength(1);
+
+        const strict = createMcpHandler(factory, { maxRequestBodySize: 1024 });
+        const refused = await strict.fetch(postRequest('x'.repeat(1025)));
+        expect(refused.status).toBe(413);
+        expect(((await refused.json()) as JSONRPCErrorBody).error.message).toMatch(/must not exceed 1024 bytes/);
+        expect(state.contexts).toHaveLength(1);
+
+        expect(await isLegacyRequest(postRequest(paddedPing))).toBe(false);
+        expect(await isLegacyRequest(postRequest(paddedPing), undefined, { maxRequestBodySize: 8 * 1024 * 1024 })).toBe(true);
+
+        for (const invalid of [0, -1, Number.NaN]) {
+            expect(() => createMcpHandler(factory, { maxRequestBodySize: invalid })).toThrow(RangeError);
+        }
     });
 
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {

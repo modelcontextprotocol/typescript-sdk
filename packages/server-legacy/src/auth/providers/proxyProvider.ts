@@ -1,5 +1,5 @@
 import type { FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
-import { OAuthClientInformationFullSchema, OAuthTokenResponseSchema } from '@modelcontextprotocol/core-internal';
+import { OAuthClientInformationFullSchema, OAuthTokenResponseSchema, withoutIssuer } from '@modelcontextprotocol/core-internal';
 import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from '../clients';
@@ -119,7 +119,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
                     }
 
                     const data = await response.json();
-                    return OAuthClientInformationFullSchema.parse(data);
+                    return OAuthClientInformationFullSchema.parse(withoutIssuer(data));
                 }
             })
         };
@@ -194,7 +194,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokenResponseSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(withoutIssuer(data));
     }
 
     async exchangeRefreshToken(
@@ -235,7 +235,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokenResponseSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(withoutIssuer(data));
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {

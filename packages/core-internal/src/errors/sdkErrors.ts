@@ -144,12 +144,23 @@ export class SdkError extends Error {
         return brandedHasInstance(this, value);
     }
 
+    /**
+     * @param code - Stable string code identifying the failure ({@linkcode SdkErrorCode}).
+     * @param message - Human-readable description.
+     * @param data - Optional structured payload (for example the HTTP status carried by
+     * {@linkcode SdkHttpError}). Opaque to the SDK: a `cause` key inside `data` is not
+     * promoted to `Error.cause`.
+     * @param options - Standard `ErrorOptions`, forwarded to `Error`. Pass the underlying
+     * failure as `{ cause }` so it is reachable through the `Error.cause` chain that
+     * loggers and error trackers walk.
+     */
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
-        public readonly data?: unknown
+        public readonly data?: unknown,
+        options?: ErrorOptions
     ) {
-        super(message);
+        super(message, options);
         this.name = 'SdkError';
         stampErrorBrands(this, new.target);
     }
@@ -187,8 +198,11 @@ export class SdkHttpError extends SdkError {
 
     declare readonly data: SdkHttpErrorData;
 
-    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {
-        super(code, message, data);
+    /**
+     * @param options - Standard `ErrorOptions`, forwarded to `Error` (see {@linkcode SdkError}).
+     */
+    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData, options?: ErrorOptions) {
+        super(code, message, data, options);
         this.name = 'SdkHttpError';
     }
 

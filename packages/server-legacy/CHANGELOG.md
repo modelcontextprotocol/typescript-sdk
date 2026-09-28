@@ -1,5 +1,12 @@
 # @modelcontextprotocol/server-legacy
 
+## 2.1.0
+
+### Patch Changes
+
+- Updated dependencies [[`dcc0102`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcc01028ff6a499a5728c2b6181c1727d52e2fab)]:
+    - @modelcontextprotocol/core@2.1.0
+
 ## 2.0.0
 
 ### Minor Changes
