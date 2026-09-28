@@ -11,14 +11,23 @@ import {
     discoverOAuthServerInfo,
     extractWWWAuthenticateParams,
     auth,
+    fetchToken,
     type OAuthClientProvider,
+    type OAuthDiscoveryState,
     selectClientAuthMethod,
     isHttpsUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
-import { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '../../src/shared/auth.js';
-import { expect, vi, type Mock } from 'vitest';
+import {
+    AuthorizationServerMetadata,
+    OAuthClientInformationMixed,
+    OAuthClientInformationSchema,
+    OAuthClientMetadata,
+    OAuthTokens,
+    OAuthTokensSchema
+} from '../../src/shared/auth.js';
+import { expect, vi, type Mock, type MockInstance } from 'vitest';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -3556,7 +3565,8 @@ describe('OAuth Authorization', () => {
 
             // Should save URL-based client info
             expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
-                client_id: 'https://example.com/client-metadata.json'
+                client_id: 'https://example.com/client-metadata.json',
+                issuer: 'https://server.example.com/'
             });
         });
 
@@ -3602,7 +3612,8 @@ describe('OAuth Authorization', () => {
             expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
                 client_id: 'generated-uuid',
                 client_secret: 'generated-secret',
-                redirect_uris: ['http://localhost:3000/callback']
+                redirect_uris: ['http://localhost:3000/callback'],
+                issuer: 'https://server.example.com/'
             });
         });
 
@@ -3758,8 +3769,386 @@ describe('OAuth Authorization', () => {
             expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
                 client_id: 'generated-uuid',
                 client_secret: 'generated-secret',
-                redirect_uris: ['http://localhost:3000/callback']
+                redirect_uris: ['http://localhost:3000/callback'],
+                issuer: 'https://server.example.com/'
             });
+        });
+    });
+    describe('auth: credentials are bound to the authorization server that issued them', () => {
+        const SERVER_URL = 'https://api.example.com/mcp';
+        const AS_ONE = 'https://as-one.example.com';
+        const AS_TWO = 'https://as-two.example.com';
+
+        const asMetadata = (issuer: string, endpoints = issuer): AuthorizationServerMetadata => ({
+            issuer,
+            authorization_endpoint: `${endpoints}/authorize`,
+            token_endpoint: `${endpoints}/token`,
+            registration_endpoint: `${endpoints}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials']
+        });
+
+        /**
+         * Resource server whose protected resource metadata advertises `active` as the authorization
+         * server; every origin answers authorization server metadata for itself. Records where
+         * registrations and token requests were sent.
+         */
+        function createMigratingFetch(opts: { prm?: boolean; claimedIssuer?: Record<string, string> } = {}) {
+            let active = AS_ONE;
+            const registerCalls: string[] = [];
+            const tokenCalls: Array<{ origin: string; body: URLSearchParams; authorization: string | null }> = [];
+            const requests: string[] = [];
+            const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+                const u = new URL(String(url));
+                requests.push(`${init?.method ?? 'GET'} ${u.origin}${u.pathname}`);
+                if (u.pathname.includes('/.well-known/oauth-protected-resource')) {
+                    if (opts.prm === false) return new Response(null, { status: 404 });
+                    return Response.json({ resource: SERVER_URL, authorization_servers: [active] });
+                }
+                if (u.pathname.includes('/.well-known/')) {
+                    return Response.json(asMetadata(opts.claimedIssuer?.[u.origin] ?? u.origin, u.origin));
+                }
+                if (u.pathname === '/register') {
+                    registerCalls.push(u.origin);
+                    return Response.json(
+                        {
+                            client_id: `cid-${u.host}`,
+                            client_secret: `secret-${u.host}`,
+                            redirect_uris: ['http://localhost:3000/callback']
+                        },
+                        { status: 201 }
+                    );
+                }
+                if (u.pathname === '/token') {
+                    const body = new URLSearchParams(String(init?.body));
+                    tokenCalls.push({ origin: u.origin, body, authorization: new Headers(init?.headers).get('authorization') });
+                    return Response.json({ access_token: `at-${u.host}`, token_type: 'Bearer', refresh_token: `rt-${u.host}` });
+                }
+                return new Response(null, { status: 404 });
+            };
+            return { fetchFn, registerCalls, tokenCalls, requests, switchTo: (as: string) => (active = as) };
+        }
+
+        type Stored = { info?: OAuthClientInformationMixed; tokens?: OAuthTokens };
+
+        /** Single-slot provider that round-trips whatever auth() saves. */
+        function createBlobProvider(withDiscoveryState = true): OAuthClientProvider & { redirected: URL[]; stored: Stored } {
+            const stored: Stored = {};
+            const redirected: URL[] = [];
+            let discovery: OAuthDiscoveryState | undefined;
+            let verifier: string | undefined;
+            return {
+                redirected,
+                stored,
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { client_name: 't', redirect_uris: ['http://localhost:3000/callback'] };
+                },
+                clientInformation: () => stored.info,
+                saveClientInformation: i => void (stored.info = i),
+                tokens: () => stored.tokens,
+                saveTokens: t => void (stored.tokens = t),
+                redirectToAuthorization: u => void redirected.push(u),
+                saveCodeVerifier: v => void (verifier = v),
+                codeVerifier: () => verifier ?? 'v',
+                ...(withDiscoveryState && {
+                    saveDiscoveryState: (s: OAuthDiscoveryState) => void (discovery = s),
+                    discoveryState: () => discovery,
+                    invalidateCredentials: (s: string) => {
+                        if (s === 'client' || s === 'all') stored.info = undefined;
+                        if (s === 'tokens' || s === 'all') stored.tokens = undefined;
+                        if (s === 'discovery' || s === 'all') discovery = undefined;
+                    }
+                })
+            };
+        }
+
+        /** Whether `needle` appears in the body or Basic credentials of any recorded token request (optionally ignoring one origin). */
+        const sentAnywhere = (srv: ReturnType<typeof createMigratingFetch>, needle: string, exceptOrigin?: string) =>
+            srv.tokenCalls
+                .filter(c => c.origin !== exceptOrigin)
+                .some(
+                    c =>
+                        String(c.body).includes(needle) ||
+                        (c.authorization !== null && atob(c.authorization.replace(/^Basic /, '')).includes(needle))
+                );
+
+        let warn: MockInstance<typeof console.warn>;
+        beforeEach(() => {
+            warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        });
+        afterEach(() => {
+            warn.mockRestore();
+        });
+
+        it('stamps the authorization server onto saved client information and tokens', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(provider.stored.info).toEqual(expect.objectContaining({ client_id: 'cid-as-one.example.com', issuer: AS_ONE }));
+
+            expect(await auth(provider, { serverUrl: SERVER_URL, authorizationCode: 'code', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(provider.stored.tokens).toEqual({
+                access_token: 'at-as-one.example.com',
+                token_type: 'Bearer',
+                refresh_token: 'rt-as-one.example.com',
+                issuer: AS_ONE
+            });
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a refresh token issued through AS-one is never posted to AS-two', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+            srv.switchTo(AS_TWO);
+
+            const result = await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.filter(c => c.origin === AS_TWO)).toHaveLength(0);
+            expect(sentAnywhere(srv, 'rt-one')).toBe(false);
+            expect(sentAnywhere(srv, 'secret-one')).toBe(false);
+            expect(result).toBe('REDIRECT');
+            expect(provider.redirected.at(-1)?.origin).toBe(AS_TWO);
+        });
+
+        it('client information issued through AS-one is not reused at AS-two; the client re-registers', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+
+            await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+            expect(srv.registerCalls).toEqual([AS_ONE]);
+
+            srv.switchTo(AS_TWO);
+            provider.invalidateCredentials?.('discovery');
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual([AS_ONE, AS_TWO]);
+            expect(provider.stored.info).toEqual(expect.objectContaining({ client_id: 'cid-as-two.example.com', issuer: AS_TWO }));
+            expect(provider.redirected.at(-1)?.origin).toBe(AS_TWO);
+            expect(provider.redirected.at(-1)?.searchParams.get('client_id')).toBe('cid-as-two.example.com');
+        });
+
+        it("the binding key is the discovery URL, not the metadata's issuer", async () => {
+            const srv = createMigratingFetch({ claimedIssuer: { [AS_TWO]: AS_ONE } });
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+            srv.switchTo(AS_TWO);
+
+            const result = await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls).toHaveLength(0);
+            expect(sentAnywhere(srv, 'rt-one')).toBe(false);
+            expect(result).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual([AS_TWO]);
+        });
+
+        it('the resource-origin fallback is a distinct binding key', async () => {
+            const srv = createMigratingFetch({ prm: false });
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+
+            const result = await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls).toHaveLength(0);
+            expect(result).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual(['https://api.example.com']);
+            expect(provider.stored.info?.issuer).toBe('https://api.example.com/');
+        });
+
+        it('unstamped stored credentials are bound on first use', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'legacy-cid', client_secret: 'legacy-secret' };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-legacy' };
+
+            // First use: refreshed at the resolved authorization server and written back with its stamp.
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+            expect(provider.stored.info).toEqual({ client_id: 'legacy-cid', client_secret: 'legacy-secret', issuer: AS_ONE });
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+            expect(srv.registerCalls).toHaveLength(0);
+            expect(warn.mock.calls.filter(c => String(c[0]).includes("no 'issuer' property"))).toHaveLength(1);
+
+            // From then on the stamp applies.
+            srv.switchTo(AS_TWO);
+            provider.invalidateCredentials?.('discovery');
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.tokenCalls.filter(c => c.origin === AS_TWO)).toHaveLength(0);
+            expect(sentAnywhere(srv, 'legacy-secret', AS_ONE)).toBe(false);
+            expect(sentAnywhere(srv, 'rt-as-one.example.com')).toBe(false);
+            expect(srv.registerCalls).toEqual([AS_TWO]);
+        });
+
+        it('cached discovery state keeps its authorization server binding', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+            provider.saveDiscoveryState?.({ authorizationServerUrl: AS_ONE, authorizationServerMetadata: asMetadata(AS_ONE) });
+            srv.switchTo(AS_TWO);
+
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+            expect(srv.requests.some(r => r.includes(AS_TWO))).toBe(false);
+        });
+
+        it('a provider that cannot re-register reports the authorization server its client information is bound to', async () => {
+            const srv = createMigratingFetch();
+            const provider: OAuthClientProvider = { ...createBlobProvider(), saveClientInformation: undefined };
+            provider.clientInformation = () => ({ client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE });
+            srv.switchTo(AS_TWO);
+
+            await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+                `OAuth client information is bound to authorization server ${AS_ONE}`
+            );
+            expect(srv.tokenCalls).toHaveLength(0);
+        });
+
+        it('custom client authentication is not presented to a different authorization server than its client information', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>((_headers, params) => {
+                params.set('client_assertion', 'assertion-one');
+                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+            });
+            provider.addClientAuthentication = addClientAuthentication;
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+            srv.switchTo(AS_TWO);
+
+            await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+                `OAuth client information is bound to authorization server ${AS_ONE}`
+            );
+            expect(addClientAuthentication).not.toHaveBeenCalled();
+            expect(srv.registerCalls).toHaveLength(0);
+            expect(srv.tokenCalls).toHaveLength(0);
+        });
+
+        it('fetchToken sends nothing to an authorization server other than the one the client information is bound to', async () => {
+            const srv = createMigratingFetch();
+            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>();
+            const provider: OAuthClientProvider = { ...createBlobProvider(), addClientAuthentication };
+            provider.clientInformation = () => ({ client_id: 'cid', client_secret: 'bound-secret', issuer: AS_ONE });
+
+            await expect(
+                fetchToken(provider, AS_TWO, { metadata: asMetadata(AS_TWO), authorizationCode: 'code', fetchFn: srv.fetchFn })
+            ).rejects.toThrow(`OAuth client information is bound to authorization server ${AS_ONE}`);
+            expect(srv.requests).toEqual([]);
+            expect(addClientAuthentication).not.toHaveBeenCalled();
+
+            // A matching stamp is used as before (one trailing slash is tolerated).
+            provider.addClientAuthentication = undefined;
+            await fetchToken(provider, `${AS_ONE}/`, { metadata: asMetadata(AS_ONE), authorizationCode: 'code', fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => [c.origin, c.authorization])).toEqual([[AS_ONE, `Basic ${btoa('cid:bound-secret')}`]]);
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a provider that reads storage back through the SDK schemas keeps the binding', async () => {
+            const storage = new Map<string, string>();
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(false),
+                clientInformation: () =>
+                    storage.has('info') ? OAuthClientInformationSchema.parseAsync(JSON.parse(storage.get('info')!)) : undefined,
+                saveClientInformation: i => void storage.set('info', JSON.stringify(i)),
+                tokens: () => (storage.has('tokens') ? OAuthTokensSchema.parseAsync(JSON.parse(storage.get('tokens')!)) : undefined),
+                saveTokens: t => void storage.set('tokens', JSON.stringify(t))
+            };
+            const srv = createMigratingFetch();
+            await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+            await auth(provider, { serverUrl: SERVER_URL, authorizationCode: 'code', fetchFn: srv.fetchFn });
+
+            srv.switchTo(AS_TWO);
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('an issuer property in a registration or token response does not become the stamp', async () => {
+            const srv = createMigratingFetch();
+            const fetchFn = async (url: string | URL, init?: RequestInit) => {
+                const response = await srv.fetchFn(url, init);
+                return init?.method === 'POST' ? Response.json({ ...(await response.json()), issuer: AS_ONE }, response) : response;
+            };
+            const provider = createBlobProvider(false);
+            srv.switchTo(AS_TWO);
+
+            await auth(provider, { serverUrl: SERVER_URL, fetchFn });
+            await auth(provider, { serverUrl: SERVER_URL, authorizationCode: 'code', fetchFn });
+            expect(provider.stored.info?.issuer).toBe(AS_TWO);
+            expect(provider.stored.tokens?.issuer).toBe(AS_TWO);
+        });
+
+        it('an issuer that is not a string is dropped from a response, and an empty stored one matches nothing', async () => {
+            expect(OAuthTokensSchema.parse({ access_token: 'at', token_type: 'Bearer', issuer: null })).toEqual({
+                access_token: 'at',
+                token_type: 'Bearer'
+            });
+            expect(OAuthClientInformationSchema.parse({ client_id: 'cid', issuer: 5 })).toEqual({ client_id: 'cid' });
+
+            const srv = createMigratingFetch();
+            const provider: OAuthClientProvider = { ...createBlobProvider(false), saveClientInformation: undefined };
+            provider.clientInformation = () => ({ client_id: 'cid', client_secret: 'secret-one', issuer: '' });
+            await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+                'OAuth client information is bound'
+            );
+            expect(srv.tokenCalls).toEqual([]);
+        });
+
+        it('binding unstamped storage on first use never fails a flow that worked without it', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider(false);
+            provider.stored.info = { client_id: 'pre-registered' };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer' };
+            provider.saveClientInformation = () => {
+                throw new Error('client is pre-registered');
+            };
+            const saveTokens = vi.spyOn(provider, 'saveTokens');
+
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            // Without a refresh token there is nothing to bind: no write, no message.
+            expect(saveTokens).not.toHaveBeenCalled();
+            expect(warn).not.toHaveBeenCalled();
+        });
+
+        it('a provider whose storage getters return null is treated as having nothing stored', async () => {
+            // The `JSON.parse(storage.getItem(key))` idiom yields `null`, not `undefined`, for an empty slot.
+            const storage = new Map<string, string>();
+            const read = (key: string) => JSON.parse(storage.get(key) ?? 'null');
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(),
+                clientInformation: () => read('info'),
+                saveClientInformation: i => void storage.set('info', JSON.stringify(i)),
+                tokens: () => read('tokens'),
+                saveTokens: t => void storage.set('tokens', JSON.stringify(t))
+            };
+            const srv = createMigratingFetch();
+
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual([AS_ONE]);
+            expect(read('info')).toEqual(expect.objectContaining({ client_id: 'cid-as-one.example.com', issuer: AS_ONE }));
+
+            // Registered, still no tokens: a fresh authorization is started again.
+            expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual([AS_ONE]);
+
+            // Without saveClientInformation the pre-existing registration error is reported unchanged.
+            storage.clear();
+            const preRegisteredOnly: OAuthClientProvider = { ...provider, saveClientInformation: undefined };
+            await expect(auth(preRegisteredOnly, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+                'OAuth client information must be saveable for dynamic registration'
+            );
+
+            // fetchToken sends the request without client authentication rather than failing.
+            await fetchToken(provider, AS_ONE, {
+                metadata: asMetadata(AS_ONE),
+                authorizationCode: 'code',
+                fetchFn: srv.fetchFn
+            });
+            expect(srv.tokenCalls.at(-1)?.authorization).toBeNull();
         });
     });
 });
