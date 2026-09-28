@@ -2340,7 +2340,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client-auth:token-endpoint:https-guard': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
         behavior:
-            "The token-exchange and refresh paths refuse to send credentials to a non-https token endpoint (localhost / 127.0.0.1 / ::1 exempt) by throwing InsecureTokenEndpointError, and auth()'s refresh branch surfaces it instead of falling through to a fresh /authorize redirect.",
+            "The token-exchange and refresh paths refuse to send credentials to a non-https token endpoint (localhost / *.localhost / 127.0.0.1 / ::1 exempt) by throwing InsecureTokenEndpointError, and auth()'s refresh branch surfaces it instead of falling through to a fresh /authorize redirect.",
         transports: ['streamableHttp'],
         addedInSpecVersion: '2026-07-28',
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
@@ -2916,6 +2916,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'An AuthProvider supplied to StreamableHTTPClientTransport has token() called before each request and the returned token is attached as an Authorization: Bearer header on the HTTP requests.',
         transports: ['streamableHttp'],
         note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
+    'client-auth:authprovider:token-overrides-requestinit': {
+        source: 'sdk',
+        behavior:
+            'When an AuthProvider yields a token, the Authorization header the transport derives from it takes precedence over a same-named header configured in requestInit.headers on every HTTP request, so a stale static credential falls back to the provider token; other configured headers still pass through.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's header merge order (#2208); the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
     'client-auth:authprovider:onunauthorized-retry': {
         source: 'sdk',

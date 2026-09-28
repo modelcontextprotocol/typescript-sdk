@@ -132,10 +132,12 @@ export class RegistrationRejectedError extends OAuthClientFlowError {
 
 /**
  * Thrown by the token-exchange and refresh paths when the resolved token
- * endpoint is not `https:` and is not a loopback host (SEP-2207). This is a
- * configuration error — re-authorizing cannot fix it — so it intentionally does
- * **not** extend `OAuthError` and `auth()`'s refresh branch rethrows it instead
- * of falling through to a fresh `/authorize` redirect.
+ * endpoint is not `https:` and is not a loopback host. The MCP authorization
+ * specification requires authorization server endpoints to use HTTPS; loopback
+ * hosts are exempt here for local development. This is a configuration error —
+ * re-authorizing cannot fix it — so it intentionally does **not** extend
+ * `OAuthError` and `auth()`'s refresh branch rethrows it instead of falling
+ * through to a fresh `/authorize` redirect.
  */
 export class InsecureTokenEndpointError extends OAuthClientFlowError {
     static {
@@ -148,7 +150,7 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
     constructor(tokenEndpoint: string) {
         super(
             `Refusing to send credentials to non-https token endpoint '${tokenEndpoint}'. ` +
-                `OAuth token requests MUST use TLS (localhost / 127.0.0.1 / ::1 are exempt).`
+                `OAuth token requests MUST use TLS (localhost / *.localhost / 127.0.0.1 / ::1 are exempt).`
         );
         this.tokenEndpoint = tokenEndpoint;
     }

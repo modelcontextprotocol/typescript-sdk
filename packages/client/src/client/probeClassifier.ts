@@ -311,9 +311,14 @@ function classifyNetworkError(error: unknown, context: ProbeClassifierContext): 
     }
     return {
         kind: 'error',
-        error: new SdkError(SdkErrorCode.EraNegotiationFailed, `Version negotiation probe failed: ${describeError(error)}`, {
-            cause: error
-        })
+        error: new SdkError(
+            SdkErrorCode.EraNegotiationFailed,
+            `Version negotiation probe failed: ${describeError(error)}`,
+            // Keep data.cause for existing consumers while also exposing the
+            // standard Error.cause chain (#2657).
+            { cause: error },
+            { cause: error }
+        )
     };
 }
 

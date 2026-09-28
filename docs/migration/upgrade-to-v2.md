@@ -810,6 +810,13 @@ value to the spec-required `application/json, text/event-stream` (v1 let it repl
 them). The required media types are always present; additional types are kept for
 proxy/gateway routing.
 
+Transport-managed headers now take precedence over same-named entries in
+`requestInit.headers`: `Authorization` when `authProvider` yields a token,
+`mcp-protocol-version`, and (Streamable HTTP) `mcp-session-id`. v1 let the configured
+header win, so a static `Authorization` placeholder kept overriding the OAuth token even
+after the provider obtained one. A configured `Authorization` value is still sent while
+the provider has no token, which is what lets a static API key fall back to OAuth.
+
 `hostHeaderValidation()` and `localhostHostValidation()` moved to
 `@modelcontextprotocol/express`. The `(allowedHostnames: string[])` signature is the
 same as every released v1.x — only the import path changes. Framework-agnostic helpers
@@ -1236,7 +1243,7 @@ rejection now throws `RegistrationRejectedError` (carrying `status`, `body`,
 
 `exchangeAuthorization()`, `refreshAuthorization()`, `fetchToken()`, and the Cross-App
 Access helpers throw `InsecureTokenEndpointError` when the token endpoint is not
-`https:` (loopback `localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
+`https:` (loopback `localhost` / `*.localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
 every path including refresh — switch any plain-`http:` AS on a non-loopback host to
 TLS; there is no opt-out. Storage confidentiality of `refresh_token` remains your
 `saveTokens()` implementation's responsibility.
