@@ -1244,6 +1244,28 @@ importers:
         specifier: catalog:devTools
         version: 4.21.0
 
+  examples/surfacepin-lock:
+    dependencies:
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../../packages/server
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.12.0
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+
   examples/todos-server:
     dependencies:
       '@hono/node-server':

@@ -1,0 +1,24 @@
+{
+    "name": "@mcp-examples/surfacepin-lock",
+    "private": true,
+    "version": "2.0.0-beta.0",
+    "description": "Stdio MCP server with a committed surfacepin.lock.json. Gate is the npm package surfacepin (^1.4.0), not the SDK behavior-surface pins.",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit",
+        "start": "tsx src/index.ts",
+        "lock": "node check.mjs --lock",
+        "check": "node check.mjs"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:^",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@types/node": "^24.10.1",
+        "tsx": "catalog:devTools",
+        "typescript": "catalog:devTools"
+    }
+}

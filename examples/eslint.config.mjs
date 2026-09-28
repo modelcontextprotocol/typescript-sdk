@@ -8,7 +8,7 @@ export default [
         // The nested workspace packages (shared, *-quickstart) are linted by their own configs.
         // The one-way "@mcp-examples/shared must not import from stories" rule lives in
         // shared/eslint.config.mjs so it fires under that package's own lint.
-        ignores: ['shared/**', 'server-quickstart/**', 'client-quickstart/**']
+        ignores: ['shared/**', 'server-quickstart/**', 'client-quickstart/**', 'surfacepin-lock/**']
     },
     {
         files: ['**/*.{ts,tsx,js,jsx,mts,cts}'],

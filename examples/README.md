@@ -69,12 +69,13 @@ The one exception to the generic commands is the reference pair: [`cli-client/`]
 
 ## Excluded
 
-| Directory                                  | What it is                                                                                                                          | Why not in CI                                                                     |
-| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client                                                                             | Interactive — `client.ts` reads from stdin. Run manually in two terminals.        |
-| [`guides/`](./guides/README.md)            | Per-page snippet companions synced into the `docs/` guide pages                                                                     | Not a client/server story pair; typechecked and executed by `pnpm docs:examples`. |
-| `server-quickstart/`, `client-quickstart/` | Standalone starter projects (the original quickstart sources)                                                                       | External network / API key; typecheck-only.                                       |
-| `shared/`                                  | Argv/assert scaffold (`parseExampleArgs`/`check`/`siblingPath`); demo OAuth provider + `InMemoryEventStore` at the `./auth` subpath | Not a story — imported by every story as scaffolding.                             |
+| Directory                                         | What it is                                                                                                                          | Why not in CI                                                                     |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| [`repl/`](./repl/README.md)                       | Fully-featured HTTP playground server + readline client                                                                             | Interactive — `client.ts` reads from stdin. Run manually in two terminals.        |
+| [`guides/`](./guides/README.md)                   | Per-page snippet companions synced into the `docs/` guide pages                                                                     | Not a client/server story pair; typechecked and executed by `pnpm docs:examples`. |
+| `server-quickstart/`, `client-quickstart/`        | Standalone starter projects (the original quickstart sources)                                                                       | External network / API key; typecheck-only.                                       |
+| [`surfacepin-lock/`](./surfacepin-lock/README.md) | Stdio server plus a committed `surfacepin.lock.json` (npm package `surfacepin`, not `docs/behavior-surface-pins.md`)                | Optional external CLI; typecheck-only. Not a client/server story pair.            |
+| `shared/`                                         | Argv/assert scaffold (`parseExampleArgs`/`check`/`siblingPath`); demo OAuth provider + `InMemoryEventStore` at the `./auth` subpath | Not a story — imported by every story as scaffolding.                             |
 
 ## Multi-node deployment patterns
 
