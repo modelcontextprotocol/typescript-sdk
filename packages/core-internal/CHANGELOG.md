@@ -1,5 +1,12 @@
 # @modelcontextprotocol/core-internal
 
+## 2.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd)]:
+    - @modelcontextprotocol/core@2.2.0
+
 ## 2.0.1
 
 ### Patch Changes
