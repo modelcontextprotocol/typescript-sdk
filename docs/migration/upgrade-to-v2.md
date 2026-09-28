@@ -672,7 +672,7 @@ codemod inverts the common nesting automatically and flags shapes it cannot rewr
 **Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). Check the **declared
 range** in your `package.json`, not just the installed version: a zod-3 range that
 satisfied the v1 peer installs and typechecks cleanly under v2 and only fails at
-runtime — and quietly: registration swallows the conversion failure, the server starts
+runtime — and quietly: registration does not convert the schema, the server starts
 and connects normally, and the first `tools/list` (so `client.listTools()`) answers
 with an error pointing at `fromJsonSchema()` while the process keeps running. (Only the
 deprecated unwrapped raw-shape form with zod-3 field values throws at registration,
