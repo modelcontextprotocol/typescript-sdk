@@ -776,7 +776,8 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-token',
                 token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
+                refresh_token: 'new-refresh-token',
+                issuer: `${authBaseUrl}`
             });
             expect(connectionAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
@@ -928,7 +929,8 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-token',
                 token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
+                refresh_token: 'new-refresh-token',
+                issuer: `${authBaseUrl}`
             });
             expect(postAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
@@ -1515,7 +1517,8 @@ describe('SSEClientTransport', () => {
                 access_token: 'new-access-token',
                 token_type: 'Bearer',
                 expires_in: 3600,
-                refresh_token: 'new-refresh-token'
+                refresh_token: 'new-refresh-token',
+                issuer: authBaseUrl.href
             });
 
             // Global fetch should never have been called

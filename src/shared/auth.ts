@@ -134,9 +134,17 @@ export const OAuthTokensSchema = z
         token_type: z.string(),
         expires_in: z.coerce.number().optional(),
         scope: z.string().optional(),
-        refresh_token: z.string().optional()
+        refresh_token: z.string().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back.
+         */
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
+
+/** {@link OAuthTokensSchema} as it appears on the wire: without the client-only `issuer` stamp. */
+const OAuthTokensWireSchema = OAuthTokensSchema.omit({ issuer: true });
 
 /**
  * Schema for parsing OAuth 2.1 token responses received from an authorization
@@ -160,19 +168,29 @@ export const OAuthTokensSchema = z
  * authoritative — but consumers must not derive granted-scope conclusions
  * from the member's absence. Consumers that need the authoritative grant
  * should use token introspection instead.
+ *
+ * The client-only `issuer` stamp is not part of the wire format: like the other
+ * response parse paths, this schema validates against {@link OAuthTokensSchema}
+ * without its `issuer` member, so an authorization server cannot inject the
+ * value the client binds stored credentials to.
  */
-export const OAuthTokenResponseSchema = z.preprocess(data => {
-    if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-        return data;
-    }
-    const normalized: Record<string, unknown> = { ...data };
-    for (const [key, fieldSchema] of Object.entries(OAuthTokensSchema.shape)) {
-        if (normalized[key] === null && fieldSchema.safeParse(undefined).success) {
-            delete normalized[key];
+export const OAuthTokenResponseSchema = z.preprocess(
+    data => {
+        if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+            return data;
         }
-    }
-    return normalized;
-}, OAuthTokensSchema);
+        const normalized: Record<string, unknown> = { ...data };
+        for (const [key, fieldSchema] of Object.entries(OAuthTokensWireSchema.shape)) {
+            if (normalized[key] === null && fieldSchema.safeParse(undefined).success) {
+                delete normalized[key];
+            }
+        }
+        return normalized;
+    },
+    // `issuer` is added by the client when it stores a value; authorization server
+    // responses are parsed without it (and `.strip()` then drops an incoming key).
+    OAuthTokensWireSchema
+);
 
 /**
  * OAuth 2.1 error response
@@ -220,7 +238,12 @@ export const OAuthClientInformationSchema = z
         client_id: z.string(),
         client_secret: z.string().optional(),
         client_id_issued_at: z.number().optional(),
-        client_secret_expires_at: z.number().optional()
+        client_secret_expires_at: z.number().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back.
+         */
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
 

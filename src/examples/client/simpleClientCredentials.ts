@@ -16,6 +16,7 @@
  *
  * Common:
  *    MCP_SERVER_URL - Server URL (default: http://localhost:3000/mcp)
+ *    MCP_EXPECTED_ISSUER - Issuer URL of the authorization server the credentials were registered with (required)
  */
 
 import { Client } from '../../client/index.js';
@@ -32,6 +33,13 @@ function createProvider(): OAuthClientProvider {
         process.exit(1);
     }
 
+    // The authorization server these credentials were registered with
+    const expectedIssuer = process.env.MCP_EXPECTED_ISSUER;
+    if (!expectedIssuer) {
+        console.error('MCP_EXPECTED_ISSUER environment variable is required');
+        process.exit(1);
+    }
+
     // If private key is provided, use private_key_jwt authentication
     const privateKeyPem = process.env.MCP_CLIENT_PRIVATE_KEY_PEM;
     if (privateKeyPem) {
@@ -40,7 +48,8 @@ function createProvider(): OAuthClientProvider {
         return new PrivateKeyJwtProvider({
             clientId,
             privateKey: privateKeyPem,
-            algorithm
+            algorithm,
+            expectedIssuer
         });
     }
 
@@ -54,7 +63,8 @@ function createProvider(): OAuthClientProvider {
     console.log('Using client_secret_basic authentication');
     return new ClientCredentialsProvider({
         clientId,
-        clientSecret
+        clientSecret,
+        expectedIssuer
     });
 }
 

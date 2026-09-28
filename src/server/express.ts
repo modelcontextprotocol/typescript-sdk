@@ -49,7 +49,6 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
     const { host = '127.0.0.1', allowedHosts } = options;
 
     const app = express();
-    app.use(express.json());
 
     // If allowedHosts is explicitly provided, use that for validation
     if (allowedHosts) {
@@ -69,6 +68,10 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
             );
         }
     }
+
+    // The JSON body parser runs after the Host header validation, so a request
+    // with a disallowed Host is answered 403 without its body being read.
+    app.use(express.json());
 
     return app;
 }
