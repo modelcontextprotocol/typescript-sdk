@@ -274,9 +274,12 @@ describe('createMcpHandler — subscriptions/listen', () => {
             listenRequest(7, { toolsListChanged: true, resourcesListChanged: true, resourceSubscriptions: ['file:///a'] })
         );
 
-        // The stream ends on its own: draining it terminates without anything
-        // cancelling the reader.
-        const messages = await readMessages(response, 2);
+        // Reading the body to its end only resolves when the server ends the stream itself.
+        const body = await response.text();
+        const messages = body
+            .split('\n\n')
+            .filter(frame => frame.length > 0)
+            .map(frame => JSON.parse(frame.slice(frame.indexOf('data: ') + 'data: '.length)) as unknown);
 
         expect(messages).toEqual([
             {
