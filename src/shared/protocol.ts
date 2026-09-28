@@ -422,7 +422,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                                     } else {
                                         // Convert JSONRPCError to McpError
                                         const errorMessage = message as JSONRPCErrorResponse;
-                                        const error = new McpError(
+                                        const error = McpError.fromError(
                                             errorMessage.error.code,
                                             errorMessage.error.message,
                                             errorMessage.error.data
@@ -903,7 +903,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             if (isJSONRPCResultResponse(response)) {
                 resolver(response);
             } else {
-                const error = new McpError(response.error.code, response.error.message, response.error.data);
+                const error = McpError.fromError(response.error.code, response.error.message, response.error.data);
                 resolver(error);
             }
             return;
