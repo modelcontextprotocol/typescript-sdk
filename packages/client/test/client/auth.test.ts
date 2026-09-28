@@ -5399,6 +5399,107 @@ describe('OAuth Authorization', () => {
             );
         });
 
+        /** Adds an `issuer` to every token and registration response of `fetchFn`. */
+        const withResponseIssuer =
+            (fetchFn: ReturnType<typeof createMigratingFetch>['fetchFn']) =>
+            async (url: string | URL, init?: RequestInit): Promise<Response> => {
+                const response = await fetchFn(url, init);
+                if (!['/token', '/register'].includes(new URL(String(url)).pathname)) return response;
+                const body = { ...((await response.json()) as object), issuer: 'https://other.example.com' };
+                return Response.json(body, { status: response.status });
+            };
+
+        it('an issuer in a token or registration response is not returned', async () => {
+            const fetchFn = withResponseIssuer(createMigratingFetch().fetchFn);
+            const metadata = asMetadata(AS_ONE);
+            const clientInformation = { client_id: 'cid' };
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(false),
+                clientInformation: () => clientInformation,
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+
+            const results = [
+                await registerClient(AS_ONE, { metadata, clientMetadata: { redirect_uris: [] }, fetchFn }),
+                await exchangeAuthorization(AS_ONE, {
+                    metadata,
+                    clientInformation,
+                    authorizationCode: 'code',
+                    codeVerifier: 'v',
+                    redirectUri: 'http://localhost:3000/callback',
+                    fetchFn
+                }),
+                await refreshAuthorization(AS_ONE, { metadata, clientInformation, refreshToken: 'rt', fetchFn }),
+                await fetchToken(provider, AS_ONE, { metadata, fetchFn })
+            ];
+            for (const result of results) {
+                expect(result).not.toHaveProperty('issuer');
+            }
+        });
+
+        it('auth() saves the resolved issuer when the responses carry another one', async () => {
+            const srv = createMigratingFetch();
+            const provider = {
+                ...createBlobProvider(false),
+                redirectUrl: undefined,
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+
+            const fetchFn = withResponseIssuer(srv.fetchFn);
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn })).toBe('AUTHORIZED');
+            expect(srv.registerCalls).toEqual([AS_ONE]);
+            expect(srv.tokenCalls).toHaveLength(1);
+            expect(provider.stored.info?.issuer).toBe(AS_ONE);
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+        });
+
+        it('fetchToken uses client information that the provider fills in while preparing the request', async () => {
+            const srv = createMigratingFetch();
+            let filled: StoredOAuthClientInformation | undefined;
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(false),
+                clientInformation: () => filled,
+                prepareTokenRequest: () => {
+                    filled = { client_id: 'cid', client_secret: 'lazy-secret', issuer: AS_ONE };
+                    return new URLSearchParams({ grant_type: 'client_credentials' });
+                }
+            };
+
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => [c.issuer, c.authorization])).toEqual([[AS_ONE, `Basic ${btoa('cid:lazy-secret')}`]]);
+
+            // The value read after preparing goes through the same check.
+            filled = undefined;
+            const err = await fetchToken(provider, AS_TWO, { metadata: asMetadata(AS_TWO), fetchFn: srv.fetchFn }).then(
+                () => undefined,
+                e => e
+            );
+            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
+            expect(err).toMatchObject({ recordedIssuer: AS_ONE, currentIssuer: AS_TWO });
+            expect(srv.tokenCalls).toHaveLength(1);
+        });
+
+        it.each([null, 42, { href: AS_ONE }])('a stored issuer of %j counts as no stamp', async issuer => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const raw = { client_id: 'cid', client_secret: 's', issuer } as unknown as StoredOAuthClientInformation;
+            expect(discardIfIssuerMismatch(raw, AS_ONE)).toEqual({ client_id: 'cid', client_secret: 's' });
+            expect(warn).toHaveBeenCalledTimes(1);
+
+            const srv = createMigratingFetch();
+            const provider = { ...createBlobProvider(false), prepareTokenRequest: () => new URLSearchParams({ grant_type: 'x' }) };
+            provider.stored.info = raw;
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', issuer } as unknown as StoredOAuthTokens;
+
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => c.authorization)).toEqual([`Basic ${btoa('cid:s')}`]);
+
+            // auth() binds it on first use, as it does for a value with no stamp.
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(provider.stored.info?.issuer).toBe(AS_ONE);
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+            warn.mockRestore();
+        });
+
         it('m2m expectedIssuer: ClientCredentialsProvider refuses to send the credential to a different AS', async () => {
             const srv = createMigratingFetch();
             srv.switchTo(AS_TWO);

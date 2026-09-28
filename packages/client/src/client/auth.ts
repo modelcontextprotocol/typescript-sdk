@@ -25,7 +25,8 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
-    stampErrorBrands
+    stampErrorBrands,
+    withoutIssuer
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
@@ -135,7 +136,8 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
 ): T | undefined {
     // Nothing stored (`null` from a `JSON.parse(storage.getItem(...))`-style getter included).
     if (!stored) return undefined;
-    if (stored.issuer === undefined) {
+    // A stamp that is not a string (raw storage) counts as no stamp.
+    if (typeof stored.issuer !== 'string') {
         if (opts?.canPersistStamp !== false) {
             console.warn(
                 `[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp (pre-upgrade storage or ` +
@@ -143,7 +145,7 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
                     `ensure your provider round-trips the issuer field.`
             );
         }
-        return stored;
+        return stored.issuer === undefined ? stored : { ...stored, issuer: undefined };
     }
     return issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
@@ -2256,7 +2258,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(json);
+        return OAuthTokensSchema.parse(withoutIssuer(json));
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2443,14 +2445,17 @@ export async function fetchToken(
         });
     }
 
-    // SEP-2352: nothing is prepared for or sent to an authorization server other than the one
-    // the client information is stamped for.
+    // SEP-2352: nothing is sent to an authorization server other than the one the client information is stamped for.
     const issuer = metadata?.issuer ?? String(authorizationServerUrl);
-    const rawClientInfo = await provider.clientInformation({ issuer });
-    const clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, { canPersistStamp: false });
-    if (rawClientInfo && clientInformation === undefined) {
-        throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
-    }
+    const readClientInformation = async () => {
+        const rawClientInfo = await provider.clientInformation({ issuer });
+        const checked = discardIfIssuerMismatch(rawClientInfo, issuer, { canPersistStamp: false });
+        if (rawClientInfo && checked === undefined) {
+            throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
+        }
+        return checked;
+    };
+    let clientInformation = await readClientInformation();
 
     // Prefer scope from options, fallback to provider.clientMetadata.scope
     const effectiveScope = scope ?? provider.clientMetadata.scope;
@@ -2472,6 +2477,9 @@ export async function fetchToken(
         const codeVerifier = await provider.codeVerifier();
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
+
+    // A provider may fill in its client information while the request is prepared.
+    clientInformation ??= await readClientInformation();
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
@@ -2551,5 +2559,5 @@ export async function registerClient(
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return OAuthClientInformationFullSchema.parse(withoutIssuer(await response.json()));
 }
