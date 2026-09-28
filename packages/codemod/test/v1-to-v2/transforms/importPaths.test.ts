@@ -227,6 +227,7 @@ describe('import-paths transform', () => {
         expect(lines[2]).toBe('');
         expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(1);
         expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
     });
 
     it('does not split a multi-line header run when the SDK import is not the first import', () => {
@@ -252,11 +253,11 @@ describe('import-paths transform', () => {
         expect(lines[2]).toContain('Static tab discovery');
         expect(lines.findIndex(l => l.startsWith('import'))).toBeGreaterThan(2);
         expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
     });
 
     it('leaves a comment above a mid-file import attached to that import', () => {
-        // Guard on the scope of the header detach: only a block anchored at byte 0 is a file header.
-        // A comment above a later import documents that import and must not be hoisted to the top.
+        // A comment above a later import documents that import: it stays directly above it.
         const input = [
             `import { fetchAndConvert } from '@page2ai/core';`,
             ``,
@@ -270,6 +271,66 @@ describe('import-paths transform', () => {
 
         expect(result.split('// Result type returned to the caller.').length - 1).toBe(1);
         expect(result.indexOf('// Result type returned to the caller.')).toBeGreaterThan(result.indexOf('@page2ai/core'));
+        expect(result).toBe(input.replace(`'@modelcontextprotocol/sdk/types.js'`, `"@modelcontextprotocol/server"`));
+    });
+
+    it(`keeps a 'use client' directive above the rewritten import`, () => {
+        const input = [
+            `'use client';`,
+            ``,
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { useState } from 'react';`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/client/index.js'`, `"@modelcontextprotocol/client"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('keeps the blank line below a JSDoc-style license header', () => {
+        const input = [
+            `/**`,
+            ` * @license Apache-2.0`,
+            ` */`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ``,
+            `export const server = new McpServer({ name: 'x', version: '1.0.0' });`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/server/mcp.js'`, `"@modelcontextprotocol/server"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('does not duplicate a license header that is followed by a JSDoc block', () => {
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            ``,
+            `/**`,
+            ` * What this file does.`,
+            ` */`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ``,
+            `export const server = new McpServer({ name: 'x', version: '1.0.0' });`,
+            ''
+        ].join('\n');
+        const expected = input.replace(`'@modelcontextprotocol/sdk/server/mcp.js'`, `"@modelcontextprotocol/server"`);
+        expect(applyTransform(input)).toBe(expected);
+    });
+
+    it('puts new imports below a namespace import that is rewritten in place, not above the header', () => {
+        const input = [
+            `/** @license Apache-2.0 */`,
+            ``,
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            ''
+        ].join('\n');
+        const lines = applyTransform(input, { projectType: 'server' }).split('\n');
+        expect(lines[0]).toBe(`/** @license Apache-2.0 */`);
+        expect(lines[1]).toBe('');
+        expect(lines[2]).toContain('* as types');
+        expect(lines[3]).toBe(`import { McpServer } from "@modelcontextprotocol/server";`);
     });
 
     it('routes OAuth *Schema from sdk/shared/auth.js to core; the TYPE resolves by context', () => {
@@ -834,6 +895,29 @@ describe('import-paths transform', () => {
         const output = sourceFile.getFullText();
         expect(output).toContain('@modelcontextprotocol/client');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
+        const lines = output.split('\n');
+        expect(lines[0]).toBe(`import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';`);
+        expect(lines[1]).toBe(`import type { Tool } from "@modelcontextprotocol/client";`);
+        expect(lines.findLastIndex(line => line.startsWith('import '))).toBeLessThan(lines.findIndex(line => line.startsWith('const c')));
+    });
+
+    it('keeps the type import with the imports when the value import merges into an existing v2 import', () => {
+        const input = [
+            `// Copyright (c) 2026 Example Corp.`,
+            `// SPDX-License-Identifier: Apache-2.0`,
+            ``,
+            `import { Client } from '@modelcontextprotocol/client';`,
+            `import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+            `import type { Tool } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `const c = new Client({});`,
+            ''
+        ].join('\n');
+        const lines = applyTransform(input, { projectType: 'client' }).split('\n');
+        expect(lines.slice(0, 3)).toEqual(['// Copyright (c) 2026 Example Corp.', '// SPDX-License-Identifier: Apache-2.0', '']);
+        expect(lines[3]).toBe(`import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';`);
+        expect(lines[4]).toBe(`import type { Tool } from "@modelcontextprotocol/client";`);
+        expect(lines.findLastIndex(line => line.startsWith('import '))).toBeLessThan(lines.findIndex(line => line.startsWith('const c')));
     });
 
     it('applies SIMPLE_RENAMES to re-export specifiers', () => {

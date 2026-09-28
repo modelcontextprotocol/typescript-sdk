@@ -21,43 +21,6 @@ const REEXPORT_WARNINGS: Record<string, string> = {
         'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
 
-/**
- * Detach a comment block anchored at byte 0 — a license/SPDX header or a file-level note.
- *
- * ts-morph positions an index-inserted import against the *full* start of the declaration at that
- * index, i.e. ahead of that declaration's leading trivia. So a re-emitted import lands above the
- * header (which then stops being the first thing in the file, and swallows the blank line below it,
- * leaving the header attached to the next declaration as a doc comment), or — when the header is a
- * multi-line `//` run and the SDK import is not the first import — between two of the header's own
- * lines. Removing the block for the duration of the rewrite removes the trivia those positions are
- * derived from, so neither can happen.
- *
- * Only a block starting at byte 0 is a file header. A comment above a mid-file import documents that
- * import and must travel with it, which the leading-comment capture inside `apply` still handles.
- *
- * Returns the exact detached bytes, including the whitespace that followed the block so the blank
- * line between header and code survives the round trip, or `''` when there is no leading block.
- */
-function detachFileHeader(sourceFile: SourceFile): string {
-    const firstStatement = sourceFile.getStatements()[0];
-    if (!firstStatement) return '';
-
-    const ranges = firstStatement.getLeadingCommentRanges();
-    if (ranges.length === 0 || ranges[0]!.getPos() !== 0) return '';
-
-    const fullText = sourceFile.getFullText();
-    let end = ranges.at(-1)!.getEnd();
-    while (end < fullText.length && /\s/.test(fullText[end]!)) end++;
-
-    const header = fullText.slice(0, end);
-    sourceFile.removeText(0, end);
-    return header;
-}
-
-function reattachFileHeader(sourceFile: SourceFile, header: string): void {
-    if (header) sourceFile.insertText(0, header);
-}
-
 export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
     id: 'imports',
@@ -66,14 +29,9 @@ export const importPathsTransform: Transform = {
         const usedPackages = new Set<string>();
         let changesCount = 0;
 
-        // Detached before the AST is read: removeText() invalidates existing node references, so this
-        // cannot wait until after getSdkImports(). Restored at each of the three exits below.
-        const fileHeader = detachFileHeader(sourceFile);
-
         const sdkImports = getSdkImports(sourceFile);
         const sdkExports = getSdkExports(sourceFile);
         if (sdkImports.length === 0 && sdkExports.length === 0) {
-            reattachFileHeader(sourceFile, fileHeader);
             return { changesCount: 0, diagnostics: [] };
         }
 
@@ -82,7 +40,6 @@ export const importPathsTransform: Transform = {
         changesCount += rewriteExportDeclarations(sdkExports, sourceFile, filePath, context, diagnostics, usedPackages);
 
         if (sdkImports.length === 0) {
-            reattachFileHeader(sourceFile, fileHeader);
             return { changesCount, diagnostics, usedPackages };
         }
 
@@ -95,7 +52,11 @@ export const importPathsTransform: Transform = {
             return spec.includes('/server/');
         });
 
-        const insertIndex = sourceFile.getImportDeclarations().indexOf(sdkImports[0]!);
+        const importIndex = sourceFile.getImportDeclarations().indexOf(sdkImports[0]!);
+        // ts-morph inserts by position among all top-level children (own-line comments and statements count), not among imports.
+        const childIndex = sdkImports[0]!.getChildIndex();
+        const previousEnd = childIndex > 0 ? sourceFile.getStatementsWithComments()[childIndex - 1]!.getEnd() : 0;
+        const blankLineAbove = childIndex > 0 && /^[ \t]*\r?\n[ \t]*\r?\n/.test(sourceFile.getFullText().slice(previousEnd));
 
         // A leading file-header / JSDoc comment attaches to the first SDK import as leading trivia. When
         // that import is removed and re-emitted (the per-symbol split/merge path calls imp.remove()),
@@ -105,9 +66,12 @@ export const importPathsTransform: Transform = {
         // (a blank line, or CRLF in CRLF files), so the later survival check would never match a header
         // that actually survived (in-place setModuleSpecifier rewrite) and would re-insert it, duplicating
         // it. The slice reproduces the block verbatim, so the includes() guard below is byte-exact.
-        const leadingRanges = sdkImports[0]!.getLeadingCommentRanges();
+        // Own-line comments above the import are siblings and survive its removal; only comments attached to it can be dropped.
+        const leadingRanges = sdkImports[0]!.getLeadingCommentRanges().filter(range => range.getPos() >= previousEnd);
         const leadingCommentText =
             leadingRanges.length > 0 ? sourceFile.getFullText().slice(leadingRanges[0]!.getPos(), leadingRanges.at(-1)!.getEnd()) : '';
+        const leadingCommentGap =
+            leadingRanges.length > 0 ? sourceFile.getFullText().slice(leadingRanges.at(-1)!.getEnd(), sdkImports[0]!.getStart()) : '';
 
         interface PendingImport {
             specs: NamedImportSpec[];
@@ -377,6 +341,10 @@ export const importPathsTransform: Transform = {
             }
         }
 
+        // New imports go where the first SDK import stood, or right below it when it was rewritten in place and still stands there.
+        const firstRemoved = sdkImports[0]!.wasForgotten();
+        const insertIndex = firstRemoved ? childIndex : childIndex + 1;
+
         const specLocal = (spec: NamedImportSpec): string => (typeof spec === 'string' ? spec : (spec.alias ?? spec.name));
         for (const [target, groups] of pendingImports) {
             // Dedupe by local binding name (alias when present), keeping the spec so aliases survive.
@@ -388,12 +356,22 @@ export const importPathsTransform: Transform = {
                 }
             }
 
+            let valueInserted = false;
             if (valueSpecs.size > 0) {
-                addOrMergeImport(sourceFile, target, [...valueSpecs.values()], false, insertIndex);
+                valueInserted = addOrMergeImport(
+                    sourceFile,
+                    target,
+                    [...valueSpecs.values()],
+                    false,
+                    insertIndex,
+                    firstRemoved && blankLineAbove
+                );
             }
             if (typeOnlySpecs.size > 0) {
-                const typeInsertIndex = valueSpecs.size > 0 ? insertIndex + 1 : insertIndex;
-                addOrMergeImport(sourceFile, target, [...typeOnlySpecs.values()], true, typeInsertIndex);
+                // The type import goes one lower only when the value import was inserted, not when it merged into an existing import.
+                const typeInsertIndex = valueInserted ? insertIndex + 1 : insertIndex;
+                const blankLine = firstRemoved && blankLineAbove && !valueInserted;
+                addOrMergeImport(sourceFile, target, [...typeOnlySpecs.values()], true, typeInsertIndex, blankLine);
             }
         }
 
@@ -401,11 +379,9 @@ export const importPathsTransform: Transform = {
         // the first import was rewritten in place and kept its comment).
         if (leadingCommentText && !sourceFile.getFullText().includes(leadingCommentText)) {
             const imports = sourceFile.getImportDeclarations();
-            const anchor = imports[Math.min(insertIndex, imports.length - 1)];
-            sourceFile.insertText(anchor ? anchor.getStart() : 0, `${leadingCommentText}\n`);
+            const anchor = imports[Math.min(importIndex, imports.length - 1)];
+            sourceFile.insertText(anchor ? anchor.getStart() : 0, `${leadingCommentText}${leadingCommentGap}`);
         }
-
-        reattachFileHeader(sourceFile, fileHeader);
 
         return { changesCount, diagnostics, usedPackages };
     }
