@@ -1593,7 +1593,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
+        return await this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
     }
 
     /**

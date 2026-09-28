@@ -13,7 +13,6 @@ import {
     JSONRPCMessageSchema,
     mcpNameSource,
     mediaTypeEssence,
-    normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
@@ -183,6 +182,13 @@ export type StreamableHTTPClientTransportOptions = {
 
     /**
      * Customizes HTTP requests to the server.
+     *
+     * `headers` are sent on every request, but the transport-managed headers take
+     * precedence over a same-named entry here: `Authorization` when
+     * {@linkcode StreamableHTTPClientTransportOptions.authProvider | authProvider} yields a
+     * token, `mcp-session-id`, and `mcp-protocol-version`. A caller-supplied `Authorization`
+     * value is therefore only sent while the provider has no token, which lets a static API
+     * key fall back to OAuth once the provider obtains one.
      */
     requestInit?: RequestInit;
 
@@ -443,7 +449,19 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _commonHeaders(): Promise<Headers> {
-        const headers: RequestInit['headers'] & Record<string, string> = {};
+        // Start from the caller-supplied `requestInit.headers` and `set()` the
+        // transport-managed headers on top. `Headers.set` compares names
+        // case-insensitively, so Authorization / mcp-session-id / mcp-protocol-version
+        // replace a same-named caller entry whatever its spelling. (A plain-object
+        // spread would keep `authorization` and `Authorization` side by side, and the
+        // Fetch `Headers` constructor would then combine them into one two-token
+        // value.) This lets a stale static `Authorization` placeholder (e.g. an env-var
+        // API key) fall back to the OAuth token once the provider has one, and mirrors
+        // the per-request `RESERVED_REQUEST_HEADER_NAMES` guard in send(). See #2208.
+        // `|| undefined` keeps the old tolerance for a falsy `headers` value (e.g. `null`
+        // from a JS caller or a JSON config forwarded verbatim): the Fetch `Headers`
+        // constructor accepts `undefined` but throws on `null`.
+        const headers = new Headers(this._requestInit?.headers || undefined);
         let token: string | undefined;
         try {
             token = await this._authProvider?.token();
@@ -453,22 +471,15 @@ export class StreamableHTTPClientTransport implements Transport {
             throw markAuthSeamEscape(error);
         }
         if (token) {
-            headers['Authorization'] = `Bearer ${token}`;
+            headers.set('Authorization', `Bearer ${token}`);
         }
-
         if (this._sessionId) {
-            headers['mcp-session-id'] = this._sessionId;
+            headers.set('mcp-session-id', this._sessionId);
         }
         if (this._protocolVersion) {
-            headers['mcp-protocol-version'] = this._protocolVersion;
+            headers.set('mcp-protocol-version', this._protocolVersion);
         }
-
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-        return new Headers({
-            ...headers,
-            ...extraHeaders
-        });
+        return headers;
     }
 
     /**

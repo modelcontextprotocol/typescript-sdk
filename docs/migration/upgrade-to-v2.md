@@ -484,8 +484,10 @@ instead.
   `ToolChoice`, `ToolUseContent`/`ToolResultContent`, the `includeContext` enum values),
   and the full Roots stack (`Root`, `ListRootsRequest`/`Result`,
   `RootsListChangedNotification`).
-- **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
-  Documents per SEP-991.
+- **`registerClient`** (Dynamic Client Registration) — deprecated via spec PR
+  [modelcontextprotocol#2858](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858)
+  rather than SEP-2577 (listed here because the `@deprecated` annotations landed in
+  the same sweep); prefer Client ID Metadata Documents per SEP-991.
 
 The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
 else: every deprecated runtime API keeps its v1 call signature (e.g.
@@ -807,6 +809,13 @@ receive. Wrapping with `new Headers()` is optional, not required.
 value to the spec-required `application/json, text/event-stream` (v1 let it replace
 them). The required media types are always present; additional types are kept for
 proxy/gateway routing.
+
+Transport-managed headers now take precedence over same-named entries in
+`requestInit.headers`: `Authorization` when `authProvider` yields a token,
+`mcp-protocol-version`, and (Streamable HTTP) `mcp-session-id`. v1 let the configured
+header win, so a static `Authorization` placeholder kept overriding the OAuth token even
+after the provider obtained one. A configured `Authorization` value is still sent while
+the provider has no token, which is what lets a static API key fall back to OAuth.
 
 `hostHeaderValidation()` and `localhostHostValidation()` moved to
 `@modelcontextprotocol/express`. The `(allowedHostnames: string[])` signature is the
@@ -1234,7 +1243,7 @@ rejection now throws `RegistrationRejectedError` (carrying `status`, `body`,
 
 `exchangeAuthorization()`, `refreshAuthorization()`, `fetchToken()`, and the Cross-App
 Access helpers throw `InsecureTokenEndpointError` when the token endpoint is not
-`https:` (loopback `localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
+`https:` (loopback `localhost` / `*.localhost` / `127.0.0.1` / `::1` exempt). `auth()` surfaces this on
 every path including refresh — switch any plain-`http:` AS on a non-loopback host to
 TLS; there is no opt-out. Storage confidentiality of `refresh_token` remains your
 `saveTokens()` implementation's responsibility.

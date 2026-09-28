@@ -47,6 +47,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
@@ -146,6 +148,9 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        if (supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
+        }
         return await this.server.connect(transport);
     }
 
@@ -155,6 +160,53 @@ export class McpServer {
     async close(): Promise<void> {
         await this.server.close();
     }
+
+    /** @internal */
+    resolveScopeChallenge: ScopeChallengeHandler = context => {
+        switch (context.request.method) {
+            case 'tools/call': {
+                const toolName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof toolName !== 'string') return;
+                const tool = this._registeredTools[toolName];
+                if (tool === undefined || !tool.enabled) return;
+                return tool.scopeChallenge?.(context);
+            }
+            case 'resources/read': {
+                const resourceUri = (context.request.params as { uri?: unknown } | undefined)?.uri;
+                if (typeof resourceUri !== 'string') return;
+
+                let uri: URL;
+                try {
+                    uri = new URL(resourceUri);
+                } catch {
+                    return;
+                }
+
+                const resource = this._registeredResources[uri.toString()];
+                if (resource !== undefined) {
+                    return resource.enabled ? resource.scopeChallenge?.(context) : undefined;
+                }
+
+                for (const template of Object.values(this._registeredResourceTemplates)) {
+                    const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
+                    if (variables) {
+                        return template.enabled ? template.scopeChallenge?.(context) : undefined;
+                    }
+                }
+                return;
+            }
+            case 'prompts/get': {
+                const promptName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof promptName !== 'string') return;
+                const prompt = this._registeredPrompts[promptName];
+                if (prompt === undefined || !prompt.enabled) return;
+                return prompt.scopeChallenge?.(context);
+            }
+            default: {
+                return;
+            }
+        }
+    };
 
     private _toolHandlersInitialized = false;
 
@@ -502,6 +554,12 @@ export class McpServer {
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
+                    if (!template.enabled) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InvalidParams,
+                            `Resource template ${template.resourceTemplate.uriTemplate} disabled`
+                        );
+                    }
                     return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
@@ -588,31 +646,27 @@ export class McpServer {
     registerResource(
         name: string,
         uriOrTemplate: string,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceCallback
     ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
-        // The cache hint configures the encode-time cache fields of this
-        // resource's `resources/read` results (2026-07-28); it is not resource
-        // metadata and never appears on `resources/list` entries.
-        const cacheHint = config.cacheHint;
-        let metadata: ResourceMetadata = config;
+        // These options configure request handling and are not advertised as
+        // resource metadata by `resources/list`.
+        const { cacheHint, scopeChallenge, ...resourceMetadata } = config;
+        const metadata: ResourceMetadata = resourceMetadata;
         if (cacheHint !== undefined) {
             assertValidCacheHint(cacheHint, `resource ${name}`);
-            const rest = { ...config };
-            delete rest.cacheHint;
-            metadata = rest;
         }
 
         if (typeof uriOrTemplate === 'string') {
@@ -625,6 +679,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 metadata,
+                scopeChallenge,
                 readCallback as ReadResourceCallback
             );
             if (cacheHint !== undefined) {
@@ -644,6 +699,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 metadata,
+                scopeChallenge,
                 readCallback as ReadResourceTemplateCallback
             );
             if (cacheHint !== undefined) {
@@ -661,6 +717,7 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
         const registeredResource: RegisteredResource = {
@@ -668,6 +725,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResource.update({ enabled: false }),
             enable: () => registeredResource.update({ enabled: true }),
@@ -681,6 +739,9 @@ export class McpServer {
                 if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResource.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -694,6 +755,7 @@ export class McpServer {
         title: string | undefined,
         template: ResourceTemplate,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
         const registeredResourceTemplate: RegisteredResourceTemplate = {
@@ -701,6 +763,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResourceTemplate.update({ enabled: false }),
             enable: () => registeredResourceTemplate.update({ enabled: true }),
@@ -714,6 +777,9 @@ export class McpServer {
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -737,6 +803,7 @@ export class McpServer {
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
         icons: Icon[] | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -748,6 +815,7 @@ export class McpServer {
             description,
             argsSchema,
             icons,
+            scopeChallenge,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -762,6 +830,9 @@ export class McpServer {
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
                 if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredPrompt.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -811,6 +882,7 @@ export class McpServer {
         annotations: ToolAnnotations | undefined,
         icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -856,6 +928,7 @@ export class McpServer {
             annotations,
             icons,
             execution,
+            scopeChallenge,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -911,6 +984,9 @@ export class McpServer {
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredTool.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -959,6 +1035,8 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            /** Determines whether this tool call needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -973,6 +1051,7 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -986,6 +1065,7 @@ export class McpServer {
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -994,8 +1074,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
-
+        const { title, description, inputSchema, outputSchema, annotations, icons, scopeChallenge, _meta } = config;
         return this._createRegisteredTool(
             name,
             title,
@@ -1005,6 +1084,7 @@ export class McpServer {
             annotations,
             icons,
             undefined,
+            scopeChallenge,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1043,6 +1123,8 @@ export class McpServer {
             description?: string;
             argsSchema?: Args;
             icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -1055,6 +1137,7 @@ export class McpServer {
             description?: string;
             argsSchema?: Args;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -1066,6 +1149,7 @@ export class McpServer {
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
@@ -1074,7 +1158,7 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, icons, _meta } = config;
+        const { title, description, argsSchema, icons, scopeChallenge, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -1083,6 +1167,7 @@ export class McpServer {
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             icons,
+            scopeChallenge,
             _meta
         );
 
@@ -1278,6 +1363,7 @@ export type RegisteredTool = {
     annotations?: ToolAnnotations;
     icons?: Icon[];
     execution?: ToolExecution;
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1293,6 +1379,7 @@ export type RegisteredTool = {
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
@@ -1365,6 +1452,7 @@ export type RegisteredResource = {
     metadata?: ResourceMetadata;
     /** Cache hint applied to this resource's `resources/read` results on the 2026-07-28 revision. */
     cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1374,6 +1462,7 @@ export type RegisteredResource = {
         title?: string;
         uri?: string | null;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceCallback;
         enabled?: boolean;
     }): void;
@@ -1395,6 +1484,7 @@ export type RegisteredResourceTemplate = {
     metadata?: ResourceMetadata;
     /** Cache hint applied to this template's `resources/read` results on the 2026-07-28 revision. */
     cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1404,6 +1494,7 @@ export type RegisteredResourceTemplate = {
         title?: string;
         template?: ResourceTemplate;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceTemplateCallback;
         enabled?: boolean;
     }): void;
@@ -1433,6 +1524,7 @@ export type RegisteredPrompt = {
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
     icons?: Icon[];
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
@@ -1445,6 +1537,7 @@ export type RegisteredPrompt = {
         description?: string;
         argsSchema?: Args;
         icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
