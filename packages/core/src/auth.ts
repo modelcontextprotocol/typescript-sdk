@@ -279,20 +279,18 @@ export type OAuthClientInformationMixed = OAuthClientInformation | OAuthClientIn
  * {@linkcode OAuthTokens} as persisted by an `OAuthClientProvider`. Adds an
  * SDK-stamped authorization-server `issuer` identifier so stored tokens are
  * bound to the AS that issued them. The `issuer` field is **not** part of the
- * RFC 6749 wire response and is intentionally absent from the wire-response
- * schema; the client SDK writes it before calling `saveTokens`.
+ * RFC 6749 wire response; the client SDK writes it before calling `saveTokens`.
  */
-export type StoredOAuthTokens = OAuthTokens & { issuer?: string };
+export type StoredOAuthTokens = OAuthTokens & { issuer?: string | undefined };
 
 /**
  * {@linkcode OAuthClientInformationMixed} as persisted by an
  * `OAuthClientProvider`. Adds an SDK-stamped authorization-server `issuer`
  * identifier so stored client credentials are bound to the AS that issued them.
- * The `issuer` field is **not** part of the RFC 7591 wire response and is
- * intentionally absent from the wire-response schema; the client SDK writes it
- * before calling `saveClientInformation`.
+ * The `issuer` field is **not** part of the RFC 7591 wire response; the client SDK
+ * writes it before calling `saveClientInformation`.
  */
-export type StoredOAuthClientInformation = OAuthClientInformationMixed & { issuer?: string };
+export type StoredOAuthClientInformation = OAuthClientInformationMixed & { issuer?: string | undefined };
 
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;

@@ -5369,38 +5369,6 @@ describe('OAuth Authorization', () => {
             expect(OAuthTokensSchema.parse({ access_token: 'at', token_type: 'Bearer', issuer: null }).issuer).toBeUndefined();
         });
 
-        it('custom client authentication is not presented to a different authorization server than its client information', async () => {
-            const srv = createMigratingFetch();
-            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>((_headers, params) => {
-                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
-                params.set('client_assertion', 'assertion-for-one');
-            });
-            const base = createBlobProvider(false);
-            const provider: OAuthClientProvider = {
-                ...base,
-                redirectUrl: undefined,
-                addClientAuthentication,
-                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
-            };
-            base.stored.info = { client_id: 'provisioned', issuer: AS_ONE };
-
-            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
-            expect(addClientAuthentication).toHaveBeenCalledTimes(1);
-
-            srv.switchTo(AS_TWO);
-            const err = await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn }).then(
-                () => undefined,
-                e => e
-            );
-            expect(srv.tokenCalls.filter(c => c.issuer !== AS_ONE).map(c => [c.issuer, c.body.get('client_assertion')])).toEqual([]);
-            expect(srv.registerCalls).toEqual([]);
-            expect(addClientAuthentication).toHaveBeenCalledTimes(1);
-            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
-            expect((err as AuthorizationServerMismatchError).recordedIssuer).toBe(AS_ONE);
-            expect((err as AuthorizationServerMismatchError).currentIssuer).toBe(AS_TWO);
-            expect(base.stored.info).toEqual({ client_id: 'provisioned', issuer: AS_ONE });
-        });
-
         it('a null clientInformation() counts as no client information', async () => {
             // The `JSON.parse(storage.getItem(key))` idiom yields `null`, not `undefined`, for an empty slot.
             const storage = new Map<string, string>();

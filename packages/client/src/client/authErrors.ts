@@ -185,8 +185,7 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
  *   `code_verifier` are bound to the AS that minted the code (RFC 7636);
  * - for client information whose `issuer` stamp names a different authorization
  *   server on a provider that cannot re-register (no `saveClientInformation()`,
- *   e.g. the bundled static-credential providers; or `addClientAuthentication()`
- *   provisioned for the stored registration); `fetchToken()` throws for any provider.
+ *   e.g. the bundled static-credential providers); `fetchToken()` throws for any provider.
  *
  * Stored tokens and re-registrable client information are protected structurally
  * by the `issuer` stamp instead (they read back as absent).

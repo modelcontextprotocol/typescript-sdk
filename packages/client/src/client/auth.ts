@@ -344,10 +344,6 @@ export interface OAuthClientProvider {
      * - Adding custom headers for proprietary authentication schemes
      * - Implementing client assertion-based authentication (e.g., JWT bearer tokens)
      *
-     * The authentication belongs to the stored client registration: when that registration's
-     * `issuer` stamp names a different authorization server, {@linkcode auth} throws
-     * {@linkcode AuthorizationServerMismatchError} rather than registering again.
-     *
      * @param headers - The request headers (can be modified to add authentication)
      * @param params - The request body parameters (can be modified to add credentials)
      * @param url - The token endpoint URL being called
@@ -1289,13 +1285,11 @@ async function authInternal(
     let clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
         canPersistStamp: provider.saveClientInformation !== undefined
     });
-    const canRegisterAgain = provider.saveClientInformation !== undefined && provider.addClientAuthentication === undefined;
-    if (rawClientInfo && clientInformation === undefined && !canRegisterAgain) {
-        // The stored registration is bound to a different AS and cannot be recreated here:
-        // a static-credential provider (no DCR), or custom client authentication provisioned
-        // for that registration (registering again would still present it to this AS).
-        // Surface the typed error with both issuers.
-        throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
+    if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
+        // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
+        // AS — surface the typed error with both issuers rather than the generic
+        // "client information must be saveable for dynamic registration" fallback.
+        throw new AuthorizationServerMismatchError(rawClientInfo.issuer, issuer);
     }
     if (clientInformation && clientInformation.issuer === undefined) {
         // SEP-2352 back-stamp: legacy (pre-SEP-2352) storage returned an unstamped value.

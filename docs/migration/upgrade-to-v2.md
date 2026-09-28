@@ -1270,8 +1270,7 @@ same handling as the POST send path.
 `saveClientInformation()` and threads `{ issuer }` as the `ctx` argument to those
 methods plus `tokens()` / `clientInformation()`. On read, a stored value whose `issuer`
 names a different AS is treated as `undefined` and the flow re-registers / re-authorizes
-(or throws `AuthorizationServerMismatchError` when the provider cannot re-register: no
-`saveClientInformation()`, or an `addClientAuthentication()` tied to the stored registration).
+(or throws `AuthorizationServerMismatchError` when the provider has no `saveClientInformation()`).
 **Round-trip the stored object verbatim and you're protected** — single-slot storage
 works. Dropping the stamp is easy to miss: a `saveTokens()` implementation that
 rebuilds the object field-by-field and drops `issuer` leaves the value unstamped —
