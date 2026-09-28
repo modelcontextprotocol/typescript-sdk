@@ -90,5 +90,11 @@
     },
     "resolutions": {
         "strip-ansi": "6.0.1"
+    },
+    "pnpm": {
+        "overrides": {
+            "@google/genai>@modelcontextprotocol/sdk": "1.29.0",
+            "@anthropic-ai/sdk>zod": "4.3.6"
+        }
     }
 }
