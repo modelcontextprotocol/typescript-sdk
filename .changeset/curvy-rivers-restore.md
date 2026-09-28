@@ -2,4 +2,4 @@
 '@modelcontextprotocol/server': patch
 ---
 
-Restore a reused server's original `onclose` handler after each modern exchange so repeated requests do not accumulate nested handlers.
+Fix a stack overflow in `createMcpHandler` when the factory returns the same server instance for more than one request. Returning a fresh instance per request is still required.
