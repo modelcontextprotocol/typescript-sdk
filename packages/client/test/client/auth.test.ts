@@ -6,7 +6,13 @@ import type {
     StoredOAuthClientInformation,
     StoredOAuthTokens
 } from '@modelcontextprotocol/core-internal';
-import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
+import {
+    LATEST_PROTOCOL_VERSION,
+    OAuthClientInformationSchema,
+    OAuthError,
+    OAuthErrorCode,
+    OAuthTokensSchema
+} from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
@@ -25,6 +31,7 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    fetchToken,
     InsecureTokenEndpointError,
     isHttpsUrl,
     isStrictScopeSuperset,
@@ -5004,7 +5011,7 @@ describe('OAuth Authorization', () => {
         function createMigratingFetch() {
             let active = AS_ONE;
             const registerCalls: string[] = [];
-            const tokenCalls: Array<{ issuer: string; body: URLSearchParams }> = [];
+            const tokenCalls: Array<{ issuer: string; body: URLSearchParams; authorization: string | null }> = [];
             const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
                 const u = new URL(String(url));
                 if (u.pathname.includes('/.well-known/oauth-protected-resource')) {
@@ -5019,7 +5026,7 @@ describe('OAuth Authorization', () => {
                 }
                 if (u.pathname === '/token') {
                     const body = new URLSearchParams(String(init?.body));
-                    tokenCalls.push({ issuer: u.origin, body });
+                    tokenCalls.push({ issuer: u.origin, body, authorization: new Headers(init?.headers).get('authorization') });
                     return Response.json({ access_token: 'at', token_type: 'Bearer' });
                 }
                 return new Response(null, { status: 404 });
@@ -5310,13 +5317,118 @@ describe('OAuth Authorization', () => {
 
         it('ClientCredentialsProvider without expectedIssuer: no SEP-2352 warn on auth()', async () => {
             const srv = createMigratingFetch();
-            const provider = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's' });
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const provider = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's' });
 
             await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
             await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
             expect(warn.mock.calls.filter(c => /no 'issuer' stamp/.test(String(c[0])))).toHaveLength(0);
             warn.mockRestore();
+        });
+
+        it('fetchToken sends nothing to an authorization server other than the one the client information is bound to', async () => {
+            const srv = createMigratingFetch();
+            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>();
+            const prepareTokenRequest = vi.fn(() => new URLSearchParams({ grant_type: 'client_credentials' }));
+            const provider: OAuthClientProvider = { ...createBlobProvider(false), addClientAuthentication, prepareTokenRequest };
+            provider.clientInformation = () => ({ client_id: 'cid', client_secret: 'bound-secret', issuer: AS_ONE });
+
+            const err = await fetchToken(provider, AS_TWO, { metadata: asMetadata(AS_TWO), fetchFn: srv.fetchFn }).then(
+                () => undefined,
+                e => e
+            );
+            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
+            expect(err).toMatchObject({ recordedIssuer: AS_ONE, currentIssuer: AS_TWO });
+            expect(srv.tokenCalls).toEqual([]);
+            expect(prepareTokenRequest).not.toHaveBeenCalled();
+            expect(addClientAuthentication).not.toHaveBeenCalled();
+
+            // A matching stamp is used as before.
+            provider.addClientAuthentication = undefined;
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls.map(c => [c.issuer, c.authorization])).toEqual([[AS_ONE, `Basic ${btoa('cid:bound-secret')}`]]);
+        });
+
+        it('a provider that reads storage back through the SDK schemas keeps the binding', async () => {
+            const storage = new Map<string, string>();
+            const provider: OAuthClientProvider = {
+                ...createBlobProvider(false),
+                clientInformation: () =>
+                    storage.has('info') ? OAuthClientInformationSchema.parseAsync(JSON.parse(storage.get('info')!)) : undefined,
+                saveClientInformation: i => void storage.set('info', JSON.stringify(i)),
+                tokens: () => (storage.has('tokens') ? OAuthTokensSchema.parseAsync(JSON.parse(storage.get('tokens')!)) : undefined),
+                saveTokens: t => void storage.set('tokens', JSON.stringify(t))
+            };
+            storage.set('info', JSON.stringify({ client_id: 'cid', client_secret: 'secret-one', issuer: AS_ONE }));
+            storage.set('tokens', JSON.stringify({ access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE }));
+            const srv = createMigratingFetch();
+            srv.switchTo(AS_TWO);
+
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.tokenCalls).toEqual([]);
+            expect(OAuthTokensSchema.parse({ access_token: 'at', token_type: 'Bearer', issuer: null }).issuer).toBeUndefined();
+        });
+
+        it('custom client authentication is not presented to a different authorization server than its client information', async () => {
+            const srv = createMigratingFetch();
+            const addClientAuthentication = vi.fn<NonNullable<OAuthClientProvider['addClientAuthentication']>>((_headers, params) => {
+                params.set('client_assertion_type', 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
+                params.set('client_assertion', 'assertion-for-one');
+            });
+            const base = createBlobProvider(false);
+            const provider: OAuthClientProvider = {
+                ...base,
+                redirectUrl: undefined,
+                addClientAuthentication,
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+            base.stored.info = { client_id: 'provisioned', issuer: AS_ONE };
+
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+            expect(addClientAuthentication).toHaveBeenCalledTimes(1);
+
+            srv.switchTo(AS_TWO);
+            const err = await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn }).then(
+                () => undefined,
+                e => e
+            );
+            expect(srv.tokenCalls.filter(c => c.issuer !== AS_ONE).map(c => [c.issuer, c.body.get('client_assertion')])).toEqual([]);
+            expect(srv.registerCalls).toEqual([]);
+            expect(addClientAuthentication).toHaveBeenCalledTimes(1);
+            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
+            expect((err as AuthorizationServerMismatchError).recordedIssuer).toBe(AS_ONE);
+            expect((err as AuthorizationServerMismatchError).currentIssuer).toBe(AS_TWO);
+            expect(base.stored.info).toEqual({ client_id: 'provisioned', issuer: AS_ONE });
+        });
+
+        it('a null clientInformation() counts as no client information', async () => {
+            // The `JSON.parse(storage.getItem(key))` idiom yields `null`, not `undefined`, for an empty slot.
+            const storage = new Map<string, string>();
+            const srv = createMigratingFetch();
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata() {
+                    return { client_name: 't', redirect_uris: [] };
+                },
+                clientInformation: () => JSON.parse(storage.get('info') ?? 'null'),
+                tokens: () => undefined,
+                saveTokens: () => {},
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'v',
+                prepareTokenRequest: () => new URLSearchParams({ grant_type: 'client_credentials' })
+            };
+
+            await fetchToken(provider, AS_ONE, { metadata: asMetadata(AS_ONE), fetchFn: srv.fetchFn });
+            expect(srv.tokenCalls).toHaveLength(1);
+            expect(srv.tokenCalls[0]!.authorization).toBeNull();
+            expect(srv.tokenCalls[0]!.body.get('client_id')).toBeNull();
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).rejects.toThrow(
+                'OAuth client information must be saveable for dynamic registration'
+            );
         });
 
         it('m2m expectedIssuer: ClientCredentialsProvider refuses to send the credential to a different AS', async () => {

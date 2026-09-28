@@ -1038,7 +1038,7 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
         return baseFetch(url, init);
     };
 
-    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, expectedIssuer: ISSUER });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1276,7 +1276,12 @@ verifies('client-auth:private-key-jwt', async (_args: TestArgs) => {
     const privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-    const provider = new PrivateKeyJwtProvider({ clientId: CLIENT_ID, privateKey: privateKeyPem, algorithm: 'RS256' });
+    const provider = new PrivateKeyJwtProvider({
+        clientId: CLIENT_ID,
+        privateKey: privateKeyPem,
+        algorithm: 'RS256',
+        expectedIssuer: ISSUER
+    });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1722,7 +1727,8 @@ verifies('client-auth:private-key-jwt:static-assertion', async (_args: TestArgs)
 
     const provider = new StaticPrivateKeyJwtProvider({
         clientId: CLIENT_ID,
-        jwtBearerAssertion: preBuiltJwt
+        jwtBearerAssertion: preBuiltJwt,
+        expectedIssuer: ISSUER
     });
 
     const client = new Client({ name: 'c', version: '0' });

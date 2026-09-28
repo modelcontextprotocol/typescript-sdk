@@ -144,7 +144,13 @@ export const OAuthTokensSchema = z
         token_type: z.string(),
         expires_in: z.coerce.number().optional(),
         scope: z.string().optional(),
-        refresh_token: z.string().optional()
+        refresh_token: z.string().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back (SEP-2352).
+         */
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
 
@@ -223,7 +229,13 @@ export const OAuthClientInformationSchema = z
         client_id: z.string(),
         client_secret: z.string().optional(),
         client_id_issued_at: z.number().optional(),
-        client_secret_expires_at: z.number().optional()
+        client_secret_expires_at: z.number().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back (SEP-2352).
+         */
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
 

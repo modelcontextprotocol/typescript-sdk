@@ -129,11 +129,12 @@ export interface OAuthClientInformationContext {
  *   "binding on first use" claim would be false and would fire on every call.
  */
 export function discardIfIssuerMismatch<T extends { issuer?: string }>(
-    stored: T | undefined,
+    stored: T | null | undefined,
     issuer: string,
     opts?: { canPersistStamp?: boolean }
 ): T | undefined {
-    if (stored === undefined) return undefined;
+    // Nothing stored (`null` from a `JSON.parse(storage.getItem(...))`-style getter included).
+    if (!stored) return undefined;
     if (stored.issuer === undefined) {
         if (opts?.canPersistStamp !== false) {
             console.warn(
@@ -342,6 +343,10 @@ export interface OAuthClientProvider {
      * - Supporting authentication methods beyond the standard OAuth 2.0 methods
      * - Adding custom headers for proprietary authentication schemes
      * - Implementing client assertion-based authentication (e.g., JWT bearer tokens)
+     *
+     * The authentication belongs to the stored client registration: when that registration's
+     * `issuer` stamp names a different authorization server, {@linkcode auth} throws
+     * {@linkcode AuthorizationServerMismatchError} rather than registering again.
      *
      * @param headers - The request headers (can be modified to add authentication)
      * @param params - The request body parameters (can be modified to add credentials)
@@ -1001,7 +1006,8 @@ export interface AuthOptions {
     /**
      * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization
      * server discovery. Disabling it is **security-weakening** and intended only
-     * for authorization servers known to publish a mismatched `issuer`.
+     * for authorization servers known to publish a mismatched `issuer`. The unchecked
+     * `issuer` is also what `expectedIssuer` and stored `issuer` stamps are compared with.
      *
      * @default false
      */
@@ -1283,11 +1289,13 @@ async function authInternal(
     let clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, {
         canPersistStamp: provider.saveClientInformation !== undefined
     });
-    if (clientInformation === undefined && rawClientInfo?.issuer && provider.saveClientInformation === undefined) {
-        // Static-credential provider (no DCR) whose `expectedIssuer` stamp names a different
-        // AS — surface the typed error with both issuers rather than the generic
-        // "client information must be saveable for dynamic registration" fallback.
-        throw new AuthorizationServerMismatchError(rawClientInfo.issuer, issuer);
+    const canRegisterAgain = provider.saveClientInformation !== undefined && provider.addClientAuthentication === undefined;
+    if (rawClientInfo && clientInformation === undefined && !canRegisterAgain) {
+        // The stored registration is bound to a different AS and cannot be recreated here:
+        // a static-credential provider (no DCR), or custom client authentication provisioned
+        // for that registration (registering again would still present it to this AS).
+        // Surface the typed error with both issuers.
+        throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
     }
     if (clientInformation && clientInformation.issuer === undefined) {
         // SEP-2352 back-stamp: legacy (pre-SEP-2352) storage returned an unstamped value.
@@ -2441,6 +2449,15 @@ export async function fetchToken(
         });
     }
 
+    // SEP-2352: nothing is prepared for or sent to an authorization server other than the one
+    // the client information is stamped for.
+    const issuer = metadata?.issuer ?? String(authorizationServerUrl);
+    const rawClientInfo = await provider.clientInformation({ issuer });
+    const clientInformation = discardIfIssuerMismatch(rawClientInfo, issuer, { canPersistStamp: false });
+    if (rawClientInfo && clientInformation === undefined) {
+        throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
+    }
+
     // Prefer scope from options, fallback to provider.clientMetadata.scope
     const effectiveScope = scope ?? provider.clientMetadata.scope;
 
@@ -2462,12 +2479,10 @@ export async function fetchToken(
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
-    const clientInformation = await provider.clientInformation({ issuer: metadata?.issuer ?? String(authorizationServerUrl) });
-
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
         tokenRequestParams,
-        clientInformation: clientInformation ?? undefined,
+        clientInformation,
         addClientAuthentication: provider.addClientAuthentication,
         resource,
         dpop: await provider.dpop?.(),
