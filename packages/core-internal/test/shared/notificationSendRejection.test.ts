@@ -3,17 +3,19 @@
  * send produces. The send funnel (`_notificationViaCodec`) is an async method
  * that throws synchronously when there is no transport, so the promise it
  * returns is already rejected. If `notification()` returns that promise
- * instead of awaiting it, the async-function resolution goes through the
- * thenable job: the inner rejection sits with no handler for one microtask
- * before the job reads and calls its `then`. Node's tracker forgives that;
+ * instead of awaiting it, the async function resolves with a thenable: its
+ * `then` is read synchronously at return, but the call is deferred to the
+ * thenable job, so the inner rejection sits with no handler for one
+ * microtask. Node's tracker forgives that;
  * workerd (Cloudflare Workers) reports it as `unhandledrejection` followed by
  * `rejectionhandled`, which surfaces as noise in Vitest runs on that platform
  * (#2864).
  *
  * The observation below is the handler-attachment timing itself: with
- * `return await`, `await` attaches its reaction through the internal
- * promise-then path and the inner promise's own `then` property is never
- * read; with a bare `return`, the thenable job reads it one microtask later.
+ * `return await`, `await` attaches its reaction synchronously through the
+ * internal promise path and the inner promise's own `then` property is never
+ * read; with a bare `return`, `then` is read at return and called one
+ * microtask later.
  */
 import { describe, expect, test } from 'vitest';
 
@@ -32,8 +34,8 @@ class TestProtocolImpl extends Protocol<BaseContext> {
 
 /**
  * A natively rejected promise whose `then` property records every read.
- * The thenable-resolution job reaches `then` via property lookup; `await`
- * on a native promise does not.
+ * Resolving an async function with a thenable reaches `then` via property
+ * lookup; `await` on a native promise does not.
  */
 function instrumentedRejection(error: Error): { promise: Promise<void>; thenReads: () => number } {
     const promise = Promise.reject<void>(error);
@@ -64,9 +66,9 @@ describe('Protocol.notification(): a failed send rejects only through the return
 
         await expect(protocol.notification({ method: 'notifications/initialized' })).rejects.toBe(notConnected);
 
-        // A bare `return innerPromise` from the async method resolves via the
-        // thenable job, which reads `then` one microtask after the inner promise
-        // rejected — the window in which workerd reports it unhandled.
+        // A bare `return innerPromise` from the async method reads `then`
+        // synchronously at return and calls it one microtask later — the window
+        // in which workerd reports the inner rejection unhandled.
         expect(inner.thenReads()).toBe(0);
     });
 

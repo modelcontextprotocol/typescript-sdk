@@ -37,8 +37,8 @@ describe('Server notification sends on a closed connection', () => {
 
         await expect(server.sendLoggingMessage({ level: 'info', data: 'hello' })).rejects.toBe(notConnected);
 
-        // Read by the thenable job only when `notification()` returns the inner
-        // promise without awaiting it.
+        // `then` is read (synchronously at return, called one microtask later)
+        // only when `notification()` returns the inner promise without awaiting it.
         expect(inner.thenReads()).toBe(0);
     });
 
