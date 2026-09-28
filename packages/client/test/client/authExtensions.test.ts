@@ -277,7 +277,7 @@ describe('expectedIssuer', () => {
         warn.mockRestore();
     });
 
-    it.each([null, ''])('rejects %j at construction', value => {
+    it.each([null, '', 42, new URL(AUTH_SERVER_URL)])('rejects %j at construction', value => {
         expect(() => new ClientCredentialsProvider({ clientId: 'c', clientSecret: 's', expectedIssuer: value as string })).toThrow(
             'expectedIssuer must be'
         );
