@@ -148,11 +148,7 @@ export type DecodedResult =
            */
           inputRequests: Record<string, unknown>;
           requestState?: string;
-          /**
-           * Result-level `_meta`, carried through the seam so the manual
-           * caller and the driver see the peer's metadata (the anchor types
-           * `Result._meta` on every result, `input_required` included).
-           */
+          /** Result-level `_meta`, carried through so a manual caller sees it. */
           _meta?: ResultMetaObject;
       }
     | { kind: 'invalid'; error: SdkError };

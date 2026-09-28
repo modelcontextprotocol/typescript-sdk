@@ -202,11 +202,7 @@ export const rev2026Codec: WireCodec & {
             const rawInputRequests = raw['inputRequests'];
             const inputRequests = isPlainObject(rawInputRequests) ? rawInputRequests : {};
             const requestState = raw['requestState'];
-            // `_meta` is a result-level field (the anchor types `Result._meta`
-            // on every result, `input_required` included — see
-            // `stampServerInfoMeta`), so it must cross this seam with the rest
-            // of the payload instead of being dropped on the floor.
-            // Same tolerant parse as complete results: non-object drops, malformed serverInfo drops.
+            // Carry result-level `_meta` through, parsed as on complete results (malformed drops to absent).
             const metaParse = raw['_meta'] === undefined ? undefined : buildSchemas2026().ResultMetaSchema.safeParse(raw['_meta']);
             const meta = metaParse?.success ? (metaParse.data as ResultMetaObject) : undefined;
             if (Object.keys(inputRequests).length === 0 && typeof requestState !== 'string') {
