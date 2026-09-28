@@ -1614,7 +1614,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListPromptsResult>('prompts/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListPromptsResult>('prompts/list', params, options, (acc, page) => acc.prompts.push(...page.prompts));
+        return this._listAllPages<ListPromptsResult>('prompts/list', params, options, r => r.prompts);
     }
 
     /**
@@ -1654,9 +1654,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListResourcesResult>('resources/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListResourcesResult>('resources/list', params, options, (acc, page) =>
-            acc.resources.push(...page.resources)
-        );
+        return this._listAllPages<ListResourcesResult>('resources/list', params, options, r => r.resources);
     }
 
     /**
@@ -1687,9 +1685,7 @@ export class Client extends Protocol<ClientContext> {
         }
         const hit = await this._serveFromCache<ListResourceTemplatesResult>('resources/templates/list', undefined, options);
         if (hit !== undefined) return hit;
-        return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, (acc, page) =>
-            acc.resourceTemplates.push(...page.resourceTemplates)
-        );
+        return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, r => r.resourceTemplates);
     }
 
     /**
@@ -1698,8 +1694,7 @@ export class Client extends Protocol<ClientContext> {
      * methods' no-`cursor` auto-aggregate path. Page 1's result object is
      * mutated in place (its items array is extended; `nextCursor` is
      * cleared); page-1 metadata (`ttlMs`, `cacheScope`, `_meta`) is preserved.
-     * A `nextCursor` that repeats stops the walk (defence against a
-     * non-converging server, mcp.d's `drainList` guard);
+     * A page with the same items and `nextCursor` as the previous page ends the walk;
      * {@linkcode ClientOptions.listMaxPages} is a hard cap — hitting it
      * throws, so a partial aggregate is never cached. The
      * captured-generation guard skips the write when a `list_changed` landed
@@ -1718,7 +1713,7 @@ export class Client extends Protocol<ClientContext> {
         method: RequestMethod,
         baseParams: { readonly [key: string]: unknown } | undefined,
         options: CacheableRequestOptions | undefined,
-        append: (acc: R, page: R) => void,
+        items: (result: R) => unknown[],
         finalize?: (acc: R) => void
     ): Promise<R> {
         // `'bypass'` is the no-touch path: the cache is neither read nor
@@ -1732,9 +1727,9 @@ export class Client extends Protocol<ClientContext> {
         const generation = this._cache.captureGeneration(method);
         const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
         let cursor = acc.nextCursor;
-        const seen = new Set<string>();
+        let previous = acc;
         let pages = 1;
-        while (cursor !== undefined && !seen.has(cursor)) {
+        while (cursor !== undefined) {
             if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
                 throw new SdkError(
                     SdkErrorCode.ListPaginationExceeded,
@@ -1742,9 +1737,11 @@ export class Client extends Protocol<ClientContext> {
                     { method, listMaxPages: this._listMaxPages }
                 );
             }
-            seen.add(cursor);
             const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
-            append(acc, page);
+            // Same items and same cursor as the page before: the server made no progress.
+            if (page.nextCursor === cursor && JSON.stringify(items(page)) === JSON.stringify(items(previous))) break;
+            items(acc).push(...items(page));
+            previous = page;
             cursor = page.nextCursor;
             pages++;
         }
@@ -2536,7 +2533,7 @@ export class Client extends Protocol<ClientContext> {
             'tools/list',
             params,
             options,
-            (acc, page) => acc.tools.push(...page.tools),
+            r => r.tools,
             acc => this._excludeInvalidXMcpHeaderTools(acc)
         );
     }
