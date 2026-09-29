@@ -25,7 +25,8 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
-    stampErrorBrands
+    stampErrorBrands,
+    withoutIssuer
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
@@ -129,12 +130,14 @@ export interface OAuthClientInformationContext {
  *   "binding on first use" claim would be false and would fire on every call.
  */
 export function discardIfIssuerMismatch<T extends { issuer?: string }>(
-    stored: T | undefined,
+    stored: T | null | undefined,
     issuer: string,
     opts?: { canPersistStamp?: boolean }
 ): T | undefined {
-    if (stored === undefined) return undefined;
-    if (stored.issuer === undefined) {
+    // Nothing stored (`null` from a `JSON.parse(storage.getItem(...))`-style getter included).
+    if (!stored) return undefined;
+    // A stamp that is not a string (raw storage) counts as no stamp.
+    if (typeof stored.issuer !== 'string') {
         if (opts?.canPersistStamp !== false) {
             console.warn(
                 `[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp (pre-upgrade storage or ` +
@@ -142,7 +145,7 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
                     `ensure your provider round-trips the issuer field.`
             );
         }
-        return stored;
+        return stored.issuer === undefined ? stored : { ...stored, issuer: undefined };
     }
     return issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
@@ -875,8 +878,11 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
- * SEP-2207: refuse to send credentials to a non-TLS, non-loopback token endpoint.
- * Throws {@linkcode InsecureTokenEndpointError}. Loopback hosts are exempt.
+ * Refuse to send credentials to a non-TLS token endpoint. The MCP authorization
+ * specification requires authorization server endpoints to use HTTPS. Loopback
+ * hosts are exempt here for local development.
+ *
+ * @throws {@linkcode InsecureTokenEndpointError} if the endpoint is insecure.
  */
 export function assertSecureTokenEndpoint(tokenEndpoint: string | URL): URL {
     const url = new URL(String(tokenEndpoint));
@@ -998,7 +1004,8 @@ export interface AuthOptions {
     /**
      * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization
      * server discovery. Disabling it is **security-weakening** and intended only
-     * for authorization servers known to publish a mismatched `issuer`.
+     * for authorization servers known to publish a mismatched `issuer`. The unchecked
+     * `issuer` is also what `expectedIssuer` and stored `issuer` stamps are compared with.
      *
      * @default false
      */
@@ -2251,7 +2258,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(json);
+        return OAuthTokensSchema.parse(withoutIssuer(json));
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2438,6 +2445,18 @@ export async function fetchToken(
         });
     }
 
+    // SEP-2352: nothing is sent to an authorization server other than the one the client information is stamped for.
+    const issuer = metadata?.issuer ?? String(authorizationServerUrl);
+    const readClientInformation = async () => {
+        const rawClientInfo = await provider.clientInformation({ issuer });
+        const checked = discardIfIssuerMismatch(rawClientInfo, issuer, { canPersistStamp: false });
+        if (rawClientInfo && checked === undefined) {
+            throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
+        }
+        return checked;
+    };
+    let clientInformation = await readClientInformation();
+
     // Prefer scope from options, fallback to provider.clientMetadata.scope
     const effectiveScope = scope ?? provider.clientMetadata.scope;
 
@@ -2459,12 +2478,13 @@ export async function fetchToken(
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
-    const clientInformation = await provider.clientInformation({ issuer: metadata?.issuer ?? String(authorizationServerUrl) });
+    // A provider may fill in its client information while the request is prepared.
+    clientInformation ??= await readClientInformation();
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
         tokenRequestParams,
-        clientInformation: clientInformation ?? undefined,
+        clientInformation,
         addClientAuthentication: provider.addClientAuthentication,
         resource,
         dpop: await provider.dpop?.(),
@@ -2481,10 +2501,17 @@ export async function fetchToken(
  * consistently across both DCR and the subsequent authorization request.
  *
  * @deprecated Dynamic Client Registration is deprecated as of protocol version
- * 2026-07-28 (SEP-2577) in favor of Client ID Metadata Documents (SEP-991).
- * Remains functional during the deprecation window (at least twelve months).
- * Prefer a CIMD URL `client_id` when the authorization server advertises
- * `client_id_metadata_document_supported`; the SDK already gates on this for you.
+ * 2026-07-28 in favor of Client ID Metadata Documents (SEP-991); the deprecation
+ * landed via spec PR
+ * {@link https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858 | modelcontextprotocol#2858}
+ * (SEP-2577 is the separate roots/sampling/logging deprecation). Remains
+ * functional during the deprecation window — at least twelve months under the
+ * feature lifecycle policy (SEP-2596), so 2027-07-28 is the earliest possible
+ * removal date. Prefer a CIMD URL `client_id` when the authorization server
+ * advertises `client_id_metadata_document_supported`: the built-in `auth()` flow
+ * skips registration for you when that capability is advertised AND your
+ * provider supplies `clientMetadataUrl`, but `registerClient` itself does not
+ * gate — calling it directly always sends the registration request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
@@ -2532,5 +2559,5 @@ export async function registerClient(
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return OAuthClientInformationFullSchema.parse(withoutIssuer(await response.json()));
 }

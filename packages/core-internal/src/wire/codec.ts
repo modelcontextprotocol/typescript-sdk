@@ -57,6 +57,7 @@ import type {
     RequestMethod,
     RequestTypeMap,
     Result,
+    ResultMetaObject,
     ResultTypeMap
 } from '../types/types';
 import { rev2025Codec } from './rev2025-11-25/codec';
@@ -147,6 +148,8 @@ export type DecodedResult =
            */
           inputRequests: Record<string, unknown>;
           requestState?: string;
+          /** Result-level `_meta`, carried through so a manual caller sees it. */
+          _meta?: ResultMetaObject;
       }
     | { kind: 'invalid'; error: SdkError };
 

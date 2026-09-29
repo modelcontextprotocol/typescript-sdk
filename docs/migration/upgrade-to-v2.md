@@ -484,8 +484,10 @@ instead.
   `ToolChoice`, `ToolUseContent`/`ToolResultContent`, the `includeContext` enum values),
   and the full Roots stack (`Root`, `ListRootsRequest`/`Result`,
   `RootsListChangedNotification`).
-- **`registerClient`** (Dynamic Client Registration) — prefer Client ID Metadata
-  Documents per SEP-991.
+- **`registerClient`** (Dynamic Client Registration) — deprecated via spec PR
+  [modelcontextprotocol#2858](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858)
+  rather than SEP-2577 (listed here because the `@deprecated` annotations landed in
+  the same sweep); prefer Client ID Metadata Documents per SEP-991.
 
 The deprecation is annotation-only — JSDoc `@deprecated` markers were added, nothing
 else: every deprecated runtime API keeps its v1 call signature (e.g.
@@ -1153,6 +1155,7 @@ path will not catch them):
 | RFC 9207 `iss` mismatch / RFC 8414 §3.3 issuer-echo mismatch                                                             | `IssuerMismatchError` (`kind`, `expected`, `received`)                                |
 | Transport 403 `insufficient_scope` with `onInsufficientScope: 'throw'`, or default mode without an `OAuthClientProvider` | `InsufficientScopeError` (`requiredScope`, `resourceMetadataUrl`, `errorDescription`) |
 | `auth()` callback leg: discovery resolves a different AS than the recorded redirect target                               | `AuthorizationServerMismatchError` (`recordedIssuer`, `currentIssuer`)                |
+| `auth()` on a provider that cannot re-register, or `fetchToken()`: client information stamped for a different AS         | `AuthorizationServerMismatchError` (`recordedIssuer`, `currentIssuer`)                |
 
 #### Connect-time OAuth retry (`UnauthorizedError`)
 
@@ -1266,7 +1269,8 @@ same handling as the POST send path.
 `auth()` stamps an `issuer` field onto every value it passes to `saveTokens()` /
 `saveClientInformation()` and threads `{ issuer }` as the `ctx` argument to those
 methods plus `tokens()` / `clientInformation()`. On read, a stored value whose `issuer`
-names a different AS is treated as `undefined` and the flow re-registers / re-authorizes.
+names a different AS is treated as `undefined` and the flow re-registers / re-authorizes
+(or throws `AuthorizationServerMismatchError` when the provider has no `saveClientInformation()`).
 **Round-trip the stored object verbatim and you're protected** — single-slot storage
 works. Dropping the stamp is easy to miss: a `saveTokens()` implementation that
 rebuilds the object field-by-field and drops `issuer` leaves the value unstamped —
@@ -1276,14 +1280,15 @@ re-stamps on first use where the provider can persist it). If you see that warni
 repeating after upgrading, check this first. To hold credentials for several authorization servers at once, key your storage
 on `ctx.issuer` (treat **`ctx === undefined` as "return the most-recently-saved token
 set"** — the transport's per-request `Authorization: Bearer` read calls `tokens()` with
-no `ctx`). New TypeScript-only aliases `StoredOAuthTokens` / `StoredOAuthClientInformation`
-add an optional `issuer?: string` field on top of the wire types.
+no `ctx`). `OAuthTokensSchema` / `OAuthClientInformationSchema` keep the optional `issuer`, so
+reading storage back through them is fine; the `StoredOAuthTokens` / `StoredOAuthClientInformation`
+aliases name the stored shape.
 
 `OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are
 `@deprecated` (still written for back-compat, never read by the SDK). The bundled
 `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, and
-`CrossAppAccessProvider` gain `expectedIssuer?: string` and no longer define
-`saveClientInformation()`. Implement `discoveryState()` / `saveDiscoveryState()` so the
+`CrossAppAccessProvider` gain `expectedIssuer?: string` (omitting it is deprecated) and no
+longer define `saveClientInformation()`. Implement `discoveryState()` / `saveDiscoveryState()` so the
 callback leg can verify it is exchanging the code at the same AS the redirect targeted;
 without it the SDK `console.warn`s once per callback (`discoveryState` must persist with
 the same durability as `codeVerifier`). Both methods are optional on
