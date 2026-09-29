@@ -207,9 +207,9 @@ The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
 `@modelcontextprotocol/*` packages your imports use, but does not add the framework
 peer — install it explicitly (`pnpm add express` etc.). `@modelcontextprotocol/node`
-depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion) but
-does **not** require the `hono` framework — your package manager may emit a harmless
-unmet-peer warning for `hono` (upstream `@hono/node-server` declares it).
+depends on `@hono/node-server` at runtime (Node HTTP ↔ Web Standard conversion) and
+installs `hono` as a regular dependency only because `@hono/node-server` requires it as
+a peer — the adapter does not use the `hono` framework itself.
 
 v2 requires **Node.js 20+**. It is ESM-first but ships a **CommonJS build alongside
 ESM**, so CommonJS projects can `require('@modelcontextprotocol/…')` directly — no
