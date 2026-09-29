@@ -91,6 +91,24 @@ export function createPrivateKeyJwtAuth(options: {
 }
 
 /**
+ * The `issuer` stamp for constructor-supplied client information. Omitting `expectedIssuer` is
+ * deprecated: nothing else says which authorization server such credentials belong to.
+ */
+function checkedExpectedIssuer(expectedIssuer: string | undefined): string | undefined {
+    if (expectedIssuer === undefined) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            '[mcp-sdk] Omitting `expectedIssuer` is deprecated. Without it, the MCP server decides which authorization ' +
+                "server receives this client's credentials; pass your authorization server's issuer URL as " +
+                '`expectedIssuer` so they are only sent there.'
+        );
+    } else if (typeof expectedIssuer !== 'string' || !expectedIssuer) {
+        throw new Error("expectedIssuer must be the authorization server's issuer URL");
+    }
+    return expectedIssuer;
+}
+
+/**
  * Options for creating a ClientCredentialsProvider.
  */
 export interface ClientCredentialsProviderOptions {
@@ -113,6 +131,16 @@ export interface ClientCredentialsProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * The issuer URL of the authorization server these credentials were registered with.
+     * When set, `auth()` only presents them to that authorization server and throws if the
+     * MCP server advertises a different URL (one trailing slash aside).
+     *
+     * Omitting it is deprecated: the credentials then go to whichever authorization server
+     * the MCP server advertises first.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -124,7 +152,8 @@ export interface ClientCredentialsProviderOptions {
  * @example
  * const provider = new ClientCredentialsProvider({
  *   clientId: 'my-client',
- *   clientSecret: 'my-secret'
+ *   clientSecret: 'my-secret',
+ *   expectedIssuer: 'https://auth.example.com'
  * });
  *
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
@@ -136,10 +165,14 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
 
+    constructor(options: ClientCredentialsProviderOptions & { expectedIssuer: string });
+    /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
+    constructor(options: ClientCredentialsProviderOptions);
     constructor(options: ClientCredentialsProviderOptions) {
         this._clientInfo = {
             client_id: options.clientId,
-            client_secret: options.clientSecret
+            client_secret: options.clientSecret,
+            issuer: checkedExpectedIssuer(options.expectedIssuer)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'client-credentials-client',
@@ -227,6 +260,16 @@ export interface PrivateKeyJwtProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * The issuer URL of the authorization server these credentials were registered with.
+     * When set, `auth()` only presents them to that authorization server and throws if the
+     * MCP server advertises a different URL (one trailing slash aside).
+     *
+     * Omitting it is deprecated: the credentials then go to whichever authorization server
+     * the MCP server advertises first.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -239,7 +282,8 @@ export interface PrivateKeyJwtProviderOptions {
  * const provider = new PrivateKeyJwtProvider({
  *   clientId: 'my-client',
  *   privateKey: pemEncodedPrivateKey,
- *   algorithm: 'RS256'
+ *   algorithm: 'RS256',
+ *   expectedIssuer: 'https://auth.example.com'
  * });
  *
  * const transport = new StreamableHTTPClientTransport(serverUrl, {
@@ -252,9 +296,13 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
 
+    constructor(options: PrivateKeyJwtProviderOptions & { expectedIssuer: string });
+    /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
+    constructor(options: PrivateKeyJwtProviderOptions);
     constructor(options: PrivateKeyJwtProviderOptions) {
         this._clientInfo = {
-            client_id: options.clientId
+            client_id: options.clientId,
+            issuer: checkedExpectedIssuer(options.expectedIssuer)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'private-key-jwt-client',
@@ -341,6 +389,16 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * The issuer URL of the authorization server these credentials were registered with.
+     * When set, `auth()` only presents them to that authorization server and throws if the
+     * MCP server advertises a different URL (one trailing slash aside).
+     *
+     * Omitting it is deprecated: the credentials then go to whichever authorization server
+     * the MCP server advertises first.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -356,9 +414,13 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
 
+    constructor(options: StaticPrivateKeyJwtProviderOptions & { expectedIssuer: string });
+    /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
+    constructor(options: StaticPrivateKeyJwtProviderOptions);
     constructor(options: StaticPrivateKeyJwtProviderOptions) {
         this._clientInfo = {
-            client_id: options.clientId
+            client_id: options.clientId,
+            issuer: checkedExpectedIssuer(options.expectedIssuer)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'static-private-key-jwt-client',
