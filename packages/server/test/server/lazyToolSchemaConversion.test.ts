@@ -4,7 +4,8 @@
  * `toolInputSchemaJson()` / `outputSchemaJson` slots fill on first use. A server
  * built per request therefore no longer converts every tool on every request.
  */
-import { scanXMcpHeaderDeclarations, standardSchemaToJsonSchema, type StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
+import type { StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
+import { scanXMcpHeaderDeclarations, standardSchemaToJsonSchema } from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -106,12 +107,12 @@ describe('lazy tool schema conversion', () => {
         expect(tool.outputSchemaJson).toEqual(standardSchemaToJsonSchema(z.object({ c: z.string() }), 'output'));
         expect(replacement.calls.output).toBe(1);
         // The replacement stays memoised.
-        tool.outputSchemaJson;
+        void tool.outputSchemaJson;
         expect(replacement.calls.output).toBe(1);
     });
 
     it('the invalid x-mcp-header warning fires each time tools are listed, not at registration', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const server = new McpServer({ name: 'lazy', version: '0' });
         server.registerTool('bad', { inputSchema: INVALID_HEADER_SCHEMA }, async () => ({ content: [] }));
         expect(warn).toHaveBeenCalledTimes(0);
