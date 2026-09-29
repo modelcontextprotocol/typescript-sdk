@@ -72,7 +72,16 @@ import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimO
  */
 const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
 
+import type { ServerExtension } from './extension';
+
 export type ServerOptions = ProtocolOptions & {
+    /**
+     * Extensions to install at construction. Each is advertised under
+     * `capabilities.extensions[extension.id]` and then installed, in order,
+     * after the built-in handlers exist — see {@linkcode ServerExtension}.
+     */
+    extensions?: ServerExtension[];
+
     /**
      * Capabilities to advertise as being supported by this server.
      *
@@ -348,6 +357,11 @@ export class Server extends Protocol<ServerContext> {
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
+        }
+
+        for (const extension of options?.extensions ?? []) {
+            this.registerCapabilities({ extensions: { [extension.id]: {} } });
+            extension.install(this);
         }
     }
 

@@ -80,6 +80,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { ClientExtension } from './extension';
 import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
@@ -181,6 +182,13 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
 }
 
 export type ClientOptions = ProtocolOptions & {
+    /**
+     * Extensions to install at construction. Each is advertised under
+     * `capabilities.extensions[extension.id]` and then installed, in order —
+     * see {@linkcode ClientExtension}.
+     */
+    extensions?: ClientExtension[];
+
     /**
      * Capabilities to advertise as being supported by this client.
      */
@@ -657,6 +665,11 @@ export class Client extends Protocol<ClientContext> {
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._listChangedConfig = options.listChanged;
+        }
+
+        for (const extension of options?.extensions ?? []) {
+            this.registerCapabilities({ extensions: { [extension.id]: {} } });
+            extension.install(this);
         }
     }
 
