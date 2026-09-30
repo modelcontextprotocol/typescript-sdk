@@ -3,7 +3,7 @@
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
-    "license": "SEE LICENSE IN LICENSE",
+    "license": "Apache-2.0",
     "author": "Model Context Protocol a Series of LF Projects, LLC.",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
