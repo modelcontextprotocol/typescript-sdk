@@ -2,7 +2,7 @@
     "name": "@modelcontextprotocol/node",
     "version": "2.1.0",
     "description": "Model Context Protocol implementation for TypeScript - Node.js middleware",
-    "license": "SEE LICENSE IN LICENSE",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",

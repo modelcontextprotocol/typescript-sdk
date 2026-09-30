@@ -10,4 +10,4 @@
 '@modelcontextprotocol/hono': patch
 ---
 
-The `license` field of the package manifests now reads `SEE LICENSE IN LICENSE`, matching the repository's `LICENSE` file. No code change.
+The `license` field of the package manifests is now `Apache-2.0`; the `LICENSE` file shipped in each package carries the full terms, including the MIT text for earlier contributions. No code change.
