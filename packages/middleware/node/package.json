@@ -49,16 +49,11 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly"
-    },
-    "peerDependencies": {
-        "@modelcontextprotocol/server": "workspace:^",
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly"
     },
-    "peerDependenciesMeta": {
-        "hono": {
-            "optional": true
-        }
+    "peerDependencies": {
+        "@modelcontextprotocol/server": "workspace:^"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
