@@ -33,13 +33,10 @@
  * Custom-handler shadowing policy (both directions): a method that belongs to
  * the SPEC-METHOD UNIVERSE — the union of every codec's registry, derived,
  * not hand-curated — is ALWAYS era-gated, so a custom handler registered for
- * a deleted spec method (e.g. `ping`, `tasks/result`) serves it only on the
- * era that defines it. The one exception is `isExtensionReusedRequestMethod`:
- * the Tasks extension (SEP-2663) keeps `tasks/get` and `tasks/cancel` after
- * 2026-07-28 moved tasks out of core, so a handler registered, or a request
- * sent, with an EXPLICIT SCHEMA for those two names is era-blind. Methods
- * outside the universe are consumer-owned extension methods: they are
- * era-blind and require explicit schemas, exactly as today.
+ * a deleted spec method (e.g. `tasks/result`) serves it only on the era that
+ * defines it. Methods outside the universe are consumer-owned extension
+ * methods: they are era-blind and require explicit schemas, exactly as today.
+ * Exception: `isExtensionReusedRequestMethod`, the Tasks extension names sent or served with an explicit schema.
  *
  * Everything in `wire/` is internal to the bundled, `private: true` core —
  * nothing per-revision is public surface, and nothing here may ever be

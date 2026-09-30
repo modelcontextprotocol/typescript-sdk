@@ -1006,11 +1006,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Era gate — deletions are physical: a spec method that is not in
         // this era's registry is −32601 BY ABSENCE, before any handler
         // lookup, even when a handler is registered (a custom handler cannot
-        // shadow a deleted spec method across eras). The one exception is
-        // the Tasks extension (SEP-2663): `tasks/get` and `tasks/cancel` are
-        // served when their handler was registered with an explicit schema.
-        // Methods outside the spec universe are consumer-owned extension
-        // methods and stay era-blind.
+        // shadow a deleted spec method across eras). Methods outside the
+        // spec universe are consumer-owned extension methods and stay
+        // era-blind.
+        // Exception: the Tasks extension names (SEP-2663), when registered with an explicit schema.
         if (
             isSpecRequestMethod(request.method) &&
             !codec.hasRequestMethod(request.method) &&
@@ -1339,9 +1338,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * directions: sending a spec method that the resolved era does not define
      * dies locally with a typed error before anything reaches the transport.
      * Methods outside the spec universe are consumer-owned extension methods
-     * and stay era-blind. The public `request()` overload skips this gate
-     * only for the Tasks extension names (`tasks/get`, `tasks/cancel`) sent
-     * with an explicit result schema.
+     * and stay era-blind.
      */
     private _assertOutboundRequestInEra(codec: WireCodec, method: string): void {
         if (isSpecRequestMethod(method) && !codec.hasRequestMethod(method)) {
