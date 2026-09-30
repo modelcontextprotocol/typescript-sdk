@@ -99,7 +99,7 @@ const cli = new Client(
 );
 ```
 
-A `2xx` answer that carries no usable reply (an empty or non-JSON body, a `204`, a missing or unexpected content type) is not era evidence: `connect()` rejects with `SdkError(EraNegotiationFailed)` and the message says `the server answered with an unusable reply`. To connect to a 2025 server behind a front that answers the probe this way, pass `connect(transport, { prior: { kind: 'legacy' } })`.
+A `2xx` answer that carries no usable reply (a body that is not JSON under `application/json`, a bare `204`, a missing or unaccepted content type) is not era evidence: `connect()` rejects with `SdkError(EraNegotiationFailed)` and the message says `the server answered with an unusable reply`. An empty SSE stream or a `202` surfaces as the probe timeout instead. To connect to a 2025 server behind a front that answers the probe this way, pass `connect(transport, { prior: { kind: 'legacy' } })`.
 
 A probe timeout is transport-aware. On stdio a silent server is a legacy server, so `connect()` falls back to `initialize`; on HTTP silence is an outage, so `connect()` rejects with `SdkError(RequestTimeout)` instead of misreporting a dead server as legacy. One browser exception: an opaque CORS `TypeError` during the probe falls back to the legacy era, because deployed 2025 servers commonly have allow-lists that predate the 2026 headers.
 

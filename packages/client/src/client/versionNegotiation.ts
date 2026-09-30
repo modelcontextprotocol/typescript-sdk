@@ -380,7 +380,7 @@ function isUnusableReplyError(error: unknown): boolean {
     if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpUnexpectedContent) {
         return true;
     }
-    // By name, not `instanceof`: an injected `fetch` can produce a SyntaxError from another realm.
+    // Matched by name: this is what response.json() throws for a body that is not JSON.
     return error instanceof Error && error.name === 'SyntaxError';
 }
 
