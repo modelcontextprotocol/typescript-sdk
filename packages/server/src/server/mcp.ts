@@ -77,12 +77,7 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    /**
-     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
-     * registration-time scan and the pre-dispatch validation step share one
-     * conversion instead of paying it twice per request under the
-     * per-request-factory `createMcpHandler` model.
-     */
+    /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
     private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
 
     /**
@@ -98,15 +93,7 @@ export class McpServer {
         if (tool === undefined || !tool.enabled) return undefined;
         if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
         if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
-        // Lazy path: the memo slot is unset because `registerTool`'s eager
-        // conversion threw (and was swallowed per its "warn, never throw"
-        // contract) or `update({paramsSchema})`/rename invalidated it. The
-        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
-        // `tools/call` whose body-authoritative dispatch would otherwise
-        // succeed — return `undefined` so validation is skipped and the
-        // conversion failure stays where it always surfaced (`tools/list`).
-        // A successful re-derive is memoized so the per-request-factory
-        // `createMcpHandler` model does not re-convert on every call.
+        // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
         try {
             const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
             this._toolInputSchemaJson[name] = json;
@@ -238,7 +225,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -889,42 +876,21 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
-        // SEP-2243 registration-time declaration-validity check (additive: warn,
-        // never throw — clients enforce by exclusion, servers by header
-        // validation; a malformed declaration here should not block local
-        // development against a stdio client that ignores it). The conversion
-        // is memoized so the pre-dispatch validation step in `createMcpHandler`
-        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
-        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
-        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
-        // the "warn, never throw" contract.
-        if (inputSchema !== undefined) {
-            try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
-                this._toolInputSchemaJson[name] = json;
-                const scan = scanXMcpHeaderDeclarations(json);
-                if (!scan.valid) {
-                    console.warn(
-                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
-                            `conforming Streamable HTTP clients: ${scan.reason}`
-                    );
-                }
-            } catch {
-                // Conversion failure: leave the cache slot unset so the lazy
-                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
-                // the failure where it always has.
-            }
-        }
-
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
+        let outputSchemaJson: Record<string, unknown> | undefined;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
-            outputSchemaJson: convertOutputSchemaJson(outputSchema),
+            get outputSchemaJson() {
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema));
+            },
+            set outputSchemaJson(value) {
+                outputSchemaJson = value;
+            },
             annotations,
             icons,
             execution,
@@ -1116,6 +1082,19 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
@@ -1152,7 +1131,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
@@ -1353,7 +1332,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     /**
      * @hidden
-     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * The converted JSON Schema of `outputSchema`, memoised on first use (and on
      * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
      * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
      * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
@@ -1412,6 +1391,19 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input');
+    const scan = scanXMcpHeaderDeclarations(json);
+    if (!scan.valid) {
+        console.warn(
+            `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                `conforming Streamable HTTP clients: ${scan.reason}`
+        );
+    }
+    return json;
+}
 
 /**
  * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
