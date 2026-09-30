@@ -1,5 +1,13 @@
 import { EventSource, type ErrorEvent, type EventSourceInit } from 'eventsource';
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
+import {
+    Transport,
+    FetchLike,
+    createFetchWithInit,
+    fetchLeavingRedirects,
+    fetchWithinOrigin,
+    normalizeHeaders,
+    unfollowedRedirect
+} from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 
@@ -52,6 +60,16 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * How a redirect of one of the transport's requests is handled, including the OAuth requests it makes for `authProvider`.
+     *
+     * - `'same-origin'` (default): a redirect is followed only when it keeps the method and stays within the origin of the request, or goes from http to https on the same host with default ports; any other redirect is not followed and the request fails.
+     * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions of the SDK.
+     *
+     * With either value, a `requestInit.redirect` of `'error'` or `'manual'` is passed to fetch unchanged for POST requests.
+     */
+    redirectPolicy?: 'same-origin' | 'follow';
 };
 
 /**
@@ -71,6 +89,7 @@ export class SSEClientTransport implements Transport {
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _followRedirects: boolean;
     private _protocolVersion?: string;
 
     onclose?: () => void;
@@ -86,6 +105,17 @@ export class SSEClientTransport implements Transport {
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._followRedirects = opts?.redirectPolicy === 'follow';
+        if (this._followRedirects) {
+            this._fetch = fetchLeavingRedirects(this._fetch);
+            this._fetchWithInit = fetchLeavingRedirects(this._fetchWithInit);
+        }
+    }
+
+    /** Error text for a redirect `response` that was not followed, or `undefined` for any other response. */
+    private _unfollowedRedirect(response: Response, url: string | URL): string | undefined {
+        const text = unfollowedRedirect(response, url);
+        return text && !this._followRedirects ? `${text} (redirectPolicy: 'same-origin')` : text;
     }
 
     private async _authThenStart(): Promise<void> {
@@ -134,7 +164,9 @@ export class SSEClientTransport implements Transport {
     }
 
     private _startOrAuth(): Promise<void> {
-        const fetchImpl = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
+        const baseFetch = (this?._eventSourceInit?.fetch ?? this._fetch ?? fetch) as typeof fetch;
+        const fetchImpl = this._followRedirects ? baseFetch : fetchWithinOrigin(baseFetch);
+        let redirect: string | undefined;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
@@ -145,6 +177,7 @@ export class SSEClientTransport implements Transport {
                         ...init,
                         headers
                     });
+                    redirect = this._unfollowedRedirect(response, url);
 
                     if (response.status === 401 && response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
@@ -163,7 +196,7 @@ export class SSEClientTransport implements Transport {
                     return;
                 }
 
-                const error = new SseError(event.code, event.message, event);
+                const error = new SseError(event.code, redirect ?? event.message, event);
                 reject(error);
                 this.onerror?.(error);
             };
@@ -256,7 +289,7 @@ export class SSEClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._endpoint, init);
+            const response = await fetchWithinOrigin(this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
                 const text = await response.text().catch(() => null);
 
@@ -279,7 +312,9 @@ export class SSEClientTransport implements Transport {
                     return this.send(message);
                 }
 
-                throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
+                throw new Error(
+                    `Error POSTing to endpoint (HTTP ${response.status}): ${this._unfollowedRedirect(response, this._endpoint) ?? text}`
+                );
             }
 
             // Release connection - POST responses don't have content we need
