@@ -14,9 +14,6 @@ const confirmationSchema = z.object({
     confirm: z.boolean().meta({ title: 'Confirm deployment' })
 });
 
-const cacheConfirmationSchema = z.object({ confirm: z.boolean() });
-const cacheScopeSchema = z.object({ scope: z.string() });
-
 server.registerTool(
     'deploy',
     {
@@ -177,6 +174,9 @@ Sampling and roots are deprecated as of protocol revision 2026-07-28 (SEP-2577) 
 To run rounds in sequence, return an opaque `requestState` string alongside the requests. The client echoes it back byte-for-byte on the retry, and `ctx.mcpReq.requestState<State>()` reads its decoded payload on re-entry. Mint it with the codec from the next section.
 
 ```ts source="../../examples/guides/servers/input-required.examples.ts#requestState_mint"
+const cacheConfirmationSchema = z.object({ confirm: z.boolean() });
+const cacheScopeSchema = z.object({ scope: z.string() });
+
 server.registerTool(
     'wipe-cache',
     { description: 'Confirm, then pick a scope, then wipe', inputSchema: z.object({}) },

@@ -40,9 +40,6 @@ const confirmationSchema = z.object({
     confirm: z.boolean().meta({ title: 'Confirm deployment' })
 });
 
-const cacheConfirmationSchema = z.object({ confirm: z.boolean() });
-const cacheScopeSchema = z.object({ scope: z.string() });
-
 server.registerTool(
     'deploy',
     {
@@ -128,6 +125,9 @@ server.registerTool(
 
 // "Carry state across rounds with `requestState`" — two sequential rounds.
 //#region requestState_mint
+const cacheConfirmationSchema = z.object({ confirm: z.boolean() });
+const cacheScopeSchema = z.object({ scope: z.string() });
+
 server.registerTool(
     'wipe-cache',
     { description: 'Confirm, then pick a scope, then wipe', inputSchema: z.object({}) },
