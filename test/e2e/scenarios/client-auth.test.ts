@@ -1038,7 +1038,7 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
         return baseFetch(url, init);
     };
 
-    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, expectedIssuer: ISSUER });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1276,7 +1276,12 @@ verifies('client-auth:private-key-jwt', async (_args: TestArgs) => {
     const privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-    const provider = new PrivateKeyJwtProvider({ clientId: CLIENT_ID, privateKey: privateKeyPem, algorithm: 'RS256' });
+    const provider = new PrivateKeyJwtProvider({
+        clientId: CLIENT_ID,
+        privateKey: privateKeyPem,
+        algorithm: 'RS256',
+        expectedIssuer: ISSUER
+    });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1722,7 +1727,8 @@ verifies('client-auth:private-key-jwt:static-assertion', async (_args: TestArgs)
 
     const provider = new StaticPrivateKeyJwtProvider({
         clientId: CLIENT_ID,
-        jwtBearerAssertion: preBuiltJwt
+        jwtBearerAssertion: preBuiltJwt,
+        expectedIssuer: ISSUER
     });
 
     const client = new Client({ name: 'c', version: '0' });
@@ -2060,6 +2066,73 @@ verifies('client-auth:authprovider:token-attached', async (_args: TestArgs) => {
 
         // The bearer header reached the server intact on the tools/call request.
         expect(authorizationSeenByServer).toEqual([`Bearer ${TOKEN}`]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies('client-auth:authprovider:token-overrides-requestinit', async (_args: TestArgs) => {
+    const TOKEN = 'provider-bearer-token';
+    const STALE = 'stale-configured-token';
+
+    // Minimal AuthProvider: token() only. Mirrors a config that pins a static API key in
+    // requestInit.headers but must defer to the provider once it has a token (#2208).
+    const authProvider: AuthProvider = {
+        token: async () => TOKEN
+    };
+
+    const seenByServer: Array<{ authorization: string | null; custom: string | null }> = [];
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+            seenByServer.push({
+                authorization: ctx.http?.req?.headers.get('authorization') ?? null,
+                custom: ctx.http?.req?.headers.get('x-caller-header') ?? null
+            });
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        return s;
+    });
+
+    const requests: Array<{ method: string; authorization: string | null; custom: string | null }> = [];
+    const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers);
+        requests.push({
+            method: init?.method ?? 'GET',
+            authorization: headers.get('authorization'),
+            custom: headers.get('x-caller-header')
+        });
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider,
+        fetch: recordingFetch,
+        requestInit: { headers: { Authorization: `Bearer ${STALE}`, 'X-Caller-Header': 'preserved' } }
+    });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // The standalone SSE GET is opened fire-and-forget after initialize; wait for it so it is checked too.
+        await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+        // Exactly three POSTs (initialize, notifications/initialized, tools/call) plus the standalone SSE GET,
+        // every one carrying the provider token rather than the configured placeholder, with the other
+        // configured header passing through untouched.
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(3);
+        expect(requests.filter(r => r.method === 'GET')).toHaveLength(1);
+        for (const req of requests) {
+            expect(req.authorization).toBe(`Bearer ${TOKEN}`);
+            expect(req.custom).toBe('preserved');
+        }
+
+        // The provider token, not the placeholder, is what reached the server on tools/call.
+        expect(seenByServer).toEqual([{ authorization: `Bearer ${TOKEN}`, custom: 'preserved' }]);
     } finally {
         await client.close();
         await mcpHost.close();

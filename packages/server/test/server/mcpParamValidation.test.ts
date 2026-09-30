@@ -8,7 +8,7 @@
  * same `HeaderMismatch` shape the inbound classifier emits for the
  * standard-header cross-checks. A `null`/absent body value passes regardless
  * of the header (the spec's "server MUST NOT expect" rows). The
- * registration-time declaration-validity check warns on invalid declarations.
+ * declaration-validity check warns on invalid declarations when tools are listed.
  */
 import {
     CLIENT_CAPABILITIES_META_KEY,
@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { invoke } from '../../src/server/invoke';
 import { McpServer } from '../../src/server/mcp';
 
 const MODERN = '2026-07-28';
@@ -118,7 +119,7 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
 });
 
 describe('SEP-2243 registerTool declaration-validity check', () => {
-    it('warns on an invalid x-mcp-header declaration at registration time', () => {
+    it('warns on an invalid x-mcp-header declaration when tools are listed, not at registration', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const s = new McpServer({ name: 'warn-server', version: '1.0.0' });
         s.registerTool(
@@ -131,6 +132,8 @@ describe('SEP-2243 registerTool declaration-validity check', () => {
             },
             async () => ({ content: [] })
         );
+        expect(warn).not.toHaveBeenCalled();
+        await invoke(s, { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, { classification: { era: 'legacy' } });
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("tool 'bad' carries an invalid x-mcp-header"));
         warn.mockRestore();
     });

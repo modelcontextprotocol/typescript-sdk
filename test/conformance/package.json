@@ -22,6 +22,7 @@
         "mcp"
     ],
     "scripts": {
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint",
@@ -51,6 +52,7 @@
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
         "tsx": "catalog:devTools",
+        "@typescript/native-preview": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     }
 }
