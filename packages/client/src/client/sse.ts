@@ -2,11 +2,14 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     brandedHasInstance,
     createFetchWithInit,
+    fetchLeavingRedirects,
+    fetchWithinOrigin,
     JSONRPCMessageSchema,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
-    stampErrorBrands
+    stampErrorBrands,
+    unfollowedRedirect
 } from '@modelcontextprotocol/core-internal';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
@@ -113,6 +116,12 @@ export type SSEClientTransportOptions = {
      * `mcp-protocol-version`. A caller-supplied `Authorization` value is therefore only sent
      * while the provider has no token, which lets a static API key fall back to OAuth once
      * the provider obtains one.
+     *
+     * A `redirect` of `'error'` or `'manual'` is passed to fetch as it is for the `POST`
+     * requests that carry messages. For the OAuth requests, and for any other value,
+     * `redirect` is consulted only when
+     * {@linkcode SSEClientTransportOptions.redirectPolicy | redirectPolicy} is `'follow'`. The
+     * request that begins the stream does not read it.
      */
     requestInit?: RequestInit;
 
@@ -120,6 +129,22 @@ export type SSEClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * How a redirect of one of the transport's requests is handled, including the OAuth
+     * requests it makes for {@linkcode SSEClientTransportOptions.authProvider | authProvider}.
+     * The option does not reach requests that a provider makes with a fetch of its own, such as
+     * those of the `assertion` callback of a `CrossAppAccessProvider`.
+     *
+     * - `'same-origin'` (default): a redirect is followed only when it stays within the origin
+     *   of the request and keeps the method, and any other redirect fails the request.
+     * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions. It
+     *   follows them to any origin unless `requestInit.redirect` says otherwise, which the
+     *   request that begins the stream does not read.
+     *
+     * @default 'same-origin'
+     */
+    redirectPolicy?: 'same-origin' | 'follow';
 };
 
 /**
@@ -141,6 +166,7 @@ export class SSEClientTransport implements Transport {
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _redirectPolicy?: 'same-origin' | 'follow';
     private _dpop?: Middleware;
     private _protocolVersion?: string;
 
@@ -171,12 +197,25 @@ export class SSEClientTransport implements Transport {
         } else {
             this._authProvider = opts?.authProvider;
         }
+        this._redirectPolicy = opts?.redirectPolicy;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        if (this._redirectPolicy === 'follow') this._fetchWithInit = fetchLeavingRedirects(this._fetchWithInit);
     }
 
     private _last401Response?: Response;
     // True between a 401-triggered reconnect and the next successful open.
     private _connectAuthRetried = false;
+
+    /** `baseFetch` with redirects handled as `redirectPolicy` says. */
+    private _redirects(baseFetch: FetchLike): FetchLike {
+        return this._redirectPolicy === 'follow' ? baseFetch : fetchWithinOrigin(baseFetch);
+    }
+
+    /** Error text for a redirect `response` that was not followed, or `undefined` for any other response. */
+    private _unfollowedRedirect(url: string | URL, response: Response): string | undefined {
+        const text = this._redirectPolicy === 'follow' ? undefined : unfollowedRedirect(url, response);
+        return text && `${text} (redirectPolicy: 'same-origin')`;
+    }
 
     private async _commonHeaders(): Promise<Headers> {
         // Start from the caller-supplied `requestInit.headers` and `set()` the
@@ -211,9 +250,10 @@ export class SSEClientTransport implements Transport {
 
     private _startOrAuth(): Promise<void> {
         const eventSourceFetch = this._eventSourceInit?.fetch;
-        const fetchImpl = (
-            eventSourceFetch ? (this._dpop?.(eventSourceFetch as FetchLike) ?? eventSourceFetch) : (this._fetch ?? fetch)
-        ) as typeof fetch;
+        const fetchImpl = this._redirects(
+            (eventSourceFetch ? (this._dpop?.(eventSourceFetch as FetchLike) ?? eventSourceFetch) : (this._fetch ?? fetch)) as FetchLike
+        );
+        let redirect: string | undefined;
         return new Promise((resolve, reject) => {
             this._eventSource = new EventSource(this._url.href, {
                 ...this._eventSourceInit,
@@ -224,6 +264,7 @@ export class SSEClientTransport implements Transport {
                         ...init,
                         headers
                     });
+                    redirect = this._unfollowedRedirect(url, response);
 
                     if (response.status === 401) {
                         this._last401Response = response;
@@ -277,7 +318,7 @@ export class SSEClientTransport implements Transport {
                     return;
                 }
 
-                const error = new SseError(event.code, event.message, event);
+                const error = new SseError(event.code, redirect ?? event.message, event);
                 reject(error);
                 this.onerror?.(error);
             };
@@ -404,7 +445,7 @@ export class SSEClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._endpoint, init);
+            const response = await this._redirects(this._fetch ?? fetch)(this._endpoint, init);
             if (!response.ok) {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
@@ -442,7 +483,9 @@ export class SSEClientTransport implements Transport {
                 }
 
                 const text = await response.text?.().catch(() => null);
-                throw new Error(`Error POSTing to endpoint (HTTP ${response.status}): ${text}`);
+                throw new Error(
+                    `Error POSTing to endpoint (HTTP ${response.status}): ${this._unfollowedRedirect(this._endpoint, response) ?? text}`
+                );
             }
 
             // Release connection - POST responses don't have content we need
