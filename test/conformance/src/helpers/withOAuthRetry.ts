@@ -4,7 +4,8 @@ import {
     computeScopeUnion,
     extractWWWAuthenticateParams,
     isStrictScopeSuperset,
-    UnauthorizedError
+    UnauthorizedError,
+    withDpopFromProvider
 } from '@modelcontextprotocol/client';
 
 import { ConformanceOAuthProvider } from './conformanceOAuthProvider';
@@ -94,7 +95,14 @@ export const withOAuthRetry = (
             },
             clientMetadataUrl
         );
-    return (next: FetchLike) => {
+    return (baseNext: FetchLike) => {
+        // Same composition as the SDK's withOAuth: DPoP request-signing sits *below* this
+        // Bearer/re-auth layer so it binds proofs to the real request and retries use_dpop_nonce
+        // challenges on every attempt. It is a pass-through unless the provider implements dpop()
+        // (helpers/dpopClient.ts). auth() keeps the unwrapped fetch — token-endpoint DPoP is the
+        // SDK's executeTokenRequest's job.
+        const next = withDpopFromProvider(provider)(baseNext);
+
         return async (input: string | URL, init?: RequestInit): Promise<Response> => {
             const makeRequest = async (): Promise<Response> => {
                 const headers = new Headers(init?.headers);
@@ -113,7 +121,7 @@ export const withOAuthRetry = (
             // Handle 401/403 responses by attempting re-authentication
             if (response.status === 401 || response.status === 403) {
                 const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
-                await handle401Fn(response, provider, next, serverUrl);
+                await handle401Fn(response, provider, baseNext, serverUrl);
 
                 response = await makeRequest();
             }

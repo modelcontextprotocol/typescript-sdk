@@ -68,7 +68,12 @@ export const OAuthMetadataSchema = z.looseObject({
     code_challenge_methods_supported: z.array(z.string()).optional(),
     client_id_metadata_document_supported: z.boolean().optional(),
     // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
-    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined),
+    /**
+     * RFC 9449 §5.1 (DPoP, SEP-1932): the JWS `alg` values this authorization server accepts for
+     * DPoP proofs at the token endpoint. A server supporting DPoP MUST publish this field.
+     */
+    dpop_signing_alg_values_supported: z.array(z.string()).optional()
 });
 
 /**
@@ -139,7 +144,13 @@ export const OAuthTokensSchema = z
         token_type: z.string(),
         expires_in: z.coerce.number().optional(),
         scope: z.string().optional(),
-        refresh_token: z.string().optional()
+        refresh_token: z.string().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back (SEP-2352).
+         */
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
 
@@ -218,7 +229,13 @@ export const OAuthClientInformationSchema = z
         client_id: z.string(),
         client_secret: z.string().optional(),
         client_id_issued_at: z.number().optional(),
-        client_secret_expires_at: z.number().optional()
+        client_secret_expires_at: z.number().optional(),
+        /**
+         * Not part of the wire format: the authorization server this value was obtained from, added by
+         * the client's `auth()` before it is stored and compared when it is read back (SEP-2352).
+         */
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+        issuer: z.string().optional().catch(undefined)
     })
     .strip();
 
@@ -262,20 +279,18 @@ export type OAuthClientInformationMixed = OAuthClientInformation | OAuthClientIn
  * {@linkcode OAuthTokens} as persisted by an `OAuthClientProvider`. Adds an
  * SDK-stamped authorization-server `issuer` identifier so stored tokens are
  * bound to the AS that issued them. The `issuer` field is **not** part of the
- * RFC 6749 wire response and is intentionally absent from the wire-response
- * schema; the client SDK writes it before calling `saveTokens`.
+ * RFC 6749 wire response; the client SDK writes it before calling `saveTokens`.
  */
-export type StoredOAuthTokens = OAuthTokens & { issuer?: string };
+export type StoredOAuthTokens = OAuthTokens & { issuer?: string | undefined };
 
 /**
  * {@linkcode OAuthClientInformationMixed} as persisted by an
  * `OAuthClientProvider`. Adds an SDK-stamped authorization-server `issuer`
  * identifier so stored client credentials are bound to the AS that issued them.
- * The `issuer` field is **not** part of the RFC 7591 wire response and is
- * intentionally absent from the wire-response schema; the client SDK writes it
- * before calling `saveClientInformation`.
+ * The `issuer` field is **not** part of the RFC 7591 wire response; the client SDK
+ * writes it before calling `saveClientInformation`.
  */
-export type StoredOAuthClientInformation = OAuthClientInformationMixed & { issuer?: string };
+export type StoredOAuthClientInformation = OAuthClientInformationMixed & { issuer?: string | undefined };
 
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
