@@ -10,7 +10,8 @@
  *    granted scopes.
  *
  * No browser, no readline. The SDK's auth driver does the discovery; the only
- * thing the caller supplies is the pre-registered client's id+secret.
+ * thing the caller supplies is the pre-registered client's id+secret and the
+ * issuer of the AS it is registered with.
  */
 import { check, parseExampleArgs } from '@mcp-examples/shared';
 import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -28,9 +29,13 @@ check.match(unauth.headers.get('www-authenticate') ?? '', /Bearer/);
 check.match(unauth.headers.get('www-authenticate') ?? '', /oauth-protected-resource/);
 
 // Authenticated via client_credentials → 200, ctx.authInfo carries the granted scopes.
+// `expectedIssuer` names the AS the client is registered with (the story's AS listens on PORT+1).
+const authServerUrl = new URL('/', url);
+authServerUrl.port = String(Number(authServerUrl.port) + 1);
 const provider = new ClientCredentialsProvider({
     clientId: 'demo-m2m-client',
     clientSecret: 'demo-m2m-secret',
+    expectedIssuer: authServerUrl.href,
     scope: 'mcp:tools mcp:read'
 });
 const client = new Client(

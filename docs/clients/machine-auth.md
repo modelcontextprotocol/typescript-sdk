@@ -15,7 +15,8 @@ import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from
 
 const authProvider = new ClientCredentialsProvider({
     clientId: 'reporting-job',
-    clientSecret: 'reporting-job-secret'
+    clientSecret: 'reporting-job-secret',
+    expectedIssuer: 'https://auth.example.com'
 });
 
 const client = new Client({ name: 'reporting-job', version: '1.0.0' });
@@ -26,9 +27,7 @@ await client.connect(transport);
 
 `connect` discovers the server's authorization server, posts the grant to its token endpoint, and attaches the access token to every request. On a 401 the provider refreshes the token and the transport retries once. No browser, no end user.
 
-::: tip
-Pass `expectedIssuer` to pin the credential to the authorization server it was registered with. If discovery resolves a different issuer, the SDK throws `AuthorizationServerMismatchError` instead of sending the secret.
-:::
+`expectedIssuer` is the `issuer` of the authorization server the credential was registered with. If discovery resolves a different issuer, the SDK throws `AuthorizationServerMismatchError` instead of sending the secret. `PrivateKeyJwtProvider` and `CrossAppAccessProvider` below take it too; omitting it is deprecated, and the credential then goes to whichever authorization server the MCP server advertises.
 
 ## Bring your own bearer token
 
@@ -50,7 +49,8 @@ The transport calls `token()` before every request and sets the `Authorization` 
 const authProvider = new PrivateKeyJwtProvider({
     clientId: 'reporting-job',
     privateKey: pemEncodedKey,
-    algorithm: 'RS256'
+    algorithm: 'RS256',
+    expectedIssuer: 'https://auth.example.com'
 });
 
 const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
@@ -80,7 +80,8 @@ const authProvider = new CrossAppAccessProvider({
         return grant.jwtAuthGrant;
     },
     clientId: 'reporting-job',
-    clientSecret: 'reporting-job-secret'
+    clientSecret: 'reporting-job-secret',
+    expectedIssuer: 'https://auth.example.com'
 });
 
 const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });

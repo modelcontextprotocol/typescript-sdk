@@ -213,6 +213,12 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 );
                 writeNotification(ack.method, ack.params);
 
+                // Nothing honored means nothing can ever be delivered: complete the subscription instead of holding the stream.
+                if (Object.keys(honored).length === 0) {
+                    teardown(true);
+                    return;
+                }
+
                 // Only after the ack frame is enqueued does delivery activate.
                 unsubscribe = bus.subscribe(event => {
                     if (closed || !listenFilterAccepts(honored, event)) return;
