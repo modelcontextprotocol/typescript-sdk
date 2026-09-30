@@ -118,6 +118,26 @@ describe('@modelcontextprotocol/express origin validation', () => {
             expect(noOrigin.status).toBe(200);
         });
 
+        test('admits a browser-extension origin once its scheme is listed in allowedOrigins', async () => {
+            const extension = 'chrome-extension://abcdefghijklmnopabcdefghijklmnop';
+
+            const byDefault = createMcpExpressApp();
+            byDefault.get('/health', (_req, res) => {
+                res.json({ ok: true });
+            });
+            const rejected1 = await supertest(byDefault).get('/health').set('Origin', extension);
+            expect(rejected1.status).toBe(403);
+
+            const withScheme = createMcpExpressApp({ allowedOrigins: ['localhost', 'chrome-extension://*'] });
+            withScheme.get('/health', (_req, res) => {
+                res.json({ ok: true });
+            });
+            const admitted2 = await supertest(withScheme).get('/health').set('Origin', extension);
+            expect(admitted2.status).toBe(200);
+            const rejected3 = await supertest(withScheme).get('/health').set('Origin', 'https://evil.example.com');
+            expect(rejected3.status).toBe(403);
+        });
+
         test('an explicit allowedOrigins list replaces the default allowlist (validation stays armed)', async () => {
             const app = createMcpExpressApp({
                 host: '0.0.0.0',
