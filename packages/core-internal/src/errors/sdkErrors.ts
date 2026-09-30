@@ -96,7 +96,18 @@ export enum SdkErrorCode {
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
-    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
+    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION',
+    /**
+     * HTTP 404 to a request that carried an `Mcp-Session-Id`: per the MCP spec
+     * (Streamable HTTP, Session Management), the server has terminated or expired the
+     * session. The transport clears its stored session ID before throwing this, so a
+     * subsequent `connect()` starts a fresh session. Not thrown for a 404 on a request
+     * that carried no session ID (surfaced as {@linkcode ClientHttpNotImplemented}
+     * instead), and not thrown for the standalone GET SSE stream, whose failure must
+     * not tear down an otherwise-healthy session.
+     * Carried on an {@linkcode SdkHttpError} with `status: 404`.
+     */
+    ClientHttpSessionExpired = 'CLIENT_HTTP_SESSION_EXPIRED'
 }
 
 /**
