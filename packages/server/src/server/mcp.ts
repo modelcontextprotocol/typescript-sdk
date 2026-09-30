@@ -71,14 +71,16 @@ export class McpServer {
      */
     public readonly server: Server;
 
-    private _registeredResources: { [uri: string]: RegisteredResource } = {};
+    // Registry keys are user-provided strings; inherited names and __proto__
+    // must behave like ordinary entries rather than properties of Object.prototype.
+    private _registeredResources: { [uri: string]: RegisteredResource } = Object.create(null);
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
-    } = {};
-    private _registeredTools: { [name: string]: RegisteredTool } = {};
-    private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    } = Object.create(null);
+    private _registeredTools: { [name: string]: RegisteredTool } = Object.create(null);
+    private _registeredPrompts: { [name: string]: RegisteredPrompt } = Object.create(null);
     /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
-    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
+    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = Object.create(null);
 
     /**
      * The JSON-serialized `inputSchema` of a registered tool, or `undefined`
