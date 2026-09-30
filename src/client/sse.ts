@@ -67,7 +67,8 @@ export type SSEClientTransportOptions = {
      * - `'same-origin'` (default): a redirect is followed only when it keeps the method and stays within the origin of the request, or goes from http to https on the same host with default ports; any other redirect is not followed and the request fails.
      * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions of the SDK.
      *
-     * With either value, a `requestInit.redirect` of `'error'` or `'manual'` is passed to fetch unchanged for POST requests.
+     * With either value, a `requestInit.redirect` of `'error'` or `'manual'` is passed to fetch unchanged for the POST requests that carry messages.
+     * The OAuth requests read `requestInit.redirect` only with `'follow'`, and the request that opens the stream does not read it.
      */
     redirectPolicy?: 'same-origin' | 'follow';
 };
