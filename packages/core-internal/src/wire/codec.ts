@@ -24,29 +24,22 @@
  *
  * Deletions are physical: registry membership is the deletion story. The
  * 2026-era registry has no `tasks/*`, `initialize`, `ping`, `logging/setLevel`,
- * `resources/(un)subscribe` or server→client wire-request entries, so a
- * TYPED-dispatch era-mismatched method falls to −32601 by absence inbound
- * (`setRequestHandler(method, handler)`) or dies locally with a typed
- * `SdkError` outbound (`request(method, options)`), before anything reaches
- * the transport either way. The 2025-era registry has no
- * `server/discover`/`subscriptions/listen`/MRTR entries, symmetrically.
+ * `resources/(un)subscribe` or server→client wire-request entries, so an
+ * inbound era-mismatched method falls to −32601 by absence — even when a
+ * handler is registered — and an outbound one dies locally with a typed
+ * `SdkError` before anything reaches the transport. The 2025-era registry has
+ * no `server/discover`/`subscriptions/listen`/MRTR entries, symmetrically.
  *
  * Custom-handler shadowing policy (both directions): a method that belongs to
  * the SPEC-METHOD UNIVERSE — the union of every codec's registry, derived,
- * not hand-curated — is era-gated UNLESS the consumer supplied their own
- * schema for it: inbound via the explicit-schema overload
- * (`setRequestHandler(method, schemas, handler)`, tracked by
- * `Protocol#_customSchemaRequestMethods`), outbound via `request(request,
- * resultSchema, options)`. A TYPED spec handler/call for a deleted spec
- * method (e.g. legacy `tasks/get`) still serves/sends only on the era that
- * defines it — that's how `initialize` stays unreachable once a 2026-era
- * connection has negotiated past it. But an explicit schema is the
- * extension-authoring path, and some extensions (e.g. the Tasks extension,
- * SEP-2663) intentionally reuse a name a past core revision used for an
- * unrelated core method — the historical collision must not make the
- * extension's own handler/call unreachable in either direction. Methods
- * outside the spec universe were always consumer-owned extension methods:
- * they are era-blind and require explicit schemas, exactly as today.
+ * not hand-curated — is ALWAYS era-gated, so a custom handler registered for
+ * a deleted spec method (e.g. `ping`, `tasks/result`) serves it only on the
+ * era that defines it. The one exception is `isExtensionReusedRequestMethod`:
+ * the Tasks extension (SEP-2663) keeps `tasks/get` and `tasks/cancel` after
+ * 2026-07-28 moved tasks out of core, so a handler registered, or a request
+ * sent, with an EXPLICIT SCHEMA for those two names is era-blind. Methods
+ * outside the universe are consumer-owned extension methods: they are
+ * era-blind and require explicit schemas, exactly as today.
  *
  * Everything in `wire/` is internal to the bundled, `private: true` core —
  * nothing per-revision is public surface, and nothing here may ever be
@@ -344,6 +337,11 @@ export function isSpecRequestMethod(method: string): boolean {
 
 export function isSpecNotificationMethod(method: string): boolean {
     return ALL_CODECS.some(codec => codec.hasNotificationMethod(method));
+}
+
+/** The names SEP-2663 re-defines for the Tasks extension on the era that removed them from core. */
+export function isExtensionReusedRequestMethod(method: string): boolean {
+    return method === 'tasks/get' || method === 'tasks/cancel';
 }
 
 const ALL_CODECS: readonly WireCodec[] = [rev2025Codec, rev2026Codec];

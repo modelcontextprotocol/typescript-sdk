@@ -50,7 +50,14 @@ import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
-import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
+import {
+    classifiedWireEra,
+    codecForVersion,
+    isExtensionReusedRequestMethod,
+    isSpecNotificationMethod,
+    isSpecRequestMethod,
+    MODERN_WIRE_REVISION
+} from '../wire/codec';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { Transport, TransportSendOptions } from './transport';
 
@@ -559,15 +566,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
-    /**
-     * Methods registered through the explicit-schema `setRequestHandler(method, schemas,
-     * handler)` overload — the consumer supplied their own params/result schema rather than
-     * relying on a spec-registry entry. A name in this set is exempt from the spec-universe
-     * era gate in `_onrequest` (see the comment there): the consumer explicitly declared how
-     * to validate the method, so a historical core name reused by an extension (e.g.
-     * `tasks/get`) is served by the registered handler even on an era whose registry no
-     * longer defines it as a core method.
-     */
+    /** Methods registered with an explicit schema; the era gate in `_onrequest` reads it for the Tasks extension names. */
     private _customSchemaRequestMethods = new Set<string>();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
@@ -1006,26 +1005,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Era gate — deletions are physical: a spec method that is not in
         // this era's registry is −32601 BY ABSENCE, before any handler
-        // lookup, even when a TYPED spec handler is registered for it (a
-        // `setRequestHandler(method, handler)` registration cannot shadow a
-        // deleted spec method across eras — this is how `initialize` stays
-        // unreachable once a 2026-era connection has negotiated past it).
+        // lookup, even when a handler is registered (a custom handler cannot
+        // shadow a deleted spec method across eras). The one exception is
+        // the Tasks extension (SEP-2663): `tasks/get` and `tasks/cancel` are
+        // served when their handler was registered with an explicit schema.
         // Methods outside the spec universe are consumer-owned extension
         // methods and stay era-blind.
-        //
-        // A name that IS in the spec universe but was registered through the
-        // EXPLICIT-SCHEMA overload (`setRequestHandler(method, schemas,
-        // handler)`, tracked in `_customSchemaRequestMethods`) is exempt: the
-        // consumer supplied their own schema rather than relying on the
-        // era-registry entry, which is exactly the extension-method
-        // authoring path — some extensions (e.g. the Tasks extension,
-        // SEP-2663) reuse a name that a past core revision also used for an
-        // unrelated core method, and that historical collision should not
-        // make the extension's own handler unreachable.
         if (
             isSpecRequestMethod(request.method) &&
             !codec.hasRequestMethod(request.method) &&
-            !this._customSchemaRequestMethods.has(request.method)
+            !(isExtensionReusedRequestMethod(request.method) && this._customSchemaRequestMethods.has(request.method))
         ) {
             sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
             return;
@@ -1297,12 +1286,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
         const codec = this._resolveOutboundCodec(request.method);
         if (isStandardSchema(schemaOrOptions)) {
-            // Explicit schema: the extension-authoring path, symmetric with the
-            // inbound `setRequestHandler(method, schemas, handler)` exemption
-            // (#2598) — a name a past era's registry used for an unrelated core
-            // method (e.g. the Tasks extension's `tasks/get`) must not block a
-            // consumer's own schema-driven call just because the CURRENT era's
-            // registry doesn't define it as a core method either.
+            // Only the Tasks extension names skip the era gate here; every other spec method stays gated.
+            if (!isExtensionReusedRequestMethod(request.method)) this._assertOutboundRequestInEra(codec, request.method);
             return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
         }
         this._assertOutboundRequestInEra(codec, request.method);
@@ -1354,11 +1339,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * directions: sending a spec method that the resolved era does not define
      * dies locally with a typed error before anything reaches the transport.
      * Methods outside the spec universe are consumer-owned extension methods
-     * and stay era-blind. Only applies to the TYPED dispatch path
-     * (`request(method, options)`, resolved via `codecResultValidator`) — the
-     * public `request()` overload skips this gate entirely when the caller
-     * passes an explicit result schema (mirrors the inbound exemption for
-     * `setRequestHandler(method, schemas, handler)`; see the comment there).
+     * and stay era-blind. The public `request()` overload skips this gate
+     * only for the Tasks extension names (`tasks/get`, `tasks/cancel`) sent
+     * with an explicit result schema.
      */
     private _assertOutboundRequestInEra(codec: WireCodec, method: string): void {
         if (isSpecRequestMethod(method) && !codec.hasRequestMethod(method)) {
@@ -1787,9 +1770,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setRequestHandler: handler is required');
         }
 
-        // Track explicit-schema registrations (see `_customSchemaRequestMethods`'s
-        // declaration) so the era gate can exempt them; a re-registration through the
-        // typed 2-arg overload reverts a method back to ordinary era gating.
+        // The era gate reads how the handler was registered; a method-keyed re-registration ends the exemption.
         if (typeof schemasOrHandler === 'function') {
             this._customSchemaRequestMethods.delete(method);
         } else {
