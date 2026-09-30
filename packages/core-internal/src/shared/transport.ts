@@ -78,6 +78,8 @@ export function fetchLeavingRedirects(baseFetch: FetchLike): FetchLike {
 export function fetchWithinOrigin(baseFetch: FetchLike): FetchLike {
     if (leftToFetch.has(baseFetch)) return baseFetch;
     return async (url, init) => {
+        // A request that sets `redirect` to 'error' or 'manual' is handed to the base fetch as it is.
+        if (init?.redirect === 'error' || init?.redirect === 'manual') return baseFetch(url, init);
         const method = (init?.method ?? 'GET').toUpperCase();
         let current = url;
         for (let followed = 0; ; followed++) {

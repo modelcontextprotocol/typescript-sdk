@@ -125,6 +125,17 @@ describe('fetchWithinOrigin', () => {
         expect(baseFetch).toHaveBeenCalledTimes(6);
     });
 
+    test.each(['error', 'manual'] as const)('hands a request that sets redirect to %s to the base fetch as it is', async mode => {
+        const response = redirect('/mcp/');
+        const baseFetch = vi.fn<FetchLike>(async () => response);
+        const asked = { ...init, redirect: mode };
+
+        await expect(fetchWithinOrigin(baseFetch)('https://example.com/mcp', asked)).resolves.toBe(response);
+
+        expect(baseFetch).toHaveBeenCalledTimes(1);
+        expect(baseFetch.mock.calls[0]![1]).toBe(asked);
+    });
+
     test('returns a redirect response without a readable Location as it is', async () => {
         const baseFetch = vi.fn<FetchLike>(async () => opaqueRedirect);
 

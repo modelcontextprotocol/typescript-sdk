@@ -117,8 +117,11 @@ export type SSEClientTransportOptions = {
      * while the provider has no token, which lets a static API key fall back to OAuth once
      * the provider obtains one.
      *
+     * A `redirect` of `'error'` or `'manual'` is passed to fetch as it is for the `POST`
+     * requests that carry messages. For the OAuth requests, and for any other value,
      * `redirect` is consulted only when
-     * {@linkcode SSEClientTransportOptions.redirectPolicy | redirectPolicy} is `'follow'`.
+     * {@linkcode SSEClientTransportOptions.redirectPolicy | redirectPolicy} is `'follow'`. The
+     * request that begins the stream does not read it.
      */
     requestInit?: RequestInit;
 
@@ -130,11 +133,14 @@ export type SSEClientTransportOptions = {
     /**
      * How a redirect of one of the transport's requests is handled, including the OAuth
      * requests it makes for {@linkcode SSEClientTransportOptions.authProvider | authProvider}.
+     * The option does not reach requests that a provider makes with a fetch of its own, such as
+     * those of the `assertion` callback of a `CrossAppAccessProvider`.
      *
      * - `'same-origin'` (default): a redirect is followed only when it stays within the origin
      *   of the request and keeps the method, and any other redirect fails the request.
      * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions. It
-     *   follows them to any origin unless `requestInit.redirect` says otherwise.
+     *   follows them to any origin unless `requestInit.redirect` says otherwise, which the
+     *   request that begins the stream does not read.
      *
      * @default 'same-origin'
      */

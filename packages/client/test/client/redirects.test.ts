@@ -213,7 +213,45 @@ describe('redirects', () => {
         test('authorization server metadata discovery is not followed', async () => {
             handle = redirectTo(new URL('/.well-known/oauth-authorization-server', otherUrl));
 
-            await expect(discoverAuthorizationServerMetadata(endpointUrl)).rejects.toThrow('HTTP 307');
+            await expect(discoverAuthorizationServerMetadata(endpointUrl)).resolves.toBeUndefined();
+            expect(endpointRequests.map(r => r.url)).toEqual([
+                '/.well-known/oauth-authorization-server',
+                '/.well-known/openid-configuration'
+            ]);
+            expect(otherRequests).toEqual([]);
+        });
+
+        test('authorization server metadata discovery tries the next well-known URL', async () => {
+            const metadata = {
+                issuer: endpointUrl.origin,
+                authorization_endpoint: `${endpointUrl.origin}/authorize`,
+                token_endpoint: `${endpointUrl.origin}/token`,
+                jwks_uri: `${endpointUrl.origin}/jwks`,
+                response_types_supported: ['code'],
+                subject_types_supported: ['public'],
+                id_token_signing_alg_values_supported: ['RS256']
+            };
+            handle = (req, res, recorded) =>
+                req.url === '/.well-known/openid-configuration'
+                    ? void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(metadata))
+                    : redirectTo(new URL('/metadata', otherUrl), 302)(req, res, recorded);
+
+            await expect(discoverAuthorizationServerMetadata(endpointUrl)).resolves.toMatchObject(metadata);
+            expect(otherRequests).toEqual([]);
+        });
+
+        test('protected resource metadata discovery tries the root well-known URL', async () => {
+            const metadata = { resource: new URL('/mcp', endpointUrl).href, authorization_servers: [endpointUrl.origin] };
+            handle = (req, res, recorded) =>
+                req.url === '/.well-known/oauth-protected-resource'
+                    ? void res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(metadata))
+                    : redirectTo(new URL('/metadata', otherUrl), 302)(req, res, recorded);
+
+            await expect(discoverOAuthProtectedResourceMetadata(new URL('/mcp', endpointUrl))).resolves.toEqual(metadata);
+            expect(endpointRequests.map(r => r.url)).toEqual([
+                '/.well-known/oauth-protected-resource/mcp',
+                '/.well-known/oauth-protected-resource'
+            ]);
             expect(otherRequests).toEqual([]);
         });
 
@@ -520,6 +558,28 @@ describe('redirects', () => {
                         expect(otherRequests).toEqual([]);
                     }
                 );
+
+                test.each(['error', 'manual'] as const)(
+                    'a requestInit.redirect of %s is handed to fetch, and a redirect within the origin is not followed',
+                    async redirect => {
+                        handle = sseEndpoint(redirectTo('/next'));
+                        const client = await create({ requestInit: { ...requestInit, redirect } });
+
+                        await expect(client.send(request)).rejects.toThrow();
+                        expect(endpointRequests.filter(r => r.method === 'POST')).toHaveLength(1);
+                    }
+                );
+            });
+
+            test.each<[string, (client: StreamableHTTPClientTransport) => Promise<unknown>]>([
+                ['GET stream', client => client.resumeStream('event-1')],
+                ['DELETE', client => client.terminateSession()]
+            ])("a requestInit.redirect of 'error' is handed to fetch for the Streamable HTTP %s", async (_name, run) => {
+                handle = redirectTo('/next');
+                const client = await streamableHttpWith({ requestInit: { ...requestInit, redirect: 'error' } });
+
+                await expect(run(client)).rejects.toThrow();
+                expect(endpointRequests.map(r => r.url)).toEqual(['/mcp']);
             });
 
             test.each<[string, () => Promise<unknown>]>([
