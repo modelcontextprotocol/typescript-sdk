@@ -1430,7 +1430,7 @@ describe('probe unusable-reply classification', () => {
             () => {
                 throw new Error('connect unexpectedly resolved');
             },
-            (e: unknown) => e
+            (error: unknown) => error
         );
 
     test.each(unusableReplies)('%s rejects connect() with its own message and never sends initialize', async (_label, makeError) => {

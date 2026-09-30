@@ -16,8 +16,8 @@ function gatewayInFrontOfLegacy(probeAnswer: () => Response | Promise<Response>)
         seen.push(message.method ?? '(response)');
         if (message.method === 'server/discover') return probeAnswer();
         if (message.method === 'initialize') {
-            return new Response(
-                JSON.stringify({
+            return Response.json(
+                {
                     jsonrpc: '2.0',
                     id: message.id,
                     result: {
@@ -25,7 +25,7 @@ function gatewayInFrontOfLegacy(probeAnswer: () => Response | Promise<Response>)
                         capabilities: {},
                         serverInfo: { name: 'legacy-behind-gateway', version: '1.0.0' }
                     }
-                }),
+                },
                 { status: 200, headers: JSON_CT }
             );
         }
