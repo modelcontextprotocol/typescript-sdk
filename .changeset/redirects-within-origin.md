@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/client': minor
+---
+
+The HTTP client transports and the OAuth client helpers now follow a redirect only when it stays within the origin of the request (same scheme, host and port, or http to https on the same host with default ports) and keeps the method (a 307 or 308, or any redirect of a GET). Any other redirect is returned as the response it is, so the request fails with an error that names the target; the session is kept and later messages still send. Same-origin redirects that keep the method keep working on Node, up to five in a row, and no code changes are needed there. If your endpoint redirects to another origin, configure the transport with the URL it redirects to. The `redirect` option of `requestInit` is not consulted by default. Browsers do not expose the target of a redirect to a page, so there a redirected request fails instead of being followed. Setting `redirectPolicy: 'follow'` on a transport leaves its redirects to the fetch implementation, as before this change.

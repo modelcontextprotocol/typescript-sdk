@@ -15,6 +15,7 @@ import type {
 import {
     brandedHasInstance,
     checkResourceAllowed,
+    fetchWithinOrigin,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -1672,8 +1673,9 @@ export async function discoverOAuthProtectedResourceMetadata(
  * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
+    const withinOrigin = fetchWithinOrigin(fetchFn);
     try {
-        return await fetchFn(url, { headers });
+        return await withinOrigin(url, { headers });
     } catch (error) {
         if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
             throw error;
@@ -1682,7 +1684,7 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
             // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
             // request: if that succeeds, we've sidestepped the preflight.
             try {
-                return await fetchFn(url, {});
+                return await withinOrigin(url, {});
             } catch (retryError) {
                 if (!(retryError instanceof TypeError)) {
                     throw retryError;
@@ -2224,7 +2226,7 @@ export async function executeTokenRequest(
             // presented, and the token request is presenting credentials to *obtain* one.
             requestHeaders.set('DPoP', await dpop.buildProof({ htm: 'POST', htu: tokenUrl }));
         }
-        return (fetchFn ?? fetch)(tokenUrl, {
+        return fetchWithinOrigin(fetchFn ?? fetch)(tokenUrl, {
             method: 'POST',
             headers: requestHeaders,
             body: tokenRequestParams
@@ -2547,7 +2549,7 @@ export async function registerClient(
         ...(scope === undefined ? {} : { scope })
     };
 
-    const response = await (fetchFn ?? fetch)(registrationUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
