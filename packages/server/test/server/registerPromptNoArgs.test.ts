@@ -1,14 +1,4 @@
-/**
- * Type-surface pin for the no-`argsSchema` prompt registration form.
- *
- * With no `argsSchema`, `createPromptHandler` invokes the callback as
- * `callback(ctx)` — the context is the ONLY argument (see `mcp.ts`,
- * the `else` branch of `createPromptHandler`). Both generic overloads
- * constrain `Args` to a schema type, so before the dedicated overload
- * existed the argument-less form resolved to the deprecated raw-shape
- * signature and typed `ctx` as the arguments record: reading
- * `ctx.mcpReq` was a type error even though it works at runtime.
- */
+// Pins the types of registerPrompt() without argsSchema: the callback's one parameter is the server context.
 import type { ServerContext } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, test } from 'vitest';
 

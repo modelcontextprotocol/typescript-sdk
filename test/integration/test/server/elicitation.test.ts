@@ -338,8 +338,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
     test(`${validatorName}: should handle multiple sequential elicitation requests`, async () => {
         let requestCount = 0;
-        // Annotated so each branch widens to the shared result type instead of
-        // inferring a union whose members carry `age?: undefined` etc.
+        // Annotated so each branch widens to the shared result type.
         client.setRequestHandler('elicitation/create', (request): ElicitResult => {
             requestCount++;
             if (request.params.message.includes('name')) {

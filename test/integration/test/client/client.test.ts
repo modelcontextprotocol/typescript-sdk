@@ -73,8 +73,7 @@ test('should initialize with matching protocol version', async () => {
  * Test: Initialize with Supported Older Protocol Version
  */
 test('should initialize with supported older protocol version', async () => {
-    // Index 1 is always present: SUPPORTED_PROTOCOL_VERSIONS is a fixed 5-element
-    // list, but `noUncheckedIndexedAccess` cannot see that through the index.
+    // Index 1 is always present; `noUncheckedIndexedAccess` cannot see that.
     const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1]!;
     const clientTransport: Transport = {
         start: vi.fn().mockResolvedValue(undefined),
@@ -279,8 +278,7 @@ test('should reject unsupported protocol version', async () => {
  * Test: Connect New Client to Old Supported Server Version
  */
 test('should connect new client to old, supported server version', async () => {
-    // Index 1 is always present: SUPPORTED_PROTOCOL_VERSIONS is a fixed 5-element
-    // list, but `noUncheckedIndexedAccess` cannot see that through the index.
+    // Index 1 is always present; `noUncheckedIndexedAccess` cannot see that.
     const OLD_VERSION = SUPPORTED_PROTOCOL_VERSIONS[1]!;
     const server = new Server(
         {

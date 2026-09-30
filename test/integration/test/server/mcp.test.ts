@@ -411,8 +411,7 @@ describe('Zod v4', () => {
             expect(template.listCallback).toBe(list);
 
             const abortController = new AbortController();
-            // The callback only reads what the fixture provides, so a partial
-            // context is cast rather than fully constructed.
+            // A partial context is enough for what the callback reads.
             const result = await template.listCallback?.({
                 mcpReq: {
                     id: 'not-implemented',
@@ -597,8 +596,7 @@ describe('Zod v4', () => {
                     name: z.string(),
                     value: z.number()
                 }),
-                // `update()` is not generic over the new schema, so its `callback`
-                // receives `args: unknown`; narrow it at the boundary.
+                // `update()` types `args` as `unknown`; narrow it here.
                 callback: async args => ({
                     content: [
                         {

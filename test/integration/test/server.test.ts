@@ -352,9 +352,7 @@ test('should respect client elicitation capabilities', async () => {
 
     client.setRequestHandler('elicitation/create', params => ({
         action: 'accept',
-        // Omit `username` rather than sending an explicit `undefined`: elicitation
-        // content values are string | number | boolean | string[], so an absent key
-        // is the only way to express "not provided".
+        // Omit `username`: content values cannot be `undefined`.
         content: {
             ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
             confirmed: true
@@ -439,9 +437,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
 
     client.setRequestHandler('elicitation/create', params => ({
         action: 'accept',
-        // Omit `username` rather than sending an explicit `undefined`: elicitation
-        // content values are string | number | boolean | string[], so an absent key
-        // is the only way to express "not provided".
+        // Omit `username`: content values cannot be `undefined`.
         content: {
             ...(params.params.message.includes('username') ? { username: 'test-user' } : {}),
             confirmed: true
