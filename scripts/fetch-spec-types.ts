@@ -10,38 +10,33 @@ const PROJECT_ROOT = join(__dirname, '..');
 /**
  * The protocol revisions the SDK keeps reference types for:
  * - `2025-11-25`: the frozen, released schema.
- * - `2026-07-28`: the upcoming protocol revision.
+ * - `2026-07-28`: the frozen, released schema.
  *
  * Each is written to `packages/core-internal/src/types/spec.types.<version>.ts`.
  */
 const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
 
-/**
- * Upstream schema directory per revision. Until the 2026-07-28 revision is
- * published, its schema lives in the spec repository's draft directory; this
- * mapping drops once `schema/2026-07-28/` exists upstream.
- */
+/** Upstream schema directory for each supported protocol revision. */
 const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
     '2025-11-25': '2025-11-25',
-    '2026-07-28': 'draft'
+    '2026-07-28': '2026-07-28'
 };
 
 /**
  * Generation pin per released revision. Released revisions are frozen: without
  * an explicit SHA argument, their types are regenerated from the pinned spec
  * commit below — never from the latest upstream commit — so a released anchor
- * can only change through a deliberate, reviewed repin. Moving a pin (or
- * freezing a newly released revision) must land in the same commit that
- * retargets `.github/workflows/update-spec-types.yml`.
+ * can only change through a deliberate, reviewed repin.
  *
- * Draft-tracking revisions have no entry and float to the latest upstream
- * commit via the nightly workflow's refresh PRs.
+ * Draft-tracking revisions have no entry and may float to the latest upstream
+ * commit only while the SDK has an explicit consumer for that unreleased revision.
  *
  * See `packages/core-internal/src/types/README.md` for the full lifecycle policy.
  */
 const RELEASED_REVISION_PINS: Partial<Record<SpecVersion, string>> = {
-    '2025-11-25': '0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65'
+    '2025-11-25': '0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65',
+    '2026-07-28': '271ecc9accafdd9b83a3c869fa67c22953b2af80'
 };
 
 interface GitHubCommit {
@@ -127,7 +122,7 @@ function isSupportedVersion(value: string): value is SpecVersion {
 async function main() {
     try {
         // Usage: fetch-spec-types.ts [version] [sha]
-        // With no version, all supported versions are fetched at their latest upstream SHA.
+        // With no version, all supported versions are regenerated from their configured authority.
         const providedVersion = process.argv[2];
         const providedSHA = process.argv[3];
 

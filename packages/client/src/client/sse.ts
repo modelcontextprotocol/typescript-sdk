@@ -203,6 +203,8 @@ export class SSEClientTransport implements Transport {
     }
 
     private _last401Response?: Response;
+    // True between a 401-triggered reconnect and the next successful open.
+    private _connectAuthRetried = false;
 
     /** `baseFetch` with redirects handled as `redirectPolicy` says. */
     private _redirects(baseFetch: FetchLike): FetchLike {
@@ -280,9 +282,10 @@ export class SSEClientTransport implements Transport {
 
             this._eventSource.onerror = event => {
                 if (event.code === 401 && this._authProvider) {
-                    if (this._authProvider.onUnauthorized && this._last401Response) {
+                    if (this._authProvider.onUnauthorized && this._last401Response && !this._connectAuthRetried) {
                         const response = this._last401Response;
                         this._last401Response = undefined;
+                        this._connectAuthRetried = true;
                         this._eventSource?.close();
                         this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
                             // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
@@ -291,6 +294,7 @@ export class SSEClientTransport implements Transport {
                             // stamp: covers the SDK's OAuth flow and custom
                             // callbacks alike.
                             (error: unknown) => {
+                                this._connectAuthRetried = false;
                                 markAuthSeamEscape(error);
                                 this.onerror?.(error as Error);
                                 reject(error);
@@ -298,7 +302,17 @@ export class SSEClientTransport implements Transport {
                         );
                         return;
                     }
-                    const error = markAuthSeamEscape(new UnauthorizedError());
+                    const retried = this._connectAuthRetried;
+                    this._connectAuthRetried = false;
+                    const error = markAuthSeamEscape(
+                        retried
+                            ? new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                                  status: 401,
+                                  statusText: this._last401Response?.statusText ?? ''
+                              })
+                            : new UnauthorizedError()
+                    );
+                    this._last401Response = undefined;
                     reject(error);
                     this.onerror?.(error);
                     return;
@@ -311,6 +325,7 @@ export class SSEClientTransport implements Transport {
 
             this._eventSource.onopen = () => {
                 // The connection is open, but we need to wait for the endpoint to be received.
+                this._connectAuthRetried = false;
             };
 
             this._eventSource.addEventListener('endpoint', (event: Event) => {

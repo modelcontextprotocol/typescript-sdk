@@ -2,7 +2,7 @@
     "name": "@modelcontextprotocol/server",
     "version": "2.2.0",
     "description": "Model Context Protocol implementation for TypeScript - Server package",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
