@@ -2,7 +2,7 @@
     "name": "@modelcontextprotocol/client",
     "version": "2.2.0",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
-    "license": "MIT",
+    "license": "SEE LICENSE IN LICENSE",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",

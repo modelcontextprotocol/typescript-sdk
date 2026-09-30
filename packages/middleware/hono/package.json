@@ -3,7 +3,7 @@
     "private": false,
     "version": "2.0.1",
     "description": "Hono adapters for the Model Context Protocol TypeScript server SDK - Hono middleware",
-    "license": "MIT",
+    "license": "SEE LICENSE IN LICENSE",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
