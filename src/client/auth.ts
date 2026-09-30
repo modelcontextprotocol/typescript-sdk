@@ -28,7 +28,7 @@ import {
     ServerError,
     UnauthorizedClientError
 } from '../server/auth/errors.js';
-import { FetchLike } from '../shared/transport.js';
+import { FetchLike, fetchWithinOrigin, unfollowedRedirect } from '../shared/transport.js';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -398,7 +398,8 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
         return new errorClass(error_description || '', error_uri);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
-        const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
+        const redirect = input instanceof Response ? unfollowedRedirect(input, input.url) : undefined;
+        const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}${redirect ?? `Invalid OAuth error response: ${error}. Raw body: ${body}`}`;
         return new ServerError(errorMessage);
     }
 }
@@ -877,7 +878,7 @@ export async function discoverOAuthProtectedResourceMetadata(
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
-        return await fetchFn(url, { headers });
+        return await fetchWithinOrigin(fetchFn)(url, { headers });
     } catch (error) {
         if (error instanceof TypeError) {
             if (headers) {
@@ -922,7 +923,7 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (response.status >= 400 && response.status < 500 && pathname !== '/');
+    return !response || (!response.ok && response.status < 500 && pathname !== '/');
 }
 
 /**
@@ -1110,8 +1111,8 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.body?.cancel();
-            // Continue looking for any 4xx response code.
-            if (response.status >= 400 && response.status < 500) {
+            // Continue looking for any 4xx response code, or a redirect that was not followed.
+            if (response.status < 500) {
                 continue; // Try next URL
             }
             throw new Error(
@@ -1352,7 +1353,7 @@ async function executeTokenRequest(
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
     }
 
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
         body: tokenRequestParams
@@ -1578,7 +1579,7 @@ export async function registerClient(
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
-    const response = await (fetchFn ?? fetch)(registrationUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
