@@ -20,13 +20,17 @@ export function validateHostHeader(hostHeader: string | null | undefined, allowe
     }
 
     // Use URL API to parse hostname (handles IPv4, IPv6, and regular hostnames)
-    let hostname: string;
+    let host: URL;
     try {
-        hostname = new URL(`http://${hostHeader}`).hostname;
+        host = new URL(`http://${hostHeader}`);
     } catch {
         return { ok: false, errorCode: 'invalid_host_header', message: `Invalid Host header: ${hostHeader}`, hostHeader };
     }
+    if (hostHeader.includes('@')) {
+        return { ok: false, errorCode: 'invalid_host_header', message: `Invalid Host header: ${hostHeader}`, hostHeader };
+    }
 
+    const hostname = host.hostname;
     if (!allowedHostnames.includes(hostname)) {
         return { ok: false, errorCode: 'invalid_host', message: `Invalid Host: ${hostname}`, hostHeader, hostname };
     }
