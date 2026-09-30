@@ -227,7 +227,7 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
-                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
+                pattern = part.exploded ? '([^/?,#]+(?:,[^/?,#]+)*)' : '([^/?,#]+)';
                 break;
             }
             case '+':
@@ -240,7 +240,7 @@ export class UriTemplate {
                 break;
             }
             case '/': {
-                pattern = '/' + (part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)');
+                pattern = '/' + (part.exploded ? '([^/?,#]+(?:,[^/?,#]+)*)' : '([^/?,#]+)');
                 break;
             }
             default: {
@@ -256,11 +256,27 @@ export class UriTemplate {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
+        const queryNames: Array<{ name: string; exploded: boolean }> = [];
+        let queryCaptureCount = 0;
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
             } else {
+                if (part.operator === '?' || part.operator === '&') {
+                    for (const name of part.names) {
+                        queryNames.push({ name, exploded: part.exploded });
+                    }
+
+                    if (queryCaptureCount === 0) {
+                        pattern += part.operator === '?' ? String.raw`(?:\?([^#]*))?` : '(?:&([^#]*))?';
+                    } else if (part.operator === '&') {
+                        pattern += '(?:&([^#]*))?';
+                    }
+                    queryCaptureCount++;
+                    continue;
+                }
+
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
                     pattern += partPattern;
@@ -283,6 +299,32 @@ export class UriTemplate {
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+        }
+
+        const queryOffset = names.length + 1;
+        const queryParams = new Map<string, string[]>();
+        for (let i = 0; i < queryCaptureCount; i++) {
+            const query = match[queryOffset + i];
+            if (!query) continue;
+
+            for (const pair of query.split('&')) {
+                if (!pair) continue;
+
+                const separator = pair.indexOf('=');
+                const key = separator === -1 ? pair : pair.slice(0, separator);
+                const value = separator === -1 ? '' : pair.slice(separator + 1);
+                const values = queryParams.get(key) ?? [];
+                values.push(value);
+                queryParams.set(key, values);
+            }
+        }
+
+        for (const { name, exploded } of queryNames) {
+            const values = queryParams.get(name);
+            if (!values) continue;
+
+            const value = values.length > 1 ? values : values[0]!;
+            result[name] = exploded && !Array.isArray(value) && value.includes(',') ? value.split(',') : value;
         }
 
         return result;
