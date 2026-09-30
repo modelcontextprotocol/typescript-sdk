@@ -1,0 +1,109 @@
+# Nightly watch of the MCP spec draft (schema/draft/schema.ts).
+#
+# Anchor lifecycle (see packages/core-internal/src/types/README.md for the full policy):
+# - The draft watch floats: this job regenerates scripts/spec-draft/spec.types.draft.ts
+#   from the latest upstream draft schema and, on drift, opens or refreshes ONE PR
+#   for review. It only ever proposes — it never merges. Nothing in the SDK
+#   imports the draft file; it exists so draft movement surfaces as a PR.
+# - Released anchors are frozen: generation for released revisions is pinned in
+#   scripts/fetch-spec-types.ts (RELEASED_REVISION_PINS) and is never touched by
+#   this job. Freezing a newly published revision is a deliberate, reviewed repin.
+name: Update Spec Types
+
+on:
+    schedule:
+        # Run nightly at 4 AM UTC
+        - cron: '0 4 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: write
+    pull-requests: write
+
+env:
+    DRAFT_FILE: scripts/spec-draft/spec.types.draft.ts
+    PR_BRANCH: update-spec-types
+
+jobs:
+    update-spec-types:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v7
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              id: pnpm-install
+              with:
+                  run_install: false
+
+            - name: Setup Node.js
+              uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Fetch latest spec draft types
+              env:
+                  # Authenticated GitHub API lookups: runner IPs share the unauthenticated 60/hour limit.
+                  GH_TOKEN: ${{ github.token }}
+              run: pnpm run fetch:spec-types draft
+
+            - name: Check for changes
+              id: check_changes
+              run: |
+                  # `git status --porcelain` also catches a first-ever (untracked) draft file, which `git diff` would miss.
+                  if [ -z "$(git status --porcelain -- "$DRAFT_FILE")" ]; then
+                    echo "has_changes=false" >> "$GITHUB_OUTPUT"
+                  else
+                    echo "has_changes=true" >> "$GITHUB_OUTPUT"
+                    LATEST_SHA=$(grep "Last updated from commit:" "$DRAFT_FILE" | cut -d: -f2 | tr -d ' ')
+                    echo "sha=$LATEST_SHA" >> "$GITHUB_OUTPUT"
+                  fi
+
+            - name: Create or update Pull Request
+              if: steps.check_changes.outputs.has_changes == 'true'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  # Skip lefthook pre-push (typecheck/lint/build); the draft file is not
+                  # part of any package, but keep the job independent of hooks regardless.
+                  LEFTHOOK: 0
+                  PR_TITLE: 'chore: update spec.types.draft.ts from upstream'
+                  PR_BODY: |
+                      This PR updates `scripts/spec-draft/spec.types.draft.ts` from the Model Context Protocol specification's `schema/draft`.
+
+                      Source file: https://github.com/modelcontextprotocol/modelcontextprotocol/blob/${{ steps.check_changes.outputs.sha }}/schema/draft/schema.ts
+
+                      The draft file is a watch only: nothing in the SDK imports it, and the released, pinned anchors are untouched.
+                      This is an automated update triggered by the nightly cron job.
+              run: |
+                  git config user.name "github-actions[bot]"
+                  git config user.email "github-actions[bot]@users.noreply.github.com"
+
+                  git checkout -B "$PR_BRANCH"
+                  git add "$DRAFT_FILE"
+                  git commit -m "$PR_TITLE"
+                  git push -f --no-verify origin "$PR_BRANCH"
+
+                  # `gh pr view <branch>` matches closed PRs too, so check for an *open* PR explicitly.
+                  EXISTING_PR=$(gh pr list --head "$PR_BRANCH" --state open --json number --jq '.[0].number // empty')
+                  if [ -n "$EXISTING_PR" ]; then
+                    # The force-push above already refreshed the PR's content. Refresh its body over
+                    # REST rather than `gh pr edit` (a GraphQL mutation that has failed with opaque
+                    # "Something went wrong" errors), and treat a failed body refresh as a warning:
+                    # the PR itself is already up to date.
+                    echo "PR #$EXISTING_PR already exists, updating description..."
+                    gh api --method PATCH "repos/$GITHUB_REPOSITORY/pulls/$EXISTING_PR" \
+                      --silent -f title="$PR_TITLE" -f body="$PR_BODY" \
+                      || echo "::warning::Could not refresh the body of PR #$EXISTING_PR; its branch was still updated."
+                  else
+                    gh pr create \
+                      --title "$PR_TITLE" \
+                      --body "$PR_BODY" \
+                      --base main \
+                      --head "$PR_BRANCH"
+                  fi

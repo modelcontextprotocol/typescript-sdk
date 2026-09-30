@@ -12,6 +12,7 @@ pnpm-lock.yaml
 # Ignore generated files
 **/src/types/spec.types.2025-11-25.ts
 **/src/types/spec.types.2026-07-28.ts
+scripts/spec-draft/spec.types.draft.ts
 
 # Spec example corpora: vendored verbatim from the spec repository
 # (fetch:spec-examples) or hand-built and frozen - byte-faithful artifacts.

@@ -1,4 +1,4 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as prettier from 'prettier';
@@ -11,16 +11,30 @@ const PROJECT_ROOT = join(__dirname, '..');
  * The protocol revisions the SDK keeps reference types for:
  * - `2025-11-25`: the frozen, released schema.
  * - `2026-07-28`: the frozen, released schema.
+ * - `draft`: the unreleased `schema/draft`, watched at the latest upstream commit.
  *
- * Each is written to `packages/core-internal/src/types/spec.types.<version>.ts`.
+ * Released revisions are written to `packages/core-internal/src/types/spec.types.<version>.ts`;
+ * the draft watch is written outside every package (see `OUTPUT_PATHS`).
  */
-const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
+const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28', 'draft'] as const;
 type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
 
 /** Upstream schema directory for each supported protocol revision. */
 const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
     '2025-11-25': '2025-11-25',
-    '2026-07-28': '2026-07-28'
+    '2026-07-28': '2026-07-28',
+    draft: 'draft'
+};
+
+/**
+ * Output file per revision, relative to the project root. The draft watch has
+ * no consumer in the SDK, so it lives outside every workspace package: nothing
+ * builds, typechecks, lints, tests or documents it, and nothing may import it.
+ */
+const OUTPUT_PATHS: Record<SpecVersion, string> = {
+    '2025-11-25': 'packages/core-internal/src/types/spec.types.2025-11-25.ts',
+    '2026-07-28': 'packages/core-internal/src/types/spec.types.2026-07-28.ts',
+    draft: 'scripts/spec-draft/spec.types.draft.ts'
 };
 
 /**
@@ -29,8 +43,8 @@ const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
  * commit below — never from the latest upstream commit — so a released anchor
  * can only change through a deliberate, reviewed repin.
  *
- * Draft-tracking revisions have no entry and may float to the latest upstream
- * commit only while the SDK has an explicit consumer for that unreleased revision.
+ * Draft-tracking revisions have no entry and float to the latest upstream
+ * commit; the nightly workflow proposes their refreshes as reviewed PRs.
  *
  * See `packages/core-internal/src/types/README.md` for the full lifecycle policy.
  */
@@ -46,7 +60,9 @@ interface GitHubCommit {
 async function fetchLatestSHA(version: SpecVersion): Promise<string> {
     const url = `https://api.github.com/repos/modelcontextprotocol/modelcontextprotocol/commits?path=schema/${UPSTREAM_SCHEMA_DIRS[version]}/schema.ts&per_page=1`;
 
-    const response = await fetch(url);
+    // Authenticate when a token is available: unauthenticated GitHub API calls share a 60/hour limit per IP.
+    const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN;
+    const response = await fetch(url, token ? { headers: { authorization: `Bearer ${token}` } } : undefined);
     if (!response.ok) {
         throw new Error(`Failed to fetch commit info: ${response.status} ${response.statusText}`);
     }
@@ -106,13 +122,14 @@ async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Prom
     const fullContent = header + specContent;
 
     // Format with prettier using the project's config so the output passes lint
-    const outputPath = join(PROJECT_ROOT, 'packages', 'core-internal', 'src', 'types', `spec.types.${version}.ts`);
+    const outputPath = join(PROJECT_ROOT, OUTPUT_PATHS[version]);
     const prettierConfig = await prettier.resolveConfig(outputPath);
     const formatted = await prettier.format(fullContent, { ...prettierConfig, filepath: outputPath });
 
+    mkdirSync(dirname(outputPath), { recursive: true });
     writeFileSync(outputPath, formatted, 'utf-8');
 
-    console.log(`[${version}] Successfully updated packages/core-internal/src/types/spec.types.${version}.ts`);
+    console.log(`[${version}] Successfully updated ${OUTPUT_PATHS[version]}`);
 }
 
 function isSupportedVersion(value: string): value is SpecVersion {

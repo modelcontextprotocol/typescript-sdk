@@ -11,6 +11,7 @@ They are reference-only test oracles: the comparison suites in `packages/core-in
    upstream commit. Moving that pin, including the freeze of a newly published revision (when its generation source switches from `schema/draft/` to `schema/<revision>/`), must land atomically with every checked-in oracle derived from that revision.
 
 2. **Draft anchors float only while they have an explicit consumer.** An unreleased revision may track the spec repository's `schema/draft/schema.ts`, but refreshes must go through reviewed PRs and update all derived oracles atomically. No currently supported revision uses this mode.
+   A draft anchor may also exist purely as a watch with no consumer in the SDK: `scripts/spec-draft/spec.types.draft.ts` is regenerated nightly by `.github/workflows/update-spec-types.yml`, which proposes drift as a PR; nothing imports it and it lives outside every package.
 
 3. **The bot proposes; it never auto-merges.** Automated refreshes always go through a pull request that a maintainer reviews and merges. No automation pushes anchor changes directly to `main` or merges its own PRs. A refresh PR that breaks the comparison suites is the desired
    signal — it is fixed in that PR, not bypassed.
