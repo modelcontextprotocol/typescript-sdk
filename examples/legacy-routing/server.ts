@@ -31,16 +31,33 @@ const buildServer = (era: 'legacy' | 'modern') => {
 };
 
 // --- the existing sessionful 2025 deployment, unchanged ---
-const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
+
+type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
 const handleLegacy = async (req: Request, res: Response) => {
     const sid = req.headers['mcp-session-id'] as string | undefined;
-    if (sid && sessions.has(sid)) {
-        await sessions.get(sid)!.handleRequest(req, res, req.body);
+    const session = sid ? sessions.get(sid) : undefined;
+    if (session) {
+        // Count open responses so a long-running request or a listening stream is not treated as idle.
+        if (res.socket && !res.destroyed) {
+            session.open++;
+            res.on('close', () => {
+                session.open--;
+                session.lastActive = Date.now();
+            });
+        }
+        await session.transport.handleRequest(req, res, req.body);
     } else if (!sid && isInitializeRequest(req.body)) {
+        if (sessions.size >= MAX_SESSIONS) {
+            res.status(503).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Too many open sessions' }, id: null });
+            return;
+        }
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: id => {
-                sessions.set(id, transport);
+                sessions.set(id, { transport, open: 0, lastActive: Date.now() });
             }
         });
         transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
@@ -53,6 +70,14 @@ const handleLegacy = async (req: Request, res: Response) => {
         res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad Request: Session ID required' }, id: null });
     }
 };
+
+// Close sessions with nothing open and no activity for IDLE_MS.
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
+    }
+}, 60_000).unref();
 
 // --- the strict modern entry alongside it ---
 const modern = createMcpHandler((ctx: McpRequestContext) => buildServer(ctx.era), { legacy: 'reject' });
