@@ -1522,7 +1522,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: "The SDK's documented hosting pattern rejects unknown session ids with 400 at the app level (see src/examples servers); the transport's own validateSession 404 is never reached, while the spec requires 404."
+                note: "The e2e hosting fixture rejects unknown session ids with 400 at the app level (the src/examples servers answer 404); the transport's own validateSession 404 is never reached, while the spec requires 404."
             }
         ]
     },
@@ -1857,7 +1857,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'The documented per-session hosting pattern (hostPerSession) removes the transport from the session map on DELETE via onsessionclosed and answers any later request carrying the stale Mcp-Session-Id with 400 at the app level, so the spec-required 404 is never produced.'
+                note: 'The per-session hosting fixture (hostPerSession) removes the transport from the session map on DELETE via onsessionclosed and answers any later request carrying the stale Mcp-Session-Id with 400 at the app level, so the spec-required 404 is never produced.'
             }
         ]
     },

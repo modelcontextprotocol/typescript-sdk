@@ -77,7 +77,7 @@ const app = createMcpExpressApp();
 
 // Close sessions that have been idle for IDLE_MS, and keep at most MAX_SESSIONS open
 const IDLE_MS = 30 * 60_000;
-const MAX_SESSIONS = 10_000;
+const MAX_SESSIONS = 1000;
 
 // Store sessions by session ID
 type Session = { transport: StreamableHTTPServerTransport | SSEServerTransport; open: number; lastActive: number };
@@ -97,7 +97,7 @@ const trackResponse = (session: Session, res: Response) => {
 setInterval(() => {
     const cutoff = Date.now() - IDLE_MS;
     for (const { transport, open, lastActive } of sessions.values()) {
-        if (open === 0 && lastActive < cutoff) void transport.close();
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
     }
 }, 60_000).unref();
 
