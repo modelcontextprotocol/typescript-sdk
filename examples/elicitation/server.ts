@@ -252,16 +252,35 @@ if (transport === 'stdio') {
 
     // --- legacy (2025): sessionful Streamable HTTP — push-style elicitation
     // requires the session (client capabilities + bidirectional SSE stream) ---
-    const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+    const IDLE_MS = 30 * 60_000;
+    const MAX_SESSIONS = 10_000;
+
+    type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
+    const sessions = new Map<string, Session>();
     const handleLegacy = async (req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> => {
         const sid = req.headers['mcp-session-id'] as string | undefined;
-        if (sid && sessions.has(sid)) {
-            await sessions.get(sid)!.handleRequest(req, res, body);
+        const session = sid ? sessions.get(sid) : undefined;
+        if (session) {
+            // Count open responses so a long-running request or a listening stream is not treated as idle.
+            if (res.socket && !res.destroyed) {
+                session.open++;
+                res.on('close', () => {
+                    session.open--;
+                    session.lastActive = Date.now();
+                });
+            }
+            await session.transport.handleRequest(req, res, body);
         } else if (!sid && isInitializeRequest(body)) {
+            if (sessions.size >= MAX_SESSIONS) {
+                res.writeHead(503, { 'content-type': 'application/json' }).end(
+                    JSON.stringify({ jsonrpc: '2.0', error: { code: -32_000, message: 'Too many open sessions' }, id: null })
+                );
+                return;
+            }
             const t = new NodeStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 onsessioninitialized: id => {
-                    sessions.set(id, t);
+                    sessions.set(id, { transport: t, open: 0, lastActive: Date.now() });
                 }
             });
             t.onclose = () => t.sessionId && sessions.delete(t.sessionId);
@@ -279,6 +298,14 @@ if (transport === 'stdio') {
             );
         }
     };
+
+    // Close sessions with nothing open and no activity for IDLE_MS.
+    setInterval(() => {
+        const cutoff = Date.now() - IDLE_MS;
+        for (const session of sessions.values()) {
+            if (session.open === 0 && session.lastActive < cutoff) void session.transport.close();
+        }
+    }, 60_000).unref();
 
     // Host/Origin guards for the hand-wired `node:http` server — plain
     // `createServer` has no middleware chain, so compose the boolean-returning
