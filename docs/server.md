@@ -45,6 +45,8 @@ Examples:
 - Stateless Streamable HTTP: [`simpleStatelessStreamableHttp.ts`](../src/examples/server/simpleStatelessStreamableHttp.ts)
 - Stateful with resumability: [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
 
+A stateful server keeps one transport per session in memory, so it should close sessions that have been idle for a while and limit how many can be open at once. `simpleStreamableHttp.ts` shows both; pick a limit that fits in memory.
+
 ### stdio
 
 For local integrations where the client spawns the server as a child process, use `StdioServerTransport`. Communication happens over stdin/stdout using JSON-RPC:
