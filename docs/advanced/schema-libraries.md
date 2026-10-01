@@ -125,7 +125,7 @@ The SDK validates `structuredContent` against the ArkType schema before the resu
 
 ## Swap the JSON Schema validator
 
-The server runs a JSON Schema validator in two places: a `fromJsonSchema` schema, and [elicitation](../servers/elicitation.md) form responses. Build one from the `validators/ajv` subpath, which re-exports the SDK's bundled `Ajv` and `addFormats`.
+The server runs a JSON Schema validator for low-level `Server` tool calls after a `tools/list` response, for [elicitation](../servers/elicitation.md) form responses, and for `fromJsonSchema` schemas that use the supplied validator. Build one from the `validators/ajv` subpath, which re-exports the SDK's bundled `Ajv` and `addFormats`.
 
 ```ts source="../../examples/guides/advanced/schema-libraries.examples.ts#jsonSchemaValidator_ajv"
 import { addFormats, Ajv, AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
@@ -137,10 +137,10 @@ const validator = new AjvJsonSchemaValidator(ajv);
 const strict = new McpServer({ name: 'schema-zoo', version: '1.0.0' }, { jsonSchemaValidator: validator });
 ```
 
-`strict` now checks elicitation form responses with your `Ajv` instance.
+`strict` now checks elicitation form responses with your `Ajv` instance. The high-level `McpServer` parses tool arguments through the Standard Schema supplied to `registerTool`; the `jsonSchemaValidator` option is used for tool calls when you use the low-level `Server` API.
 
 ::: warning
-`jsonSchemaValidator` covers elicitation form responses only. A `fromJsonSchema` schema binds its validator at creation — pass yours as the second argument: `fromJsonSchema(document, validator)`.
+`jsonSchemaValidator` on a low-level `Server` covers the raw tool schemas it has advertised and elicitation form responses. A `fromJsonSchema` schema binds its validator at creation — pass yours as the second argument: `fromJsonSchema(document, validator)`.
 :::
 
 ## Pick the validator for your runtime
@@ -160,5 +160,5 @@ const edge = new McpServer({ name: 'schema-zoo', version: '1.0.0' }, { jsonSchem
 - `inputSchema`, `outputSchema`, and a prompt's `argsSchema` accept any Standard Schema that exposes JSON Schema — Zod and ArkType as-is, Valibot through `@valibot/to-json-schema`.
 - The raw-shape overload (`inputSchema: { name: z.string() }`) is deprecated; pass a schema object.
 - `fromJsonSchema(document)` registers a JSON Schema you already have; the generic parameter types the handler's arguments.
-- `jsonSchemaValidator` on the server options swaps the validator for elicitation form responses; `fromJsonSchema` takes its own as a second argument.
+- `jsonSchemaValidator` on low-level `Server` options swaps the validator for raw tool schemas and elicitation form responses; `McpServer` parses registered tools through their Standard Schemas; `fromJsonSchema` takes its own validator as a second argument.
 - The default validator is runtime-selected — AJV on Node.js, `@cfworker/json-schema` on workerd and browsers — and the `validators/ajv` and `validators/cf-worker` subpaths force either one.

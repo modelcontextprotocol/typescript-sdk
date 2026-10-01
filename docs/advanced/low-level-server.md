@@ -4,7 +4,7 @@ shape: explanation
 
 # Low-level Server
 
-`Server` is the **protocol layer** under `McpServer`: it routes each JSON-RPC request to the handler you register for that method string, and nothing more. Rebuild the `search` tool from [Tools](../servers/tools.md) on it to see what `registerTool` adds.
+`Server` is the **protocol layer** under `McpServer`: it routes each JSON-RPC request to the handler you register for that method string, and validates low-level tool calls against the schemas it advertises. Rebuild the `search` tool from [Tools](../servers/tools.md) on it to see what `registerTool` adds.
 
 ## Build the server and list your tools by hand
 
@@ -38,6 +38,8 @@ server.setRequestHandler('tools/list', async () => ({
 
 A client's `tools/list` returns exactly the array you wrote — the SDK derived none of it.
 
+When the server answers `tools/list`, it also remembers each tool's `inputSchema` for this connection. A later `tools/call` with arguments that do not match the advertised schema returns an `isError: true` tool result before your handler runs.
+
 ::: tip
 Drop `capabilities: { tools: {} }` and `setRequestHandler('tools/list', …)` throws. `Server` never infers a capability from a handler, the way `registerTool` registers the `tools` capability for you.
 :::
@@ -63,50 +65,21 @@ An in-memory `Client` connected to this server — [Test a server](../testing.md
 [ { type: 'text', text: 'Travel mug\nMug rack' } ]
 ```
 
-Now call it with `{ query: 42 }`. The protocol layer checks only that `arguments` is an object, so the value reaches the handler and the handler crashes:
-
-```
-ProtocolError -32603: query.toLowerCase is not a function
-```
-
-`callTool` rejected with a protocol error instead of resolving to an `isError: true` tool result — [Errors](../servers/errors.md) covers the difference.
-
-## Validate arguments yourself
-
-From one Zod `inputSchema` the SDK derives the JSON Schema the model sees, validates arguments before your handler runs, and infers the handler's argument types. Here you wrote the JSON Schema by hand, the cast went unchecked, and nothing tied the two together.
-
-`fromJsonSchema` — exported from `@modelcontextprotocol/server` — wraps a JSON Schema object as a validator you run yourself. Registering `tools/call` again replaces the handler; this one rejects before it touches the arguments.
-
-```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_validate"
-const SearchArguments = fromJsonSchema<{ query: string }>({
-    type: 'object',
-    properties: { query: { type: 'string' } },
-    required: ['query']
-});
-
-server.setRequestHandler('tools/call', async request => {
-    if (request.params.name !== 'search') {
-        return { content: [{ type: 'text', text: `Unknown tool: ${request.params.name}` }], isError: true };
-    }
-    const parsed = await SearchArguments['~standard'].validate(request.params.arguments ?? {});
-    if (parsed.issues) {
-        return { content: [{ type: 'text', text: parsed.issues.map(issue => issue.message).join('; ') }], isError: true };
-    }
-    const hits = catalog.filter(product => product.name.toLowerCase().includes(parsed.value.query.toLowerCase()));
-    return { content: [{ type: 'text', text: hits.map(product => product.name).join('\n') }] };
-});
-```
-
-The same `{ query: 42 }` call now comes back as an ordinary tool result the model can read and retry:
+Now call it with `{ query: 42 }`. The protocol layer rejects it against the schema before the value reaches the handler:
 
 ```
 {
-  content: [ { type: 'text', text: 'data/query must be string' } ],
+  content: [
+    {
+      type: 'text',
+      text: 'Input validation error: Invalid arguments for tool search: data/query must be string'
+    }
+  ],
   isError: true
 }
 ```
 
-Keeping the schema you advertise in `tools/list` identical to the one you validate with is still on you — `registerTool` derives both from the same object.
+The handler is not called, and the model can read the tool result and retry with valid arguments.
 
 ## Serve it with the same entry points
 
@@ -155,7 +128,7 @@ You never choose once for the whole program. Start on `McpServer` and take over 
 ## Recap
 
 - `Server` is the protocol layer: `setRequestHandler(method, handler)` per spec method, and nothing derived on top.
-- On `Server` you write the JSON Schema in `tools/list` and the argument validation in `tools/call`; `registerTool` derives both from one Zod schema.
+- On `Server` you write the JSON Schema in `tools/list`, and the SDK validates later calls against it before dispatch; `registerTool` derives the schema and parses the handler arguments from one Standard Schema.
 - A handler exception on `Server` reaches the client as a protocol error, not as an `isError: true` tool result.
 - `serveStdio` and `createMcpHandler` accept a factory that returns a `Server` unchanged.
 - `mcp.server` is the per-method escape hatch; default to `McpServer` and drop to `Server` only where you own dispatch.
