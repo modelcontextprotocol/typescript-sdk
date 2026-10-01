@@ -36,7 +36,7 @@ import type { Express, Request, Response } from 'express';
 function sessions_routing(app: Express, buildServer: () => McpServer) {
     //#region sessions_routing
     const IDLE_MS = 30 * 60_000;
-    const MAX_SESSIONS = 10_000;
+    const MAX_SESSIONS = 1000;
 
     type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
     const sessions = new Map<string, Session>();
@@ -91,7 +91,7 @@ function sessions_routing(app: Express, buildServer: () => McpServer) {
     setInterval(() => {
         const cutoff = Date.now() - IDLE_MS;
         for (const { transport, open, lastActive } of sessions.values()) {
-            if (open === 0 && lastActive < cutoff) void transport.close();
+            if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
         }
     }, 60_000).unref();
     //#endregion sessions_routing

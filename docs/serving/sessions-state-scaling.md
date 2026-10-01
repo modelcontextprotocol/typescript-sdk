@@ -24,7 +24,7 @@ One transport instance is one session, so a sessionful deployment keeps a map: b
 
 ```ts source="../../examples/guides/serving/sessions-state-scaling.examples.ts#sessions_routing"
 const IDLE_MS = 30 * 60_000;
-const MAX_SESSIONS = 10_000;
+const MAX_SESSIONS = 1000;
 
 type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
 const sessions = new Map<string, Session>();
@@ -79,12 +79,12 @@ app.delete('/mcp', route);
 setInterval(() => {
     const cutoff = Date.now() - IDLE_MS;
     for (const { transport, open, lastActive } of sessions.values()) {
-        if (open === 0 && lastActive < cutoff) void transport.close();
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
     }
 }, 60_000).unref();
 ```
 
-`transport.onclose` removes an entry when the client sends `DELETE`, you call `transport.close()`, or the timer closes a session idle for `IDLE_MS`. At `MAX_SESSIONS`, `initialize` gets a `503`. An expired id gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
+`transport.onclose` removes an entry when the client sends `DELETE`, you call `transport.close()`, or the timer closes a session idle for `IDLE_MS`. At `MAX_SESSIONS`, `initialize` gets a `503`. The limit is shared by all clients and an unused session holds its place for `IDLE_MS`, so pick a `MAX_SESSIONS` that fits in memory, and on a server anyone can reach put authentication or a per-client limit in front of `initialize`. An expired id gets the `404` above, which tells the client to start a new session; a request with no session header at all gets the `400`, which tells it to re-send the id it already has instead of re-initializing.
 
 ::: tip
 On shutdown, close every stored transport — `for (const { transport } of sessions.values()) await transport.close()` — before exiting; `close()` ends the session's SSE streams and rejects its pending requests.

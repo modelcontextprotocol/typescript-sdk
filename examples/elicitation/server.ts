@@ -253,7 +253,7 @@ if (transport === 'stdio') {
     // --- legacy (2025): sessionful Streamable HTTP — push-style elicitation
     // requires the session (client capabilities + bidirectional SSE stream) ---
     const IDLE_MS = 30 * 60_000;
-    const MAX_SESSIONS = 10_000;
+    const MAX_SESSIONS = 1000;
 
     type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
     const sessions = new Map<string, Session>();
@@ -303,7 +303,7 @@ if (transport === 'stdio') {
     setInterval(() => {
         const cutoff = Date.now() - IDLE_MS;
         for (const session of sessions.values()) {
-            if (session.open === 0 && session.lastActive < cutoff) void session.transport.close();
+            if (session.open === 0 && session.lastActive < cutoff) session.transport.close().catch(console.error);
         }
     }, 60_000).unref();
 
