@@ -75,8 +75,31 @@ const getServer = () => {
 // Create Express application
 const app = createMcpExpressApp();
 
-// Store transports by session ID
-const transports: Record<string, StreamableHTTPServerTransport | SSEServerTransport> = {};
+// Close sessions that have been idle for IDLE_MS, and keep at most MAX_SESSIONS open
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 10_000;
+
+// Store sessions by session ID
+type Session = { transport: StreamableHTTPServerTransport | SSEServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
+
+// Count open responses so a long-running request or a listening SSE stream is not treated as idle
+const trackResponse = (session: Session, res: Response) => {
+    if (!res.socket || res.destroyed) return;
+    session.open++;
+    res.on('close', () => {
+        session.open--;
+        session.lastActive = Date.now();
+    });
+};
+
+// Close sessions with nothing open and no activity for IDLE_MS
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) void transport.close();
+    }
+}, 60_000).unref();
 
 //=============================================================================
 // STREAMABLE HTTP TRANSPORT (PROTOCOL VERSION 2025-11-25)
@@ -89,14 +112,15 @@ app.all('/mcp', async (req: Request, res: Response) => {
     try {
         // Check for existing session ID
         const sessionId = req.headers['mcp-session-id'] as string | undefined;
+        const session = sessionId ? sessions.get(sessionId) : undefined;
         let transport: StreamableHTTPServerTransport;
 
-        if (sessionId && transports[sessionId]) {
+        if (session) {
             // Check if the transport is of the correct type
-            const existingTransport = transports[sessionId];
-            if (existingTransport instanceof StreamableHTTPServerTransport) {
+            if (session.transport instanceof StreamableHTTPServerTransport) {
                 // Reuse existing transport
-                transport = existingTransport;
+                transport = session.transport;
+                trackResponse(session, res);
             } else {
                 // Transport exists but is not a StreamableHTTPServerTransport (could be SSEServerTransport)
                 res.status(400).json({
@@ -110,6 +134,10 @@ app.all('/mcp', async (req: Request, res: Response) => {
                 return;
             }
         } else if (!sessionId && req.method === 'POST' && isInitializeRequest(req.body)) {
+            if (sessions.size >= MAX_SESSIONS) {
+                res.status(503).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Too many open sessions' }, id: null });
+                return;
+            }
             const eventStore = new InMemoryEventStore();
             transport = new StreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
@@ -117,24 +145,28 @@ app.all('/mcp', async (req: Request, res: Response) => {
                 onsessioninitialized: sessionId => {
                     // Store the transport by session ID when session is initialized
                     console.log(`StreamableHTTP session initialized with ID: ${sessionId}`);
-                    transports[sessionId] = transport;
+                    sessions.set(sessionId, { transport, open: 0, lastActive: Date.now() });
                 }
             });
 
             // Set up onclose handler to clean up transport when closed
             transport.onclose = () => {
                 const sid = transport.sessionId;
-                if (sid && transports[sid]) {
-                    console.log(`Transport closed for session ${sid}, removing from transports map`);
-                    delete transports[sid];
+                if (sid && sessions.has(sid)) {
+                    console.log(`Transport closed for session ${sid}, removing from sessions map`);
+                    sessions.delete(sid);
                 }
             };
 
             // Connect the transport to the MCP server
             const server = getServer();
             await server.connect(transport);
+        } else if (sessionId) {
+            // Unknown or expired session ID - the client should start a new session
+            res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
+            // Invalid request - no session ID and not an initialization request
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
@@ -169,11 +201,19 @@ app.all('/mcp', async (req: Request, res: Response) => {
 
 app.get('/sse', async (req: Request, res: Response) => {
     console.log('Received GET request to /sse (deprecated SSE transport)');
+    if (sessions.size >= MAX_SESSIONS) {
+        res.status(503).send('Too many open sessions');
+        return;
+    }
     const transport = new SSEServerTransport('/messages', res);
-    transports[transport.sessionId] = transport;
-    res.on('close', () => {
-        delete transports[transport.sessionId];
-    });
+    // An SSE session lasts as long as this response, which counts as open until it closes
+    const session = { transport, open: 0, lastActive: Date.now() };
+    sessions.set(transport.sessionId, session);
+    trackResponse(session, res);
+    // Set up onclose handler to clean up transport when closed
+    transport.onclose = () => {
+        sessions.delete(transport.sessionId);
+    };
     const server = getServer();
     await server.connect(transport);
 });
@@ -181,7 +221,7 @@ app.get('/sse', async (req: Request, res: Response) => {
 app.post('/messages', async (req: Request, res: Response) => {
     const sessionId = req.query.sessionId as string;
     let transport: SSEServerTransport;
-    const existingTransport = transports[sessionId];
+    const existingTransport = sessions.get(sessionId)?.transport;
     if (existingTransport instanceof SSEServerTransport) {
         // Reuse existing transport
         transport = existingTransport;
@@ -239,11 +279,11 @@ process.on('SIGINT', async () => {
     console.log('Shutting down server...');
 
     // Close all active transports to properly clean up resources
-    for (const sessionId in transports) {
+    for (const [sessionId, { transport }] of sessions) {
         try {
             console.log(`Closing transport for session ${sessionId}`);
-            await transports[sessionId].close();
-            delete transports[sessionId];
+            await transport.close();
+            sessions.delete(sessionId);
         } catch (error) {
             console.error(`Error closing transport for session ${sessionId}:`, error);
         }
