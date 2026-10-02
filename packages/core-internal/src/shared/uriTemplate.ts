@@ -197,6 +197,15 @@ export class UriTemplate {
         return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     }
 
+    private decodeValue(value: string): string {
+        try {
+            return decodeURIComponent(value);
+        } catch {
+            // Preserve malformed percent-encoded values rather than making URI matching throw.
+            return value;
+        }
+    }
+
     private partToRegExp(part: {
         name: string;
         operator: string;
@@ -282,7 +291,8 @@ export class UriTemplate {
             const value = match[i + 1]!;
             const cleanName = name.replace('*', '');
 
-            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            result[cleanName] =
+                exploded && value.includes(',') ? value.split(',').map(value => this.decodeValue(value)) : this.decodeValue(value);
         }
 
         return result;
