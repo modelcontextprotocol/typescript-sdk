@@ -319,6 +319,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "Log notifications emitted by a tool handler during execution reach the client's logging callback before the tool result returns."
     },
+    'tools:call:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#calling-tools',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool whose declared inputs are all optional runs the tool, whose handler receives an empty object.'
+    },
+    'tools:call:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool with a required argument is answered as a tool execution error (isError: true) whose content names that argument, without invoking the handler.'
+    },
     'tools:call:progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
         behavior: "Progress notifications emitted by a tool handler reach the caller's progress callback before the tool result returns.",
@@ -625,6 +635,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'prompts:get:no-args': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
         behavior: "prompts/get with no arguments returns the prompt's messages."
+    },
+    'prompts:get:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
+        behavior:
+            "prompts/get that omits the arguments field entirely for a prompt whose declared arguments are all optional returns the prompt's messages."
+    },
+    'prompts:get:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
+        behavior:
+            'prompts/get that omits the arguments field entirely for a prompt with a required argument returns JSON-RPC error -32602 (Invalid params) naming that argument.'
     },
     'prompts:get:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
