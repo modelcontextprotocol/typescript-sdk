@@ -281,7 +281,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _scopeChallengeResolver?: ScopeChallengeHandler;
 
     sessionId?: string;
-    onclose?: () => void;
+    onclose?: Transport['onclose'];
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
