@@ -161,8 +161,8 @@ export type StreamableHTTPClientTransportOptions = {
      * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
      * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
      * is called (if provided) to refresh credentials, then the request is retried once. If
-     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
-     * is thrown.
+     * the retry also gets 401, `SdkHttpError` (`SdkErrorCode.ClientHttpAuthentication`) is thrown.
+     * If `onUnauthorized` is not provided, {@linkcode UnauthorizedError} is thrown.
      *
      * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *

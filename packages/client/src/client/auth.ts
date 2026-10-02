@@ -87,7 +87,8 @@ export interface AuthProvider {
 
     /**
      * Called when the server responds with 401. If provided, the transport will
-     * await this, then retry the request once. If the retry also gets 401, or if
+     * await this, then retry the request once. If the retry also gets 401, the
+     * transport throws `SdkHttpError` (`SdkErrorCode.ClientHttpAuthentication`). If
      * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
      *
      * Implementations should refresh tokens, re-authenticate, etc. — whatever is
