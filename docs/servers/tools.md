@@ -217,7 +217,7 @@ A tool that takes no arguments omits `inputSchema`. Annotations never change how
 
 A `tools/call` request can carry very large arrays and objects in its `arguments`. `McpServer` can limit the number of elements it accepts. Pass `maxToolInputElements` to the constructor: the largest number of array elements and object members, combined, that a single call's `arguments` may contain. It must be a number of at least 1, or `Infinity` for no limit.
 
-```ts
+```ts source="../../examples/guides/servers/tools.examples.ts#McpServer_maxToolInputElements"
 const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
 ```
 
