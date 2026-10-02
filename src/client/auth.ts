@@ -28,7 +28,7 @@ import {
     ServerError,
     UnauthorizedClientError
 } from '../server/auth/errors.js';
-import { FetchLike } from '../shared/transport.js';
+import { FetchLike, fetchWithinOrigin, unfollowedRedirect } from '../shared/transport.js';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -74,6 +74,10 @@ export interface OAuthClientProvider {
      * Loads information about this OAuth client, as registered already with the
      * server, or returns `undefined` if the client is not registered with the
      * server.
+     *
+     * A provider that returns pre-registered credentials should include `issuer`, the URL of
+     * the authorization server they were registered with; {@linkcode auth} then does not
+     * present them to any other.
      */
     clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
 
@@ -84,6 +88,10 @@ export interface OAuthClientProvider {
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
+     *
+     * The object carries `issuer`, the authorization server it was obtained from. Store it
+     * unchanged so that {@linkcode auth} does not reuse the registration with a different one.
+     * Client information stored without `issuer` is passed here, with it, after its first successful use.
      */
     saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
@@ -96,6 +104,9 @@ export interface OAuthClientProvider {
     /**
      * Stores new OAuth tokens for the current session, after a successful
      * authorization.
+     *
+     * The object carries `issuer`, the authorization server that issued the tokens. Store it
+     * unchanged so that {@linkcode auth} does not present the refresh token to a different one.
      */
     saveTokens(tokens: OAuthTokens): void | Promise<void>;
 
@@ -387,9 +398,51 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
         return new errorClass(error_description || '', error_uri);
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
-        const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
+        const redirect = input instanceof Response ? unfollowedRedirect(input, input.url) : undefined;
+        const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}${redirect ?? `Invalid OAuth error response: ${error}. Raw body: ${body}`}`;
         return new ServerError(errorMessage);
     }
+}
+
+/**
+ * Compares two authorization server identifiers, tolerating a single trailing `/`
+ * difference (`String(new URL(...))` is slash-suffixed, advertised values often are not).
+ */
+function issuersMatch(a: string, b: string): boolean {
+    let [x, y] = [a, b];
+    try {
+        // Two URLs are compared as parsed, so the spelling of scheme, host or default port does not matter.
+        [x, y] = [new URL(a).href, new URL(b).href];
+    } catch {
+        // Not two URLs: compared as written.
+    }
+    return x === y || (x.endsWith('/') && x.slice(0, -1) === y) || (y.endsWith('/') && y.slice(0, -1) === x);
+}
+
+/**
+ * {@linkcode auth} stamps everything it passes to `saveClientInformation` / `saveTokens` with
+ * `issuer`, the authorization server URL used for discovery. This returns `stored` unless its
+ * stamp names a different authorization server, in which case the caller behaves as if nothing
+ * were stored. A value without a stamp (saved by an earlier version) is returned as-is, and
+ * is stamped once this authorization server has accepted it.
+ */
+function discardIfIssuerMismatch<T extends { issuer?: string }>(stored: T | null | undefined, issuer: string): T | undefined {
+    // `null`: a `JSON.parse(storage.getItem(...))`-style getter with nothing stored.
+    if (!stored) return undefined;
+    // A stamp that is not a string (raw storage) counts as no stamp.
+    if (typeof stored.issuer !== 'string') return stored.issuer == null ? stored : { ...stored, issuer: undefined };
+    return issuersMatch(stored.issuer, issuer) ? stored : undefined;
+}
+
+// `issuer` is added by the client when it stores a value; authorization server responses are parsed without it.
+const TokenResponseSchema = OAuthTokensSchema.omit({ issuer: true });
+const RegistrationResponseSchema = OAuthClientInformationFullSchema.omit({ issuer: true });
+
+function boundElsewhereError(stored: { issuer?: string }, issuer: string): Error {
+    return new Error(
+        `OAuth client information is bound to authorization server ${stored.issuer} and is not presented to ${issuer}. ` +
+            'Clear the stored client information, or correct `expectedIssuer`, if the authorization server has moved.'
+    );
 }
 
 /**
@@ -503,6 +556,12 @@ async function authInternal(
         });
     }
 
+    // Binding key for stored credentials: the authorization server URL that discovery used
+    // (advertised by the resource server, restored from discoveryState(), or the legacy
+    // resource-origin fallback). `metadata.issuer` is deliberately not used: this version does
+    // not check that the metadata document echoes the URL it was fetched from.
+    const issuer = String(authorizationServerUrl);
+
     // Send the metadata's resource indicator verbatim: `selectResourceURL` returns a parsed
     // `URL`, and `URL.href` appends "/" to a pathless indicator such as `https://example.com`,
     // which exact-match authorization servers reject (#1968). A URL returned by the
@@ -518,8 +577,26 @@ async function authInternal(
     // The resolved scope is used consistently for both DCR and the authorization request.
     const resolvedScope = scope || resourceMetadata?.scopes_supported?.join(' ') || provider.clientMetadata.scope;
 
-    // Handle client registration if needed
-    let clientInformation = await Promise.resolve(provider.clientInformation());
+    // Handle client registration if needed. Client information stamped for a different
+    // authorization server reads back as `undefined`, so the flow re-registers exactly as if
+    // nothing were stored.
+    const storedClientInformation = await Promise.resolve(provider.clientInformation());
+    let clientInformation = discardIfIssuerMismatch(storedClientInformation, issuer);
+    const canRegisterAgain = provider.saveClientInformation !== undefined && !!provider.redirectUrl;
+    if (storedClientInformation && !clientInformation && !canRegisterAgain) {
+        // Pre-registered credentials, or a non-interactive client running on configured
+        // credentials: neither can be re-created by registering with this authorization server.
+        throw boundElsewhereError(storedClientInformation, issuer);
+    }
+    // Saved by an earlier version: bound to the first authorization server that accepts it.
+    const unstampedClientInformation = clientInformation?.issuer == null ? clientInformation : undefined;
+    const bindClientInformation = async () => {
+        try {
+            if (unstampedClientInformation) await provider.saveClientInformation?.({ ...unstampedClientInformation, issuer });
+        } catch {
+            // A provider that only expects this call after a registration keeps working, unbound.
+        }
+    };
     if (!clientInformation) {
         if (authorizationCode !== undefined) {
             throw new Error('Existing OAuth client information is required when exchanging an authorization code');
@@ -538,9 +615,7 @@ async function authInternal(
 
         if (shouldUseUrlBasedClientId) {
             // SEP-991: URL-based Client IDs
-            clientInformation = {
-                client_id: clientMetadataUrl
-            };
+            clientInformation = { client_id: clientMetadataUrl, issuer };
             await provider.saveClientInformation?.(clientInformation);
         } else {
             // Fallback to dynamic registration
@@ -555,8 +630,8 @@ async function authInternal(
                 fetchFn
             });
 
-            await provider.saveClientInformation(fullInformation);
-            clientInformation = fullInformation;
+            clientInformation = { ...fullInformation, issuer };
+            await provider.saveClientInformation(clientInformation);
         }
     }
 
@@ -572,11 +647,22 @@ async function authInternal(
             fetchFn
         });
 
-        await provider.saveTokens(tokens);
+        await bindClientInformation();
+        await provider.saveTokens({ ...tokens, issuer });
         return 'AUTHORIZED';
     }
 
-    const tokens = await provider.tokens();
+    // A refresh token stamped for a different authorization server reads back as `undefined`,
+    // so it is never posted to this one's token endpoint.
+    const tokens = discardIfIssuerMismatch(await provider.tokens(), issuer);
+    if (tokens?.refresh_token && tokens.issuer == null) {
+        // eslint-disable-next-line no-console
+        console.warn(
+            "[mcp-sdk] stored OAuth tokens have no 'issuer' property (saved by an earlier version, or by a provider that " +
+                'does not keep it) and are used as-is; make sure your OAuthClientProvider stores what saveTokens() and ' +
+                'saveClientInformation() receive unchanged.'
+        );
+    }
 
     // Handle token refresh or new authorization
     if (tokens?.refresh_token) {
@@ -591,7 +677,8 @@ async function authInternal(
                 fetchFn
             });
 
-            await provider.saveTokens(newTokens);
+            await bindClientInformation();
+            await provider.saveTokens({ ...newTokens, issuer });
             return 'AUTHORIZED';
         } catch (error) {
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
@@ -791,7 +878,7 @@ export async function discoverOAuthProtectedResourceMetadata(
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
     try {
-        return await fetchFn(url, { headers });
+        return await fetchWithinOrigin(fetchFn)(url, { headers });
     } catch (error) {
         if (error instanceof TypeError) {
             if (headers) {
@@ -836,7 +923,7 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (response.status >= 400 && response.status < 500 && pathname !== '/');
+    return !response || (!response.ok && response.status < 500 && pathname !== '/');
 }
 
 /**
@@ -1024,8 +1111,8 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.body?.cancel();
-            // Continue looking for any 4xx response code.
-            if (response.status >= 400 && response.status < 500) {
+            // Continue looking for any 4xx response code, or a redirect that was not followed.
+            if (response.status < 500) {
                 continue; // Try next URL
             }
             throw new Error(
@@ -1266,7 +1353,7 @@ async function executeTokenRequest(
         applyClientAuthentication(authMethod, clientInformation as OAuthClientInformation, headers, tokenRequestParams);
     }
 
-    const response = await (fetchFn ?? fetch)(tokenUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(tokenUrl, {
         method: 'POST',
         headers,
         body: tokenRequestParams
@@ -1276,7 +1363,7 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthTokensSchema.parse(await response.json());
+    return TokenResponseSchema.parse(await response.json());
 }
 
 /**
@@ -1415,6 +1502,17 @@ export async function fetchToken(
         fetchFn?: FetchLike;
     } = {}
 ): Promise<OAuthTokens> {
+    // Nothing is sent to an authorization server other than the one the client information is stamped for.
+    const readClientInformation = async () => {
+        const storedClientInformation = await provider.clientInformation();
+        const checked = discardIfIssuerMismatch(storedClientInformation, String(authorizationServerUrl));
+        if (storedClientInformation && !checked) {
+            throw boundElsewhereError(storedClientInformation, String(authorizationServerUrl));
+        }
+        return checked;
+    };
+    let clientInformation = await readClientInformation();
+
     const scope = provider.clientMetadata.scope;
 
     // Use provider's prepareTokenRequest if available, otherwise fall back to authorization_code
@@ -1435,12 +1533,13 @@ export async function fetchToken(
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
-    const clientInformation = await provider.clientInformation();
+    // A provider may fill in its client information while the request is prepared.
+    clientInformation ??= await readClientInformation();
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
         tokenRequestParams,
-        clientInformation: clientInformation ?? undefined,
+        clientInformation,
         addClientAuthentication: provider.addClientAuthentication,
         resource,
         fetchFn
@@ -1480,7 +1579,7 @@ export async function registerClient(
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
-    const response = await (fetchFn ?? fetch)(registrationUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -1495,5 +1594,5 @@ export async function registerClient(
         throw await parseErrorResponse(response);
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return RegistrationResponseSchema.parse(await response.json());
 }

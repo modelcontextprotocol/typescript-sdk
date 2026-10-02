@@ -164,8 +164,8 @@ export function hostPerSession(makeServer: ServerFactory): { handleRequest: Http
             const existing = sid ? sessions.get(sid) : undefined;
             if (existing) return existing.handleRequest(req);
             if (sid !== undefined) {
-                // Mirror the SDK's documented hosting pattern: an unrecognized session id is
-                // rejected at the app level, so the transport's own 404 is never reached.
+                // This fixture rejects an unrecognized session id at the app level with 400, so the
+                // transport's own 404 is never reached; the servers under src/examples answer 404.
                 return new Response(
                     JSON.stringify({
                         jsonrpc: '2.0',

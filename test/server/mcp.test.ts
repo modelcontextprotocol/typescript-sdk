@@ -1147,6 +1147,84 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             );
         });
 
+        test('should accept omitted arguments for tools with optional args', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool(
+                'test',
+                {
+                    inputSchema: {
+                        limit: z.number().optional(),
+                        offset: z.number().optional()
+                    }
+                },
+                async ({ limit, offset }) => ({
+                    content: [
+                        {
+                            type: 'text',
+                            text: `limit: ${limit ?? 'default'}, offset: ${offset ?? 'default'}`
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test'
+                    }
+                },
+                CallToolResultSchema
+            );
+
+            expect(result.isError).toBeUndefined();
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'limit: default, offset: default'
+                }
+            ]);
+        });
+
+        test('should reject omitted arguments for tools with a required arg', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            let called = false;
+
+            mcpServer.registerTool('test', { inputSchema: { limit: z.number() } }, async ({ limit }) => {
+                called = true;
+                return { content: [{ type: 'text', text: `limit: ${limit}` }] };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/call', params: { name: 'test' } }, CallToolResultSchema);
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([{ type: 'text', text: expect.stringMatching(/Invalid arguments for tool test: .* at limit/) }]);
+            expect(called).toBe(false);
+        });
+
         /***
          * Test: Preventing Duplicate Tool Registration
          */
@@ -3575,6 +3653,87 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     GetPromptResultSchema
                 )
             ).rejects.toThrow(/Invalid arguments/);
+        });
+
+        test('should accept omitted arguments for prompts with optional args', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'test',
+                {
+                    argsSchema: {
+                        context: z.string().optional()
+                    }
+                },
+                async ({ context }) => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: `context: ${context ?? 'none'}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request(
+                {
+                    method: 'prompts/get',
+                    params: {
+                        name: 'test'
+                    }
+                },
+                GetPromptResultSchema
+            );
+
+            expect(result.messages).toEqual([
+                {
+                    role: 'assistant',
+                    content: {
+                        type: 'text',
+                        text: 'context: none'
+                    }
+                }
+            ]);
+        });
+
+        test('should reject omitted arguments for prompts with a required arg', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt('test', { argsSchema: { context: z.string() } }, async ({ context }) => ({
+                messages: [{ role: 'assistant', content: { type: 'text', text: `context: ${context}` } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(client.request({ method: 'prompts/get', params: { name: 'test' } }, GetPromptResultSchema)).rejects.toMatchObject({
+                code: ErrorCode.InvalidParams,
+                message: expect.stringMatching(/Invalid arguments for prompt test: .* at context/)
+            });
         });
 
         /***
