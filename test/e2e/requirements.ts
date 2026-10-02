@@ -379,6 +379,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "Log notifications emitted by a tool handler during execution reach the client's logging callback before the tool result returns."
     },
+    'tools:call:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#calling-tools',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool whose input schema fields are all optional runs the handler with an empty object and returns its result.'
+    },
+    'tools:call:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool with a required argument is answered as a tool execution error (isError: true) whose content names the missing argument, without invoking the handler.'
+    },
     'tools:call:progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
         behavior: "Progress notifications emitted by a tool handler reach the caller's progress callback before the tool result returns.",
