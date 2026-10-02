@@ -20,7 +20,6 @@ import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import { InMemoryTaskStore, InMemoryTaskMessageQueue } from '../../experimental/tasks/stores/in-memory.js';
 import { setupAuthServer } from './demoInMemoryOAuthProvider.js';
 import { OAuthMetadata } from '../../shared/auth.js';
-import { checkResourceAllowed } from '../../shared/auth-utils.js';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -657,21 +656,17 @@ if (useOAuth) {
 
             const data = await response.json();
 
-            if (strictOAuth) {
-                if (!data.aud) {
-                    throw new Error(`Resource Indicator (RFC8707) missing`);
-                }
-                if (!checkResourceAllowed({ requestedResource: data.aud, configuredResource: mcpServerUrl })) {
-                    throw new Error(`Expected resource indicator ${mcpServerUrl}, got: ${data.aud}`);
-                }
-            }
+            // `aud` is one value, a list, or absent: report the entry on this server's origin, if any
+            const audience = [data.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
 
             // Convert the response to AuthInfo format
             return {
                 token,
                 clientId: data.client_id,
                 scopes: data.scope ? data.scope.split(' ') : [],
-                expiresAt: data.exp
+                expiresAt: data.exp,
+                // The resource the token was issued for (RFC 8707), compared with expectedResource below
+                resource: audience ? new URL(audience) : undefined
             };
         }
     };
@@ -688,7 +683,9 @@ if (useOAuth) {
     authMiddleware = requireBearerAuth({
         verifier: tokenVerifier,
         requiredScopes: [],
-        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+        resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+        // With --oauth-strict, accept only tokens issued for this server
+        expectedResource: strictOAuth ? mcpServerUrl : undefined
     });
 }
 
