@@ -24,8 +24,9 @@ interface StoredTask {
  * based on the ttl duration specified in the task creation parameters.
  *
  * A task created with a sessionId belongs to that session: calls that pass a different
- * sessionId treat the task as not found, and listTasks with a sessionId returns only that
- * session's tasks. Calls that pass no sessionId are not restricted.
+ * sessionId treat the task as not found, and listTasks with a sessionId returns that
+ * session's tasks and the tasks created without a sessionId. Calls that pass no sessionId
+ * are not restricted.
  *
  * Note: This is not suitable for production use as all data is lost on restart.
  * For production, consider implementing TaskStore with a database or distributed cache.
@@ -187,10 +188,8 @@ export class InMemoryTaskStore implements TaskStore {
 
     async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
-        // Page over the caller's own tasks only, so cursors and counts stay within one session.
-        const allTaskIds = Array.from(this.tasks.entries())
-            .filter(([, stored]) => sessionId === undefined || stored.sessionId === sessionId)
-            .map(([taskId]) => taskId);
+        // Page over the tasks the caller can look up, so listTasks follows the same rule as getTask.
+        const allTaskIds = Array.from(this.tasks.keys()).filter(taskId => this.lookup(taskId, sessionId));
 
         let startIndex = 0;
         if (cursor) {

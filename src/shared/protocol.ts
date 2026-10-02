@@ -459,7 +459,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Block if task is not terminal (we've already delivered all queued messages above)
                     if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, extra.signal);
+                        await this._waitForTaskUpdate(taskId, extra.signal, extra.sessionId);
 
                         // After waking up, recursively call to deliver any new messages or result
                         return await handleTaskResult();
@@ -804,6 +804,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         (relatedTaskLookup ?? Promise.resolve())
             .then(() => {
+                // A request cancelled while its related task was looked up does not start its handler; nothing is replied.
+                if (relatedTaskLookup && abortController.signal.aborted) {
+                    throw new McpError(ErrorCode.ConnectionClosed, 'Request was cancelled');
+                }
+
                 // If this request asked for task creation, check capability first
                 if (taskCreationParams) {
                     // Check if the request method supports task creation
@@ -1563,13 +1568,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Uses polling to check for updates at the task's configured poll interval.
      * @param taskId The task ID to wait for
      * @param signal Abort signal to cancel the wait
+     * @param sessionId Session of the request that waits, passed to the task store
      * @returns Promise that resolves when an update occurs or rejects if aborted
      */
-    private async _waitForTaskUpdate(taskId: string, signal: AbortSignal): Promise<void> {
+    private async _waitForTaskUpdate(taskId: string, signal: AbortSignal, sessionId?: string): Promise<void> {
         // Get the task's poll interval, falling back to default
         let interval = this._options?.defaultTaskPollInterval ?? 1000;
         try {
-            const task = await this._taskStore?.getTask(taskId);
+            const task = await this._taskStore?.getTask(taskId, sessionId);
             if (task?.pollInterval) {
                 interval = task.pollInterval;
             }

@@ -19,6 +19,7 @@ import {
     ErrorCode,
     ListResourcesResultSchema,
     ListToolsResultSchema,
+    PingRequestSchema,
     RELATED_TASK_META_KEY
 } from '../../../src/types.js';
 import { listenOnRandomPort } from '../../helpers/http.js';
@@ -56,14 +57,14 @@ describe('InMemoryTaskStore session scoping', () => {
         expect(await store.getTaskResult(task.taskId, 'session-a')).toEqual({ content: [] });
     });
 
-    it('lists only the tasks of the calling session', async () => {
+    it('lists the tasks of the calling session and the tasks created without a sessionId', async () => {
         const a1 = await store.createTask({}, 1, request, 'session-a');
         const a2 = await store.createTask({}, 2, request, 'session-a');
         const b1 = await store.createTask({}, 3, request, 'session-b');
-        await store.createTask({}, 4, request);
+        const shared = await store.createTask({}, 4, request);
 
-        expect((await store.listTasks(undefined, 'session-a')).tasks.map(t => t.taskId)).toEqual([a1.taskId, a2.taskId]);
-        expect((await store.listTasks(undefined, 'session-b')).tasks.map(t => t.taskId)).toEqual([b1.taskId]);
+        expect((await store.listTasks(undefined, 'session-a')).tasks.map(t => t.taskId)).toEqual([a1.taskId, a2.taskId, shared.taskId]);
+        expect((await store.listTasks(undefined, 'session-b')).tasks.map(t => t.taskId)).toEqual([b1.taskId, shared.taskId]);
         expect((await store.listTasks()).tasks).toHaveLength(4);
     });
 
@@ -90,11 +91,11 @@ describe('InMemoryTaskStore session scoping', () => {
         expect(await store.getTaskResult(task.taskId)).toEqual({ content: [] });
     });
 
-    it('returns a task created without a sessionId to any session that has its id', async () => {
+    it('returns and lists a task created without a sessionId for any session', async () => {
         const task = await store.createTask({}, 1, request);
 
         expect((await store.getTask(task.taskId, 'session-a'))?.taskId).toBe(task.taskId);
-        expect((await store.listTasks(undefined, 'session-a')).tasks).toEqual([]);
+        expect((await store.listTasks(undefined, 'session-a')).tasks.map(t => t.taskId)).toEqual([task.taskId]);
     });
 });
 
@@ -360,5 +361,81 @@ describe('Requests related to a task on a connection without a session', () => {
         await client.close();
         await server.close();
         taskStore.cleanup();
+    });
+});
+
+describe('Task requests on a connection with a session', () => {
+    const sessionId = 'session-a';
+    let taskStore: InMemoryTaskStore;
+    let taskMessageQueue: InMemoryTaskMessageQueue;
+    let server: McpServer;
+    let client: Client;
+    let serverTransport: InMemoryTransport;
+
+    beforeEach(async () => {
+        taskStore = new InMemoryTaskStore();
+        taskMessageQueue = new InMemoryTaskMessageQueue();
+        server = new McpServer({ name: 'test-server', version: '1.0.0' }, { taskStore, taskMessageQueue });
+        client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, linkedTransport] = InMemoryTransport.createLinkedPair();
+        serverTransport = linkedTransport;
+        serverTransport.sessionId = sessionId;
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+    });
+
+    afterEach(async () => {
+        vi.useRealTimers();
+        await client.close();
+        await server.close();
+        taskStore.cleanup();
+    });
+
+    it('does not start the handler of a request that was cancelled while its related task was looked up', async () => {
+        const handler = vi.fn(async () => ({}));
+        server.server.setRequestHandler(PingRequestSchema, handler);
+        const task = await taskStore.createTask({}, 1, request, sessionId);
+        const enqueue = vi.spyOn(taskMessageQueue, 'enqueue');
+        const send = vi.spyOn(serverTransport, 'send');
+
+        // The first getTask call, the lookup of the related task, stays pending until finishLookup() is called.
+        let finishLookup!: () => void;
+        const lookupGate = new Promise<void>(resolve => {
+            finishLookup = resolve;
+        });
+        const getTask = taskStore.getTask.bind(taskStore);
+        const lookup = vi.spyOn(taskStore, 'getTask').mockImplementationOnce(async (taskId, session) => {
+            await lookupGate;
+            return await getTask(taskId, session);
+        });
+
+        const controller = new AbortController();
+        const _meta = { [RELATED_TASK_META_KEY]: { taskId: task.taskId } };
+        const pending = client.request({ method: 'ping', params: { _meta } }, EmptyResultSchema, { signal: controller.signal });
+        await vi.waitFor(() => expect(lookup).toHaveBeenCalledWith(task.taskId, sessionId));
+        controller.abort();
+        await expect(pending).rejects.toBeDefined();
+
+        finishLookup();
+        await lookup.mock.results[0].value;
+        // Let the rest of the request chain run before checking that nothing happened.
+        await new Promise(resolve => setImmediate(resolve));
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(enqueue).not.toHaveBeenCalled();
+        expect(send).not.toHaveBeenCalled();
+    });
+
+    it('passes the session id of the request to the task store while tasks/result waits for the task', async () => {
+        vi.useFakeTimers();
+        const task = await taskStore.createTask({ pollInterval: 50 }, 1, request, sessionId);
+        const getTask = vi.spyOn(taskStore, 'getTask');
+
+        const result = client.request({ method: 'tasks/result', params: { taskId: task.taskId } }, CallToolResultSchema);
+        await vi.advanceTimersByTimeAsync(50);
+        await taskStore.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text', text: 'done' }] }, sessionId);
+        await vi.advanceTimersByTimeAsync(50);
+
+        expect((await result).content).toEqual([{ type: 'text', text: 'done' }]);
+        expect(new Set(getTask.mock.calls.map(call => call[1]))).toEqual(new Set([sessionId]));
     });
 });
