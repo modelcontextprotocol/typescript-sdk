@@ -24,6 +24,7 @@ export type {
     BaseToolCallback,
     CompleteResourceTemplateCallback,
     ListResourcesCallback,
+    McpServerOptions,
     PromptCallback,
     ReadResourceCallback,
     ReadResourceTemplateCallback,
