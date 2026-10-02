@@ -2927,15 +2927,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client-auth:authprovider:onunauthorized-retry': {
         source: 'sdk',
         behavior:
-            'When the server answers 401, the transport awaits AuthProvider.onUnauthorized() and retries the request once with the refreshed token; a second 401 (or a provider without onUnauthorized) surfaces as UnauthorizedError.',
+            'When the server answers 401, the transport awaits AuthProvider.onUnauthorized() and retries the request once with the refreshed token; a second 401 on that retry rejects with SdkHttpError (ClientHttpAuthentication), while a provider without onUnauthorized surfaces the 401 as UnauthorizedError.',
         transports: ['streamableHttp'],
-        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.",
-        knownFailures: [
-            {
-                test: 'second 401 after retry surfaces as UnauthorizedError',
-                note: 'A second 401 after onUnauthorized() re-authentication surfaces as SdkHttpError (ClientHttpAuthentication) instead of the UnauthorizedError documented on AuthProvider.onUnauthorized().'
-            }
-        ]
+        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
     'client-auth:authprovider:oauth-provider-adapted': {
         source: 'sdk',
