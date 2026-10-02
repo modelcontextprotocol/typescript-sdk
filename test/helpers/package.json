@@ -22,6 +22,7 @@
         "mcp"
     ],
     "scripts": {
+        "typecheck": "tsgo -p tsconfig.json --noEmit",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "npm run typecheck && npm run lint"
@@ -32,6 +33,7 @@
         "vitest": "catalog:devTools",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^"
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@typescript/native-preview": "catalog:devTools"
     }
 }

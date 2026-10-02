@@ -12,7 +12,7 @@ import { localhostAllowedOrigins, validateOriginHeader } from '@modelcontextprot
  * it returns `false` it has already answered the request and the caller must
  * not handle it further.
  *
- * @param allowedOriginHostnames - List of allowed origin hostnames (without scheme or port).
+ * @param allowedOriginHostnames - List of allowed origin hostnames (without scheme or port), or `<scheme>://*` entries.
  *   For IPv6, provide the address with brackets (e.g., `[::1]`).
  *
  * @example

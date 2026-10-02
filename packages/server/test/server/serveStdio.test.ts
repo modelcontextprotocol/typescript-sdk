@@ -20,6 +20,8 @@
  * - malformed and unsupported envelope claims are answered by the entry,
  *   consistent with the HTTP entry's treatment, without pinning.
  */
+import { Readable, Writable } from 'node:stream';
+
 import type {
     JSONRPCErrorResponse,
     JSONRPCMessage,
@@ -47,6 +49,7 @@ import type { McpServerFactory } from '../../src/server/createMcpHandler';
 import { McpServer } from '../../src/server/mcp';
 import type { ServeStdioOptions } from '../../src/server/serveStdio';
 import { serveStdio } from '../../src/server/serveStdio';
+import { StdioServerTransport } from '../../src/server/stdio';
 
 const MODERN = '2026-07-28';
 
@@ -810,6 +813,64 @@ describe('teardown', () => {
         await handle.close();
         expect(closed[0]).toBe(true);
         expect(peerClosed).toBe(true);
+    });
+
+    it('a buffered final message racing stdin EOF on a modern-pinned connection is dropped cleanly (no TypeError through onerror)', async () => {
+        // Over the real StdioServerTransport: stdin 'end' fires on the next
+        // tick behind a final 'data' chunk, so the transport's onclose (which
+        // reassigns the entry state to closed) runs BEFORE the pump's
+        // microtask continuation inside processMessage resumes from
+        // `await tryServeListen(message)`. The continuation must re-check
+        // teardown instead of dereferencing the pinned instance.
+        const { factory, closed } = trackingFactory();
+
+        const stdin = new Readable({ read() {} });
+        const outLines: string[] = [];
+        const stdout = new Writable({
+            write(chunk: Buffer, _encoding, callback) {
+                outLines.push(chunk.toString());
+                callback();
+            }
+        });
+        const transport = new StdioServerTransport(stdin, stdout);
+
+        const errors: Error[] = [];
+        const handle = serveStdio(factory, { transport, onerror: error => void errors.push(error) });
+
+        const line = (message: JSONRPCMessage) => Buffer.from(`${JSON.stringify(message)}\n`);
+
+        // Pin the modern era with a first enveloped request and wait for its answer.
+        stdin.emit('data', line({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } }));
+        while (outLines.length === 0) {
+            await new Promise(resolve => setTimeout(resolve, 5));
+        }
+
+        // The race: a final enveloped request with stdin EOF right behind it.
+        // Emitted from a timer callback so the events originate from a
+        // macrotask exactly as real stream events do — there, the
+        // nextTick'd 'end' runs BEFORE the pump's promise continuation
+        // resumes inside processMessage (a test body itself is a microtask
+        // context, where the continuation would win and mask the race).
+        setTimeout(() => {
+            stdin.emit(
+                'data',
+                line({
+                    jsonrpc: '2.0',
+                    id: 2,
+                    method: 'tools/call',
+                    params: { name: 'echo', arguments: { text: 'late' }, _meta: envelope() }
+                })
+            );
+            process.nextTick(() => stdin.emit('end'));
+        }, 0);
+        await new Promise(resolve => setTimeout(resolve, 20));
+
+        // The connection tore down (EOF closed the pinned instance) and the
+        // raced message was dropped without any error surfacing to onerror.
+        expect(closed[0]).toBe(true);
+        expect(errors).toEqual([]);
+
+        await handle.close();
     });
 });
 

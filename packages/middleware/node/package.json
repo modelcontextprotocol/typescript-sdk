@@ -1,8 +1,8 @@
 {
     "name": "@modelcontextprotocol/node",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "description": "Model Context Protocol implementation for TypeScript - Node.js middleware",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
@@ -49,16 +49,11 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@hono/node-server": "catalog:runtimeServerOnly"
-    },
-    "peerDependencies": {
-        "@modelcontextprotocol/server": "workspace:^",
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "hono": "catalog:runtimeServerOnly"
     },
-    "peerDependenciesMeta": {
-        "hono": {
-            "optional": true
-        }
+    "peerDependencies": {
+        "@modelcontextprotocol/server": "workspace:^"
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",

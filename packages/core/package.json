@@ -1,8 +1,8 @@
 {
     "name": "@modelcontextprotocol/core",
-    "version": "2.0.0",
+    "version": "2.2.0",
     "description": "Model Context Protocol for TypeScript — public Zod schemas (spec + OAuth/OpenID)",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",

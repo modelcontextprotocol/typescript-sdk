@@ -274,6 +274,53 @@ describe('createMcpHandler — modern path', () => {
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
     });
 
+    it('restores a reused server onclose handler after each modern exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+
+        const originalOnClose = vi.fn();
+        reused.server.onclose = originalOnClose;
+
+        const handler = createMcpHandler(() => reused);
+
+        for (let i = 0; i < 3; i++) {
+            const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: `hello-${i}` })));
+            expect(response.status).toBe(200);
+            await response.text();
+            expect(reused.server.onclose).toBe(originalOnClose);
+        }
+
+        expect(originalOnClose).toHaveBeenCalledTimes(3);
+    });
+
+    it('keeps an onclose handler that was installed during the exchange', async () => {
+        const reused = new McpServer({ name: 'entry-test-server', version: '1.0.0' });
+        const installedDuringExchange = vi.fn();
+        let chained: (() => void) | undefined;
+        reused.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => {
+            if (chained === undefined) {
+                const previous = reused.server.onclose;
+                chained = () => {
+                    installedDuringExchange();
+                    previous?.();
+                };
+                reused.server.onclose = chained;
+            }
+            return { content: [{ type: 'text', text }] };
+        });
+
+        const handler = createMcpHandler(() => reused);
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'hello' })));
+        expect(response.status).toBe(200);
+        await response.text();
+
+        expect(reused.server.onclose).toBe(chained);
+        expect(installedDuringExchange).toHaveBeenCalledTimes(1);
+    });
+
     it('closes and releases the per-request instance when a modern exchange fails internally', async () => {
         const { factory, state } = testFactory();
         const onerror = vi.fn();
