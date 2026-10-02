@@ -3,6 +3,16 @@ import { JSONRPCMessageSchema } from '../types/index';
 
 export const STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 
+export class InvalidJsonRpcFrameError extends Error {
+    readonly rawFrame: unknown;
+
+    constructor(rawFrame: unknown, cause: unknown) {
+        super('Invalid JSON-RPC message', { cause });
+        this.name = 'InvalidJsonRpcFrameError';
+        this.rawFrame = rawFrame;
+    }
+}
+
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
@@ -54,7 +64,12 @@ export class ReadBuffer {
 }
 
 export function deserializeMessage(line: string): JSONRPCMessage {
-    return JSONRPCMessageSchema.parse(JSON.parse(line));
+    const rawFrame = JSON.parse(line);
+    const parsed = JSONRPCMessageSchema.safeParse(rawFrame);
+    if (!parsed.success) {
+        throw new InvalidJsonRpcFrameError(rawFrame, parsed.error);
+    }
+    return parsed.data;
 }
 
 export function serializeMessage(message: JSONRPCMessage): string {
