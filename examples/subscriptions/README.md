@@ -12,5 +12,5 @@ pnpm tsx examples/subscriptions/client.ts
 
 # Streamable HTTP (two terminals):
 pnpm tsx examples/subscriptions/server.ts --http --port 3000
-pnpm tsx examples/subscriptions/client.ts --http http://127.0.0.1:3000/
+pnpm tsx examples/subscriptions/client.ts --http http://127.0.0.1:3000/mcp
 ```
