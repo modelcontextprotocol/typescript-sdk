@@ -111,6 +111,52 @@ describe('UriTemplate', () => {
         });
     });
 
+    describe('optional variables', () => {
+        it('should strip the trailing ? from optional variable names', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.variableNames).toEqual(['required', 'optional']);
+        });
+
+        it('should expand an optional variable when it is provided', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.expand({ required: 'foo', optional: 'bar' })).toBe('scheme://path/foo/bar');
+        });
+
+        it('should omit the optional segment and its separator when the variable is absent', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.expand({ required: 'foo' })).toBe('scheme://path/foo');
+        });
+
+        it('should match a URI that includes the optional segment', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.match('scheme://path/foo/bar')).toEqual({ required: 'foo', optional: 'bar' });
+        });
+
+        it('should match a URI that omits the optional segment', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.match('scheme://path/foo')).toEqual({ required: 'foo' });
+        });
+
+        it('should still reject a URI missing a required segment', () => {
+            const template = new UriTemplate('scheme://path/{required}/{optional?}');
+            expect(template.match('scheme://path/')).toBeNull();
+        });
+
+        it('should match the expansion of an absent {/var} path segment', () => {
+            const template = new UriTemplate('scheme://path/{required}{/optional}');
+            const uri = template.expand({ required: 'foo' });
+            expect(uri).toBe('scheme://path/foo');
+            expect(template.match(uri)).toEqual({ required: 'foo' });
+            expect(template.match('scheme://path/foo/bar')).toEqual({ required: 'foo', optional: 'bar' });
+        });
+
+        it('should match the expansion of an absent {.var} label', () => {
+            const template = new UriTemplate('file{.ext}');
+            expect(template.match(template.expand({}))).toEqual({});
+            expect(template.match('file.txt')).toEqual({ ext: 'txt' });
+        });
+    });
+
     describe('edge cases', () => {
         it('should handle empty variables', () => {
             const template = new UriTemplate('{empty}');
