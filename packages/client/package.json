@@ -134,11 +134,11 @@
     },
     "dependencies": {
         "@modelcontextprotocol/core": "workspace:*",
-        "cross-spawn": "catalog:runtimeClientOnly",
         "eventsource": "catalog:runtimeClientOnly",
         "eventsource-parser": "catalog:runtimeClientOnly",
         "jose": "catalog:runtimeClientOnly",
         "pkce-challenge": "catalog:runtimeShared",
+        "tinyexec": "catalog:runtimeClientOnly",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
@@ -151,7 +151,6 @@
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
         "@types/content-type": "catalog:devTools",
-        "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "@eslint/js": "catalog:devTools",

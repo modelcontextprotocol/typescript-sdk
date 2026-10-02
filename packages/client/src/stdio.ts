@@ -1,7 +1,7 @@
 // Subpath entry for the stdio client transport.
 //
 // Exported separately from the root entry so that bundling `@modelcontextprotocol/client` for browser or
-// Cloudflare Workers targets does not pull in `node:child_process`, `node:stream`, or `cross-spawn`. Import
+// Cloudflare Workers targets does not pull in `node:child_process`, `node:stream`, or `tinyexec`. Import
 // from `@modelcontextprotocol/client/stdio` only in process-spawning runtimes (Node.js, Bun, Deno).
 
 export type { StdioServerParameters } from './client/stdio';
