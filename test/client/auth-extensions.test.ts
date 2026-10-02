@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { auth } from '../../src/client/auth.js';
+import { afterEach, beforeEach, describe, it, expect, vi, type MockInstance } from 'vitest';
+import { auth, type OAuthClientProvider } from '../../src/client/auth.js';
 import {
     ClientCredentialsProvider,
     PrivateKeyJwtProvider,
@@ -14,6 +14,7 @@ const AUTH_SERVER_URL = 'https://auth.example.com';
 describe('auth-extensions providers (end-to-end with auth())', () => {
     it('authenticates using ClientCredentialsProvider with client_secret_basic', async () => {
         const provider = new ClientCredentialsProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'my-client',
             clientSecret: 'my-secret',
             clientName: 'test-client'
@@ -51,6 +52,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
 
     it('sends scope in token request when ClientCredentialsProvider is configured with scope', async () => {
         const provider = new ClientCredentialsProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'my-client',
             clientSecret: 'my-secret',
             clientName: 'test-client',
@@ -80,6 +82,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
 
     it('authenticates using PrivateKeyJwtProvider with private_key_jwt', async () => {
         const provider = new PrivateKeyJwtProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'client-id',
             privateKey: 'a-string-secret-at-least-256-bits-long',
             algorithm: 'HS256',
@@ -123,6 +126,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
 
     it('sends scope in token request when PrivateKeyJwtProvider is configured with scope', async () => {
         const provider = new PrivateKeyJwtProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'client-id',
             privateKey: 'a-string-secret-at-least-256-bits-long',
             algorithm: 'HS256',
@@ -155,6 +159,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
 
     it('fails when PrivateKeyJwtProvider is configured with an unsupported algorithm', async () => {
         const provider = new PrivateKeyJwtProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'client-id',
             privateKey: 'a-string-secret-at-least-256-bits-long',
             algorithm: 'none',
@@ -178,6 +183,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         const staticAssertion = 'header.payload.signature';
 
         const provider = new StaticPrivateKeyJwtProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'static-client',
             jwtBearerAssertion: staticAssertion,
             clientName: 'static-private-key-jwt-client'
@@ -215,6 +221,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         const staticAssertion = 'header.payload.signature';
 
         const provider = new StaticPrivateKeyJwtProvider({
+            expectedIssuer: AUTH_SERVER_URL,
             clientId: 'static-client',
             jwtBearerAssertion: staticAssertion,
             clientName: 'static-private-key-jwt-client',
@@ -242,6 +249,151 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
         });
 
         expect(result).toBe('AUTHORIZED');
+    });
+});
+
+describe('auth-extensions providers are bound to one authorization server', () => {
+    const SERVER_URL = 'https://api.example.com/mcp';
+    const AS_ONE = 'https://as-one.example.com';
+    const AS_TWO = 'https://as-two.example.com';
+
+    function createMigratingFetch() {
+        let active = AS_ONE;
+        const requests: string[] = [];
+        const tokenCalls: Array<{ origin: string; body: string; authorization: string | null }> = [];
+        const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+            const u = new URL(String(url));
+            requests.push(`${init?.method ?? 'GET'} ${u.origin}${u.pathname}`);
+            if (u.pathname.includes('/.well-known/oauth-protected-resource')) {
+                return Response.json({ resource: SERVER_URL, authorization_servers: [active] });
+            }
+            if (u.pathname.includes('/.well-known/')) {
+                return Response.json({
+                    issuer: u.origin,
+                    authorization_endpoint: `${u.origin}/authorize`,
+                    token_endpoint: `${u.origin}/token`,
+                    registration_endpoint: `${u.origin}/register`,
+                    response_types_supported: ['code'],
+                    grant_types_supported: ['client_credentials']
+                });
+            }
+            if (u.pathname === '/register') {
+                return Response.json({ client_id: `cid-${u.host}`, client_secret: `secret-${u.host}`, redirect_uris: [] }, { status: 201 });
+            }
+            if (u.pathname === '/token') {
+                tokenCalls.push({
+                    origin: u.origin,
+                    body: String(init?.body),
+                    authorization: new Headers(init?.headers).get('authorization')
+                });
+                return Response.json({ access_token: `at-${u.host}`, token_type: 'Bearer' });
+            }
+            return new Response(null, { status: 404 });
+        };
+        return { fetchFn, requests, tokenCalls, switchTo: (as: string) => (active = as) };
+    }
+
+    type Options = { expectedIssuer?: string };
+    const providers: Array<[string, (options: Options) => OAuthClientProvider]> = [
+        [
+            'ClientCredentialsProvider',
+            o => new ClientCredentialsProvider({ clientId: 'client-one', clientSecret: 'configured-secret', ...o })
+        ],
+        [
+            'PrivateKeyJwtProvider',
+            o => new PrivateKeyJwtProvider({ clientId: 'client-one', privateKey: 'k'.repeat(64), algorithm: 'HS256', ...o })
+        ],
+        [
+            'StaticPrivateKeyJwtProvider',
+            o => new StaticPrivateKeyJwtProvider({ clientId: 'client-one', jwtBearerAssertion: 'assertion-one', ...o })
+        ]
+    ];
+
+    let warn: MockInstance<typeof console.warn>;
+    beforeEach(() => {
+        warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    });
+    afterEach(() => {
+        warn.mockRestore();
+    });
+
+    it.each(providers)('%s with expectedIssuer is only used with that authorization server', async (_name, create) => {
+        const srv = createMigratingFetch();
+        const provider = create({ expectedIssuer: AS_ONE });
+
+        srv.switchTo(AS_TWO);
+        await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+            `OAuth client information is bound to authorization server ${AS_ONE} and is not presented to ${AS_TWO}`
+        );
+        expect(srv.requests.filter(r => r.includes(AS_TWO))).toEqual([`GET ${AS_TWO}/.well-known/oauth-authorization-server`]);
+
+        srv.switchTo(AS_ONE);
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+        expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('accepts expectedIssuer spelled with a trailing slash', async () => {
+        const srv = createMigratingFetch();
+        const provider = new ClientCredentialsProvider({
+            clientId: 'client-one',
+            clientSecret: 'configured-secret',
+            expectedIssuer: `${AS_ONE}/`
+        });
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+    });
+
+    it.each(['https://AS-ONE.example.com', 'https://as-one.example.com:443'])('accepts expectedIssuer spelled %s', async expectedIssuer => {
+        const srv = createMigratingFetch();
+        const provider = new ClientCredentialsProvider({ clientId: 'client-one', clientSecret: 'configured-secret', expectedIssuer });
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+        expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE]);
+    });
+
+    it.each(providers)('%s without expectedIssuer stays with the first authorization server it is used with', async (_name, create) => {
+        const srv = createMigratingFetch();
+        const provider = create({});
+
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+
+        srv.switchTo(AS_TWO);
+        await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).rejects.toThrow(
+            `OAuth client information is bound to authorization server ${AS_ONE} and is not presented to ${AS_TWO}`
+        );
+        expect(srv.requests.filter(r => r.includes(AS_TWO))).toEqual([`GET ${AS_TWO}/.well-known/oauth-authorization-server`]);
+
+        // Back at the first authorization server the configured credential is used as before.
+        srv.switchTo(AS_ONE);
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+        expect(srv.tokenCalls.map(c => c.origin)).toEqual([AS_ONE, AS_ONE]);
+    });
+
+    it.each(providers)('%s without expectedIssuer recovers after a failed first attempt', async (_name, create) => {
+        const srv = createMigratingFetch();
+        const provider = create({});
+
+        // Discovery fails once and falls back to the resource origin, which has no token endpoint.
+        const unavailable = async (url: string | URL) =>
+            new Response(null, { status: String(url).includes('oauth-protected-resource') ? 503 : 404 });
+        await expect(auth(provider, { serverUrl: SERVER_URL, fetchFn: unavailable })).rejects.toThrow();
+
+        expect(await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
+    });
+
+    it.each(providers)('%s logs one deprecation message at construction when expectedIssuer is omitted', async (_name, create) => {
+        const srv = createMigratingFetch();
+        const provider = create({});
+        await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+        await auth(provider, { serverUrl: SERVER_URL, fetchFn: srv.fetchFn });
+
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Omitting `expectedIssuer` is deprecated'));
+    });
+
+    it.each([null, '', 42, new URL(AS_ONE)])('rejects expectedIssuer %j at construction', value => {
+        expect(() => new ClientCredentialsProvider({ clientId: 'c', clientSecret: 's', expectedIssuer: value as string })).toThrow(
+            'expectedIssuer must be'
+        );
     });
 });
 

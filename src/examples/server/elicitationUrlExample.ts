@@ -587,8 +587,31 @@ app.post('/confirm-payment', express.urlencoded(), (req: Request, res: Response)
     }
 });
 
-// Map to store transports by session ID
-const transports: { [sessionId: string]: StreamableHTTPServerTransport } = {};
+// Close sessions that have been idle for IDLE_MS, and keep at most MAX_SESSIONS open
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
+
+// Map to store sessions by session ID
+type Session = { transport: StreamableHTTPServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
+
+// Count open responses so a long-running request or a listening SSE stream is not treated as idle
+const trackResponse = (session: Session, res: Response) => {
+    if (!res.socket || res.destroyed) return;
+    session.open++;
+    res.on('close', () => {
+        session.open--;
+        session.lastActive = Date.now();
+    });
+};
+
+// Close sessions with nothing open and no activity for IDLE_MS
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
+    }
+}, 60_000).unref();
 
 // Interface for a function that can send an elicitation request
 type ElicitationSender = (params: ElicitRequestURLParams) => Promise<ElicitResult>;
@@ -607,11 +630,17 @@ const mcpPostHandler = async (req: Request, res: Response) => {
     console.debug(`Received MCP POST for session: ${sessionId || 'unknown'}`);
 
     try {
+        const session = sessionId ? sessions.get(sessionId) : undefined;
         let transport: StreamableHTTPServerTransport;
-        if (sessionId && transports[sessionId]) {
+        if (session) {
             // Reuse existing transport
-            transport = transports[sessionId];
+            transport = session.transport;
+            trackResponse(session, res);
         } else if (!sessionId && isInitializeRequest(req.body)) {
+            if (sessions.size >= MAX_SESSIONS) {
+                res.status(503).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Too many open sessions' }, id: null });
+                return;
+            }
             const server = getServer();
             // New initialization request
             const eventStore = new InMemoryEventStore();
@@ -622,7 +651,7 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     // Store the transport by session ID when session is initialized
                     // This avoids race conditions where requests might come in before the session is stored
                     console.log(`Session initialized with ID: ${sessionId}`);
-                    transports[sessionId] = transport;
+                    sessions.set(sessionId, { transport, open: 0, lastActive: Date.now() });
                     sessionsNeedingElicitation[sessionId] = {
                         elicitationSender: params => server.server.elicitInput(params),
                         createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)
@@ -633,9 +662,9 @@ const mcpPostHandler = async (req: Request, res: Response) => {
             // Set up onclose handler to clean up transport when closed
             transport.onclose = () => {
                 const sid = transport.sessionId;
-                if (sid && transports[sid]) {
-                    console.log(`Transport closed for session ${sid}, removing from transports map`);
-                    delete transports[sid];
+                if (sid && sessions.has(sid)) {
+                    console.log(`Transport closed for session ${sid}, removing from sessions map`);
+                    sessions.delete(sid);
                     delete sessionsNeedingElicitation[sid];
                 }
             };
@@ -646,8 +675,12 @@ const mcpPostHandler = async (req: Request, res: Response) => {
 
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
+        } else if (sessionId) {
+            // Unknown or expired session ID - the client should start a new session
+            res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
+            // Invalid request - no session ID and not an initialization request
             res.status(400).json({
                 jsonrpc: '2.0',
                 error: {
@@ -683,8 +716,14 @@ app.post('/mcp', authMiddleware, mcpPostHandler);
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    const session = sessions.get(sessionId);
+    if (!session) {
+        // Unknown or expired session ID - the client should start a new session
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
         return;
     }
 
@@ -696,8 +735,8 @@ const mcpGetHandler = async (req: Request, res: Response) => {
         console.log(`Establishing new SSE stream for session ${sessionId}`);
     }
 
-    const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
+    trackResponse(session, res);
+    await session.transport.handleRequest(req, res);
 
     if (sessionsNeedingElicitation[sessionId]) {
         const { elicitationSender, createCompletionNotifier } = sessionsNeedingElicitation[sessionId];
@@ -722,16 +761,22 @@ app.get('/mcp', authMiddleware, mcpGetHandler);
 // Handle DELETE requests for session termination (according to MCP spec)
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    const session = sessions.get(sessionId);
+    if (!session) {
+        // Unknown or expired session ID - the client should start a new session
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
         return;
     }
 
     console.log(`Received session termination request for session ${sessionId}`);
 
     try {
-        const transport = transports[sessionId];
-        await transport.handleRequest(req, res);
+        trackResponse(session, res);
+        await session.transport.handleRequest(req, res);
     } catch (error) {
         console.error('Error handling session termination:', error);
         if (!res.headersSent) {
@@ -756,11 +801,11 @@ process.on('SIGINT', async () => {
     console.log('Shutting down server...');
 
     // Close all active transports to properly clean up resources
-    for (const sessionId in transports) {
+    for (const [sessionId, { transport }] of sessions) {
         try {
             console.log(`Closing transport for session ${sessionId}`);
-            await transports[sessionId].close();
-            delete transports[sessionId];
+            await transport.close();
+            sessions.delete(sessionId);
             delete sessionsNeedingElicitation[sessionId];
         } catch (error) {
             console.error(`Error closing transport for session ${sessionId}:`, error);

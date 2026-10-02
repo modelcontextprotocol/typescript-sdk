@@ -1,4 +1,14 @@
-import { Transport, FetchLike, createFetchWithInit, normalizeHeaders } from '../shared/transport.js';
+import { mediaTypeEssence } from '../shared/mediaType.js';
+import {
+    Transport,
+    FetchLike,
+    createFetchWithInit,
+    fetchLeavingRedirects,
+    fetchWithinOrigin,
+    followWithinOrigin,
+    normalizeHeaders,
+    unfollowedRedirect
+} from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
 import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
@@ -105,6 +115,17 @@ export type StreamableHTTPClientTransportOptions = {
     fetch?: FetchLike;
 
     /**
+     * How a redirect of one of the transport's requests is handled, including the OAuth requests it makes for `authProvider`.
+     *
+     * - `'same-origin'` (default): a redirect is followed only when it keeps the method and stays within the origin of the request, or goes from http to https on the same host with default ports; any other redirect is not followed and the request fails.
+     * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions of the SDK.
+     *
+     * With either value, a `requestInit.redirect` of `'error'` or `'manual'` is passed to fetch unchanged for the POST requests that carry messages and for DELETE requests.
+     * The OAuth requests read `requestInit.redirect` only with `'follow'`, and GET requests do not read it.
+     */
+    redirectPolicy?: 'same-origin' | 'follow';
+
+    /**
      * Options to configure the reconnection behavior.
      */
     reconnectionOptions?: StreamableHTTPReconnectionOptions;
@@ -130,6 +151,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _authProvider?: OAuthClientProvider;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _followRedirects: boolean;
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
@@ -150,8 +172,19 @@ export class StreamableHTTPClientTransport implements Transport {
         this._authProvider = opts?.authProvider;
         this._fetch = opts?.fetch;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        this._followRedirects = opts?.redirectPolicy === 'follow';
+        if (this._followRedirects) {
+            this._fetch = fetchLeavingRedirects(this._fetch);
+            this._fetchWithInit = fetchLeavingRedirects(this._fetchWithInit);
+        }
         this._sessionId = opts?.sessionId;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
+    }
+
+    /** Error text for a redirect `response` that was not followed, or `undefined` for any other response. */
+    private _unfollowedRedirect(response: Response, url: string | URL): string | undefined {
+        const text = unfollowedRedirect(response, url);
+        return text && !this._followRedirects ? `${text} (redirectPolicy: 'same-origin')` : text;
     }
 
     private async _authThenStart(): Promise<void> {
@@ -217,11 +250,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
-            const response = await (this._fetch ?? fetch)(this._url, {
-                method: 'GET',
-                headers,
-                signal: this._abortController?.signal
-            });
+            const fetchFn = this._fetch ?? fetch;
+            const init = { method: 'GET', headers, signal: this._abortController?.signal };
+            // A response that is not a redirect is used as it arrives, so reading the stream starts as early as before.
+            let response = await fetchFn(this._url, this._followRedirects ? init : { ...init, redirect: 'manual' });
+            const followed = this._followRedirects ? undefined : followWithinOrigin(fetchFn, this._url, init, response);
+            if (followed) {
+                response = await followed;
+            }
 
             if (!response.ok) {
                 await response.body?.cancel();
@@ -237,7 +273,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new StreamableHTTPError(response.status, `Failed to open SSE stream: ${response.statusText}`);
+                throw new StreamableHTTPError(
+                    response.status,
+                    `Failed to open SSE stream: ${this._unfollowedRedirect(response, this._url) ?? response.statusText}`
+                );
             }
 
             this._handleSseStream(response.body, options, true);
@@ -475,7 +514,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            const response = await fetchWithinOrigin(this._fetch ?? fetch)(this._url, init);
 
             // Handle session ID received during initialization
             const sessionId = response.headers.get('mcp-session-id');
@@ -548,7 +587,10 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new StreamableHTTPError(response.status, `Error POSTing to endpoint: ${text}`);
+                throw new StreamableHTTPError(
+                    response.status,
+                    `Error POSTing to endpoint: ${this._unfollowedRedirect(response, this._url) ?? text}`
+                );
             }
 
             // Reset auth loop flag on successful response
@@ -572,16 +614,17 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const hasRequests = messages.filter(msg => 'method' in msg && 'id' in msg && msg.id !== undefined).length > 0;
 
-            // Check the response type
+            // Check the response type (parsed media type — see mediaTypeEssence)
             const contentType = response.headers.get('content-type');
+            const responseMediaType = mediaTypeEssence(contentType);
 
             if (hasRequests) {
-                if (contentType?.includes('text/event-stream')) {
+                if (responseMediaType === 'text/event-stream') {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
                     this._handleSseStream(response.body, { onresumptiontoken }, false);
-                } else if (contentType?.includes('application/json')) {
+                } else if (responseMediaType === 'application/json') {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
                     const responseMessages = Array.isArray(data)
@@ -635,13 +678,16 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            const response = await fetchWithinOrigin(this._fetch ?? fetch)(this._url, init);
             await response.body?.cancel();
 
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new StreamableHTTPError(response.status, `Failed to terminate session: ${response.statusText}`);
+                throw new StreamableHTTPError(
+                    response.status,
+                    `Failed to terminate session: ${this._unfollowedRedirect(response, this._url) ?? response.statusText}`
+                );
             }
 
             this._sessionId = undefined;

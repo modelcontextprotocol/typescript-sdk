@@ -37,6 +37,14 @@ export type StdioServerParameters = {
      * If not specified, the current working directory will be inherited.
      */
     cwd?: string;
+
+    /**
+     * Maximum size of the read buffer in bytes. If a single message exceeds
+     * this size the transport will emit an error and close.
+     *
+     * Defaults to 10 MB.
+     */
+    maxBufferSize?: number;
 };
 
 /**
@@ -91,7 +99,7 @@ export function getDefaultEnvironment(): Record<string, string> {
  */
 export class StdioClientTransport implements Transport {
     private _process?: ChildProcess;
-    private _readBuffer: ReadBuffer = new ReadBuffer();
+    private _readBuffer: ReadBuffer;
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
 
@@ -101,6 +109,7 @@ export class StdioClientTransport implements Transport {
 
     constructor(server: StdioServerParameters) {
         this._serverParams = server;
+        this._readBuffer = new ReadBuffer({ maxBufferSize: server.maxBufferSize });
         if (server.stderr === 'pipe' || server.stderr === 'overlapped') {
             this._stderrStream = new PassThrough();
         }
@@ -148,8 +157,13 @@ export class StdioClientTransport implements Transport {
             });
 
             this._process.stdout?.on('data', chunk => {
-                this._readBuffer.append(chunk);
-                this.processReadBuffer();
+                try {
+                    this._readBuffer.append(chunk);
+                    this.processReadBuffer();
+                } catch (error) {
+                    this.onerror?.(error as Error);
+                    this.close().catch(() => {});
+                }
             });
 
             this._process.stdout?.on('error', error => {

@@ -1346,7 +1346,8 @@ describe('StreamableHTTPClientTransport', () => {
                 access_token: 'new-access-token',
                 token_type: 'Bearer',
                 expires_in: 3600,
-                refresh_token: 'new-refresh-token'
+                refresh_token: 'new-refresh-token',
+                issuer: 'http://localhost:1234'
             });
 
             // Global fetch should never have been called
@@ -1619,7 +1620,8 @@ describe('StreamableHTTPClientTransport', () => {
                 access_token: 'new-access-token',
                 token_type: 'Bearer',
                 expires_in: 3600,
-                refresh_token: 'refresh-token' // Refresh token is preserved
+                refresh_token: 'refresh-token', // Refresh token is preserved
+                issuer: 'http://localhost:1234/'
             });
         });
     });
