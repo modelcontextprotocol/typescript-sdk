@@ -110,6 +110,15 @@ Then:
 4. Run `pnpm test:all` to verify all tests pass
 5. Submit a pull request
 
+### Good to know
+
+Details about this repository that neither the code nor the tools will tell you.
+
+- **Spec** — The full spec text is at `https://modelcontextprotocol.io/llms-full.txt`, and the schema for a protocol revision is `schema/<revision>/schema.ts` in `modelcontextprotocol/modelcontextprotocol`.
+- **Tests** — Tests live under each package's `test/` directory; a test file next to its source never runs.
+- **Adapters** — The packages under `packages/middleware/` are thin adapters, versioned separately from client and server, so a user can run a new server with an older adapter.
+- **Migration guide** — `docs/migration/upgrade-to-v2.md` covers the upgrade from v1 only; mechanical renames go in `packages/codemod/src/migrations/v1-to-v2/mappings/`.
+
 ### Running Examples
 
 See [`examples/README.md`](examples/README.md) for the full list of runnable examples — one self-verifying client/server pair per directory.
