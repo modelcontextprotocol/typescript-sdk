@@ -76,14 +76,25 @@ function toolInputElementCount(value: unknown, max: number): number {
     return count;
 }
 
-// Resolves the configured element ceiling: no limit when unset or Infinity, else a positive number.
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a number of at least 1.
 function resolveMaxToolInputElements(value: number | undefined): number | undefined {
     if (value === undefined || value === Infinity) return undefined;
     if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
-        throw new RangeError(`maxToolInputElements must be a positive number or Infinity, got ${String(value)}`);
+        throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
     }
     return value;
 }
+
+/**
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements`.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
+     * A number of at least 1; unset or `Infinity` means no limit.
+     */
+    maxToolInputElements?: number;
+};
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -138,13 +149,7 @@ export class McpServer {
         }
     }
 
-    constructor(
-        serverInfo: Implementation,
-        options?: ServerOptions & {
-            /** Maximum combined array elements and object members allowed in a tool call's `arguments`; unset means no limit. */
-            maxToolInputElements?: number;
-        }
-    ) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
@@ -348,14 +353,9 @@ export class McpServer {
                 : undefined
             : undefined
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
-        if (!tool.inputSchema) {
-            return undefined as Args;
-        }
-
-        const input = args ?? {};
         if (
             this._maxToolInputElements !== undefined &&
-            toolInputElementCount(input, this._maxToolInputElements) > this._maxToolInputElements
+            toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements
         ) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
@@ -363,7 +363,11 @@ export class McpServer {
             );
         }
 
-        const parseResult = await validateStandardSchema(tool.inputSchema, input);
+        if (!tool.inputSchema) {
+            return undefined as Args;
+        }
+
+        const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
         if (!parseResult.success) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
