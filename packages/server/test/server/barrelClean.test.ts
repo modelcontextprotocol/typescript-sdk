@@ -23,7 +23,9 @@ function chunkImportsOf(entryPath: string): string[] {
         if (visited.has(file)) continue;
         visited.add(file);
         const src = readFileSync(file, 'utf8');
-        for (const m of src.matchAll(/from\s+["']\.\/(.+?\.mjs)["']/g)) {
+        // Follow ./ and ../ relative chunk imports: subpath entries in nested
+        // dist directories import shared chunks from parent directories.
+        for (const m of src.matchAll(/from\s+["'](\.\.?\/.+?\.mjs)["']/g)) {
             queue.push(join(dirname(file), m[1]!));
         }
     }
@@ -95,6 +97,35 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
         for (const declaration of ['index.d.mts', 'index.d.cts']) {
             const rootExportBlock = rootExportBlockOf(readFileSync(join(distDir, declaration), 'utf8'));
             for (const symbol of ROOT_VALIDATOR_EXPORTS) {
+                expect(rootExportBlock).not.toMatch(new RegExp(`\\b(?:type\\s+)?${symbol}\\b`));
+            }
+        }
+    });
+});
+
+describe('@modelcontextprotocol/server experimental server-card subpath', () => {
+    beforeAll(async () => {
+        await ensureBuilt(pkgDir);
+    }, 180_000);
+
+    test('dist/experimental/serverCard.mjs exists, exports the responders, and stays runtime-neutral', () => {
+        const entry = join(distDir, 'experimental/serverCard.mjs');
+        const content = readFileSync(entry, 'utf8');
+        expect(content).toMatch(/\bserverCardResponse\b/);
+        expect(content).toMatch(/\baiCatalogResponse\b/);
+        expect(content).toMatch(/\bbuildServerCard\b/);
+        expect(content).not.toMatch(NODE_ONLY);
+        for (const chunk of chunkImportsOf(entry)) {
+            expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
+                expect.objectContaining({ content: expect.stringMatching(NODE_ONLY) })
+            );
+        }
+    });
+
+    test('root declarations do not advertise the experimental server-card exports', () => {
+        for (const declaration of ['index.d.mts', 'index.d.cts']) {
+            const rootExportBlock = rootExportBlockOf(readFileSync(join(distDir, declaration), 'utf8'));
+            for (const symbol of ['serverCardResponse', 'aiCatalogResponse', 'buildServerCard', 'buildAICatalog']) {
                 expect(rootExportBlock).not.toMatch(new RegExp(`\\b(?:type\\s+)?${symbol}\\b`));
             }
         }

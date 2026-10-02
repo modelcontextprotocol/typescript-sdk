@@ -31,10 +31,27 @@
                 "types": "./dist/index.d.cts",
                 "default": "./dist/index.cjs"
             }
+        },
+        "./experimental/server-card": {
+            "import": {
+                "types": "./dist/experimental/serverCardRouter.d.mts",
+                "default": "./dist/experimental/serverCardRouter.mjs"
+            },
+            "require": {
+                "types": "./dist/experimental/serverCardRouter.d.cts",
+                "default": "./dist/experimental/serverCardRouter.cjs"
+            }
         }
     },
     "main": "./dist/index.cjs",
     "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "experimental/server-card": [
+                "dist/experimental/serverCardRouter.d.mts"
+            ]
+        }
+    },
     "files": [
         "dist"
     ],

@@ -37,17 +37,20 @@ function readManifest(relativeDir: string): PackageManifest {
 const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?: Record<string, string> }> = {
     client: {
         name: '@modelcontextprotocol/client',
-        exportKeys: ['.', './stdio', './validators/ajv', './validators/cf-worker', './_shims']
+        // './experimental/server-card' is the experimental Server Card extension
+        // (SEP-2127); the subpath is the experimental marker and may change or be
+        // removed in any release.
+        exportKeys: ['.', './stdio', './experimental/server-card', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',
-        exportKeys: ['.', './stdio', './validators/ajv', './validators/cf-worker', './_shims']
+        exportKeys: ['.', './stdio', './experimental/server-card', './validators/ajv', './validators/cf-worker', './_shims']
     },
     'server-legacy': {
         name: '@modelcontextprotocol/server-legacy',
         exportKeys: ['.', './sse', './auth']
     },
-    'middleware/express': { name: '@modelcontextprotocol/express', exportKeys: ['.'] },
+    'middleware/express': { name: '@modelcontextprotocol/express', exportKeys: ['.', './experimental/server-card'] },
     'middleware/fastify': { name: '@modelcontextprotocol/fastify', exportKeys: ['.'] },
     'middleware/hono': { name: '@modelcontextprotocol/hono', exportKeys: ['.'] },
     'middleware/node': { name: '@modelcontextprotocol/node', exportKeys: ['.'] },
@@ -56,7 +59,9 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         // './internal' is the wholesale internal seam the sibling SDK packages resolve at
         // runtime (their bundles keep `@modelcontextprotocol/core/internal` imports external);
         // it is not public API — the curated public surface stays the root entry.
-        exportKeys: ['.', './internal']
+        // './experimental/server-card' is the schema home for the experimental
+        // Server Card extension (SEP-2127).
+        exportKeys: ['.', './internal', './experimental/server-card']
     },
     codemod: {
         name: '@modelcontextprotocol/codemod',

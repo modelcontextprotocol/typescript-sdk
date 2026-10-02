@@ -40,12 +40,25 @@
                 "types": "./dist/internal.d.cts",
                 "default": "./dist/internal.cjs"
             }
+        },
+        "./experimental/server-card": {
+            "import": {
+                "types": "./dist/experimental/serverCard/index.d.mts",
+                "default": "./dist/experimental/serverCard/index.mjs"
+            },
+            "require": {
+                "types": "./dist/experimental/serverCard/index.d.cts",
+                "default": "./dist/experimental/serverCard/index.cjs"
+            }
         }
     },
     "typesVersions": {
         "*": {
             "internal": [
                 "dist/internal.d.mts"
+            ],
+            "experimental/server-card": [
+                "dist/experimental/serverCard/index.d.mts"
             ]
         }
     },
