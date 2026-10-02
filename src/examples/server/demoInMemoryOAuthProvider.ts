@@ -39,6 +39,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
         }
     >();
     private tokens = new Map<string, AuthInfo>();
+    private codeToTokens = new Map<string, string[]>();
 
     constructor(private validateResource?: (resource?: URL) => boolean) {}
 
@@ -92,6 +93,11 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
         return codeData.params.codeChallenge;
     }
 
+    async redirectUriForAuthorizationCode(_client: OAuthClientInformationFull, authorizationCode: string): Promise<string | undefined> {
+        const codeData = this.codes.get(authorizationCode);
+        return codeData?.params.redirectUri;
+    }
+
     async exchangeAuthorizationCode(
         client: OAuthClientInformationFull,
         authorizationCode: string,
@@ -125,6 +131,7 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
         };
 
         this.tokens.set(token, tokenData);
+        this.codeToTokens.set(authorizationCode, [token]);
 
         return {
             access_token: token,
@@ -141,6 +148,18 @@ export class DemoInMemoryAuthProvider implements OAuthServerProvider {
         _resource?: URL
     ): Promise<OAuthTokens> {
         throw new Error('Not implemented for example demo');
+    }
+
+    async revokeTokensForAuthorizationCode(_client: OAuthClientInformationFull, authorizationCode: string): Promise<void> {
+        const tokens = this.codeToTokens.get(authorizationCode);
+        if (!tokens) {
+            return;
+        }
+
+        for (const token of tokens) {
+            this.tokens.delete(token);
+        }
+        this.codeToTokens.delete(authorizationCode);
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {
