@@ -23,18 +23,24 @@ The model sits behind one small interface (`providers/provider.ts`); each file i
 | `anthropic` | `ANTHROPIC_API_KEY` (or an OAuth-style `ANTHROPIC_AUTH_TOKEN`) | newest Sonnet, resolved from the models API | `--model <id>` or `ANTHROPIC_MODEL` |
 | `openai`    | `OPENAI_API_KEY`                                               | newest mainline GPT (non-pro)               | `--model <id>` or `OPENAI_MODEL`    |
 | `gemini`    | `GEMINI_API_KEY`                                               | newest stable Flash                         | `--model <id>` or `GEMINI_MODEL`    |
+| `minimax`   | `MINIMAX_API_KEY`                                              | `MiniMax-M3`                                | `--model <id>` or `MINIMAX_MODEL`   |
 | `scripted`  | nothing — the keyless default                                  | n/a (replays canned turns)                  | n/a                                 |
 
 ```bash
 ANTHROPIC_API_KEY=sk-… pnpm --filter @mcp-examples/cli-client start -- --provider anthropic
 OPENAI_API_KEY=sk-…    pnpm --filter @mcp-examples/cli-client start -- --provider openai
 GEMINI_API_KEY=…       pnpm --filter @mcp-examples/cli-client start -- --provider gemini
+MINIMAX_API_KEY=…      pnpm --filter @mcp-examples/cli-client start -- --provider minimax
 
-# pin an exact model instead of the resolved latest
+# pin an exact model instead of the provider default
 ANTHROPIC_API_KEY=sk-… pnpm --filter @mcp-examples/cli-client start -- --provider anthropic --model claude-sonnet-4-5
+MINIMAX_API_KEY=…      pnpm --filter @mcp-examples/cli-client start -- --provider minimax --model MiniMax-M2.7
+
+# use the China endpoint instead of the default global endpoint
+MINIMAX_API_KEY=… MINIMAX_BASE_URL=https://api.minimaxi.com/v1 pnpm --filter @mcp-examples/cli-client start -- --provider minimax
 ```
 
-Model ids are deliberately not hardcoded: unless pinned, each provider asks its own models API for the newest mid-tier model, so the example keeps working as vendors ship new ones. The `scripted` provider replays a fixed conversation — it is what CI uses (see [testing](#how-this-example-is-tested)), and what you get when no key is set.
+Unless pinned, providers use either a documented default or their models API to select a model. The `scripted` provider replays a fixed conversation — it is what CI uses (see [testing](#how-this-example-is-tested)), and what you get when no key is set.
 
 ## Pair it with todos-server (two terminals)
 
@@ -113,8 +119,8 @@ For a persistent setup, copy `config.example.json` to `config.json` (or pass `--
 ```text
 --server <target>       connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
 --config <path>         mcpServers config file (default: ./config.json, falling back to spawning todos-server)
---provider <name>       scripted | anthropic | openai | gemini (default: first one with a key in the env, else scripted)
---model <id>            pin a model id (default: the provider's latest mid-tier model)
+--provider <name>       scripted | anthropic | openai | gemini | minimax (default: first one with a key in the env, else scripted)
+--model <id>            pin a model id (default: the provider's configured model)
 --root <path>           workspace root exposed to servers via roots/list (repeatable; default: cwd)
 --callback-port <n>     fixed loopback port for the OAuth callback (default: a free port)
 --legacy                use the 2025 initialize handshake instead of probing for 2026-07-28

@@ -5,6 +5,13 @@ import { describe, expect, it } from 'vitest';
 
 import { fromAnthropicResponse, toAnthropicRequest } from '../providers/anthropic';
 import { fromGeminiResponse, toGeminiRequest } from '../providers/gemini';
+import {
+    DEFAULT_MINIMAX_MODEL,
+    MINIMAX_BASE_URLS,
+    MiniMaxProvider,
+    resolveMiniMaxBaseURL,
+    resolveMiniMaxModel
+} from '../providers/minimax';
 import { fromOpenAIResponse, toOpenAIRequest } from '../providers/openai';
 import type { ChatMessage, GenerateRequest } from '../providers/provider';
 import { ScriptedProvider } from '../providers/scripted';
@@ -164,5 +171,33 @@ describe('scripted provider', () => {
         expect(provider.remaining).toBe(0);
         const exhausted = await provider.generate({ messages: [] });
         expect(exhausted.text).toContain('no turns left');
+    });
+});
+
+describe('minimax mapping', () => {
+    it('uses MiniMax-M3 by default and allows model overrides', () => {
+        expect(resolveMiniMaxModel()).toBe(DEFAULT_MINIMAX_MODEL);
+        expect(resolveMiniMaxModel(undefined, 'MiniMax-M2.7')).toBe('MiniMax-M2.7');
+        expect(resolveMiniMaxModel('MiniMax-M3', 'MiniMax-M2.7')).toBe('MiniMax-M3');
+    });
+
+    it('uses the global endpoint by default and supports the China endpoint', () => {
+        expect(resolveMiniMaxBaseURL()).toBe(MINIMAX_BASE_URLS.global);
+        expect(MINIMAX_BASE_URLS.global).toBe('https://api.minimax.io/v1');
+        expect(resolveMiniMaxBaseURL(MINIMAX_BASE_URLS.china)).toBe('https://api.minimaxi.com/v1');
+    });
+
+    it('requires MINIMAX_API_KEY to construct', () => {
+        const previous = process.env.MINIMAX_API_KEY;
+        delete process.env.MINIMAX_API_KEY;
+        try {
+            expect(() => new MiniMaxProvider()).toThrow(/MINIMAX_API_KEY/);
+        } finally {
+            if (previous === undefined) {
+                delete process.env.MINIMAX_API_KEY;
+            } else {
+                process.env.MINIMAX_API_KEY = previous;
+            }
+        }
     });
 });

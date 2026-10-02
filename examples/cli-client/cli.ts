@@ -19,6 +19,7 @@ import { createSession, handleUserInput } from './host/loop';
 import { createCompleter, ReadlineUI } from './host/ui';
 import { AnthropicProvider } from './providers/anthropic';
 import { GeminiProvider } from './providers/gemini';
+import { MiniMaxProvider } from './providers/minimax';
 import { OpenAIProvider } from './providers/openai';
 import type { LLMProvider } from './providers/provider';
 import { ScriptedProvider } from './providers/scripted';
@@ -26,7 +27,7 @@ import { ScriptedProvider } from './providers/scripted';
 const USAGE = `usage: tsx cli.ts [options]
   --server <target>       connect to just this server: an http(s) URL (OAuth on demand) or a stdio command line (repeatable)
   --config <path>         mcpServers config file (default: ./config.json, falling back to spawning the sibling todos-server)
-  --provider <name>       scripted | anthropic | openai | gemini (default: first one with an API key in the env, else scripted)
+  --provider <name>       scripted | anthropic | openai | gemini | minimax (default: first one with an API key in the env, else scripted)
   --model <id>            pin a model id (default: the provider's latest mid-tier model)
   --root <path>           workspace root exposed to servers via roots/list (repeatable; default: cwd)
   --callback-port <n>     fixed loopback port for the OAuth callback (default: a free port; set this when port-forwarding over SSH)
@@ -43,7 +44,9 @@ function pickProvider(name: string | undefined, model: string | undefined): LLMP
               ? 'openai'
               : process.env.GEMINI_API_KEY
                 ? 'gemini'
-                : 'scripted');
+                : process.env.MINIMAX_API_KEY
+                  ? 'minimax'
+                  : 'scripted');
     switch (chosen) {
         case 'anthropic': {
             return new AnthropicProvider(model);
@@ -54,11 +57,14 @@ function pickProvider(name: string | undefined, model: string | undefined): LLMP
         case 'gemini': {
             return new GeminiProvider(model);
         }
+        case 'minimax': {
+            return new MiniMaxProvider(model);
+        }
         case 'scripted': {
             return new ScriptedProvider();
         }
         default: {
-            throw new Error(`Unknown provider "${chosen}" (expected scripted | anthropic | openai | gemini)`);
+            throw new Error(`Unknown provider "${chosen}" (expected scripted | anthropic | openai | gemini | minimax)`);
         }
     }
 }
@@ -133,7 +139,7 @@ try {
 
 if (provider.name === 'scripted') {
     ui.status(
-        'provider: scripted (no API key found — replies are canned; set ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY or pass --provider)'
+        'provider: scripted (no API key found — replies are canned; set ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY / MINIMAX_API_KEY or pass --provider)'
     );
 } else {
     ui.status(`provider: ${provider.name}`);
