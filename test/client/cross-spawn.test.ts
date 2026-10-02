@@ -99,6 +99,60 @@ describe('StdioClientTransport using cross-spawn', () => {
         );
     });
 
+    describe('environment variable name casing', () => {
+        const originalPlatform = process.platform;
+
+        afterEach(() => {
+            Object.defineProperty(process, 'platform', {
+                value: originalPlatform
+            });
+            vi.unstubAllEnvs();
+        });
+
+        const spawnedEnv = (): Record<string, string> => {
+            const options = mockSpawn.mock.calls[0]?.[2] as { env: Record<string, string> };
+            return options.env;
+        };
+
+        test('should let an explicit env key replace an inherited default in any casing on Windows', async () => {
+            Object.defineProperty(process, 'platform', {
+                value: 'win32'
+            });
+
+            vi.stubEnv('PATH', 'C:\\inherited');
+
+            const transport = new StdioClientTransport({
+                command: 'test-command',
+                env: { Path: 'C:\\explicit-only' }
+            });
+
+            await transport.start();
+
+            // Every other inherited default must survive; only the PATH entry is replaced.
+            const { PATH: inheritedPath, ...otherDefaults } = getDefaultEnvironment();
+            expect(inheritedPath).toBe('C:\\inherited');
+            expect(spawnedEnv()).toEqual({ ...otherDefaults, Path: 'C:\\explicit-only' });
+        });
+
+        test('should keep env keys case-sensitive on non-Windows', async () => {
+            Object.defineProperty(process, 'platform', {
+                value: 'linux'
+            });
+
+            const transport = new StdioClientTransport({
+                command: 'test-command',
+                env: { Path: '/explicit-only' }
+            });
+
+            await transport.start();
+
+            expect(spawnedEnv()).toEqual({
+                ...getDefaultEnvironment(),
+                Path: '/explicit-only'
+            });
+        });
+    });
+
     test('should send messages correctly', async () => {
         const transport = new StdioClientTransport({
             command: 'test-command'
