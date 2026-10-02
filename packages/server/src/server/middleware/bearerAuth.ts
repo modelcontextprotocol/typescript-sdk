@@ -82,10 +82,17 @@ export interface VerifyBearerTokenOptions extends BearerAuthOptions {
     expectedResource?: URL;
 }
 
+// The serialized value without its fragment and without one trailing slash.
+function comparableResource(value: URL): string {
+    const text = String(value);
+    const hash = text.indexOf('#');
+    return (hash === -1 ? text : text.slice(0, hash)).replace(/\/$/, '');
+}
+
 // A reported resource matches when it serializes to the same string as the expected one, fragment and one trailing slash aside.
 function sameResource(reported: URL | undefined, expected: URL): boolean {
     if (!reported) return false;
-    return String(reported).replace(/#.*$/, '').replace(/\/$/, '') === String(expected).replace(/#.*$/, '').replace(/\/$/, '');
+    return comparableResource(reported) === comparableResource(expected);
 }
 
 function headerQuotedValue(value: string): string {
