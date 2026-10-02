@@ -1,4 +1,4 @@
-import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import { mergeCapabilities, Protocol, type ProtocolOptions, type RequestHandlerResult, type RequestOptions } from '../shared/protocol.js';
 import type { Transport } from '../shared/transport.js';
 
 import {
@@ -323,7 +323,7 @@ export class Client<
         handler: (
             request: SchemaOutput<T>,
             extra: RequestHandlerExtra<ClientRequest | RequestT, ClientNotification | NotificationT>
-        ) => ClientResult | ResultT | Promise<ClientResult | ResultT>
+        ) => RequestHandlerResult<T, ClientResult | ResultT> | Promise<RequestHandlerResult<T, ClientResult | ResultT>>
     ): void {
         const shape = getObjectShape(requestSchema);
         const methodSchema = shape?.method;
