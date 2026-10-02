@@ -3156,7 +3156,7 @@ describe('OAuth Authorization', () => {
             warn.mockRestore();
         });
 
-        it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
+        it('warns, and starts a fresh authorization, when invalid_grant hits a provider with no invalidateCredentials (#2915)', async () => {
             let tokenPosts = 0;
             mockDiscoveryWithTokenEndpoint(() => {
                 tokenPosts++;
@@ -3171,18 +3171,17 @@ describe('OAuth Authorization', () => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
             // invalid_grant is rethrown out of the refresh block into auth()'s outer catch,
-            // which retries authInternal. Nothing was invalidated, so the retry replays the
-            // same dead refresh token and the second failure propagates to the caller.
-            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).rejects.toThrow('Refresh token expired');
+            // which retries authInternal. The retry must not replay the refresh token the
+            // authorization server just rejected, so it goes straight to a new authorization.
+            await expect(auth(mockProvider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
 
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('OAuth "invalid_grant"'));
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('Refresh token expired'));
             // The warn must not claim a discard that never happened.
             expect(warn).toHaveBeenCalledWith(expect.stringContaining('without discarding the stored tokens'));
-            // The retry is futile for this provider shape: the dead refresh token goes to the
-            // token endpoint a second time and no authorization is ever started.
-            expect(tokenPosts).toBe(2);
-            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
+            // The dead refresh token goes to the token endpoint once, not twice.
+            expect(tokenPosts).toBe(1);
+            expect(mockProvider.redirectToAuthorization).toHaveBeenCalledTimes(1);
             warn.mockRestore();
         });
 

@@ -1077,10 +1077,12 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
                 // invalid_dpop_proof on refresh typically means the stored refresh token is bound
                 // (RFC 9449 §5) to a DPoP key this process no longer holds — e.g. a non-extractable
                 // key regenerated across a restart. Like invalid_grant, the token set is unusable;
-                // drop it and fall through to a fresh authorization.
+                // drop it and fall through to a fresh authorization. forceReauthorization keeps the
+                // retry from sending the rejected refresh token again: a provider without
+                // invalidateCredentials() still returns it from tokens().
                 warnCredentialInvalidation(provider, error, 'tokens');
                 await provider.invalidateCredentials?.('tokens');
-                return await authInternal(provider, options);
+                return await authInternal(provider, { ...options, forceReauthorization: true });
             }
         }
 
