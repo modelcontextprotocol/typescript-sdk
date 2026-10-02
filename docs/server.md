@@ -112,6 +112,34 @@ app.use(express.json());
 app.use(hostHeaderValidation(['localhost', '127.0.0.1', 'myhost.local']));
 ```
 
+## Bearer token authentication
+
+`requireBearerAuth` verifies the `Authorization: Bearer` token of a request with a verifier you supply and puts the resulting `AuthInfo` on `req.auth`. To accept only tokens issued for this resource (the token's audience), set `expectedResource` to the value your authorization
+server puts into tokens meant for this server, usually the server's URL, and have the verifier report that value in `AuthInfo.resource`:
+
+```typescript
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+
+const mcpServerUrl = new URL('https://api.example.com/mcp');
+
+const auth = requireBearerAuth({
+    verifier: {
+        async verifyAccessToken(token) {
+            const payload = await verifyJwt(token); // your JWT library or introspection call
+            // `aud` is one value, a list, or absent: report this server's entry when the token has one.
+            const resource = [payload.aud].flat().includes(mcpServerUrl.href) ? mcpServerUrl : undefined;
+            return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
+        }
+    },
+    expectedResource: mcpServerUrl
+});
+
+app.post('/mcp', auth, handleMcpRequest);
+```
+
+With `expectedResource` set, a token is accepted only if `AuthInfo.resource` is that value (one trailing slash aside); a token reported for another value, or for none, gets `401 invalid_token`. Without it, `AuthInfo.resource` is not compared with anything.
+[`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts) sets it when started with `--oauth --oauth-strict`.
+
 ## Tools, resources, and prompts
 
 ### Tools

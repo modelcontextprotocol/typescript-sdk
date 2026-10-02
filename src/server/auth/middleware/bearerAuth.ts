@@ -18,7 +18,21 @@ export type BearerAuthMiddlewareOptions = {
      * Optional resource metadata URL to include in WWW-Authenticate header.
      */
     resourceMetadataUrl?: string;
+
+    /**
+     * Accept only tokens issued for this resource (the token's audience): the value the authorization server puts
+     * into tokens meant for this server, usually the server's URL.
+     * When set, a token is accepted only if the verifier reports that value in `AuthInfo.resource`
+     * (compared as strings, ignoring one trailing slash); any other token is refused with `401 invalid_token`.
+     * When unset, `AuthInfo.resource` is not compared with anything.
+     */
+    expectedResource?: URL;
 };
+
+// A reported resource matches when it serializes to the same string as the expected one, one trailing slash aside.
+function sameResource(reported: URL | undefined, expected: URL): boolean {
+    return reported !== undefined && String(reported).replace(/\/$/, '') === String(expected).replace(/\/$/, '');
+}
 
 declare module 'express-serve-static-core' {
     interface Request {
@@ -37,7 +51,12 @@ declare module 'express-serve-static-core' {
  * If resourceMetadataUrl is provided, it will be included in the WWW-Authenticate header
  * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
  */
-export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
+export function requireBearerAuth({
+    verifier,
+    requiredScopes = [],
+    resourceMetadataUrl,
+    expectedResource
+}: BearerAuthMiddlewareOptions): RequestHandler {
     return async (req, res, next) => {
         try {
             const authHeader = req.headers.authorization;
@@ -51,6 +70,11 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
             }
 
             const authInfo = await verifier.verifyAccessToken(token);
+
+            // Check if the token was issued for this server (if configured)
+            if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
+                throw new InvalidTokenError('Token was not issued for this resource');
+            }
 
             // Check if token has the required scopes (if any)
             if (requiredScopes.length > 0) {
