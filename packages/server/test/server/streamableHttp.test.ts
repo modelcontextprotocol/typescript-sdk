@@ -301,6 +301,50 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_000, /Not Acceptable/);
             });
 
+            it('should accept POST with wildcard Accept header', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId, accept: '*/*' });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+            });
+
+            it('should accept POST with type wildcards in Accept header', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('POST', TEST_MESSAGES.toolsList, { sessionId, accept: 'application/*, text/*' });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+            });
+
+            it('should accept POST with Accept parameters', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                    sessionId,
+                    accept: 'application/json; q=1.0, text/event-stream; q=0.9'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
+            });
+
+            it('should reject forged media types in Accept header', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('POST', TEST_MESSAGES.toolsList, {
+                    sessionId,
+                    accept: 'application/jsonx, text/event-streamx'
+                });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(406);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
             it('should reject request with wrong Content-Type header', async () => {
                 const request = new Request('http://localhost/mcp', {
                     method: 'POST',
@@ -369,6 +413,15 @@ describe('Zod v4', () => {
                 expect(response.status).toBe(406);
                 const errorData = await response.json();
                 expectErrorResponse(errorData, -32_000, /Not Acceptable/);
+            });
+
+            it('should accept GET with wildcard Accept header', async () => {
+                sessionId = await initializeServer();
+
+                const request = createRequest('GET', undefined, { sessionId, accept: '*/*' });
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(200);
             });
 
             it('should reject second standalone SSE stream', async () => {
