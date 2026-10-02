@@ -672,6 +672,12 @@ async function authInternal(
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
+                // Exactly the granted scope recorded on the stored tokens (RFC 6749 §5.1),
+                // normalized so an empty string means "none". Deliberately NOT a recomputed
+                // selectResourceScopes()/scope value: that may have widened since the grant, and
+                // a strict server would reject the refresh with `invalid_scope` where today's
+                // scope-less request succeeds.
+                scope: tokens.scope || undefined,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
                 fetchFn
@@ -1430,6 +1436,7 @@ export async function refreshAuthorization(
         metadata,
         clientInformation,
         refreshToken,
+        scope,
         resource,
         addClientAuthentication,
         fetchFn
@@ -1437,6 +1444,16 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
+        /**
+         * Scope to send on the refresh request. Per RFC 6749 §6 this MUST NOT exceed the
+         * originally granted scope; omitting it means "the originally granted scope". An absent
+         * or empty value sends no `scope` parameter, so the wire shape is unchanged by default.
+         *
+         * Some authorization servers require it to resolve the target resource. Microsoft Entra
+         * ID rejects a scope-less refresh with `AADSTS90009` whenever the OAuth client
+         * application is also the resource.
+         */
+        scope?: string;
         resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
@@ -1447,6 +1464,12 @@ export async function refreshAuthorization(
         refresh_token: refreshToken
     });
 
+    // RFC 6749 §3.3: a literal empty `scope=` is syntactically invalid, so only send a
+    // non-empty value. Servers that return `"scope": ""` therefore keep today's behavior.
+    if (scope) {
+        tokenRequestParams.set('scope', scope);
+    }
+
     const tokens = await executeTokenRequest(authorizationServerUrl, {
         metadata,
         tokenRequestParams,
@@ -1456,8 +1479,15 @@ export async function refreshAuthorization(
         fetchFn
     });
 
-    // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    // Preserve original refresh token if server didn't return a new one.
+    // Preserve the granted scope the same way: RFC 6749 §5.1 lets the server omit `scope` when
+    // it is identical to the requested scope, and dropping it here would strand the *next*
+    // refresh with no scope to send. A scope returned by the server always wins.
+    return {
+        refresh_token: refreshToken,
+        ...tokens,
+        ...(tokens.scope === undefined && scope ? { scope } : {})
+    };
 }
 
 /**

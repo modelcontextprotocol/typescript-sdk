@@ -1789,6 +1789,72 @@ describe('OAuth Authorization', () => {
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
+        it('sends the scope parameter on the refresh request when provided', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'api://server/mcp.access offline_access'
+            });
+
+            const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+            expect(body.get('scope')).toBe('api://server/mcp.access offline_access');
+        });
+
+        it('sends no scope parameter when scope is omitted', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123'
+            });
+
+            const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+            expect(body.get('scope')).toBeNull();
+        });
+
+        it('sends no scope parameter when scope is an empty string (RFC 6749 section 3.3)', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: ''
+            });
+
+            const body = mockFetch.mock.calls[0][1].body as URLSearchParams;
+            expect(body.get('scope')).toBeNull();
+        });
+
+        it('preserves the granted scope when the response omits it', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validTokens });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'api://server/mcp.access'
+            });
+
+            expect(tokens.scope).toBe('api://server/mcp.access');
+        });
+
+        it('lets a scope returned by the server win over the requested scope', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validTokens, scope: 'api://server/mcp.read' })
+            });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'api://server/mcp.access'
+            });
+
+            expect(tokens.scope).toBe('api://server/mcp.read');
+        });
+
         it('exchanges refresh token for new tokens with auth', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
