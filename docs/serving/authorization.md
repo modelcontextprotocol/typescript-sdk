@@ -50,7 +50,7 @@ The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, �
 On hosts whose HTTP surface is a `fetch(request)` handler — Cloudflare Workers, Deno, Bun, Hono — the gate is `requireBearerAuth` from `@modelcontextprotocol/server`: no framework, only web-standard `Request` and `Response`.
 
 ```ts source="../../examples/guides/serving/authorization.web.examples.ts#requireBearerAuth_webStandard"
-const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'] });
+const gate = requireBearerAuth({ verifier, requiredScopes: ['mcp'], expectedResource: mcpServerUrl });
 const handler = createMcpHandler(buildServer);
 
 export default {
@@ -71,8 +71,9 @@ The gate resolves to the verified `AuthInfo` — pass it to the handler as `{ au
 ```ts source="../../examples/guides/serving/authorization.examples.ts#tokenVerifier_basic"
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
     const payload = await verifyJwt(token);
-    // `aud` is one value, a list, or absent: report this server's entry when the token has one.
-    const resource = [payload.aud].flat().includes(mcpServerUrl.href) ? mcpServerUrl : undefined;
+    // `aud` is one value, a list, or absent: report the entry on this server's origin, if any, and let `expectedResource` compare it.
+    const audience = [payload.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+    const resource = audience ? new URL(audience) : undefined;
     return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
 }
 ```
@@ -85,7 +86,7 @@ Throw an `OAuthError` with `OAuthErrorCode.InvalidToken` (both from `@modelconte
 
 `expectedResource` makes `requireBearerAuth` accept only tokens issued for this resource (the token's audience). Set it to the value your authorization server puts into tokens meant for this server, usually the server's URL. When it is set, `requireBearerAuth` accepts a token only if your verifier reports that value in `AuthInfo.resource` (one trailing slash aside) and answers `401 invalid_token` for a token reported for another value or for none, so populate `resource` from the JWT `aud` claim or the introspection response's `aud` field. `aud` can be a list or absent: report this server's entry, and leave `resource` unset when there is none. When `expectedResource` is not set, `AuthInfo.resource` is not compared with anything.
 
-With Express, `@modelcontextprotocol/express` has to be upgraded together with `@modelcontextprotocol/server`: `@modelcontextprotocol/express` 2.0.1 accepts `expectedResource` in its types and does not pass it on, so nothing is compared.
+With Express, `@modelcontextprotocol/express` has to be upgraded together with `@modelcontextprotocol/server`: `@modelcontextprotocol/express` 2.0.1 does not pass `expectedResource` on, so nothing is compared. Its options type does not have the option, so TypeScript reports an `expectedResource` written in a call to its `requireBearerAuth` as an error.
 
 ## Publish protected resource metadata
 

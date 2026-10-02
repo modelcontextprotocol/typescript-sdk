@@ -128,6 +128,19 @@ describe('verifyBearerToken with expectedResource', () => {
         await expect(verifyBearerToken('Bearer t', twoSlashes)).rejects.toMatchObject(notIssuedForThisResource);
     });
 
+    it('ignores a fragment on either value', async () => {
+        for (const [reported, expected] of [
+            ['https://api.example.com/mcp#section', 'https://api.example.com/mcp'],
+            ['https://api.example.com/mcp', 'https://api.example.com/mcp#section'],
+            ['https://api.example.com/mcp/#section', 'https://api.example.com/mcp']
+        ] as const) {
+            const options = { verifier: verifierReporting(reported), expectedResource: new URL(expected) };
+            await expect(verifyBearerToken('Bearer t', options)).resolves.toMatchObject({ token: 'valid-token' });
+        }
+        const otherPath = { verifier: verifierReporting('https://api.example.com/other#section'), expectedResource };
+        await expect(verifyBearerToken('Bearer t', otherPath)).rejects.toMatchObject(notIssuedForThisResource);
+    });
+
     it.each([
         'https://other.example.com/mcp',
         'http://api.example.com/mcp',

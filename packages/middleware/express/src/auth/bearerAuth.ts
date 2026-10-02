@@ -1,11 +1,11 @@
-import type { BearerAuthOptions } from '@modelcontextprotocol/server';
+import type { VerifyBearerTokenOptions } from '@modelcontextprotocol/server';
 import { bearerAuthChallengeResponse, OAuthError, OAuthErrorCode, verifyBearerToken } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 
 /**
  * Options for {@link requireBearerAuth}.
  */
-export type BearerAuthMiddlewareOptions = BearerAuthOptions;
+export type BearerAuthMiddlewareOptions = VerifyBearerTokenOptions;
 
 /**
  * Express middleware that requires a valid Bearer token in the `Authorization`

@@ -58,7 +58,13 @@ export interface BearerAuthOptions {
      * same document without being configured separately.
      */
     resourceMetadataUrl?: string;
+}
 
+/**
+ * Options for {@link verifyBearerToken} and {@link requireBearerAuth}:
+ * {@link BearerAuthOptions} plus `expectedResource`.
+ */
+export interface VerifyBearerTokenOptions extends BearerAuthOptions {
     /**
      * Accept only tokens issued for this resource (the token's audience):
      * the value your authorization server puts into tokens meant for this
@@ -67,18 +73,19 @@ export interface BearerAuthOptions {
      * resource identifier).
      *
      * When set, a token is accepted only if the verifier reports that value
-     * in `AuthInfo.resource`. The two are compared as strings, ignoring one
-     * trailing slash. A token reported for another value, or for none, is
-     * refused with `401 invalid_token`, so the verifier has to fill
-     * `AuthInfo.resource`, for example from the token's `aud` claim. When
-     * unset, `AuthInfo.resource` is not compared with anything.
+     * in `AuthInfo.resource`. The two are compared as strings, ignoring a
+     * fragment and one trailing slash. A token reported for another value, or
+     * for none, is refused with `401 invalid_token`, so the verifier has to
+     * fill `AuthInfo.resource`, for example from the token's `aud` claim.
+     * When unset, `AuthInfo.resource` is not compared with anything.
      */
     expectedResource?: URL;
 }
 
-// A reported resource matches when it serializes to the same string as the expected one, one trailing slash aside.
+// A reported resource matches when it serializes to the same string as the expected one, fragment and one trailing slash aside.
 function sameResource(reported: URL | undefined, expected: URL): boolean {
-    return reported !== undefined && String(reported).replace(/\/$/, '') === String(expected).replace(/\/$/, '');
+    if (!reported) return false;
+    return String(reported).replace(/#.*$/, '').replace(/\/$/, '') === String(expected).replace(/#.*$/, '').replace(/\/$/, '');
 }
 
 function headerQuotedValue(value: string): string {
@@ -128,7 +135,10 @@ export function buildWwwAuthenticateHeader(
  * Framework adapters build on this: `requireBearerAuth` from
  * `@modelcontextprotocol/express` feeds it `req.headers.authorization`.
  */
-export async function verifyBearerToken(authorizationHeader: string | null | undefined, options: BearerAuthOptions): Promise<AuthInfo> {
+export async function verifyBearerToken(
+    authorizationHeader: string | null | undefined,
+    options: VerifyBearerTokenOptions
+): Promise<AuthInfo> {
     const { verifier, requiredScopes = [], expectedResource } = options;
 
     if (!authorizationHeader) {
@@ -232,7 +242,7 @@ export function bearerAuthChallengeResponse(
  * }
  * ```
  */
-export function requireBearerAuth(options: BearerAuthOptions): (request: Request) => Promise<AuthInfo | Response> {
+export function requireBearerAuth(options: VerifyBearerTokenOptions): (request: Request) => Promise<AuthInfo | Response> {
     // Destructure at creation so a plain-JS caller passing undefined or
     // malformed options crashes at startup, not on the first request.
     const { verifier, requiredScopes = [], resourceMetadataUrl, expectedResource } = options;

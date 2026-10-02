@@ -43,8 +43,9 @@ app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 //#region tokenVerifier_basic
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
     const payload = await verifyJwt(token);
-    // `aud` is one value, a list, or absent: report this server's entry when the token has one.
-    const resource = [payload.aud].flat().includes(mcpServerUrl.href) ? mcpServerUrl : undefined;
+    // `aud` is one value, a list, or absent: report the entry on this server's origin, if any, and let `expectedResource` compare it.
+    const audience = [payload.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+    const resource = audience ? new URL(audience) : undefined;
     return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
 }
 //#endregion tokenVerifier_basic
