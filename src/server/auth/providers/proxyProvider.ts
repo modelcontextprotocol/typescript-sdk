@@ -5,15 +5,15 @@ import {
     OAuthClientInformationFullSchema,
     OAuthTokenRevocationRequest,
     OAuthTokens,
-    OAuthTokensSchema
+    OAuthTokenResponseSchema
 } from '../../../shared/auth.js';
 import { AuthInfo } from '../types.js';
 import { AuthorizationParams, OAuthServerProvider } from '../provider.js';
 import { ServerError } from '../errors.js';
 import { FetchLike } from '../../../shared/transport.js';
 
-// `issuer` is added by a client when it stores a value; upstream responses are parsed without it.
-const TokenResponseSchema = OAuthTokensSchema.omit({ issuer: true });
+// `issuer` is added by a client when it stores a value; upstream responses are parsed without it
+// (token responses go through OAuthTokenResponseSchema, which omits `issuer` the same way).
 const RegistrationResponseSchema = OAuthClientInformationFullSchema.omit({ issuer: true });
 
 export type ProxyEndpoints = {
@@ -192,7 +192,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return TokenResponseSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(data);
     }
 
     async exchangeRefreshToken(
@@ -233,7 +233,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return TokenResponseSchema.parse(data);
+        return OAuthTokenResponseSchema.parse(data);
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {
