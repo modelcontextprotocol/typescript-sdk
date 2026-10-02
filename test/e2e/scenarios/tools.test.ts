@@ -35,6 +35,7 @@ import {
     type ElicitRequest,
     ElicitRequestSchema,
     ErrorCode,
+    isJSONRPCRequest,
     type JSONRPCMessage,
     ListToolsRequestSchema,
     LoggingMessageNotificationSchema,
@@ -531,7 +532,9 @@ verifies('tools:call:omitted-args:all-optional', async ({ transport }: TestArgs)
     // callTool({ name }) puts no `arguments` key on the wire at all (unlike `arguments: {}`).
     const result = await client.callTool({ name: 'list-files' });
 
-    const request = sent.find(m => 'method' in m && m.method === 'tools/call') as { params: Record<string, unknown> };
+    const request = sent.find(m => isJSONRPCRequest(m) && m.method === 'tools/call');
+    expect(request).toBeDefined();
+    if (!request || !isJSONRPCRequest(request)) throw new Error('expected tools/call request');
     expect(request.params).not.toHaveProperty('arguments');
     expect(result.isError).toBeFalsy();
     expect(result.content).toEqual([{ type: 'text', text: 'a.ts' }]);

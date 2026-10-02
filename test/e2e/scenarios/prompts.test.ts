@@ -17,6 +17,7 @@ import { McpServer, type RegisteredPrompt } from '../../../src/server/mcp.js';
 import {
     ErrorCode,
     GetPromptRequestSchema,
+    isJSONRPCRequest,
     ListPromptsRequestSchema,
     McpError,
     PromptListChangedNotificationSchema
@@ -320,7 +321,9 @@ verifies('prompts:get:omitted-args:all-optional', async ({ transport }: TestArgs
     // getPrompt({ name }) puts no `arguments` key on the wire at all (unlike `arguments: {}`).
     const result = await client.getPrompt({ name: 'code-review' });
 
-    const request = sent.find(m => 'method' in m && m.method === 'prompts/get') as { params: Record<string, unknown> };
+    const request = sent.find(m => isJSONRPCRequest(m) && m.method === 'prompts/get');
+    expect(request).toBeDefined();
+    if (!request || !isJSONRPCRequest(request)) throw new Error('expected prompts/get request');
     expect(request.params).not.toHaveProperty('arguments');
     expect(result.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Review the code:' } }]);
     // The omitted field is validated as an empty object, so the handler sees no keys rather than undefined.
