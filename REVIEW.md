@@ -32,7 +32,7 @@ review rounds and grows over time.
 ## Checklist
 
 **Protocol & spec**
-- Types match [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts) exactly (optional vs required fields)
+- Types match the schema for the protocol revision being changed (`schema/<revision>/schema.ts` for released revisions; `schema/draft/schema.ts` only for unreleased work)
 - Correct `ProtocolError` codes (enum `ProtocolErrorCode`); HTTP status codes match spec (e.g., 404 vs 410)
 - Works for both stdio and Streamable HTTP transports — no transport-specific assumptions
 - Cross-SDK consistency: check what `python-sdk` does for the same feature
@@ -50,7 +50,7 @@ review rounds and grows over time.
 
 **Tests & docs**
 - New behavior has vitest coverage including error paths
-- Breaking changes documented in `docs/migration.md` and `docs/migration-SKILL.md`
+- Breaking changes documented in `docs/migration/upgrade-to-v2.md` (or `docs/migration/support-2026-07-28.md` if 2026-only); mechanical renames added to `packages/codemod/src/migrations/v1-to-v2/mappings/`
 - Bugfix or behavior change: check whether `docs/**/*.md` describes the old behavior and needs updating; flag prose that now contradicts the implementation
 - New feature: verify prose documentation is added (not just JSDoc), and assess whether `examples/` needs a new or updated example
 - Behavior change: assess whether existing `examples/` still compile and demonstrate the current API
@@ -61,7 +61,7 @@ When verifying spec compliance, consult the spec directly rather than relying on
 
 - MCP documentation server: `https://modelcontextprotocol.io/mcp`
 - Full spec text (single file, LLM-friendly): `https://modelcontextprotocol.io/llms-full.txt` — fetch to a temp file and grep for the relevant section
-- Schema source of truth: [`schema.ts`](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts)
+- Schema source of truth: the revision-matched `schema.ts` in `modelcontextprotocol/modelcontextprotocol` (`schema/<revision>/schema.ts` for released revisions; `schema/draft/schema.ts` only for unreleased work)
 
 ## Recurring Catches
 
@@ -75,7 +75,7 @@ When verifying spec compliance, consult the spec directly rather than relying on
 
 ### Schema Compliance
 
-- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `z.looseObject()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm `spec.types.test.ts` still passes bidirectionally. (#1768, #1849, #1169)
+- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `z.looseObject()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm the `spec.types.*.test.ts` comparisons still pass bidirectionally. (#1768, #1849, #1169)
 
 ### Async / Lifecycle
 

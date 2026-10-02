@@ -1,0 +1,33 @@
+{
+    "name": "@mcp-examples/cli-client",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "start": "tsx cli.ts",
+        "client": "tsx client.ts",
+        "test": "vitest run",
+        "test:watch": "vitest"
+    },
+    "dependencies": {
+        "@anthropic-ai/sdk": "^0.74.0",
+        "@google/genai": "^1.0.0",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "open": "^11.0.0",
+        "openai": "^6.0.0",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools",
+        "vitest": "catalog:devTools"
+    },
+    "example": {
+        "era": "dual",
+        "timeoutMs": 60000,
+        "expects": {
+            "stdout": "cli-client e2e: all checks passed"
+        },
+        "shapeExempt": "Reference host, not a single-feature story: a multi-file package (host/, providers/, script/, test/) whose server lives in the sibling examples/todos-server package. server.ts here is a thin shim so the runner's http legs can spawn the paired server.",
+        "//": "client.ts replays a scripted conversation (ScriptedProvider, no API keys) against the sibling todos-server. All four transport/era legs run; the sampling-backed prioritize tool, the multi-round brainstorm flow, and the elicitation-confirmed clear_done tool are exercised on the modern legs and on stdio/legacy, and skipped on http/legacy (createMcpHandler's stateless legacy posture has no return path for push-style server→client requests). cli.ts is the interactive entry for humans."
+    }
+}

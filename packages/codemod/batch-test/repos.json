@@ -1,0 +1,18 @@
+[
+    {
+        "repo": "firebase/firebase-tools",
+        "ref": "main",
+        "packages": [
+            {
+                "dir": ".",
+                "sourceDir": "src/mcp",
+                "checks": {
+                    "typecheck": "npx tsc -p tsconfig.compile.json",
+                    "build": null,
+                    "test": null,
+                    "lint": null
+                }
+            }
+        ]
+    }
+]

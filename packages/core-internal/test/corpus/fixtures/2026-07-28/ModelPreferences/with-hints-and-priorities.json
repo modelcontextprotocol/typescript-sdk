@@ -1,0 +1,9 @@
+{
+  "hints": [
+    { "name": "claude-3-sonnet" },
+    { "name": "claude" }
+  ],
+  "costPriority": 0.3,
+  "speedPriority": 0.8,
+  "intelligencePriority": 0.5
+}

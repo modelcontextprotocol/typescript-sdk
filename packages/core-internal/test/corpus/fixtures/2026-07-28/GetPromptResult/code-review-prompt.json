@@ -1,0 +1,13 @@
+{
+  "resultType": "complete",
+  "description": "Code review prompt",
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "Please review this Python code:\ndef hello():\n    print('world')"
+      }
+    }
+  ]
+}

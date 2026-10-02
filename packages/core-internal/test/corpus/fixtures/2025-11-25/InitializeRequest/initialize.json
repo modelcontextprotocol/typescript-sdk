@@ -1,0 +1,20 @@
+{
+    "method": "initialize",
+    "params": {
+        "protocolVersion": "2025-11-25",
+        "capabilities": {
+            "roots": {
+                "listChanged": true
+            },
+            "sampling": {},
+            "elicitation": {
+                "form": {}
+            }
+        },
+        "clientInfo": {
+            "name": "example-client",
+            "title": "Example Client",
+            "version": "1.0.0"
+        }
+    }
+}

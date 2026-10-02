@@ -1,0 +1,22 @@
+{
+    "protocolVersion": "2025-11-25",
+    "capabilities": {
+        "logging": {},
+        "prompts": {
+            "listChanged": true
+        },
+        "resources": {
+            "subscribe": true,
+            "listChanged": true
+        },
+        "tools": {
+            "listChanged": true
+        }
+    },
+    "serverInfo": {
+        "name": "example-server",
+        "title": "Example Server",
+        "version": "1.0.0"
+    },
+    "instructions": "Optional instructions for the client."
+}

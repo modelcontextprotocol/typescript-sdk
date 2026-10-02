@@ -1,14 +1,14 @@
 import type {
     BaseMetadata,
-    CallToolRequest,
+    CacheHint,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
-    CreateTaskResult,
-    CreateTaskServerContext,
     GetPromptResult,
+    Icon,
     Implementation,
+    InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -26,26 +26,31 @@ import type {
     ToolExecution,
     Transport,
     Variables
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    assertValidCacheHint,
+    attachCacheHintFallback,
+    isInputRequiredResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
+    ResourceNotFoundError,
+    scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type * as z from 'zod/v4';
 
-import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
-import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
-import { getCompleter, isCompletable } from './completable.js';
-import type { ServerOptions } from './server.js';
-import { Server } from './server.js';
+import { getCompleter, isCompletable } from './completable';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { supportsScopeChallengeResolver } from './scopeChallenge';
+import type { ServerOptions } from './server';
+import { Server } from './server';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -72,26 +77,49 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    private _experimental?: { tasks: ExperimentalMcpServerTasks };
+    /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
+    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
+
+    /**
+     * The JSON-serialized `inputSchema` of a registered tool, or `undefined`
+     * when no such tool is registered. Used by the HTTP entry's pre-dispatch
+     * SEP-2243 `Mcp-Param-*` validation step (which needs the same JSON Schema
+     * `tools/list` would emit, before dispatch reaches the handler).
+     *
+     * @internal
+     */
+    toolInputSchemaJson(name: string): Record<string, unknown> | undefined {
+        const tool = this._registeredTools[name];
+        if (tool === undefined || !tool.enabled) return undefined;
+        if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
+        if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
+        // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
+        try {
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            this._toolInputSchemaJson[name] = json;
+            return json;
+        } catch {
+            return undefined;
+        }
+    }
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
-    }
 
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalMcpServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalMcpServerTasks(this)
-            };
+        // Per the MCP spec, a server that declares a primitive capability MUST respond to its
+        // list method (potentially with an empty result) rather than "Method not found" — even
+        // if nothing has been registered yet. Handlers are normally installed lazily on first
+        // registration, so eagerly install them here for any capability declared up front.
+        // (Users of the low-level `Server` class remain responsible for their own handlers.)
+        if (options?.capabilities?.tools) {
+            this.setToolRequestHandlers();
         }
-        return this._experimental;
+        if (options?.capabilities?.resources) {
+            this.setResourceRequestHandlers();
+        }
+        if (options?.capabilities?.prompts) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**
@@ -107,6 +135,9 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        if (supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
+        }
         return await this.server.connect(transport);
     }
 
@@ -116,6 +147,53 @@ export class McpServer {
     async close(): Promise<void> {
         await this.server.close();
     }
+
+    /** @internal */
+    resolveScopeChallenge: ScopeChallengeHandler = context => {
+        switch (context.request.method) {
+            case 'tools/call': {
+                const toolName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof toolName !== 'string') return;
+                const tool = this._registeredTools[toolName];
+                if (tool === undefined || !tool.enabled) return;
+                return tool.scopeChallenge?.(context);
+            }
+            case 'resources/read': {
+                const resourceUri = (context.request.params as { uri?: unknown } | undefined)?.uri;
+                if (typeof resourceUri !== 'string') return;
+
+                let uri: URL;
+                try {
+                    uri = new URL(resourceUri);
+                } catch {
+                    return;
+                }
+
+                const resource = this._registeredResources[uri.toString()];
+                if (resource !== undefined) {
+                    return resource.enabled ? resource.scopeChallenge?.(context) : undefined;
+                }
+
+                for (const template of Object.values(this._registeredResourceTemplates)) {
+                    const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
+                    if (variables) {
+                        return template.enabled ? template.scopeChallenge?.(context) : undefined;
+                    }
+                }
+                return;
+            }
+            case 'prompts/get': {
+                const promptName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof promptName !== 'string') return;
+                const prompt = this._registeredPrompts[promptName];
+                if (prompt === undefined || !prompt.enabled) return;
+                return prompt.scopeChallenge?.(context);
+            }
+            default: {
+                return;
+            }
+        }
+    };
 
     private _toolHandlersInitialized = false;
 
@@ -133,6 +211,9 @@ export class McpServer {
             }
         });
 
+        // Note: tools are listed in registration (insertion) order, which keeps the ordering
+        // deterministic across requests when the underlying tool set has not changed, as
+        // recommended by the spec.
         this.server.setRequestHandler(
             'tools/list',
             (): ListToolsResult => ({
@@ -144,14 +225,19 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
+                            icons: tool.icons,
                             execution: tool.execution,
                             _meta: tool._meta
                         };
 
                         if (tool.outputSchema) {
+                            // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
+                            // `{type:'object',properties:{result:<natural>},required:['result']}` toward
+                            // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
+                            // — this handler is era-blind and emits the natural converted schema.
                             toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
                         }
 
@@ -160,7 +246,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
+        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
             const tool = this._registeredTools[request.params.name];
             if (!tool) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
@@ -170,43 +256,16 @@ export class McpServer {
             }
 
             try {
-                const isTaskRequest = !!request.params.task;
-                const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
-
-                // Validate task hint configuration
-                if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
-                    );
-                }
-
-                // Handle taskSupport 'required' without task augmentation
-                if (taskSupport === 'required' && !isTaskRequest) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
-                    );
-                }
-
-                // Handle taskSupport 'optional' without task augmentation - automatic polling
-                if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, ctx);
-                }
-
-                // Normal execution path
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
-
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
-
-                // Validate output schema for non-task requests
                 await this.validateToolOutput(tool, result, request.params.name);
-                return result;
+                if (isInputRequiredResult(result)) return result;
+                // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
+                // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
+                // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
+                // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
+                // wrapped) so the listing and the call cannot diverge.
+                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -265,13 +324,14 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | InputRequiredResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) {
             return;
         }
 
-        // Only validate CallToolResult, not CreateTaskResult
-        if (!('content' in result)) {
+        // An input-required result is not the tool's final output: structured
+        // content is only required (and validated) on the completing result.
+        if (isInputRequiredResult(result)) {
             return;
         }
 
@@ -279,7 +339,11 @@ export class McpServer {
             return;
         }
 
-        if (!result.structuredContent) {
+        // SEP-2106: `structuredContent` may legally be any JSON value including `null`, `0`,
+        // `false`, `""`. The presence check is therefore `=== undefined` (not falsy); when present,
+        // the value is ALWAYS validated against the output schema — a falsy value against an
+        // object-typed schema fails validation, so this is not a guard weakening.
+        if (result.structuredContent === undefined) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
@@ -297,45 +361,15 @@ export class McpServer {
     }
 
     /**
-     * Executes a tool handler (either regular or task-based).
+     * Executes a tool handler.
      */
-    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult | CreateTaskResult> {
+    private async executeToolHandler(
+        tool: RegisteredTool,
+        args: unknown,
+        ctx: ServerContext
+    ): Promise<CallToolResult | InputRequiredResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
-    }
-
-    /**
-     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
-     */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
-        request: RequestT,
-        ctx: ServerContext
-    ): Promise<CallToolResult> {
-        if (!ctx.task?.store) {
-            throw new Error('No task store provided for task-capable tool.');
-        }
-
-        // Validate input and create task using the executor
-        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-        const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
-
-        // Poll until completion
-        const taskId = createTaskResult.task.taskId;
-        let task = createTaskResult.task;
-        const pollInterval = task.pollInterval ?? 5000;
-
-        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
-            task = updatedTask;
-        }
-
-        // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;
@@ -481,7 +515,15 @@ export class McpServer {
         });
 
         this.server.setRequestHandler('resources/read', async (request, ctx) => {
-            const uri = new URL(request.params.uri);
+            let uri: URL;
+            try {
+                uri = new URL(request.params.uri);
+            } catch {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource URI ${request.params.uri} is invalid`, {
+                    uri: request.params.uri,
+                    reason: 'invalid_uri'
+                });
+            }
 
             // First check for exact resource match
             const resource = this._registeredResources[uri.toString()];
@@ -489,18 +531,30 @@ export class McpServer {
                 if (!resource.enabled) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
-                return resource.readCallback(uri, ctx);
+                // A per-resource cache hint is the most specific configured
+                // author for this result's 2026-07-28 cache fields; it rides a
+                // never-serialized carrier and is resolved at the encode seam.
+                return attachCacheHintFallback(await resource.readCallback(uri, ctx), resource.cacheHint);
             }
 
             // Then check templates
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
-                    return template.readCallback(uri, variables, ctx);
+                    if (!template.enabled) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InvalidParams,
+                            `Resource template ${template.resourceTemplate.uriTemplate} disabled`
+                        );
+                    }
+                    return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
+            // Domain layer throws one neutral resource-not-found error; the
+            // era-aware encode seam (WireCodec.encodeErrorCode) selects the
+            // wire code (−32602 on every era).
+            throw new ResourceNotFoundError(request.params.uri);
         });
 
         this._resourceHandlersInitialized = true;
@@ -533,13 +587,14 @@ export class McpServer {
                             title: prompt.title,
                             description: prompt.description,
                             arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            icons: prompt.icons,
                             _meta: prompt._meta
                         };
                     })
             })
         );
 
-        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult> => {
+        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult | InputRequiredResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -575,19 +630,32 @@ export class McpServer {
      * );
      * ```
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
+        readCallback: ReadResourceCallback
+    ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
+        // These options configure request handling and are not advertised as
+        // resource metadata by `resources/list`.
+        const { cacheHint, scopeChallenge, ...resourceMetadata } = config;
+        const metadata: ResourceMetadata = resourceMetadata;
+        if (cacheHint !== undefined) {
+            assertValidCacheHint(cacheHint, `resource ${name}`);
+        }
+
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -597,9 +665,13 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
+                scopeChallenge,
                 readCallback as ReadResourceCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResource.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -613,9 +685,13 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
+                scopeChallenge,
                 readCallback as ReadResourceTemplateCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResourceTemplate.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -628,6 +704,7 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
         const registeredResource: RegisteredResource = {
@@ -635,6 +712,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResource.update({ enabled: false }),
             enable: () => registeredResource.update({ enabled: true }),
@@ -648,6 +726,9 @@ export class McpServer {
                 if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResource.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -661,6 +742,7 @@ export class McpServer {
         title: string | undefined,
         template: ResourceTemplate,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
         const registeredResourceTemplate: RegisteredResourceTemplate = {
@@ -668,6 +750,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResourceTemplate.update({ enabled: false }),
             enable: () => registeredResourceTemplate.update({ enabled: true }),
@@ -681,6 +764,9 @@ export class McpServer {
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -703,6 +789,8 @@ export class McpServer {
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
+        icons: Icon[] | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -713,6 +801,8 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            icons,
+            scopeChallenge,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -726,6 +816,10 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredPrompt.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -773,7 +867,9 @@ export class McpServer {
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
+        icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -783,13 +879,22 @@ export class McpServer {
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
+        let outputSchemaJson: Record<string, unknown> | undefined;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
+            get outputSchemaJson() {
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema));
+            },
+            set outputSchemaJson(value) {
+                outputSchemaJson = value;
+            },
             annotations,
+            icons,
             execution,
+            scopeChallenge,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -798,12 +903,27 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
+                // The closure's `name` tracks the CURRENT registry key, not
+                // the original registration name — renaming reassigns it so
+                // subsequent paramsSchema/rename invalidations evict the live
+                // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    delete this._toolInputSchemaJson[name];
+                    if (updates.name) {
+                        // The TARGET key may already be occupied by another
+                        // tool (rename has no duplicate-name guard) — drop
+                        // its memo too, otherwise `toolInputSchemaJson()`
+                        // returns the displaced tool's converted schema and
+                        // the SEP-2243 pre-dispatch validation runs against
+                        // the wrong schema for this name.
+                        delete this._toolInputSchemaJson[updates.name];
+                        this._registeredTools[updates.name] = registeredTool;
+                        name = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
@@ -812,6 +932,7 @@ export class McpServer {
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
                     registeredTool.inputSchema = updates.paramsSchema;
+                    delete this._toolInputSchemaJson[name];
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {
@@ -823,8 +944,15 @@ export class McpServer {
                     registeredTool.executor = createToolExecutor(registeredTool.inputSchema, currentHandler);
                 }
 
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
+                if (updates.outputSchema !== undefined) {
+                    registeredTool.outputSchema = updates.outputSchema;
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
+                if (updates.icons !== undefined) registeredTool.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredTool.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -872,6 +1000,9 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
+            /** Determines whether this tool call needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -885,6 +1016,8 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -897,6 +1030,8 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -905,8 +1040,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
-
+        const { title, description, inputSchema, outputSchema, annotations, icons, scopeChallenge, _meta } = config;
         return this._createRegisteredTool(
             name,
             title,
@@ -914,7 +1048,9 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
-            { taskSupport: 'forbidden' },
+            icons,
+            undefined,
+            scopeChallenge,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -946,12 +1082,28 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -963,6 +1115,8 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -973,15 +1127,17 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, _meta } = config;
+        const { title, description, argsSchema, icons, scopeChallenge, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -989,6 +1145,8 @@ export class McpServer {
             description,
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
+            icons,
+            scopeChallenge,
             _meta
         );
 
@@ -1020,6 +1178,10 @@ export class McpServer {
      *     data: 'Processing complete'
      * });
      * ```
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         return this.server.sendLoggingMessage(params, sessionId);
@@ -1122,13 +1284,19 @@ export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
-    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
+    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 export type BaseToolCallback<
     SendResultT extends Result,
@@ -1142,28 +1310,39 @@ export type BaseToolCallback<
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
 export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
+    CallToolResult | InputRequiredResult,
     ServerContext,
     Args
 >;
 
 /**
- * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
+ * Tool handler callback type.
  */
-export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
  */
-type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | CreateTaskResult>;
+type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredTool = {
     title?: string;
     description?: string;
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
+    /**
+     * @hidden
+     * The converted JSON Schema of `outputSchema`, memoised on first use (and on
+     * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
+     * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
+     * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
+     * no `outputSchema` is registered or its conversion threw (see {@link convertOutputSchemaJson}).
+     */
+    outputSchemaJson?: Record<string, unknown>;
     annotations?: ToolAnnotations;
+    icons?: Icon[];
     execution?: ToolExecution;
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1178,6 +1357,8 @@ export type RegisteredTool = {
         paramsSchema?: StandardSchemaWithJSON;
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
+        icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
@@ -1194,30 +1375,15 @@ function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
 ): ToolExecutor {
-    const isTaskHandler = 'createTask' in handler;
-
-    if (isTaskHandler) {
-        const taskHandler = handler as TaskHandlerInternal;
-        return async (args, ctx) => {
-            if (!ctx.task?.store) {
-                throw new Error('No task store provided.');
-            }
-            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
-            if (inputSchema) {
-                return taskHandler.createTask(args, taskCtx);
-            }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
-        };
-    }
-
     if (inputSchema) {
         const callback = handler as ToolCallbackInternal;
         return async (args, ctx) => callback(args, ctx);
     }
 
     // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-    const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    const callback = handler as (
+        ctx: ServerContext
+    ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
     return async (_args, ctx) => callback(ctx);
 }
 
@@ -1225,6 +1391,34 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input');
+    const scan = scanXMcpHeaderDeclarations(json);
+    if (!scan.valid) {
+        console.warn(
+            `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                `conforming Streamable HTTP clients: ${scan.reason}`
+        );
+    }
+    return json;
+}
+
+/**
+ * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
+ * so `tools/call` passes the SAME advertised schema to the wire codec's `projectCallToolResult` that
+ * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
+ * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
+ */
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+    if (outputSchema === undefined) return undefined;
+    try {
+        return standardSchemaToJsonSchema(outputSchema, 'output');
+    } catch {
+        return undefined;
+    }
+}
 
 /**
  * Additional, optional information for annotating a resource.
@@ -1239,12 +1433,18 @@ export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult 
 /**
  * Callback to read a resource at a given URI.
  */
-export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourceResult | Promise<ReadResourceResult>;
+export type ReadResourceCallback = (
+    uri: URL,
+    ctx: ServerContext
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResource = {
     name: string;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this resource's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1254,6 +1454,7 @@ export type RegisteredResource = {
         title?: string;
         uri?: string | null;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceCallback;
         enabled?: boolean;
     }): void;
@@ -1267,12 +1468,15 @@ export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
     ctx: ServerContext
-) => ReadResourceResult | Promise<ReadResourceResult>;
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this template's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1282,6 +1486,7 @@ export type RegisteredResourceTemplate = {
         title?: string;
         template?: ResourceTemplate;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceTemplateCallback;
         enabled?: boolean;
     }): void;
@@ -1289,25 +1494,29 @@ export type RegisteredResourceTemplate = {
 };
 
 export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = Args extends StandardSchemaWithJSON
-    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: StandardSchemaWithJSON.InferOutput<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 /**
  * Internal handler type that encapsulates parsing and callback invocation.
  * This allows type-safe handling without runtime type assertions.
  */
-type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
+type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult | InputRequiredResult>;
 
-type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
-
-type TaskHandlerInternal = {
-    createTask: (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
-};
+type ToolCallbackInternal = (
+    args: unknown,
+    ctx: ServerContext
+) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
+    icons?: Icon[];
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
@@ -1319,6 +1528,8 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
@@ -1336,7 +1547,10 @@ function createPromptHandler(
     callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
     if (argsSchema) {
-        const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            args: unknown,
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
             const parseResult = await validateStandardSchema(argsSchema, args ?? {});
@@ -1346,7 +1560,9 @@ function createPromptHandler(
             return typedCallback(parseResult.data, ctx);
         };
     } else {
-        const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (_args, ctx) => {
             return typedCallback(ctx);

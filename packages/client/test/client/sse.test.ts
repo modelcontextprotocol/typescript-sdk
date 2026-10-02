@@ -2,14 +2,14 @@ import type { IncomingMessage, Server, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
-import { SSEClientTransport } from '../../src/client/sse.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import { UnauthorizedError } from '../../src/client/auth';
+import { SSEClientTransport } from '../../src/client/sse';
 
 /**
  * Parses HTTP Basic auth from a request's Authorization header.
@@ -45,12 +45,14 @@ describe('SSEClientTransport', () => {
                 res.writeHead(200, {
                     'Content-Type': 'application/json'
                 });
+                // RFC 8414 §3.3: issuer must match the URL the metadata was fetched from.
+                const self = `http://${req.headers.host}`;
                 res.end(
                     JSON.stringify({
-                        issuer: 'https://auth.example.com',
-                        authorization_endpoint: 'https://auth.example.com/authorize',
-                        token_endpoint: 'https://auth.example.com/token',
-                        registration_endpoint: 'https://auth.example.com/register',
+                        issuer: self,
+                        authorization_endpoint: `${self}/authorize`,
+                        token_endpoint: `${self}/token`,
+                        registration_endpoint: `${self}/register`,
                         response_types_supported: ['code'],
                         code_challenge_methods_supported: ['S256']
                     })
@@ -299,6 +301,26 @@ describe('SSEClientTransport', () => {
             expect(fetchWithAuth).toHaveBeenCalledTimes(2);
             expect(lastServerRequest.method).toBe('POST');
             expect(lastServerRequest.headers.authorization).toBe(authToken);
+        });
+
+        it('tolerates requestInit.headers set to null by a JavaScript caller', async () => {
+            // The TS type excludes null, but a JS caller or a JSON config forwarded verbatim can
+            // pass it. `new Headers(null)` throws, so the transport must map falsy to undefined.
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: null as unknown as RequestInit['headers'] }
+            });
+
+            await transport.start();
+            expect(lastServerRequest.headers.accept).toBe('text/event-stream');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+            await transport.send(message);
+            expect(lastServerRequest.headers['content-type']).toBe('application/json');
         });
 
         it('passes custom headers to fetch requests', async () => {
@@ -658,6 +680,123 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
         });
 
+        it('lets the auth provider token override a stale caller-supplied Authorization header', async () => {
+            // Regression test for #2208: transport-managed headers are merged on top of
+            // requestInit.headers, so a static Authorization placeholder (e.g. an env-var
+            // API key) gives way to the provider's token on both the SSE GET and POSTs.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-placeholder',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            // SSE GET
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // POST
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('replaces a caller-supplied Authorization header regardless of name casing (Headers instance)', async () => {
+            // #2208 follow-up: `Headers` normalizes names to lowercase; the transport must
+            // still send exactly its own token, not a combined two-token value.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: new Headers({
+                        authorization: 'Bearer stale-placeholder',
+                        'x-custom-header': 'custom-value'
+                    })
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
+        it('keeps Fetch Headers combine semantics for a repeated name in a tuple array', async () => {
+            // A repeated name in a tuple array is the one `HeadersInit` form that can express a
+            // multi-valued header, and `fetch(url, { headers: [['x', 'a'], ['x', 'b']] })` sends
+            // "x: a, b". The transport builds its headers with the same `Headers` constructor, so
+            // a caller-supplied repeated name is combined exactly as a direct `fetch` would, while
+            // a repeated *transport-managed* name is still replaced outright by the transport's
+            // own value rather than combined with it.
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: [
+                        ['Authorization', 'Bearer stale-1'],
+                        ['Authorization', 'Bearer stale-2'],
+                        ['x-multi', 'a'],
+                        ['x-multi', 'b']
+                    ]
+                }
+            });
+
+            await transport.start();
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-multi']).toBe('a, b');
+        });
+
         it('refreshes expired token during SSE connection', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {
@@ -778,11 +917,14 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(connectionAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -931,11 +1073,14 @@ describe('SSEClientTransport', () => {
 
             await transport.send(message);
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(postAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -1018,7 +1163,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1067,10 +1212,14 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1118,7 +1267,11 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
         it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
@@ -1517,12 +1670,15 @@ describe('SSEClientTransport', () => {
             expect(tokenCalls.length).toBeGreaterThan(0);
 
             // Verify tokens were saved
-            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();
@@ -1575,7 +1731,7 @@ describe('SSEClientTransport', () => {
             await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         });
 
-        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkError', async () => {
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkHttpError', async () => {
             postResponses = [401, 401];
             await setupServer();
 
@@ -1587,8 +1743,10 @@ describe('SSEClientTransport', () => {
             await transport.start();
 
             const error = await transport.send(message).catch(e => e);
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
+            expect((error as SdkHttpError).statusText).toBe('Unauthorized');
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(postCount).toBe(2);
         });
@@ -1625,10 +1783,43 @@ describe('SSEClientTransport', () => {
             await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
         });
 
-        it('SSE connect 401 retry does not poison future 401s — onUnauthorized called on each attempt', async () => {
+        it('SSE connect: a second 401 right after a refresh rejects, onUnauthorized called once', async () => {
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    getAttempt++;
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            // Backstop so an unbounded retry ends the test with a clear failure instead of a hang.
+            let calls = 0;
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'still-bad'),
+                onUnauthorized: vi.fn(async () => {
+                    if (++calls >= 10) throw new Error('backstop: onUnauthorized called 10 times');
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            const error = await transport.start().catch(e => e);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(getAttempt).toBe(2);
+            expect(onerror).toHaveBeenCalledTimes(1);
+        });
+
+        it('SSE connect 401 retry does not poison future 401s — a 401 on a later reconnect refreshes again', async () => {
             // Regression: _startOrAuth(true) baked isAuthRetry=true into the retry EventSource's
             // onerror closure, so a subsequent 401 (token expiry on reconnect) would throw
-            // instead of refreshing. Fix: retry always calls _startOrAuth() fresh.
+            // instead of refreshing. The retry guard resets once the stream opens.
             await resourceServer.close();
 
             let getAttempt = 0;
@@ -1638,7 +1829,8 @@ describe('SSEClientTransport', () => {
                     return;
                 }
                 getAttempt++;
-                if (getAttempt < 3) {
+                // 1: 401, 2: opens then drops, 3: 401 on the automatic reconnect, 4: opens and stays.
+                if (getAttempt === 1 || getAttempt === 3) {
                     res.writeHead(401).end();
                     return;
                 }
@@ -1647,8 +1839,12 @@ describe('SSEClientTransport', () => {
                     'Cache-Control': 'no-cache, no-transform',
                     Connection: 'keep-alive'
                 });
+                res.write('retry: 10\n');
                 res.write('event: endpoint\n');
                 res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                if (getAttempt === 2) {
+                    res.end();
+                }
             });
             resourceBaseUrl = await listenOnRandomPort(resourceServer);
 
@@ -1658,17 +1854,17 @@ describe('SSEClientTransport', () => {
             };
             transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
 
-            await transport.start(); // should resolve on attempt 3
+            await transport.start(); // resolves on attempt 2
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
 
+            await vi.waitFor(() => expect(getAttempt).toBe(4), { timeout: 3000 });
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
-            expect(getAttempt).toBe(3);
         });
 
         it('retry failure during SSE connect fires onerror exactly once', async () => {
             // Regression: when the retry EventSource rejected, its onerror fired inside, then
             // the outer .then() rejection handler fired onerror AGAIN for the same error.
             // Fix: inner retry chains to .then(resolve, reject) — no outer onerror call.
-            // onUnauthorized's own failure is handled separately and fires onerror once.
             await resourceServer.close();
 
             resourceServer = createServer((req, res) => {
@@ -1678,20 +1874,40 @@ describe('SSEClientTransport', () => {
             });
             resourceBaseUrl = await listenOnRandomPort(resourceServer);
 
-            const onUnauthorized: AuthProvider['onUnauthorized'] = vi
-                .fn()
-                .mockResolvedValueOnce(undefined) // first call succeeds → triggers retry
-                .mockRejectedValueOnce(new Error('refresh failed')); // second call (in retry) throws
             const authProvider: AuthProvider = {
                 token: vi.fn(async () => 'token'),
-                onUnauthorized
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.start()).rejects.toThrow('Server returned 401 after re-authentication');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls[0]![0].message).toBe('Server returned 401 after re-authentication');
+        });
+
+        it('a failing onUnauthorized during SSE connect fires onerror exactly once', async () => {
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('refresh failed'))
             };
             transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
             const onerror = vi.fn();
             transport.onerror = onerror;
 
             await expect(transport.start()).rejects.toThrow('refresh failed');
-            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(onerror).toHaveBeenCalledTimes(1);
             expect(onerror.mock.calls[0]![0].message).toBe('refresh failed');
         });

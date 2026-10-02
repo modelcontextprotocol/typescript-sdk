@@ -1,0 +1,190 @@
+/**
+ * Shared theme for the MCP TypeScript SDK docs (v2 and v1 sites).
+ *
+ * Visual pass modeled on the Python SDK docs (py.sdk.modelcontextprotocol.io),
+ * which use mkdocs-material with a monochrome palette: primary/accent black on
+ * light, white on slate dark. We map that onto VitePress brand variables.
+ */
+
+/* ------------------------------------------------------------------ layout */
+
+/*
+ * The default theme caps the doc column at 688px (and the page at 1440px),
+ * which forces horizontal scrolling on most of our ~100-column code blocks.
+ * Let the layout breathe and the column grow so typical snippets fit;
+ * genuinely long lines still scroll inside their own block.
+ *
+ * Clamped to the viewport because the default theme's `(min-width: 1440px)`
+ * rules size the sidebar and nav title as
+ * `calc((100% - (var(--vp-layout-max-width) - 64px)) / 2 + ...)`, which goes
+ * negative on viewports narrower than the max width: the sidebar collapses
+ * and the site title spills over the search bar. With the clamp, those rules
+ * resolve to their stock sub-1440px values on narrower viewports instead.
+ */
+:root {
+    --vp-layout-max-width: min(100vw, 1680px);
+}
+
+/* !important: the default rule is a scoped component style ([data-v-…]), which
+   otherwise out-specifies any override written here. */
+.VPDoc.has-aside .content-container {
+    max-width: 960px !important;
+}
+
+/* ---------------------------------------------------------------- branding */
+
+:root {
+    /* Monochrome brand: near-black on light backgrounds. */
+    --vp-c-brand-1: #1a1a1a;
+    --vp-c-brand-2: #333333;
+    --vp-c-brand-3: #1f1f1f;
+    --vp-c-brand-soft: rgba(0, 0, 0, 0.08);
+
+    /* Restrained accent for links — dark with a faint blue cast, like
+       material's black-primary link color. */
+    --vp-c-text-link: #21409a;
+
+    /* Neutral grays. */
+    --vp-c-gray-1: #dddde3;
+    --vp-c-gray-2: #e4e4e9;
+    --vp-c-gray-3: #ebebef;
+
+    /* Buttons: solid black, like material's primary buttons. */
+    --vp-button-brand-bg: #1a1a1a;
+    --vp-button-brand-border: #1a1a1a;
+    --vp-button-brand-text: #ffffff;
+    --vp-button-brand-hover-bg: #333333;
+    --vp-button-brand-hover-border: #333333;
+    --vp-button-brand-hover-text: #ffffff;
+    --vp-button-brand-active-bg: #000000;
+    --vp-button-brand-active-border: #000000;
+    --vp-button-brand-active-text: #ffffff;
+
+    /* Home hero: plain text, no gradient. */
+    --vp-home-hero-name-color: var(--vp-c-text-1);
+
+    /* Height reserved for the fixed version banner (layout-top slot). */
+    --vp-layout-top-height: 36px;
+}
+
+.dark {
+    /* Monochrome brand: near-white on dark backgrounds (material "slate"). */
+    --vp-c-brand-1: #e8e8e8;
+    --vp-c-brand-2: #cccccc;
+    --vp-c-brand-3: #dddddd;
+    --vp-c-brand-soft: rgba(255, 255, 255, 0.12);
+
+    --vp-c-text-link: #9db4e8;
+
+    --vp-button-brand-bg: #e8e8e8;
+    --vp-button-brand-border: #e8e8e8;
+    --vp-button-brand-text: #1a1a1a;
+    --vp-button-brand-hover-bg: #ffffff;
+    --vp-button-brand-hover-border: #ffffff;
+    --vp-button-brand-hover-text: #1a1a1a;
+    --vp-button-brand-active-bg: #cccccc;
+    --vp-button-brand-active-border: #cccccc;
+    --vp-button-brand-active-text: #1a1a1a;
+}
+
+/* Links: restrained accent, underline on hover only (material-ish). */
+.vp-doc a {
+    color: var(--vp-c-text-link);
+    text-decoration: none;
+    font-weight: 500;
+}
+
+.vp-doc a:hover {
+    text-decoration: underline;
+}
+
+/* ------------------------------------------------------------- admonitions */
+
+/*
+ * Material-style admonitions: left accent border + tinted background.
+ * Covers VitePress custom containers and GitHub-style alerts (> [!NOTE] …),
+ * which VitePress renders with the same .custom-block classes.
+ */
+.vp-doc .custom-block {
+    border: none;
+    border-left: 4px solid var(--vp-c-divider);
+    border-radius: 2px;
+    padding: 12px 16px;
+}
+
+.vp-doc .custom-block .custom-block-title {
+    font-weight: 700;
+}
+
+.vp-doc .custom-block.info,
+.vp-doc .custom-block.note {
+    border-left-color: #448aff;
+    background-color: rgba(68, 138, 255, 0.08);
+}
+
+.vp-doc .custom-block.tip,
+.vp-doc .custom-block.important {
+    border-left-color: #00bfa5;
+    background-color: rgba(0, 191, 165, 0.08);
+}
+
+.vp-doc .custom-block.warning,
+.vp-doc .custom-block.caution {
+    border-left-color: #ff9100;
+    background-color: rgba(255, 145, 0, 0.08);
+}
+
+.vp-doc .custom-block.danger {
+    border-left-color: #ff5252;
+    background-color: rgba(255, 82, 82, 0.08);
+}
+
+.vp-doc .custom-block.details {
+    border-left-color: var(--vp-c-divider);
+    background-color: var(--vp-c-bg-soft);
+}
+
+/* -------------------------------------------------------------- the banner */
+
+.version-banner {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 35;
+    height: var(--vp-layout-top-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 16px;
+    overflow: hidden;
+    background-color: var(--vp-c-bg-soft);
+    border-bottom: 1px solid var(--vp-c-divider);
+    color: var(--vp-c-text-2);
+    font-size: 13px;
+    line-height: 1.3;
+    text-align: center;
+}
+
+.version-banner a {
+    color: var(--vp-c-text-1);
+    text-decoration: underline;
+    margin-left: 4px;
+}
+
+/* --------------------------------------------------- markdown-source footer */
+
+.markdown-source {
+    margin-bottom: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--vp-c-divider);
+    color: var(--vp-c-text-3);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.markdown-source a {
+    color: var(--vp-c-text-2);
+    text-decoration: underline;
+    font-weight: 400;
+}

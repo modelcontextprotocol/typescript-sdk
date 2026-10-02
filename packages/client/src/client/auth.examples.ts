@@ -7,10 +7,10 @@
  * @module
  */
 
-import type { AuthorizationServerMetadata } from '@modelcontextprotocol/core';
+import type { AuthorizationServerMetadata } from '@modelcontextprotocol/core-internal';
 
-import type { OAuthClientProvider } from './auth.js';
-import { fetchToken } from './auth.js';
+import type { OAuthClientProvider } from './auth';
+import { fetchToken } from './auth';
 
 /**
  * Base class providing no-op implementations of required OAuthClientProvider methods.

@@ -1,0 +1,11 @@
+{
+    "resourceTemplates": [
+        {
+            "uriTemplate": "file:///{path}",
+            "name": "Project Files",
+            "title": "Project Files",
+            "description": "Access files in the project directory",
+            "mimeType": "application/octet-stream"
+        }
+    ]
+}

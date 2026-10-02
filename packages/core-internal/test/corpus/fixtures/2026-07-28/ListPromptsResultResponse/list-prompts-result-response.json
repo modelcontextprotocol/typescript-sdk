@@ -1,0 +1,31 @@
+{
+  "jsonrpc": "2.0",
+  "id": "list-prompts-example",
+  "result": {
+    "resultType": "complete",
+    "prompts": [
+      {
+        "name": "code_review",
+        "title": "Request Code Review",
+        "description": "Asks the LLM to analyze code quality and suggest improvements",
+        "arguments": [
+          {
+            "name": "code",
+            "description": "The code to review",
+            "required": true
+          }
+        ],
+        "icons": [
+          {
+            "src": "https://example.com/review-icon.svg",
+            "mimeType": "image/svg+xml",
+            "sizes": ["any"]
+          }
+        ]
+      }
+    ],
+    "nextCursor": "next-page-cursor",
+    "ttlMs": 600000,
+    "cacheScope": "public"
+  }
+}

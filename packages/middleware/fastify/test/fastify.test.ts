@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 
-import { createMcpFastifyApp } from '../src/fastify.js';
-import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation.js';
+import { createMcpFastifyApp } from '../src/fastify';
+import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation';
 
 describe('@modelcontextprotocol/fastify', () => {
     describe('hostHeaderValidation', () => {

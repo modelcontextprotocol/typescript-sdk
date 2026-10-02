@@ -1,7 +1,7 @@
 import * as z from 'zod/v4';
 import { describe, expect, it } from 'vitest';
 
-import { completable, getCompleter } from '../../src/server/completable.js';
+import { completable, getCompleter } from '../../src/server/completable';
 
 describe('completable with Zod v4', () => {
     it('preserves types and values of underlying schema', () => {

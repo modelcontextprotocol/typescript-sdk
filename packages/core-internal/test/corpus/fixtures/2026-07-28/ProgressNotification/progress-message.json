@@ -1,0 +1,10 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/progress",
+  "params": {
+    "progressToken": "oivaizmir",
+    "progress": 50,
+    "total": 100,
+    "message": "Reticulating splines..."
+  }
+}

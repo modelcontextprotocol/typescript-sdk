@@ -1,0 +1,12 @@
+{
+    "method": "tools/call",
+    "params": {
+        "name": "get_weather",
+        "arguments": {
+            "location": "Berlin"
+        },
+        "_meta": {
+            "progressToken": 7
+        }
+    }
+}

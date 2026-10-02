@@ -1,11 +1,8 @@
 {
-    "name": "@modelcontextprotocol/examples-client-quickstart",
+    "name": "@mcp-examples/client-quickstart",
     "private": true,
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-beta.0",
     "type": "module",
-    "bin": {
-        "mcp-client-cli": "./build/index.js"
-    },
     "scripts": {
         "build": "tsc",
         "typecheck": "tsc --noEmit"
@@ -15,6 +12,7 @@
         "@modelcontextprotocol/client": "workspace:^"
     },
     "devDependencies": {
+        "@modelcontextprotocol/tsconfig": "workspace:^",
         "@types/node": "^24.10.1",
         "typescript": "catalog:devTools"
     }

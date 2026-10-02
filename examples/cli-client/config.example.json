@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "todos": {
+            "command": "npx",
+            "args": ["-y", "tsx", "../todos-server/server.ts"]
+        }
+    }
+}

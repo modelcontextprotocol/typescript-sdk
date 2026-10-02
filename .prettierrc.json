@@ -13,7 +13,8 @@
         {
             "files": "**/*.md",
             "options": {
-                "printWidth": 280
+                "printWidth": 280,
+                "proseWrap": "preserve"
             }
         }
     ]

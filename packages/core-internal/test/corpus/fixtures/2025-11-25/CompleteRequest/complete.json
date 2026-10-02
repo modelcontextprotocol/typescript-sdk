@@ -1,0 +1,13 @@
+{
+    "method": "completion/complete",
+    "params": {
+        "ref": {
+            "type": "ref/prompt",
+            "name": "code_review"
+        },
+        "argument": {
+            "name": "language",
+            "value": "py"
+        }
+    }
+}

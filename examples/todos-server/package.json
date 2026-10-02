@@ -1,0 +1,23 @@
+{
+    "name": "@mcp-examples/todos-server",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "start": "tsx server.ts",
+        "start:http": "tsx server.ts --http"
+    },
+    "dependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/hono": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "excluded": "server-only package — exercised end-to-end by the examples/cli-client e2e legs",
+        "shapeExempt": "Reference server, not a single-feature story: no client.ts of its own; the paired host lives in examples/cli-client."
+    }
+}

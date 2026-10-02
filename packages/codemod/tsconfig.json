@@ -1,0 +1,10 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist", "test/**/fixtures", "batch-test/repos", "batch-test/results"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"]
+        }
+    }
+}

@@ -9,7 +9,7 @@
 
 import type { Express } from 'express';
 
-import { hostHeaderValidation, localhostHostValidation } from './hostHeaderValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from './hostHeaderValidation';
 
 /**
  * Example: Using hostHeaderValidation middleware with custom allowed hosts.

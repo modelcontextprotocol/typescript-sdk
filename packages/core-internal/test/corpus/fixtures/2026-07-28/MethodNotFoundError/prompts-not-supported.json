@@ -1,0 +1,7 @@
+{
+  "code": -32601,
+  "message": "Prompts not supported",
+  "data": {
+    "reason": "Server does not support the prompts capability"
+  }
+}

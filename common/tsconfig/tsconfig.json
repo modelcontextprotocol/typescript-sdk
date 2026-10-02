@@ -2,8 +2,8 @@
     "compilerOptions": {
         "target": "esnext",
         "lib": ["esnext"],
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext",
+        "module": "ESNext",
+        "moduleResolution": "bundler",
         "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
         "noImplicitOverride": true,

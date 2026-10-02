@@ -1,0 +1,6 @@
+{
+    "method": "resources/subscribe",
+    "params": {
+        "uri": "file:///project/src/main.rs"
+    }
+}

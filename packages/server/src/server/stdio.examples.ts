@@ -7,8 +7,8 @@
  * @module
  */
 
-import { McpServer } from './mcp.js';
-import { StdioServerTransport } from './stdio.js';
+import { McpServer } from './mcp';
+import { StdioServerTransport } from './stdio';
 
 /**
  * Example: Basic stdio transport usage.

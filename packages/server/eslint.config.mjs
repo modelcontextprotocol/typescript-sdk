@@ -6,7 +6,7 @@ export default [
     ...baseConfig,
     {
         settings: {
-            'import/internal-regex': '^@modelcontextprotocol/core'
+            'import/internal-regex': '^@modelcontextprotocol/core-internal'
         }
     }
 ];
