@@ -23,6 +23,7 @@ const buildServer: McpServerFactory = ctx => {
 };
 
 const { port } = parseExampleArgs();
+const mcpServerUrl = new URL(`http://127.0.0.1:${port}/mcp`);
 
 // Replace with JWT verification, RFC 7662 introspection, etc.
 const staticTokenVerifier: OAuthTokenVerifier = {
@@ -30,7 +31,8 @@ const staticTokenVerifier: OAuthTokenVerifier = {
         if (token !== 'demo-token') {
             throw new OAuthError(OAuthErrorCode.InvalidToken, 'unknown token');
         }
-        return { token, clientId: 'demo-client', scopes: ['mcp'], expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+        // `resource` says which server the token was issued for: the token's `aud` in a real verifier.
+        return { token, clientId: 'demo-client', scopes: ['mcp'], expiresAt: Math.floor(Date.now() / 1000) + 3600, resource: mcpServerUrl };
     }
 };
 
@@ -40,7 +42,8 @@ const staticTokenVerifier: OAuthTokenVerifier = {
 const handler = createMcpHandler(buildServer);
 
 const app = createMcpExpressApp();
-const auth = requireBearerAuth({ verifier: staticTokenVerifier, requiredScopes: ['mcp'] });
+// `expectedResource`: only tokens the verifier reports as issued for this server are accepted.
+const auth = requireBearerAuth({ verifier: staticTokenVerifier, requiredScopes: ['mcp'], expectedResource: mcpServerUrl });
 // `requireBearerAuth` sets `req.auth`; `toNodeHandler` reads it and passes it
 // to the factory as `ctx.authInfo`.
 const node = toNodeHandler(handler);

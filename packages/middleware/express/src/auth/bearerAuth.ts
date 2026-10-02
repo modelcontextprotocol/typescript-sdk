@@ -26,8 +26,8 @@ export type BearerAuthMiddlewareOptions = BearerAuthOptions;
 export function requireBearerAuth(options: BearerAuthMiddlewareOptions): RequestHandler {
     // Destructure at creation so a plain-JS caller passing undefined or
     // malformed options crashes at startup, not on the first request.
-    const { verifier, requiredScopes = [], resourceMetadataUrl } = options;
-    const resolved = { verifier, requiredScopes, resourceMetadataUrl };
+    const { verifier, requiredScopes = [], resourceMetadataUrl, expectedResource } = options;
+    const resolved = { verifier, requiredScopes, resourceMetadataUrl, expectedResource };
     return async (req, res, next) => {
         try {
             req.auth = await verifyBearerToken(req.headers.authorization, resolved);

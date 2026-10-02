@@ -31,7 +31,8 @@ const verifier: OAuthTokenVerifier = { verifyAccessToken };
 const auth = requireBearerAuth({
     verifier,
     requiredScopes: ['mcp'],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
+    expectedResource: mcpServerUrl
 });
 
 const app = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
@@ -42,12 +43,14 @@ app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 //#region tokenVerifier_basic
 async function verifyAccessToken(token: string): Promise<AuthInfo> {
     const payload = await verifyJwt(token);
-    return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp };
+    // `aud` is one value, a list, or absent: report this server's entry when the token has one.
+    const resource = [payload.aud].flat().includes(mcpServerUrl.href) ? mcpServerUrl : undefined;
+    return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
 }
 //#endregion tokenVerifier_basic
 
 // Stand-in for your JWT library or RFC 7662 introspection call.
-declare function verifyJwt(token: string): Promise<{ sub: string; scopes: string[]; exp: number }>;
+declare function verifyJwt(token: string): Promise<{ sub: string; scopes: string[]; exp: number; aud?: string | string[] }>;
 
 // Your authorization server's RFC 8414 metadata document — fetch it from the AS
 // at startup or embed it.

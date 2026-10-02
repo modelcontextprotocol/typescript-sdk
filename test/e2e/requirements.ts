@@ -1581,12 +1581,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#access-token-usage',
         behavior: 'The resource server validates that the token audience matches its resource identifier.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing.'
-            }
-        ]
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:auth:authinfo-propagates': {
         source: 'sdk',
