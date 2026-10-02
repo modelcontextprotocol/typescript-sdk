@@ -737,7 +737,9 @@ export class Client<
                 );
             }
 
-            // Only validate structured content if present (not when there's an error)
+            // Validate structured content whenever it is present, including on error
+            // results: an error result may omit structuredContent, but anything it does
+            // send is held to the tool's output schema.
             if (result.structuredContent) {
                 try {
                     // Validate the structured content against the schema
