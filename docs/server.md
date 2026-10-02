@@ -233,6 +233,18 @@ Tools can return `resource_link` content items to reference large resources with
 
 The README's `list-files` example shows the pattern conceptually; for concrete usage, see the Streamable HTTP examples in `src/examples/server`.
 
+#### Limit tool-argument size
+
+A `tools/call` request can carry very large arrays and objects in its `arguments`. `McpServer` can bound how many it accepts. Pass `maxToolInputElements` to the constructor: the largest number of array elements and object members, combined, that a single call's `arguments` may
+contain.
+
+```typescript
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
+```
+
+It is off by default — leave it unset and behavior is unchanged. When it is set and a call exceeds it, that call comes back as an `isError: true` tool result naming the limit, before the schema runs, and the server keeps handling other calls. Choose a value above the largest
+arguments your tools legitimately accept. The transport's `maxRequestBodySize` (4 MiB by default) is the primary limit on request size; `maxToolInputElements` is a finer bound on element count for servers that may receive large payloads.
+
 ### Resources
 
 Resources expose data to clients, but should not perform heavy computation or side‑effects. They are ideal for configuration, documents, or other reference data.

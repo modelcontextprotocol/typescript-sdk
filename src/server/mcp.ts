@@ -64,6 +64,39 @@ import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcp-server.js'
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ZodOptional } from 'zod';
 
+// Counts array elements and object members in `value`, stopping once the running total passes `max`.
+function toolInputElementCount(value: unknown, max: number): number {
+    let count = 0;
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node === null || typeof node !== 'object') continue;
+        if (Array.isArray(node)) {
+            for (const child of node) {
+                if (++count > max) return count;
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        } else {
+            for (const key in node) {
+                if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                if (++count > max) return count;
+                const child = (node as Record<string, unknown>)[key];
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        }
+    }
+    return count;
+}
+
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a positive number.
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+    if (value === undefined || value === Infinity) return undefined;
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+        throw new RangeError(`maxToolInputElements must be a positive number or Infinity, got ${String(value)}`);
+    }
+    return value;
+}
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -75,6 +108,8 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private readonly _maxToolInputElements: number | undefined;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
@@ -83,8 +118,15 @@ export class McpServer {
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(
+        serverInfo: Implementation,
+        options?: ServerOptions & {
+            /** Maximum combined array elements and object members allowed in a tool call's `arguments`; unset means no limit. */
+            maxToolInputElements?: number;
+        }
+    ) {
         this.server = new Server(serverInfo, options);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
     }
 
     /**
@@ -265,6 +307,16 @@ export class McpServer {
     >(tool: Tool, args: Args, toolName: string): Promise<Args> {
         if (!tool.inputSchema) {
             return undefined as Args;
+        }
+
+        if (
+            this._maxToolInputElements !== undefined &&
+            toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements
+        ) {
+            throw new McpError(
+                ErrorCode.InvalidParams,
+                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+            );
         }
 
         // Try to normalize to object schema first (for raw shapes and object schemas)
