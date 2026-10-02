@@ -52,6 +52,39 @@ import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
+// Counts array elements and object members in `value`, stopping once the running total passes `max`.
+function toolInputElementCount(value: unknown, max: number): number {
+    let count = 0;
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node === null || typeof node !== 'object') continue;
+        if (Array.isArray(node)) {
+            for (const child of node) {
+                if (++count > max) return count;
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        } else {
+            for (const key in node) {
+                if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                if (++count > max) return count;
+                const child = (node as Record<string, unknown>)[key];
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        }
+    }
+    return count;
+}
+
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a positive number.
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+    if (value === undefined || value === Infinity) return undefined;
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+        throw new RangeError(`maxToolInputElements must be a positive number or Infinity, got ${String(value)}`);
+    }
+    return value;
+}
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -70,6 +103,8 @@ export class McpServer {
      * The underlying {@linkcode Server} instance, useful for advanced operations like sending notifications.
      */
     public readonly server: Server;
+
+    private readonly _maxToolInputElements: number | undefined;
 
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
@@ -103,8 +138,15 @@ export class McpServer {
         }
     }
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(
+        serverInfo: Implementation,
+        options?: ServerOptions & {
+            /** Maximum combined array elements and object members allowed in a tool call's `arguments`; unset means no limit. */
+            maxToolInputElements?: number;
+        }
+    ) {
         this.server = new Server(serverInfo, options);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
@@ -310,7 +352,18 @@ export class McpServer {
             return undefined as Args;
         }
 
-        const parseResult = await validateStandardSchema(tool.inputSchema, args ?? {});
+        const input = args ?? {};
+        if (
+            this._maxToolInputElements !== undefined &&
+            toolInputElementCount(input, this._maxToolInputElements) > this._maxToolInputElements
+        ) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+            );
+        }
+
+        const parseResult = await validateStandardSchema(tool.inputSchema, input);
         if (!parseResult.success) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,

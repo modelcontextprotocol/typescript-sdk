@@ -213,6 +213,16 @@ server.registerTool(
 
 A tool that takes no arguments omits `inputSchema`. Annotations never change how the SDK runs the tool — clients use them to decide what to put in front of the end user: a host can auto-approve a read-only tool and require confirmation before a destructive one.
 
+## Limit tool-argument size
+
+A `tools/call` request can carry very large arrays and objects in its `arguments`. `McpServer` can bound how many it accepts. Pass `maxToolInputElements` to the constructor: the largest number of array elements and object members, combined, that a single call's `arguments` may contain.
+
+```ts
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
+```
+
+It is off by default — leave it unset and behavior is unchanged. When it is set and a call exceeds it, that call comes back as an `isError: true` tool result naming the limit, before the schema runs, and the server keeps handling other calls. Choose a value above the largest arguments your tools legitimately accept. The transport's `maxRequestBodySize` (4 MiB by default) is the primary limit on request size; `maxToolInputElements` is a finer bound on element count for servers that may receive large payloads.
+
 ## Recap
 
 - `registerTool(name, config, handler)` registers a tool; `inputSchema` is a Zod object schema.
@@ -221,3 +231,4 @@ A tool that takes no arguments omits `inputSchema`. Annotations never change how
 - `outputSchema` plus `structuredContent` add machine-readable results, validated before they leave the server.
 - `content` blocks are `text`, `image`, `audio`, `resource_link`, or an embedded `resource`; one result can mix them.
 - `title` and `annotations` describe the tool to clients and never change execution.
+- `maxToolInputElements` (off by default) caps how many array elements and object members one call's `arguments` may contain.
