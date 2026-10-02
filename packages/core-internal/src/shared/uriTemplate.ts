@@ -104,7 +104,7 @@ export class UriTemplate {
     private encodeValue(value: string, operator: string): string {
         UriTemplate.validateLength(value, MAX_VARIABLE_LENGTH, 'Variable value');
         if (operator === '+' || operator === '#') {
-            return encodeURI(value);
+            return encodeURI(value).replaceAll(/%25([0-9A-Fa-f]{2})/g, '%$1');
         }
         return encodeURIComponent(value);
     }
