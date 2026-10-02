@@ -1861,6 +1861,64 @@ describe('SSEClientTransport', () => {
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
         });
 
+        it('SSE reconnect: a retry that fails at the network level does not use up the refresh — a later 401 refreshes again', async () => {
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method !== 'GET') {
+                    res.writeHead(404).end();
+                    return;
+                }
+                getAttempt++;
+                // 1: opens then drops, 2: 401, 3: connection reset right after the refresh, 4: 401 again, 5: opens and stays.
+                if (getAttempt === 2 || getAttempt === 4) {
+                    res.writeHead(401).end();
+                    return;
+                }
+                if (getAttempt === 3) {
+                    req.socket.destroy();
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                });
+                res.write('retry: 10\n');
+                res.write('event: endpoint\n');
+                res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                if (getAttempt === 1) {
+                    res.end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            // The EventSource created after a refresh waits its default 3 s before it reconnects: skip that wait.
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                await transport.start();
+                // Two errors so far: the dropped stream (attempt 1) and the reset (attempt 3).
+                await vi.waitFor(() => expect(onerror).toHaveBeenCalledTimes(2));
+                expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+
+                await vi.advanceTimersByTimeAsync(3000);
+                await vi.waitFor(() => expect(getAttempt).toBe(5));
+                expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+                expect(onerror).toHaveBeenCalledTimes(2);
+            } finally {
+                vi.useRealTimers();
+            }
+        });
+
         it('retry failure during SSE connect fires onerror exactly once', async () => {
             // Regression: when the retry EventSource rejected, its onerror fired inside, then
             // the outer .then() rejection handler fired onerror AGAIN for the same error.
