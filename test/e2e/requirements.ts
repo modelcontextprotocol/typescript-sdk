@@ -387,7 +387,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'tools:call:omitted-args:required': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
         behavior:
-            'tools/call that omits the arguments field entirely for a tool with a required argument returns a tool execution error (isError true, content naming that argument) without invoking the handler.'
+            'tools/call that omits the arguments field entirely for a tool with a required argument is answered as a tool execution error (isError: true) whose content names the missing argument, without invoking the handler.'
     },
     'tools:call:progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',

@@ -31,7 +31,14 @@ import type {
     RequestId,
     Tool
 } from '@modelcontextprotocol/server';
-import { McpServer, ProtocolError, ProtocolErrorCode, Server, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import {
+    isJSONRPCRequest,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    Server,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/server';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
@@ -546,9 +553,10 @@ verifies('tools:call:omitted-args:all-optional', async ({ transport }: TestArgs)
 
     const result = await client.callTool({ name: 'greet' });
 
-    const call = outbound.find(m => 'method' in m && m.method === 'tools/call') as { params: Record<string, unknown> } | undefined;
+    const call = outbound.find(m => isJSONRPCRequest(m) && m.method === 'tools/call');
     expect(call).toBeDefined();
-    expect(call!.params).not.toHaveProperty('arguments');
+    if (!call || !isJSONRPCRequest(call)) throw new Error('expected tools/call request');
+    expect(call.params).not.toHaveProperty('arguments');
 
     expect(result.isError).toBeFalsy();
     expect(result.content).toEqual([{ type: 'text', text: 'Hello!' }]);
