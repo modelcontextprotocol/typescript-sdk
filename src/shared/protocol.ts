@@ -400,6 +400,11 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
+                    // Look the task up for this session first; queued messages are only delivered for a task it can see.
+                    if (!(await this._taskStore!.getTask(taskId, extra.sessionId))) {
+                        throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+                    }
+
                     // Deliver queued messages
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;
@@ -454,7 +459,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     // Block if task is not terminal (we've already delivered all queued messages above)
                     if (!isTerminal(task.status)) {
                         // Wait for status change or new messages
-                        await this._waitForTaskUpdate(taskId, extra.signal);
+                        await this._waitForTaskUpdate(taskId, extra.signal, extra.sessionId);
 
                         // After waking up, recursively call to deliver any new messages or result
                         return await handleTaskResult();
@@ -464,7 +469,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     if (isTerminal(task.status)) {
                         const result = await this._taskStore!.getTaskResult(taskId, extra.sessionId);
 
-                        this._clearTaskQueue(taskId);
+                        this._clearTaskQueue(taskId, extra.sessionId);
 
                         return {
                             ...result,
@@ -521,7 +526,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                         extra.sessionId
                     );
 
-                    this._clearTaskQueue(request.params.taskId);
+                    this._clearTaskQueue(request.params.taskId, extra.sessionId);
 
                     const cancelledTask = await this._taskStore!.getTask(request.params.taskId, extra.sessionId);
                     if (!cancelledTask) {
@@ -696,6 +701,21 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         // Extract taskId from request metadata if present (needed early for method not found case)
         const relatedTaskId = request.params?._meta?.[RELATED_TASK_META_KEY]?.taskId;
 
+        // With a session, the related task is looked up for that session first; replies are queued for it only if it is found.
+        const sessionId = capturedTransport?.sessionId;
+        const store = this._taskStore;
+        let relatedTaskFound = true;
+        let relatedTaskLookup: Promise<void> | undefined;
+        if (relatedTaskId && store && this._taskMessageQueue && sessionId !== undefined) {
+            relatedTaskFound = false;
+            relatedTaskLookup = (async () => {
+                if (!(await store.getTask(relatedTaskId, sessionId))) {
+                    throw new McpError(ErrorCode.InvalidParams, `Task not found: ${relatedTaskId}`);
+                }
+                relatedTaskFound = true;
+            })();
+        }
+
         if (handler === undefined) {
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
@@ -707,7 +727,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             };
 
             // Queue or send the error response based on whether this is a task-related request
-            if (relatedTaskId && this._taskMessageQueue) {
+            if (relatedTaskId && relatedTaskLookup) {
+                const queuedError: QueuedMessage = { type: 'error', message: errorResponse, timestamp: Date.now() };
+                relatedTaskLookup
+                    .then(
+                        () => this._enqueueTaskMessage(relatedTaskId, queuedError, sessionId),
+                        () => capturedTransport?.send(errorResponse)
+                    )
+                    .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+            } else if (relatedTaskId && this._taskMessageQueue) {
                 this._enqueueTaskMessage(
                     relatedTaskId,
                     {
@@ -774,8 +802,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         };
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
+        (relatedTaskLookup ?? Promise.resolve())
             .then(() => {
+                // A request cancelled while its related task was looked up does not start its handler; nothing is replied.
+                if (relatedTaskLookup && abortController.signal.aborted) {
+                    throw new McpError(ErrorCode.ConnectionClosed, 'Request was cancelled');
+                }
+
                 // If this request asked for task creation, check capability first
                 if (taskCreationParams) {
                     // Check if the request method supports task creation
@@ -828,7 +861,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     };
 
                     // Queue or send the error response based on whether this is a task-related request
-                    if (relatedTaskId && this._taskMessageQueue) {
+                    if (relatedTaskId && this._taskMessageQueue && relatedTaskFound) {
                         await this._enqueueTaskMessage(
                             relatedTaskId,
                             {
@@ -1500,7 +1533,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         const maxQueueSize = this._options?.maxTaskQueueSize;
-        await this._taskMessageQueue.enqueue(taskId, message, sessionId, maxQueueSize);
+        // Messages queued by local code carry the session of the current connection, like the ones queued for a request.
+        await this._taskMessageQueue.enqueue(taskId, message, sessionId ?? this._transport?.sessionId, maxQueueSize);
     }
 
     /**
@@ -1534,13 +1568,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
      * Uses polling to check for updates at the task's configured poll interval.
      * @param taskId The task ID to wait for
      * @param signal Abort signal to cancel the wait
+     * @param sessionId Session of the request that waits, passed to the task store
      * @returns Promise that resolves when an update occurs or rejects if aborted
      */
-    private async _waitForTaskUpdate(taskId: string, signal: AbortSignal): Promise<void> {
+    private async _waitForTaskUpdate(taskId: string, signal: AbortSignal, sessionId?: string): Promise<void> {
         // Get the task's poll interval, falling back to default
         let interval = this._options?.defaultTaskPollInterval ?? 1000;
         try {
-            const task = await this._taskStore?.getTask(taskId);
+            const task = await this._taskStore?.getTask(taskId, sessionId);
             if (task?.pollInterval) {
                 interval = task.pollInterval;
             }
