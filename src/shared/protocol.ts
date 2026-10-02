@@ -1,4 +1,4 @@
-import { AnySchema, AnyObjectSchema, SchemaOutput, safeParse } from '../server/zod-compat.js';
+import { AnySchema, AnyObjectSchema, SchemaOutput, getParseErrorMessage, safeParse } from '../server/zod-compat.js';
 import {
     CancelledNotificationSchema,
     ClientCapabilities,
@@ -1459,8 +1459,13 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         this.assertRequestHandlerCapability(method);
 
         this._requestHandlers.set(method, (request, extra) => {
-            const parsed = parseWithCompat(requestSchema, request) as SchemaOutput<T>;
-            return Promise.resolve(handler(parsed, extra));
+            const parsed = safeParse(requestSchema, request);
+            if (!parsed.success) {
+                // Params that fail the request schema are the caller's error, so answer
+                // -32602 Invalid params rather than letting the parse error become -32603.
+                throw new McpError(ErrorCode.InvalidParams, `Invalid params for ${method}: ${getParseErrorMessage(parsed.error)}`);
+            }
+            return Promise.resolve(handler(parsed.data, extra));
         });
     }
 
