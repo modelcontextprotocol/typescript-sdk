@@ -60,6 +60,41 @@ export interface BearerAuthOptions {
     resourceMetadataUrl?: string;
 }
 
+/**
+ * Options for {@link verifyBearerToken} and {@link requireBearerAuth}:
+ * {@link BearerAuthOptions} plus `expectedResource`.
+ */
+export interface VerifyBearerTokenOptions extends BearerAuthOptions {
+    /**
+     * Accept only tokens issued for this resource (the token's audience):
+     * the value your authorization server puts into tokens meant for this
+     * server, usually the server's URL (its
+     * {@link https://datatracker.ietf.org/doc/html/rfc8707 | RFC 8707}
+     * resource identifier).
+     *
+     * When set, a token is accepted only if the verifier reports that value
+     * in `AuthInfo.resource`. The two are compared as strings, ignoring a
+     * fragment and one trailing slash. A token reported for another value, or
+     * for none, is refused with `401 invalid_token`, so the verifier has to
+     * fill `AuthInfo.resource`, for example from the token's `aud` claim.
+     * When unset, `AuthInfo.resource` is not compared with anything.
+     */
+    expectedResource?: URL;
+}
+
+// The serialized value without its fragment and without one trailing slash.
+function comparableResource(value: URL): string {
+    const text = String(value);
+    const hash = text.indexOf('#');
+    return (hash === -1 ? text : text.slice(0, hash)).replace(/\/$/, '');
+}
+
+// A reported resource matches when it serializes to the same string as the expected one, fragment and one trailing slash aside.
+function sameResource(reported: URL | undefined, expected: URL): boolean {
+    if (!reported) return false;
+    return comparableResource(reported) === comparableResource(expected);
+}
+
 function headerQuotedValue(value: string): string {
     // HTTP quoted-string per RFC 7235: escape backslash and double quote, and
     // replace characters a header cannot carry (controls, anything beyond
@@ -98,7 +133,8 @@ export function buildWwwAuthenticateHeader(
  * the verified {@link AuthInfo}.
  *
  * The runtime-neutral core of Bearer authentication: it parses the header,
- * runs the verifier, enforces `requiredScopes`, and rejects tokens without an
+ * runs the verifier, compares the token's resource with `expectedResource`,
+ * enforces `requiredScopes`, and rejects tokens without an
  * expiration or past it. On any failure it throws an {@link OAuthError} —
  * pass that to {@link bearerAuthChallengeResponse} for the matching HTTP
  * answer, or use {@link requireBearerAuth} to get both steps as one call.
@@ -106,8 +142,11 @@ export function buildWwwAuthenticateHeader(
  * Framework adapters build on this: `requireBearerAuth` from
  * `@modelcontextprotocol/express` feeds it `req.headers.authorization`.
  */
-export async function verifyBearerToken(authorizationHeader: string | null | undefined, options: BearerAuthOptions): Promise<AuthInfo> {
-    const { verifier, requiredScopes = [] } = options;
+export async function verifyBearerToken(
+    authorizationHeader: string | null | undefined,
+    options: VerifyBearerTokenOptions
+): Promise<AuthInfo> {
+    const { verifier, requiredScopes = [], expectedResource } = options;
 
     if (!authorizationHeader) {
         throw new OAuthError(OAuthErrorCode.InvalidToken, 'Missing Authorization header');
@@ -119,6 +158,11 @@ export async function verifyBearerToken(authorizationHeader: string | null | und
     }
 
     const authInfo = await verifier.verifyAccessToken(token);
+
+    // Check if the token was issued for this server (if configured)
+    if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
+    }
 
     // Check if token has the required scopes (if any)
     if (requiredScopes.length > 0) {
@@ -205,11 +249,11 @@ export function bearerAuthChallengeResponse(
  * }
  * ```
  */
-export function requireBearerAuth(options: BearerAuthOptions): (request: Request) => Promise<AuthInfo | Response> {
+export function requireBearerAuth(options: VerifyBearerTokenOptions): (request: Request) => Promise<AuthInfo | Response> {
     // Destructure at creation so a plain-JS caller passing undefined or
     // malformed options crashes at startup, not on the first request.
-    const { verifier, requiredScopes = [], resourceMetadataUrl } = options;
-    const resolved = { verifier, requiredScopes, resourceMetadataUrl };
+    const { verifier, requiredScopes = [], resourceMetadataUrl, expectedResource } = options;
+    const resolved = { verifier, requiredScopes, resourceMetadataUrl, expectedResource };
     return async request => {
         // Outside the try: a wrong-framework misuse (no web-standard Request)
         // should throw loudly, not surface as a 500 challenge. Fetch's
