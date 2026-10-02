@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use `StreamableHTTPServerTransport` which wraps this transport.
  */
 
-import { isJsonContentType } from '../shared/mediaType.js';
+import { isJsonContentType, listsMediaType } from '../shared/mediaType.js';
 import { Transport } from '../shared/transport.js';
 import { AuthInfo } from './auth/types.js';
 import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody.js';
@@ -446,7 +446,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private async handleGetRequest(req: Request): Promise<Response> {
         // The client MUST include an Accept header, listing text/event-stream as a supported content type.
         const acceptHeader = req.headers.get('accept');
-        if (!acceptHeader?.includes('text/event-stream')) {
+        if (!listsMediaType(acceptHeader, 'text/event-stream')) {
             this.onerror?.(new Error('Not Acceptable: Client must accept text/event-stream'));
             return this.createJsonErrorResponse(406, -32000, 'Not Acceptable: Client must accept text/event-stream');
         }
@@ -718,9 +718,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
             // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            // Accept is a comma-separated list, so a substring check is the intended semantics here (unlike Content-Type below).
-            // eslint-disable-next-line no-restricted-syntax
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+            // Accept is a comma-separated list of media ranges. Match parsed
+            // media types rather than substrings so values like
+            // `application/jsonx` or `text/event-stream-bogus` are not accepted.
+            if (!listsMediaType(acceptHeader, 'application/json') || !listsMediaType(acceptHeader, 'text/event-stream')) {
                 this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
                 return this.createJsonErrorResponse(
                     406,
