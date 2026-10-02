@@ -163,12 +163,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:error:invalid-params': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
-        behavior: 'A request with malformed params is answered with JSON-RPC error -32602 Invalid params.',
-        knownFailures: [
-            {
-                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0.'
-            }
-        ]
+        behavior: 'A request with malformed params is answered with JSON-RPC error -32602 Invalid params.'
     },
     'protocol:error:method-not-found': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
@@ -748,13 +743,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'logging:set-level:invalid-level': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling',
-        behavior: 'logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0.'
-            }
-        ]
+        behavior: 'logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).'
     },
     'logging:out-of-band:basic': {
         transports: STATEFUL_TRANSPORTS,
@@ -1023,12 +1012,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'Form-mode requested schemas are flat objects with primitive-typed properties only; nested structures and arrays of objects are not used.',
         transports: ['inMemory', 'stdio', 'streamableHttp'],
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: 'The client rejects a nested requestedSchema before the user handler, but via the raw ZodError from parseWithCompat in Protocol.setRequestHandler (src/shared/protocol.ts:1428-1431), which _onrequest maps to -32603 InternalError (~line 823) instead of -32602 InvalidParams; the InvalidParams guard in src/client/index.ts (~363-368) is unreachable.'
-            }
-        ]
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
 
     // Roots

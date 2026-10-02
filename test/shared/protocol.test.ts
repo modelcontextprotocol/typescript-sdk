@@ -3,11 +3,13 @@ import {
     CallToolRequestSchema,
     ClientCapabilities,
     ErrorCode,
+    GetPromptRequestSchema,
     JSONRPCMessage,
     McpError,
     RELATED_TASK_META_KEY,
     RequestId,
     ServerCapabilities,
+    SetLevelRequestSchema,
     Task,
     TaskCreationParams,
     type Request,
@@ -195,6 +197,29 @@ describe('protocol tests', () => {
         expect(oncloseMock).toHaveBeenCalled();
         expect(onerrorMock).toHaveBeenCalled();
         expect(onmessageMock).toHaveBeenCalled();
+    });
+
+    test.each([
+        { schema: GetPromptRequestSchema, method: 'prompts/get', params: {} },
+        { schema: SetLevelRequestSchema, method: 'logging/setLevel', params: { level: 'loud' } }
+    ])('should answer $method with invalid params as InvalidParams without calling the handler', async ({ schema, method, params }) => {
+        const handler = vi.fn();
+        protocol.setRequestHandler(schema, handler);
+        await protocol.connect(transport);
+
+        transport.onmessage?.({ jsonrpc: '2.0', id: 1, method, params });
+        await new Promise(resolve => setTimeout(resolve, 10));
+
+        expect(handler).not.toHaveBeenCalled();
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                id: 1,
+                error: expect.objectContaining({
+                    code: ErrorCode.InvalidParams,
+                    message: expect.stringContaining(`Invalid params for ${method}:`)
+                })
+            })
+        );
     });
 
     describe('_meta preservation with onprogress', () => {
