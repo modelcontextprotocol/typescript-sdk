@@ -250,7 +250,7 @@ export class InMemoryTaskMessageQueue implements TaskMessageQueue {
     /**
      * Generates a queue key from taskId.
      * SessionId is intentionally ignored because taskIds are globally unique
-     * and tasks need to be accessible across HTTP requests/sessions.
+     * and the task store decides which session a task is found for.
      */
     private getQueueKey(taskId: string, _sessionId?: string): string {
         return taskId;

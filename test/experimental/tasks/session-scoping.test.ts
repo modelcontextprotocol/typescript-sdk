@@ -1,14 +1,26 @@
 import { createServer, type Server } from 'node:http';
 import { randomUUID } from 'node:crypto';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { Client } from '../../../src/client/index.js';
 import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
+import type { QueuedMessage } from '../../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../../src/experimental/tasks/stores/in-memory.js';
+import { InMemoryTransport } from '../../../src/inMemory.js';
 import { McpServer } from '../../../src/server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../../src/server/streamableHttp.js';
 import type { TaskRequestOptions } from '../../../src/shared/protocol.js';
-import { CallToolResultSchema, CreateTaskResultSchema, ElicitRequestSchema, ElicitResultSchema, ErrorCode } from '../../../src/types.js';
+import {
+    CallToolResultSchema,
+    CreateTaskResultSchema,
+    ElicitRequestSchema,
+    ElicitResultSchema,
+    EmptyResultSchema,
+    ErrorCode,
+    ListResourcesResultSchema,
+    ListToolsResultSchema,
+    RELATED_TASK_META_KEY
+} from '../../../src/types.js';
 import { listenOnRandomPort } from '../../helpers/http.js';
 import { waitForTaskStatus } from '../../helpers/tasks.js';
 
@@ -90,6 +102,7 @@ describe('Task session scoping over Streamable HTTP', () => {
     let httpServer: Server;
     let baseUrl: URL;
     let taskStore: InMemoryTaskStore;
+    let taskMessageQueue: InMemoryTaskMessageQueue;
     let sessions: Map<string, { mcpServer: McpServer; transport: StreamableHTTPServerTransport }>;
     const openTransports: StreamableHTTPClientTransport[] = [];
 
@@ -164,7 +177,7 @@ describe('Task session scoping over Streamable HTTP', () => {
 
     beforeEach(async () => {
         taskStore = new InMemoryTaskStore();
-        const taskMessageQueue = new InMemoryTaskMessageQueue();
+        taskMessageQueue = new InMemoryTaskMessageQueue();
         sessions = new Map();
 
         // One server and transport per session, sharing one task store and queue.
@@ -219,6 +232,18 @@ describe('Task session scoping over Streamable HTTP', () => {
         return created.task.taskId;
     }
 
+    function relatedTo(taskId: string) {
+        return { _meta: { [RELATED_TASK_META_KEY]: { taskId } } };
+    }
+
+    async function nextQueuedMessage(taskId: string): Promise<QueuedMessage> {
+        return await vi.waitFor(async () => {
+            const message = await taskMessageQueue.dequeue(taskId);
+            expect(message).toBeDefined();
+            return message!;
+        });
+    }
+
     it('lists only the tasks created in the same session', async () => {
         const first = await connect();
         const second = await connect();
@@ -261,5 +286,79 @@ describe('Task session scoping over Streamable HTTP', () => {
         const result = await first.request({ method: 'tasks/result', params: { taskId } }, CallToolResultSchema);
         expect(firstMessages).toEqual(['input for the first session']);
         expect(result.content).toEqual([{ type: 'text', text: 'answer' }]);
+    });
+
+    it('queues the reply to a request related to a task only for the session that created the task', async () => {
+        const first = await connect();
+        const second = await connect();
+        const taskId = await startTask(first, 'input-task');
+        await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'input_required');
+
+        const notFound = { code: ErrorCode.InvalidParams, message: expect.stringContaining('Task not found') };
+        await expect(
+            second.request({ method: 'tools/list', params: relatedTo(taskId) }, ListToolsResultSchema, { timeout: 1000 })
+        ).rejects.toMatchObject(notFound);
+        await expect(
+            second.request({ method: 'tools/list', params: relatedTo('no-such-task') }, ListToolsResultSchema, { timeout: 1000 })
+        ).rejects.toMatchObject(notFound);
+        expect((await taskMessageQueue.dequeueAll(taskId)).map(message => message.type)).toEqual(['request']);
+
+        first.request({ method: 'tools/list', params: relatedTo(taskId) }, ListToolsResultSchema).catch(() => {});
+        expect(await nextQueuedMessage(taskId)).toMatchObject({ type: 'response', message: { result: { tools: expect.any(Array) } } });
+    });
+
+    it('queues the reply for a method without a handler only for the session that created the related task', async () => {
+        const first = await connect();
+        const second = await connect();
+        const taskId = await startTask(first, 'input-task');
+        await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'input_required');
+
+        await expect(
+            second.request({ method: 'resources/list', params: relatedTo(taskId) }, ListResourcesResultSchema, { timeout: 1000 })
+        ).rejects.toMatchObject({ code: ErrorCode.MethodNotFound });
+        expect((await taskMessageQueue.dequeueAll(taskId)).map(message => message.type)).toEqual(['request']);
+
+        first.request({ method: 'resources/list', params: relatedTo(taskId) }, ListResourcesResultSchema).catch(() => {});
+        expect(await nextQueuedMessage(taskId)).toMatchObject({ type: 'error', message: { error: { code: ErrorCode.MethodNotFound } } });
+    });
+
+    it('passes the session id of the connection to the message queue when it reads, writes and clears the queue of a task', async () => {
+        const enqueue = vi.spyOn(taskMessageQueue, 'enqueue');
+        const dequeue = vi.spyOn(taskMessageQueue, 'dequeue');
+        const dequeueAll = vi.spyOn(taskMessageQueue, 'dequeueAll');
+        const first = await connect();
+        const sessionId = first.transport?.sessionId;
+        expect(sessionId).toBeDefined();
+
+        const taskId = await startTask(first, 'input-task');
+        await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'input_required');
+        await first.request({ method: 'tasks/result', params: { taskId } }, CallToolResultSchema);
+        await first.experimental.tasks.cancelTask(await startTask(first, 'slow-task', { duration: 300 }));
+
+        expect(enqueue.mock.calls.map(call => call[2])).toEqual([sessionId]);
+        expect(new Set(dequeue.mock.calls.map(call => call[1]))).toEqual(new Set([sessionId]));
+        expect(dequeueAll.mock.calls.map(call => call[1])).toEqual([sessionId, sessionId]);
+    });
+});
+
+describe('Requests related to a task on a connection without a session', () => {
+    it('queues the reply for the related task, whether or not the task store has the task', async () => {
+        const taskStore = new InMemoryTaskStore();
+        const taskMessageQueue = new InMemoryTaskMessageQueue();
+        const server = new McpServer({ name: 'test-server', version: '1.0.0' }, { taskStore, taskMessageQueue });
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        const task = await taskStore.createTask({}, 1, request);
+
+        for (const taskId of [task.taskId, 'not-in-the-store']) {
+            const _meta = { [RELATED_TASK_META_KEY]: { taskId } };
+            client.request({ method: 'ping', params: { _meta } }, EmptyResultSchema).catch(() => {});
+            await vi.waitFor(async () => expect(await taskMessageQueue.dequeue(taskId)).toMatchObject({ type: 'response' }));
+        }
+
+        await client.close();
+        await server.close();
+        taskStore.cleanup();
     });
 });
