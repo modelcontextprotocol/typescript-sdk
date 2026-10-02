@@ -76,8 +76,8 @@ export type SSEClientTransportOptions = {
      * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
      * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
      * is called (if provided) to refresh credentials, then the request is retried once. If
-     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
-     * is thrown.
+     * the retry also gets 401, `SdkHttpError` (`SdkErrorCode.ClientHttpAuthentication`) is thrown.
+     * If `onUnauthorized` is not provided, {@linkcode UnauthorizedError} is thrown.
      *
      * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
@@ -203,7 +203,7 @@ export class SSEClientTransport implements Transport {
     }
 
     private _last401Response?: Response;
-    // True between a 401-triggered reconnect and the next successful open.
+    // True from a 401-triggered refresh until the retry opens or fails.
     private _connectAuthRetried = false;
 
     /** `baseFetch` with redirects handled as `redirectPolicy` says. */
@@ -318,6 +318,8 @@ export class SSEClientTransport implements Transport {
                     return;
                 }
 
+                // A retry that failed for another reason is over: a later 401 may refresh again.
+                this._connectAuthRetried = false;
                 const error = new SseError(event.code, redirect ?? event.message, event);
                 reject(error);
                 this.onerror?.(error);
