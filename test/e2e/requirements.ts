@@ -833,6 +833,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
         behavior: "prompts/get with no arguments returns the prompt's messages."
     },
+    'prompts:get:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
+        behavior:
+            "prompts/get that omits the arguments field entirely for a prompt whose declared arguments are all optional returns the prompt's messages."
+    },
+    'prompts:get:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
+        behavior:
+            'prompts/get that omits the arguments field entirely for a prompt with a required argument returns JSON-RPC error -32602 (Invalid params) naming that argument.'
+    },
     'prompts:get:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
         behavior: 'prompts/get for an unknown prompt name returns JSON-RPC error -32602 (Invalid params).'
