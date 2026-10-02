@@ -1321,8 +1321,11 @@ describe('SSEClientTransport', () => {
                 authProvider: mockAuthProvider
             });
 
-            await expect(() => transport.start()).rejects.toMatchObject(expectedError);
+            // The retry does not send the rejected refresh token again (this mock's
+            // invalidateCredentials() clears nothing): it starts a new authorization.
+            await expect(() => transport.start()).rejects.toThrow(UnauthorizedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalledTimes(1);
         });
     });
 
