@@ -656,6 +656,9 @@ if (useOAuth) {
 
             const data = await response.json();
 
+            // `aud` is one value, a list, or absent: report the entry on this server's origin, if any
+            const audience = [data.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+
             // Convert the response to AuthInfo format
             return {
                 token,
@@ -663,7 +666,7 @@ if (useOAuth) {
                 scopes: data.scope ? data.scope.split(' ') : [],
                 expiresAt: data.exp,
                 // The resource the token was issued for (RFC 8707), compared with expectedResource below
-                resource: data.aud ? new URL(data.aud) : undefined
+                resource: audience ? new URL(audience) : undefined
             };
         }
     };

@@ -554,6 +554,13 @@ describe('requireBearerAuth middleware', () => {
             expectUnauthorized(await handle('https://api.example.com/mcp//', { expectedResource }));
         });
 
+        it('should ignore a fragment on either value', async () => {
+            expectAccepted(await handle('https://api.example.com/mcp#section', { expectedResource }));
+            expectAccepted(await handle('https://api.example.com/mcp', { expectedResource: new URL(`${expectedResource}#section`) }));
+            expectAccepted(await handle('https://api.example.com/mcp/#section', { expectedResource }));
+            expectUnauthorized(await handle('https://api.example.com/other#section', { expectedResource }));
+        });
+
         it.each([
             'https://other.example.com/mcp',
             'http://api.example.com/mcp',

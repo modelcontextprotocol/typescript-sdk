@@ -23,15 +23,16 @@ export type BearerAuthMiddlewareOptions = {
      * Accept only tokens issued for this resource (the token's audience): the value the authorization server puts
      * into tokens meant for this server, usually the server's URL.
      * When set, a token is accepted only if the verifier reports that value in `AuthInfo.resource`
-     * (compared as strings, ignoring one trailing slash); any other token is refused with `401 invalid_token`.
+     * (compared as strings, ignoring a fragment and one trailing slash); any other token is refused with `401 invalid_token`.
      * When unset, `AuthInfo.resource` is not compared with anything.
      */
     expectedResource?: URL;
 };
 
-// A reported resource matches when it serializes to the same string as the expected one, one trailing slash aside.
+// A reported resource matches when it serializes to the same string as the expected one, fragment and one trailing slash aside.
 function sameResource(reported: URL | undefined, expected: URL): boolean {
-    return reported !== undefined && String(reported).replace(/\/$/, '') === String(expected).replace(/\/$/, '');
+    if (!reported) return false;
+    return String(reported).replace(/#.*$/, '').replace(/\/$/, '') === String(expected).replace(/#.*$/, '').replace(/\/$/, '');
 }
 
 declare module 'express-serve-static-core' {
