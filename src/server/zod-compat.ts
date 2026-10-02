@@ -133,9 +133,18 @@ export function getObjectShape(schema: AnyObjectSchema | undefined): Record<stri
 
 // --- Schema normalization ---
 /**
- * Normalizes a schema to an object schema. Handles both:
+ * Normalizes a schema for use as an object-shaped tool/prompt input or output.
+ * Handles:
  * - Already-constructed object schemas (v3 or v4)
+ * - Discriminated unions and unions whose branches are object schemas
+ *   (e.g. `z.discriminatedUnion('action', [...])`); these convert to a
+ *   valid JSON Schema (`oneOf` / `anyOf`) via `toJsonSchemaCompat` and
+ *   parse correctly via `safeParse`, so they pass through unchanged.
  * - Raw shapes that need to be wrapped into object schemas
+ *
+ * Returns `undefined` for schemas whose root is not object-shaped (e.g.
+ * `z.string()`, `z.array(...)`), since those cannot satisfy the MCP spec's
+ * requirement that tool input/output schemas describe objects.
  */
 export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | undefined): AnyObjectSchema | undefined {
     if (!schema) return undefined;
@@ -169,18 +178,33 @@ export function normalizeObjectSchema(schema: AnySchema | ZodRawShapeCompat | un
     }
 
     // If we get here, it should be an AnySchema (not a raw shape)
-    // Check if it's already an object schema
+    // Check if it's already an object schema, a discriminated union, or a
+    // union — all three convert cleanly to a JSON Schema with type:object
+    // (via `toJsonSchemaCompat`) and validate via `safeParse`.
     if (isZ4Schema(schema as AnySchema)) {
-        // Check if it's a v4 object
         const v4Schema = schema as unknown as ZodV4Internal;
         const def = v4Schema._zod?.def;
-        if (def && (def.type === 'object' || def.shape !== undefined)) {
-            return schema as AnyObjectSchema;
+        if (def) {
+            if (def.type === 'object' || def.shape !== undefined) {
+                return schema as AnyObjectSchema;
+            }
+            // v4 reports both `z.union(...)` and `z.discriminatedUnion(...)`
+            // as `def.type === 'union'`. Pass them through; downstream
+            // `toJsonSchemaCompat` (Mini's `z.toJSONSchema`) emits a valid
+            // `oneOf` / `anyOf` JSON Schema and `safeParse` handles them.
+            if (def.type === 'union') {
+                return schema as AnyObjectSchema;
+            }
         }
     } else {
-        // Check if it's a v3 object
         const v3Schema = schema as unknown as ZodV3Internal;
         if (v3Schema.shape !== undefined) {
+            return schema as AnyObjectSchema;
+        }
+        // v3 distinguishes the two; both serialise to a JSON Schema with
+        // `oneOf` / `anyOf` via the vendored `zodToJsonSchema` converter.
+        const typeName = v3Schema._def?.typeName;
+        if (typeName === 'ZodDiscriminatedUnion' || typeName === 'ZodUnion') {
             return schema as AnyObjectSchema;
         }
     }
