@@ -206,6 +206,10 @@ export interface CreateTaskOptions {
  * Similar to Transport, this allows pluggable task storage implementations
  * (in-memory, database, distributed cache, etc.).
  *
+ * Every method receives the sessionId of the request it serves. A store shared by several
+ * sessions should record the sessionId passed to createTask and treat a task as not found
+ * (and leave it out of listTasks) when a different sessionId asks for it.
+ *
  * @experimental
  */
 export interface TaskStore {
