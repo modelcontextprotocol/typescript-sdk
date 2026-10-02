@@ -64,7 +64,7 @@ export { deserializeMessage, ReadBuffer, serializeMessage, STDIO_DEFAULT_MAX_BUF
 
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport';
-export { createFetchWithInit } from '../../shared/transport';
+export { createFetchWithInit, type FetchWithInitOptions, isPrivateOrLoopbackHost, isSafeRedirectTarget } from '../../shared/transport';
 export { InMemoryTransport } from '../../util/inMemory';
 
 // URI Template
