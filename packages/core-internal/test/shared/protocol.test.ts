@@ -492,6 +492,83 @@ describe('protocol tests', () => {
             expect(onProgressMock).toHaveBeenCalledTimes(1);
         });
 
+        test('should enforce maxTotalTimeout without progress notifications', async () => {
+            // Same options an input_required retry leg gets when remaining
+            // budget is smaller than the per-leg timeout: a silent peer must
+            // expire at the cap, not at `timeout`.
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 150
+            });
+
+            vi.advanceTimersByTime(150);
+            await expect(requestPromise).rejects.toMatchObject({
+                code: SdkErrorCode.RequestTimeout,
+                message: 'Maximum total timeout exceeded',
+                data: { maxTotalTimeout: 150, totalElapsed: 150 }
+            });
+        });
+
+        test('should enforce maxTotalTimeout when timeout is left at the default', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                maxTotalTimeout: 400
+            });
+
+            vi.advanceTimersByTime(400);
+            await expect(requestPromise).rejects.toMatchObject({
+                code: SdkErrorCode.RequestTimeout,
+                message: 'Maximum total timeout exceeded',
+                data: { maxTotalTimeout: 400, totalElapsed: 400 }
+            });
+        });
+
+        test('should re-arm against remaining maxTotalTimeout after progress when remaining is less than timeout', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                maxTotalTimeout: 250,
+                resetTimeoutOnProgress: true,
+                onprogress: onProgressMock
+            });
+
+            vi.advanceTimersByTime(100);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 25,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+            expect(onProgressMock).toHaveBeenCalledTimes(1);
+
+            vi.advanceTimersByTime(150);
+            await expect(requestPromise).rejects.toMatchObject({
+                code: SdkErrorCode.RequestTimeout,
+                message: 'Maximum total timeout exceeded',
+                data: { maxTotalTimeout: 250, totalElapsed: 250 }
+            });
+        });
+
         test('should timeout if no progress received within timeout period', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
