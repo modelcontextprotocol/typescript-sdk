@@ -1,6 +1,0 @@
----
-'@modelcontextprotocol/server': minor
-'@modelcontextprotocol/express': patch
----
-
-`requireBearerAuth` and `verifyBearerToken` take a new optional `expectedResource`, which makes them accept only tokens issued for this resource (the token's audience). Set it to the value your authorization server puts into tokens meant for this server, usually the server's URL. When it is set, a token is accepted only if the verifier reports that value in `AuthInfo.resource`; the two are compared as strings, ignoring a fragment and one trailing slash. A token reported for another value, or for none, is answered `401 invalid_token` with the usual `WWW-Authenticate` challenge. When it is not set, nothing changes. To use it, pass `expectedResource` and have `verifyAccessToken` fill `AuthInfo.resource`, for example from the `aud` claim. The option is declared on a new exported type, `VerifyBearerTokenOptions`, which extends `BearerAuthOptions`; `BearerAuthOptions` itself is unchanged. The Express `requireBearerAuth` passes the option through. With Express, `@modelcontextprotocol/express` has to be upgraded to this release as well: 2.0.1 does not pass the option on, so nothing is compared. Its options type does not have the option, so TypeScript reports an `expectedResource` written in a call to the 2.0.1 `requireBearerAuth` as an error.
