@@ -77,6 +77,13 @@ describe('mock-paths transform', () => {
             expect(result).toContain(`'@modelcontextprotocol/server'`);
             expect(result).not.toContain('@modelcontextprotocol/sdk');
         });
+
+        it('rewrites the bare barrel subpath sdk/client (no /index.js)', () => {
+            const input = [`vi.doMock('@modelcontextprotocol/sdk/client', () => ({`, `    Client: mockClientClass`, `}));`, ''].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/client'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
     });
 
     describe('vi.mock', () => {
