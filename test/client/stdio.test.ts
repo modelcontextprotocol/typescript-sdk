@@ -116,3 +116,30 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
     await closed;
 });
+
+test('should read a message the server prefixes with a UTF-8 byte order mark', async () => {
+    const expected: JSONRPCMessage = { jsonrpc: '2.0', method: 'notifications/initialized' };
+    const line = JSON.stringify(expected) + '\n';
+    const client = new StdioClientTransport({
+        command: 'node',
+        args: ['-e', `process.stdout.write(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(${JSON.stringify(line)})]))`]
+    });
+
+    const errors: Error[] = [];
+    client.onerror = error => {
+        errors.push(error);
+    };
+    const readMessages: JSONRPCMessage[] = [];
+    client.onmessage = message => {
+        readMessages.push(message);
+    };
+    const closed = new Promise<void>(resolve => {
+        client.onclose = () => resolve();
+    });
+
+    await client.start();
+    await closed;
+
+    expect(errors).toEqual([]);
+    expect(readMessages).toEqual([expected]);
+});
