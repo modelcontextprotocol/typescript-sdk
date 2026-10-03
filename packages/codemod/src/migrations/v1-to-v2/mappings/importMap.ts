@@ -263,16 +263,22 @@ function stripJsExtension(specifier: string): string {
     return specifier.replace(/\.(?:js|mjs|cjs)$/, '');
 }
 
+// v1 also exports the barrels as bare subpaths (`./client`, `./server`, `./validation`), so `…/client` means `…/client/index.js`.
+function normalizeSpecifier(specifier: string): string {
+    return stripJsExtension(specifier).replace(/\/index$/, '');
+}
+
 const NORMALIZED_IMPORT_MAP: Record<string, ImportMapping> = {};
 for (const [key, mapping] of Object.entries(IMPORT_MAP)) {
-    NORMALIZED_IMPORT_MAP[stripJsExtension(key)] = mapping;
+    NORMALIZED_IMPORT_MAP[normalizeSpecifier(key)] = mapping;
 }
 
 /**
  * Resolves the v2 mapping for a v1 SDK import/export/mock specifier, tolerating
  * JS extension variance. An exact match always wins; otherwise the specifier is
- * matched ignoring a trailing `.js`/`.mjs`/`.cjs` (or its absence).
+ * matched ignoring a trailing `.js`/`.mjs`/`.cjs` (or its absence) and a
+ * trailing `/index`.
  */
 export function lookupImportMapping(specifier: string): ImportMapping | undefined {
-    return IMPORT_MAP[specifier] ?? NORMALIZED_IMPORT_MAP[stripJsExtension(specifier)];
+    return IMPORT_MAP[specifier] ?? NORMALIZED_IMPORT_MAP[normalizeSpecifier(specifier)];
 }
