@@ -2361,6 +2361,21 @@ type Flatten<T> = T extends Primitive
             : T;
 
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
+type InputInfer<Schema extends z.ZodTypeAny> = Flatten<z.input<Schema>>;
+type CallToolResultInput = InputInfer<typeof CallToolResultSchema>;
+type CallToolHandlerResult =
+    | (Omit<CallToolResultInput, 'content' | 'structuredContent'> &
+          (
+              | {
+                    content: NonNullable<CallToolResultInput['content']>;
+                    structuredContent?: CallToolResultInput['structuredContent'];
+                }
+              | {
+                    content?: CallToolResultInput['content'];
+                    structuredContent: NonNullable<CallToolResultInput['structuredContent']>;
+                }
+          ))
+    | CreateTaskResult;
 
 /**
  * Headers that are compatible with both Node.js and the browser.
@@ -2625,3 +2640,59 @@ export type ClientResult = Infer<typeof ClientResultSchema>;
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
+
+/* Protocol type maps */
+type MethodToTypeMap<U> = {
+    [T in U as T extends { method: infer M extends string } ? M : never]: T;
+};
+export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
+export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
+export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type ResultTypeMap = {
+    ping: EmptyResult;
+    initialize: InitializeResult;
+    'completion/complete': CompleteResult;
+    'logging/setLevel': EmptyResult;
+    'prompts/get': GetPromptResult;
+    'prompts/list': ListPromptsResult;
+    'resources/list': ListResourcesResult;
+    'resources/templates/list': ListResourceTemplatesResult;
+    'resources/read': ReadResourceResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
+    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/list': ListToolsResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
+    'elicitation/create': ElicitResult | CreateTaskResult;
+    'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
+};
+export type ResultInputTypeMap = {
+    ping: InputInfer<typeof EmptyResultSchema>;
+    initialize: InputInfer<typeof InitializeResultSchema>;
+    'completion/complete': InputInfer<typeof CompleteResultSchema>;
+    'logging/setLevel': InputInfer<typeof EmptyResultSchema>;
+    'prompts/get': InputInfer<typeof GetPromptResultSchema>;
+    'prompts/list': InputInfer<typeof ListPromptsResultSchema>;
+    'resources/list': InputInfer<typeof ListResourcesResultSchema>;
+    'resources/templates/list': InputInfer<typeof ListResourceTemplatesResultSchema>;
+    'resources/read': InputInfer<typeof ReadResourceResultSchema>;
+    'resources/subscribe': InputInfer<typeof EmptyResultSchema>;
+    'resources/unsubscribe': InputInfer<typeof EmptyResultSchema>;
+    'tools/call': CallToolHandlerResult;
+    'tools/list': InputInfer<typeof ListToolsResultSchema>;
+    'sampling/createMessage':
+        | InputInfer<typeof CreateMessageResultSchema>
+        | InputInfer<typeof CreateMessageResultWithToolsSchema>
+        | InputInfer<typeof CreateTaskResultSchema>;
+    'elicitation/create': ElicitResult | CreateTaskResult;
+    'roots/list': InputInfer<typeof ListRootsResultSchema>;
+    'tasks/get': InputInfer<typeof GetTaskResultSchema>;
+    'tasks/result': InputInfer<typeof ResultSchema>;
+    'tasks/list': InputInfer<typeof ListTasksResultSchema>;
+    'tasks/cancel': InputInfer<typeof CancelTaskResultSchema>;
+};
