@@ -50,12 +50,61 @@ describe('request() abort-reason passthrough', () => {
         await expect(protocol.request({ method: 'ping' }, { signal: controller.signal })).rejects.toBe(reason);
     });
 
-    it('wraps a non-SdkError abort reason in SdkError(RequestTimeout)', async () => {
+    it('wraps a non-SdkError abort reason in SdkError(RequestAborted)', async () => {
         const protocol = await connectedProtocol();
         const controller = new AbortController();
         controller.abort(new Error('plain'));
 
         const rejection = await protocol.request({ method: 'ping' }, { signal: controller.signal }).then(
+            () => {
+                throw new Error('request unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+    });
+
+    it('wraps an in-flight abort in SdkError(RequestAborted), not RequestTimeout', async () => {
+        const protocol = await connectedProtocol();
+        const controller = new AbortController();
+        // Timeout is three orders of magnitude away from the abort, so a
+        // RequestTimeout here could only come from the abort path.
+        const pending = protocol.request({ method: 'ping' }, { signal: controller.signal, timeout: 60_000 }).then(
+            () => {
+                throw new Error('request unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        controller.abort(new DOMException('User cancelled', 'AbortError'));
+
+        const rejection = await pending;
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+        expect((rejection as SdkError).code).not.toBe(SdkErrorCode.RequestTimeout);
+        expect((rejection as SdkError).message).toContain('User cancelled');
+    });
+
+    it('wraps a bare in-flight abort() with no reason in SdkError(RequestAborted)', async () => {
+        const protocol = await connectedProtocol();
+        const controller = new AbortController();
+        const pending = protocol.request({ method: 'ping' }, { signal: controller.signal, timeout: 60_000 }).then(
+            () => {
+                throw new Error('request unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        controller.abort();
+
+        const rejection = await pending;
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+    });
+
+    it('leaves the timeout path on RequestTimeout', async () => {
+        const protocol = await connectedProtocol();
+
+        const rejection = await protocol.request({ method: 'ping' }, { timeout: 0 }).then(
             () => {
                 throw new Error('request unexpectedly resolved');
             },

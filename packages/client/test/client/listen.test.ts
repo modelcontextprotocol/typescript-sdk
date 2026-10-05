@@ -379,7 +379,7 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('options.signal already aborted: listen() rejects with SdkError(RequestTimeout) before any setup (parity with request())', async () => {
+    it('options.signal already aborted: listen() rejects with SdkError(RequestAborted) before any setup (parity with request())', async () => {
         const { clientTx, written } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
@@ -388,9 +388,9 @@ describe('Client.listen()', () => {
         ac.abort('user cancelled');
         const error = await client.listen({ toolsListChanged: true }, { signal: ac.signal }).catch(e => e as SdkError);
         // Same wrap as `Protocol.request()` / `_serveFromCache`: a non-SdkError
-        // reason is wrapped as RequestTimeout; the reason text is preserved.
+        // reason is wrapped as RequestAborted; the reason text is preserved.
         expect(error).toBeInstanceOf(SdkError);
-        expect((error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
+        expect((error as SdkError).code).toBe(SdkErrorCode.RequestAborted);
         expect((error as SdkError).message).toContain('user cancelled');
         // No subscriptions/listen reached the wire; no listen state registered.
         await flush();
