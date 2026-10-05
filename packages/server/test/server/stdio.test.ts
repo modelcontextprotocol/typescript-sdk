@@ -1,12 +1,12 @@
 import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
+import { INVALID_REQUEST, InvalidJsonRpcFrameError, serializeMessage } from '@modelcontextprotocol/core-internal';
 
 import { StdioServerTransport } from '../../src/server/stdio';
 
 let input: Readable;
-let outputBuffer: ReadBuffer;
+let outputChunks: Buffer[];
 let output: Writable;
 
 beforeEach(() => {
@@ -15,14 +15,26 @@ beforeEach(() => {
         read: () => {}
     });
 
-    outputBuffer = new ReadBuffer();
+    outputChunks = [];
     output = new Writable({
         write(chunk, _encoding, callback) {
-            outputBuffer.append(chunk);
+            outputChunks.push(Buffer.from(chunk));
             callback();
         }
     });
 });
+
+function readOutputMessages(): unknown[] {
+    const output = Buffer.concat(outputChunks).toString('utf8').trim();
+    if (output.length === 0) {
+        return [];
+    }
+    return output.split('\n').map(line => JSON.parse(line));
+}
+
+async function flushEvents(): Promise<void> {
+    await new Promise(resolve => setImmediate(resolve));
+}
 
 test('should start then close cleanly', async () => {
     const server = new StdioServerTransport(input, output);
@@ -101,6 +113,50 @@ test('should read multiple messages', async () => {
     await server.start();
     await finished;
     expect(readMessages).toEqual(messages);
+});
+
+test('should reply with Invalid Request when a malformed JSON-RPC request has a recoverable id', async () => {
+    const server = new StdioServerTransport(input, output);
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    await server.start();
+    input.push('{"id":99,"method":"tools/list","params":{}}\n');
+    await flushEvents();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(InvalidJsonRpcFrameError);
+    expect(readOutputMessages()).toEqual([
+        {
+            jsonrpc: '2.0',
+            id: 99,
+            error: { code: INVALID_REQUEST, message: 'Invalid Request' }
+        }
+    ]);
+});
+
+test('should reply with null id when a malformed JSON-RPC frame has no recoverable id', async () => {
+    const server = new StdioServerTransport(input, output);
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    await server.start();
+    input.push('[{"jsonrpc":"2.0","id":100,"method":"tools/list"},{"jsonrpc":"2.0","id":101,"method":"ping"}]\n');
+    await flushEvents();
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(InvalidJsonRpcFrameError);
+    expect(readOutputMessages()).toEqual([
+        {
+            jsonrpc: '2.0',
+            id: null,
+            error: { code: INVALID_REQUEST, message: 'Invalid Request' }
+        }
+    ]);
 });
 
 test('should close and fire onerror when stdout errors', async () => {
