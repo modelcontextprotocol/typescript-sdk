@@ -285,6 +285,14 @@ export class ClientResponseCache {
      */
     private readonly _evictionGeneration = new Map<string, number>();
     /**
+     * Per-logical-key store-mutation tails. Custom stores may apply `set()`
+     * asynchronously, so an invalidation must run after any earlier write;
+     * otherwise `delete()` can finish first and the delayed write can restore
+     * the stale entry. Writes that start after the invalidation queue behind
+     * its delete, preserving call order without deleting a newer value.
+     */
+    private readonly _mutationTails = new Map<string, Promise<void>>();
+    /**
      * `name → Tool` index derived from the cached `tools/list` entry, memoized
      * against the entry's `stamp` so it re-derives only when the backing entry
      * changes (mcp.d's `cachedTool` pattern).
@@ -398,6 +406,20 @@ export class ClientResponseCache {
         return shared?.scope === 'public' ? shared : undefined;
     }
 
+    /** Run mutations for one logical cache key in invocation order. */
+    private async _mutate(key: string, operation: () => Promise<void>): Promise<void> {
+        const previous = this._mutationTails.get(key) ?? Promise.resolve();
+        const current = previous.then(operation, operation);
+        this._mutationTails.set(key, current);
+        try {
+            await current;
+        } finally {
+            if (this._mutationTails.get(key) === current) {
+                this._mutationTails.delete(key);
+            }
+        }
+    }
+
     /**
      * Bump the per-method generation (so an in-flight {@linkcode write} for the
      * same method becomes a no-op) and drop the connected server's two list
@@ -416,7 +438,9 @@ export class ClientResponseCache {
      */
     async evict(method: string): Promise<void> {
         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
-        await this._deleteBoth(method, '');
+        const ownPartition = this._partitionFor('private');
+        const sharedPartition = this._partitionFor('public');
+        await this._mutate(method, () => this._deleteBoth(method, '', ownPartition, sharedPartition));
     }
 
     /**
@@ -424,9 +448,7 @@ export class ClientResponseCache {
      * `delete` is independently wrapped so a custom store's failure on one is
      * reported and does not skip the other, and the call always resolves.
      */
-    private async _deleteBoth(method: string, params: string): Promise<void> {
-        const ownPartition = this._partitionFor('private');
-        const sharedPartition = this._partitionFor('public');
+    private async _deleteBoth(method: string, params: string, ownPartition: string, sharedPartition: string): Promise<void> {
         try {
             await this._store.delete({ method, params, partition: ownPartition });
         } catch (error) {
@@ -465,7 +487,9 @@ export class ClientResponseCache {
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
-        await this._deleteBoth(method, params);
+        const ownPartition = this._partitionFor('private');
+        const sharedPartition = this._partitionFor('public');
+        await this._mutate(gk, () => this._deleteBoth(method, params, ownPartition, sharedPartition));
     }
 
     /**
@@ -525,30 +549,33 @@ export class ClientResponseCache {
         capturedGen: number,
         freshness?: { expiresAt: number; scope: CacheScope; params?: string }
     ): Promise<void> {
-        if ((this._evictionGeneration.get(genKey(method, freshness?.params)) ?? 0) !== capturedGen) return;
+        const gk = genKey(method, freshness?.params);
         const params = freshness?.params ?? '';
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
         const partition = (freshness?.scope ?? 'private') === 'public' ? sharedPartition : ownPartition;
-        try {
-            await this._store.set(
-                { method, params, partition },
-                { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
-            );
-        } catch (error) {
-            this._reportError(error);
-        }
-        if (sharedPartition !== ownPartition) {
+        await this._mutate(gk, async () => {
+            if ((this._evictionGeneration.get(gk) ?? 0) !== capturedGen) return;
             try {
-                await this._store.delete({
-                    method,
-                    params,
-                    partition: partition === ownPartition ? sharedPartition : ownPartition
-                });
+                await this._store.set(
+                    { method, params, partition },
+                    { value: encodeCacheValue(value), expiresAt: freshness?.expiresAt, scope: freshness?.scope }
+                );
             } catch (error) {
                 this._reportError(error);
             }
-        }
+            if (sharedPartition !== ownPartition) {
+                try {
+                    await this._store.delete({
+                        method,
+                        params,
+                        partition: partition === ownPartition ? sharedPartition : ownPartition
+                    });
+                } catch (error) {
+                    this._reportError(error);
+                }
+            }
+        });
     }
 
     /**
@@ -575,7 +602,9 @@ export class ClientResponseCache {
             return { value: parsed };
         } catch (error) {
             this._reportError(error);
-            await this._deleteBoth(method, params ?? '');
+            const ownPartition = this._partitionFor('private');
+            const sharedPartition = this._partitionFor('public');
+            await this._deleteBoth(method, params ?? '', ownPartition, sharedPartition);
             return undefined;
         }
     }
