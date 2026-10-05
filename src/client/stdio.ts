@@ -20,7 +20,8 @@ export type StdioServerParameters = {
     /**
      * The environment to use when spawning the process.
      *
-     * If not specified, the result of getDefaultEnvironment() will be used.
+     * Merged over the result of getDefaultEnvironment(), with these values taking precedence. On Windows,
+     * names match case-insensitively, so `Path` here replaces the inherited `PATH`.
      */
     env?: Record<string, string>;
 
@@ -93,6 +94,29 @@ export function getDefaultEnvironment(): Record<string, string> {
 }
 
 /**
+ * Merges the inherited default environment with the explicitly given one, letting explicit values win.
+ *
+ * Environment variable names are case-insensitive on Windows, so an explicit `Path` must replace the
+ * inherited `PATH` rather than sit next to it as a second key: given both, Node keeps only one, and
+ * `PATH` sorts first, so the caller's value would be silently dropped.
+ */
+function mergeEnvironment(defaultEnv: Record<string, string>, customEnv?: Record<string, string>): Record<string, string> {
+    if (process.platform !== 'win32' || !customEnv) {
+        return { ...defaultEnv, ...customEnv };
+    }
+
+    const customKeys = new Set(Object.keys(customEnv).map(key => key.toUpperCase()));
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(defaultEnv)) {
+        if (!customKeys.has(key.toUpperCase())) {
+            env[key] = value;
+        }
+    }
+
+    return { ...env, ...customEnv };
+}
+
+/**
  * Client transport for stdio: this will connect to a server by spawning a process and communicating with it over stdin/stdout.
  *
  * This transport is only available in Node.js environments.
@@ -128,10 +152,7 @@ export class StdioClientTransport implements Transport {
         return new Promise((resolve, reject) => {
             this._process = spawn(this._serverParams.command, this._serverParams.args ?? [], {
                 // merge default env with server env because mcp server needs some env vars
-                env: {
-                    ...getDefaultEnvironment(),
-                    ...this._serverParams.env
-                },
+                env: mergeEnvironment(getDefaultEnvironment(), this._serverParams.env),
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
                 windowsHide: process.platform === 'win32',
