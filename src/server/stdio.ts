@@ -54,7 +54,7 @@ export class StdioServerTransport implements Transport {
     };
     _onstdinclose = () => {
         // stdin EOF means the client hung up and nothing more can arrive.
-        const open = !this._stdin.destroyed;
+        const open = !this._closed && !this._stdin.destroyed;
         this.close().catch(() => {});
         // A socket can still fail a pending write after 'end': keep reporting errors until it closes.
         if (open) {

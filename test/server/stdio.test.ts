@@ -371,3 +371,22 @@ test('should keep reporting stream errors after stdin ends, until the stream clo
     await new Promise(resolve => socket.once('close', resolve));
     expect(socket.listenerCount('error')).toBe(0);
 });
+
+test('should leave no listeners when close() follows start() on a stream that had already ended', async () => {
+    const endedInput = new Readable({ read: () => {}, autoDestroy: false, emitClose: false });
+    endedInput.push(null);
+    endedInput.resume();
+    await new Promise<void>(resolve => {
+        endedInput.once('end', resolve);
+    });
+
+    const server = new StdioServerTransport(endedInput, output);
+    await server.start();
+    await server.close();
+    // start() deferred its own close by one turn; let it run.
+    await new Promise(resolve => setImmediate(resolve));
+
+    expect(endedInput.listenerCount('error')).toBe(0);
+    expect(endedInput.listenerCount('close')).toBe(0);
+    expect(endedInput.listenerCount('end')).toBe(0);
+});
