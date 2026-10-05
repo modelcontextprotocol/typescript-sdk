@@ -42,12 +42,17 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
     // See: https://json-schema.org/draft-07/json-schema-validation#section-9
     // If both exist (malformed schema), "$defs" takes precedence.
     const defsKey = '$defs' in schema ? '$defs' : 'definitions' in schema ? 'definitions' : undefined;
-    const defs: Record<string, unknown> = defsKey ? (schema[defsKey] as Record<string, unknown>) : {};
 
     // No definitions container — nothing to inline.
     // Note: $ref: "#" (root self-reference) is intentionally not handled — no schema
     // library produces it, no other MCP SDK handles it, and it's always cyclic.
     if (!defsKey) return schema;
+
+    // Malformed container (null, array, primitive) — return the schema untouched rather
+    // than throwing, so tools/list behaves exactly as it did before dereferencing existed.
+    const container = schema[defsKey];
+    if (container === null || typeof container !== 'object' || Array.isArray(container)) return schema;
+    const defs = container as Record<string, unknown>;
 
     // Cache resolved defs to avoid redundant traversal on diamond references
     // (A→B→D, A→C→D — D is resolved once and reused). Cached values are shared
@@ -56,6 +61,11 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
     // Def names where a cycle was detected — these $ref are left in place
     // and their $defs entries must be preserved in the output.
     const cyclicDefs = new Set<string>();
+    // Set when a local $ref survives that this function cannot inline (a JSON pointer into
+    // a def such as "#/$defs/Foo/properties/bar", an escaped or unknown def name, a ref into
+    // the non-selected container, an anchor). Its target lives in the original $defs /
+    // definitions, so those containers must be kept verbatim to avoid a dangling $ref.
+    let hasUnresolvedLocalRef = false;
 
     /**
      * Recursively inlines `$ref` pointers in a JSON Schema node by replacing
@@ -82,11 +92,20 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
 
             // Local definition reference: #/$defs/Name or #/definitions/Name
             const prefix = `#/${defsKey}/`;
-            if (!ref.startsWith(prefix)) return obj; // Non-local $ref (external URL, etc.) — leave as-is
+            if (!ref.startsWith(prefix)) {
+                // "#" (root self-reference) still resolves after inlining; any other
+                // fragment-only ref may point into a container that would be stripped.
+                if (ref.startsWith('#') && ref !== '#') hasUnresolvedLocalRef = true;
+                return obj; // Leave as-is (external URL, anchor, other container, etc.)
+            }
 
             const defName = ref.slice(prefix.length);
-            const def = defs[defName];
-            if (def === undefined) return obj; // Unknown def — leave as-is
+            // Own-property lookup so names like "constructor" don't hit Object.prototype.
+            const def = Object.hasOwn(defs, defName) ? defs[defName] : undefined;
+            if (def === undefined) {
+                hasUnresolvedLocalRef = true;
+                return obj; // Unknown def, deep JSON pointer, or escaped name — leave as-is
+            }
             if (stack.has(defName)) {
                 cyclicDefs.add(defName);
                 return obj; // Cycle — leave $ref in place
@@ -101,7 +120,10 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
                 resolvedDefs.set(defName, resolved);
             }
 
-            // Merge sibling keywords onto the resolved definition.
+            // Merge sibling keywords onto the resolved definition (siblings win on key collision).
+            // This matches what schema libraries emit: Zod v4 only places annotation keywords
+            // (description, title, default, ...) next to $ref. Structural siblings such as
+            // properties/required would override rather than conjoin with the def's own.
             // Note: boolean JSON Schemas (true/false) skip this merge — siblings are dropped.
             // This is acceptable: the SDK's JsonSchemaType excludes boolean schemas by design,
             // and no schema library (Zod v4, ArkType, Valibot) produces boolean $defs entries.
@@ -123,9 +145,14 @@ export function dereferenceLocalRefs(schema: Record<string, unknown>): Record<st
 
     const resolved = inlineRefs(schema, new Set()) as Record<string, unknown>;
 
-    // Re-attach $defs only for cyclic definitions, using their resolved/cached
-    // versions so that any non-cyclic refs inside them are already inlined.
-    if (defsKey && cyclicDefs.size > 0) {
+    if (hasUnresolvedLocalRef) {
+        // Some local $ref could not be inlined — keep the original containers verbatim so
+        // every surviving ref still resolves (never worse than the untransformed schema).
+        if ('$defs' in schema) resolved['$defs'] = schema['$defs'];
+        if ('definitions' in schema) resolved['definitions'] = schema['definitions'];
+    } else if (cyclicDefs.size > 0) {
+        // Re-attach $defs only for cyclic definitions, using their resolved/cached
+        // versions so that any non-cyclic refs inside them are already inlined.
         const prunedDefs: Record<string, unknown> = {};
         for (const name of cyclicDefs) {
             prunedDefs[name] = resolvedDefs.get(name) ?? defs[name];

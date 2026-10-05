@@ -2,9 +2,15 @@
 // Tests raw JSON Schema edge cases independent of the server/client pipeline.
 // See: https://github.com/anthropics/claude-code/issues/18260
 
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { describe, expect, test } from 'vitest';
 
 import { dereferenceLocalRefs } from '../../src/util/schema';
+
+/** Compiling with Ajv throws MissingRefError if any $ref in the schema is dangling. */
+function expectResolvable(schema: Record<string, unknown>): void {
+    expect(() => new Ajv2020({ strict: false }).compile(schema)).not.toThrow();
+}
 
 describe('dereferenceLocalRefs', () => {
     test('schema with no $ref passes through unchanged', () => {
@@ -56,16 +62,14 @@ describe('dereferenceLocalRefs', () => {
         });
     });
 
-    test('non-existent $def reference is left as-is', () => {
+    test('non-existent $def reference is left as-is and its container kept', () => {
         const schema = {
             type: 'object',
             properties: { broken: { $ref: '#/$defs/DoesNotExist' } },
             $defs: {}
         };
-        expect(dereferenceLocalRefs(schema)).toEqual({
-            type: 'object',
-            properties: { broken: { $ref: '#/$defs/DoesNotExist' } }
-        });
+        // Unresolvable local ref: output must be no worse than input, so $defs is kept verbatim.
+        expect(dereferenceLocalRefs(schema)).toEqual(schema);
     });
 
     test('external $ref and root self-reference are left as-is', () => {
@@ -309,6 +313,106 @@ describe('dereferenceLocalRefs', () => {
                 tag: { type: 'object', properties: { label: { type: 'string' } } }
             },
             required: ['definitions', '$defs']
+        });
+    });
+
+    describe('never worse than the untransformed schema (unresolvable or malformed input)', () => {
+        test('malformed $defs container (null / array / primitive) returns the schema untouched', () => {
+            for (const bad of [null, [], 'oops', 42]) {
+                const schema = { type: 'object', properties: { x: { $ref: '#/$defs/X' } }, $defs: bad };
+                expect(dereferenceLocalRefs(schema)).toBe(schema);
+            }
+            const legacy = { type: 'object', properties: { x: { $ref: '#/definitions/X' } }, definitions: null };
+            expect(dereferenceLocalRefs(legacy)).toBe(legacy);
+        });
+
+        test('deep JSON pointer into a def keeps $defs so the ref still resolves', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    deep: { $ref: '#/$defs/Foo/properties/bar' },
+                    whole: { $ref: '#/$defs/Foo' }
+                },
+                $defs: { Foo: { type: 'object', properties: { bar: { type: 'string' } } } }
+            };
+            const result = dereferenceLocalRefs(schema);
+            expect(result).toEqual({
+                type: 'object',
+                properties: {
+                    deep: { $ref: '#/$defs/Foo/properties/bar' },
+                    whole: { type: 'object', properties: { bar: { type: 'string' } } }
+                },
+                $defs: { Foo: { type: 'object', properties: { bar: { type: 'string' } } } }
+            });
+            expectResolvable(schema);
+            expectResolvable(result);
+        });
+
+        test('refs into the non-selected container keep both $defs and definitions', () => {
+            const schema = {
+                type: 'object',
+                properties: { x: { $ref: '#/definitions/X' }, y: { $ref: '#/$defs/Y' } },
+                $defs: { Y: { type: 'string' } },
+                definitions: { X: { type: 'number' } }
+            };
+            const result = dereferenceLocalRefs(schema);
+            expect(result).toEqual({
+                type: 'object',
+                properties: { x: { $ref: '#/definitions/X' }, y: { type: 'string' } },
+                $defs: { Y: { type: 'string' } },
+                definitions: { X: { type: 'number' } }
+            });
+            expectResolvable(schema);
+            expectResolvable(result);
+        });
+
+        test('JSON-pointer-escaped def name (RFC 6901 ~1) is left as-is with $defs kept', () => {
+            const schema = {
+                type: 'object',
+                properties: { x: { $ref: '#/$defs/a~1b' } },
+                $defs: { 'a/b': { type: 'string' } }
+            };
+            const result = dereferenceLocalRefs(schema);
+            expect(result).toEqual(schema);
+            expectResolvable(result);
+        });
+
+        test('def names matching Object.prototype members are not treated as defs', () => {
+            const schema = {
+                type: 'object',
+                properties: { x: { $ref: '#/$defs/constructor' } },
+                $defs: {}
+            };
+            expect(dereferenceLocalRefs(schema)).toEqual(schema);
+        });
+
+        test('fully resolvable and cyclic schemas still compile after transformation', () => {
+            const inlined = dereferenceLocalRefs({
+                type: 'object',
+                properties: { tag: { $ref: '#/$defs/Tag' } },
+                $defs: { Tag: { type: 'string' } }
+            });
+            expect(inlined).toEqual({ type: 'object', properties: { tag: { type: 'string' } } });
+            expectResolvable(inlined);
+
+            const cyclic = dereferenceLocalRefs({
+                type: 'object',
+                properties: { root: { $ref: '#/$defs/Node' } },
+                $defs: {
+                    Node: {
+                        type: 'object',
+                        properties: { tag: { $ref: '#/$defs/Tag' }, children: { type: 'array', items: { $ref: '#/$defs/Node' } } }
+                    },
+                    Tag: { type: 'string' }
+                }
+            });
+            expect(cyclic.$defs).toEqual({
+                Node: {
+                    type: 'object',
+                    properties: { tag: { type: 'string' }, children: { type: 'array', items: { $ref: '#/$defs/Node' } } }
+                }
+            });
+            expectResolvable(cyclic);
         });
     });
 });
