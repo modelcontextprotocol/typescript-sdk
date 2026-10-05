@@ -96,24 +96,34 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
 
                     const skipLocalPkceValidation = provider.skipLocalPkceValidation;
 
-                    // Perform local PKCE validation unless explicitly skipped
-                    // (e.g. to validate code_verifier in upstream server)
-                    if (!skipLocalPkceValidation) {
-                        const codeChallenge = await provider.challengeForAuthorizationCode(client, code);
-                        if (!(await verifyChallenge(code_verifier, codeChallenge))) {
-                            throw new InvalidGrantError('code_verifier does not match the challenge');
+                    try {
+                        const originalRedirectUri = await provider.redirectUriForAuthorizationCode?.(client, code);
+                        if (originalRedirectUri !== undefined && originalRedirectUri !== redirect_uri) {
+                            throw new InvalidGrantError('redirect_uri does not match the authorization request');
                         }
-                    }
 
-                    // Passes the code_verifier to the provider if PKCE validation didn't occur locally
-                    const tokens = await provider.exchangeAuthorizationCode(
-                        client,
-                        code,
-                        skipLocalPkceValidation ? code_verifier : undefined,
-                        redirect_uri,
-                        resource ? new URL(resource) : undefined
-                    );
-                    res.status(200).json(tokens);
+                        // Perform local PKCE validation unless explicitly skipped
+                        // (e.g. to validate code_verifier in upstream server)
+                        if (!skipLocalPkceValidation) {
+                            const codeChallenge = await provider.challengeForAuthorizationCode(client, code);
+                            if (!(await verifyChallenge(code_verifier, codeChallenge))) {
+                                throw new InvalidGrantError('code_verifier does not match the challenge');
+                            }
+                        }
+
+                        // Passes the code_verifier to the provider if PKCE validation didn't occur locally
+                        const tokens = await provider.exchangeAuthorizationCode(
+                            client,
+                            code,
+                            skipLocalPkceValidation ? code_verifier : undefined,
+                            redirect_uri,
+                            resource ? new URL(resource) : undefined
+                        );
+                        res.status(200).json(tokens);
+                    } catch (error) {
+                        await provider.revokeTokensForAuthorizationCode?.(client, code);
+                        throw error;
+                    }
                     break;
                 }
 
