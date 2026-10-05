@@ -1,4 +1,4 @@
-import { Readable, Writable } from 'node:stream';
+import { Duplex, Readable, Writable } from 'node:stream';
 import { ReadBuffer, serializeMessage } from '../../src/shared/stdio.js';
 import { JSONRPCMessage } from '../../src/types.js';
 import { StdioServerTransport } from '../../src/server/stdio.js';
@@ -341,4 +341,33 @@ test('should still deliver messages that arrived before stdin ended', async () =
     await closed;
 
     expect(messages).toEqual([message]);
+});
+
+test('should keep reporting stream errors after stdin ends, until the stream closes', async () => {
+    // One duplex for both directions, as with `new StdioServerTransport(socket, socket)`.
+    const socket = new Duplex({
+        read() {},
+        write(_chunk, _encoding, callback) {
+            callback();
+        }
+    });
+    const server = new StdioServerTransport(socket, socket);
+    const errors: Error[] = [];
+    server.onerror = error => errors.push(error);
+    const closed = new Promise<void>(resolve => {
+        server.onclose = () => resolve();
+    });
+
+    await server.start();
+    socket.push(null);
+    await closed;
+
+    // A pending write can still fail after 'end'; with no listener the process would crash.
+    const failure = new Error('write EPIPE');
+    socket.emit('error', failure);
+    expect(errors).toEqual([failure]);
+
+    socket.destroy();
+    await new Promise(resolve => socket.once('close', resolve));
+    expect(socket.listenerCount('error')).toBe(0);
 });

@@ -8,6 +8,11 @@ import { Transport } from '../shared/transport.js';
  * Server transport for stdio: this communicates with an MCP client by reading from the current process' stdin and writing to stdout.
  *
  * This transport is only available in Node.js environments.
+ *
+ * When the client closes its end of the pipe (stdin reaches end-of-file), the transport
+ * closes itself and fires `onclose`. A server that holds no other keep-alive handles will
+ * then exit naturally. Requests still in flight when stdin ends are not answered; a client
+ * that expects responses keeps stdin open until it has read them.
  */
 export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer;
@@ -49,7 +54,13 @@ export class StdioServerTransport implements Transport {
     };
     _onstdinclose = () => {
         // stdin EOF means the client hung up and nothing more can arrive.
+        const open = !this._stdin.destroyed;
         this.close().catch(() => {});
+        // A socket can still fail a pending write after 'end': keep reporting errors until it closes.
+        if (open) {
+            this._stdin.on('error', this._onerror);
+            this._stdin.once('close', () => this._stdin.off('error', this._onerror));
+        }
     };
 
     /**
