@@ -205,14 +205,25 @@ describe('@modelcontextprotocol/express', () => {
             warn.mockRestore();
         });
 
-        test('should not apply host validation for non-localhost hosts without allowedHosts', () => {
+        test.each(['192.168.1.1', 'mcp.internal'])('should warn when binding to non-loopback host %s without allowedHosts', host => {
             const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
-            // For arbitrary hosts (not 0.0.0.0 or ::), no validation is applied and no warning
-            const app = createMcpExpressApp({ host: '192.168.1.1' });
+            const app = createMcpExpressApp({ host });
+
+            expect(warn).toHaveBeenCalledWith(
+                expect.stringContaining(`Warning: Server is binding to ${host} without DNS rebinding protection`)
+            );
+            expect(app).toBeDefined();
+
+            warn.mockRestore();
+        });
+
+        test('should not warn for a non-loopback host when allowedHosts is provided', () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            createMcpExpressApp({ host: '192.168.1.1', allowedHosts: ['192.168.1.1'] });
 
             expect(warn).not.toHaveBeenCalled();
-            expect(app).toBeDefined();
 
             warn.mockRestore();
         });
