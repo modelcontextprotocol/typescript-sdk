@@ -1,6 +1,9 @@
 import * as z from 'zod/v4';
 
 import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
+import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
+import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
+import { isNonObjectJsonSchemaRoot } from '../../src/wire/rev2025-11-25/legacyWrap';
 
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {
@@ -38,5 +41,1853 @@ describe('standardSchemaToJsonSchema', () => {
         const keys = Object.keys(result);
         expect(keys.filter(k => k === 'type')).toHaveLength(1);
         expect(result.type).toBe('object');
+    });
+});
+
+describe('zod conversion options (#2464)', () => {
+    test('z.date() converts to string/date-time instead of throwing (input)', () => {
+        const result = standardSchemaToJsonSchema(z.object({ when: z.date() }), 'input');
+
+        expect((result.properties as Record<string, unknown>).when).toEqual({ type: 'string', format: 'date-time' });
+    });
+
+    test('z.date() converts to string/date-time instead of throwing (output)', () => {
+        const result = standardSchemaToJsonSchema(z.object({ when: z.date() }), 'output');
+
+        expect((result.properties as Record<string, unknown>).when).toEqual({ type: 'string', format: 'date-time' });
+    });
+
+    test('other unrepresentable types degrade to an unconstrained schema instead of throwing', () => {
+        const result = standardSchemaToJsonSchema(z.object({ big: z.bigint() }), 'input');
+
+        expect((result.properties as Record<string, unknown>).big).toEqual({});
+    });
+
+    test('z.date() keeps user annotations alongside the rewritten wire shape', () => {
+        const result = standardSchemaToJsonSchema(z.object({ when: z.date().describe('event timestamp') }), 'input');
+
+        expect((result.properties as Record<string, unknown>).when).toEqual({
+            type: 'string',
+            format: 'date-time',
+            description: 'event timestamp'
+        });
+    });
+
+    test("unrepresentable: 'throw' restores zod's conversion error (elicitation contract)", () => {
+        expect(() => standardSchemaToJsonSchema(z.object({ when: z.date() }), 'input', { unrepresentable: 'throw' })).toThrow(
+            /Date cannot be represented/
+        );
+    });
+
+    test('defaulted fields are not advertised as required in output schemas', () => {
+        const schema = z.object({ counted: z.number().default(0), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The server ships the tool's raw structuredContent without filling defaults,
+        // so a payload omitting `counted` must satisfy the advertised schema.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a registered .default() (emitted as $ref) is still dropped from output required', () => {
+        const schema = z.object({ counted: z.number().default(0).meta({ id: 'StandardSchemaTestCounted' }), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The `default` keyword hides inside $defs behind a bare $ref; the filter must
+        // key on the zod shape, not the emitted JSON.
+        expect((result.properties as Record<string, Record<string, unknown>>).counted?.$ref).toBeDefined();
+        expect(result.required).toEqual(['name']);
+        // zod copies the registry id verbatim as a draft-04 `id` keyword, which Ajv v8
+        // hard-rejects at COMPILE time — the advertisement must stay compilable by the
+        // SDK's own client-side validator.
+        expect((result.$defs as Record<string, Record<string, unknown>>).StandardSchemaTestCounted!.id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ name: 'x' }).valid).toBe(true);
+    });
+
+    test('a required field annotated with .meta({default}) stays required in output schemas', () => {
+        const schema = z.object({ label: z.string().meta({ default: 'n/a' }), other: z.number() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The annotation carries a `default` keyword, but validation still requires the
+        // field, so every shipped payload carries it.
+        expect(result.required).toEqual(['label', 'other']);
+    });
+
+    test('undefined-accepting fields are not advertised as required in output schemas', () => {
+        const schema = z.object({ a: z.any(), u: z.unknown(), v: z.undefined(), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A raw payload with an undefined-valued key passes validation, and
+        // JSON.stringify drops the key from the wire entirely.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('enum-keyed records with a defaulted value drop the emitted required list (output)', () => {
+        const schema = z.object({ tallies: z.record(z.enum(['likes', 'shares']), z.number().default(0)), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // zod fills record defaults during validation, so `{}` is a legitimate raw value
+        // for the record node — but the record field itself stays required on the parent.
+        const tallies = (result.properties as Record<string, Record<string, unknown>>).tallies!;
+        expect(tallies.required).toBeUndefined();
+        expect(result.required).toEqual(['tallies', 'name']);
+    });
+
+    test('enum-keyed records with a strict value keep the emitted required list (output)', () => {
+        const schema = z.record(z.enum(['likes', 'shares']), z.number());
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Validation rejects a missing key here, so the required list is truthful.
+        expect(result.required).toEqual(['likes', 'shares']);
+    });
+
+    test('async stages downstream of a default stay dropped; checks ON the default node stay required', () => {
+        // `.refine(async …)` attaches a CHECK to the default node itself, which
+        // re-validates the fill — undecidable structurally, and the probe goes
+        // async, so the field conservatively stays required (the documented
+        // posture; pre-#2464 emissions kept it required too).
+        const checkedDefault = z.object({
+            d: z
+                .number()
+                .default(0)
+                .refine(async () => true),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(checkedDefault, 'output').required).toEqual(['d', 'name']);
+        // An async stage DOWNSTREAM of the default (a bare-transform pipe) leaves
+        // the default node check-free — droppable, decided structurally.
+        const downstream = z.object({
+            d: z
+                .number()
+                .default(0)
+                .transform(async value => value),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(downstream, 'output').required).toEqual(['name']);
+    });
+
+    test('a defaulted field piped through a transform is still dropped from output required', () => {
+        const schema = z.object({
+            asyncPiped: z
+                .number()
+                .default(7)
+                .transform(async v => v),
+            syncPiped: z
+                .number()
+                .default(7)
+                .transform(v => v),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `.default(7).transform(...)` is outer-'pipe' with the ZodDefault at def.in;
+        // the structural check must unwind the pipe's input side, since the async
+        // stage pushes the validate(undefined) probe to a Promise.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('.catch() output nodes degrade to an unconstrained schema (annotations kept)', () => {
+        const schema = z.object({
+            inner: z.object({ n: z.string() }).catch({ n: 'd' }).describe('lenient'),
+            scalar: z.number().catch(0),
+            annotated: z.number().catch(0).meta({ 'x-ui': 1, title: 't' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Catch-validation accepts any raw value (the fallback replaces it only in the
+        // parsed result, which never ships), so no inner constraint may be advertised —
+        // including a non-object `type`, which would reject the wrong-typed raw values
+        // catch exists to tolerate. Only `type: 'object'` is kept: the verdict must be
+        // position-independent (zod deduplicates reused instances), and it is all the
+        // 2025-era legacy-wrap object proof consumes.
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.inner).toEqual({ description: 'lenient', default: { n: 'd' }, type: 'object' });
+        expect(properties.scalar).toEqual({ default: 0 });
+        // `x-*` vendor extensions are annotation-only and must survive the degrade.
+        expect(properties.annotated).toEqual({ default: 0, title: 't', 'x-ui': 1 });
+        // A raw payload omitting the catch fields also validates, so they are not required.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a .catch() instance reused at nested and root-proof positions is safe in both orderings', () => {
+        // zod deduplicates reused instances and runs the override once per instance,
+        // so the degrade verdict is shared by every occurrence — it must not depend
+        // on which position is seen first.
+        for (const makeUnion of [
+            (c: z.ZodType) => z.union([z.object({ x: c }), c]), // nested seen first
+            (c: z.ZodType) => z.union([c, z.object({ x: c })]) // root member seen first
+        ]) {
+            const shared = z.object({ q: z.string() }).catch({ q: 'd' });
+            const result = standardSchemaToJsonSchema(makeUnion(shared), 'output');
+
+            // The root object proof must hold (no 2025-era legacy-wrap flip) ...
+            expect(result.type).toBe('object');
+            expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+            const members = result.anyOf as Array<Record<string, unknown>>;
+            const nested = members.find(m => m.properties !== undefined)!;
+            const rootMember = members.find(m => m.properties === undefined)!;
+            // ... and no occurrence may advertise the unenforced inner constraints.
+            expect((nested.properties as Record<string, Record<string, unknown>>).x).toEqual({ default: { q: 'd' }, type: 'object' });
+            expect(rootMember).toEqual({ default: { q: 'd' }, type: 'object' });
+        }
+    });
+
+    test('a root-position .catch() output schema keeps its emitted object root', () => {
+        const result = standardSchemaToJsonSchema(z.object({ n: z.string() }).catch({ n: 'd' }), 'output');
+
+        // Degrading the ROOT would delete `type: 'object'` and flip the 2025-era
+        // codec's legacy-wrap predicate — a silent wire change for such tools.
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('a .catch() member of a root union keeps its emitted shape (root still proves object)', () => {
+        const schema = z.union([z.object({ a: z.string() }), z.object({ b: z.string() }).catch({ b: 'd' })]);
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Degrading the member would break `isProvablyObjectShapedRoot`'s every-member
+        // proof, leave the root typeless, and flip the 2025-era legacy wrap — a silent
+        // wire change for a previously-working registration.
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+        expect((result.anyOf as Array<Record<string, unknown>>)[1]?.type).toBe('object');
+    });
+
+    test('unrepresentable non-object roots still throw on the input path', () => {
+        // `unrepresentable: 'any'` degrades these roots to a typeless {}, which must not
+        // be stamped `type: 'object'` — the tool would be advertised but never callable.
+        expect(() => standardSchemaToJsonSchema(z.bigint(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.map(z.string(), z.number()), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.set(z.string()), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.symbol(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.void(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.undefined(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.nan(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.function(), 'input')).toThrow(/must describe objects/);
+        // Wrappers and lazies must not hide a non-object root from the guard.
+        expect(() => standardSchemaToJsonSchema(z.bigint().optional(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().nullable(), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().readonly(), 'input')).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.lazy(() => z.bigint()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        // Literals with genuinely unrepresentable values are not objects.
+        expect(() => standardSchemaToJsonSchema(z.literal(undefined), 'input')).toThrow(/must describe objects/);
+        // Mixed-but-REPRESENTABLE literals emit a valid {enum: [...]}: they listed
+        // silently pre-#2464 (an uncallable phantom, but harmless to other tools)
+        // and must keep doing so — throwing here would fail the whole tools/list.
+        expect(standardSchemaToJsonSchema(z.literal(['a', 1]), 'input').type).toBe('object');
+        // Pipes unwrap via their INPUT side, and promises via their inner type.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.bigint().pipe(z.transform((x: bigint) => Number(x))), 'input')).toThrow(
+            /must describe objects/
+        );
+        expect(() => standardSchemaToJsonSchema(z.promise(z.bigint()), 'input')).toThrow(/must describe objects/);
+        // `.nonoptional()` is a transparent wrapper like its siblings.
+        expect(() => standardSchemaToJsonSchema(z.bigint().nonoptional(), 'input')).toThrow(/must describe objects/);
+        // Compositions: a union is non-object when EVERY member is, an intersection
+        // when ANY side is.
+        expect(() => standardSchemaToJsonSchema(z.union([z.bigint(), z.symbol()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.bigint(), z.bigint()), 'input')).toThrow(/must describe objects/);
+        // Wrapped OBJECT roots stay accepted.
+        expect(standardSchemaToJsonSchema(z.object({ a: z.string() }).optional(), 'input').type).toBe('object');
+        expect(
+            standardSchemaToJsonSchema(
+                z.object({ a: z.string() }).transform(o => o),
+                'input'
+            ).type
+        ).toBe('object');
+        // A union with one representable object member stays accepted.
+        expect(standardSchemaToJsonSchema(z.union([z.bigint(), z.object({ a: z.string() })]), 'input').type).toBe('object');
+    });
+
+    test('shared-instance union members each get a real verdict', () => {
+        // The cycle guard tracks only the current traversal path, so a schema constant
+        // reused across union arms must not short-circuit the second member's verdict.
+        const shared = z.bigint();
+        expect(() => standardSchemaToJsonSchema(z.union([shared, shared]), 'input')).toThrow(/must describe objects/);
+    });
+
+    test('representable literal unions keep listing (idiomatic zod enum spelling)', () => {
+        // Regression: these converted and listed pre-#2464 — classifying every literal
+        // member as non-object made one such registration fail the ENTIRE tools/list.
+        expect(standardSchemaToJsonSchema(z.union([z.literal('admin'), z.literal('member')]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal('a')), 'input').type).toBe('object');
+        // Representable non-object members also keep the composition accepted, exactly
+        // as such roots converted pre-#2464.
+        expect(standardSchemaToJsonSchema(z.union([z.string(), z.number()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.literal('a'), z.null()]), 'input').type).toBe('object');
+        // Literals with unrepresentable values still reject inside compositions.
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(undefined), z.bigint()]), 'input')).toThrow(/must describe objects/);
+    });
+
+    test('date members and non-finite literals classify as non-object inside compositions', () => {
+        // A Date value can never be a JSON object; at member position the rewritten
+        // string/date-time node nests inside anyOf and evades the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.date()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.date()), 'input')).toThrow(
+            /must describe objects/
+        );
+        // Infinity/-Infinity/NaN literals are typeof 'number' but cannot ride JSON.
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Number.NaN), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // A representable member keeps the composition accepted (every-member rule).
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
+    });
+
+    test('preprocess-wrapped unrepresentable roots throw (transform at def.in, schema at def.out)', () => {
+        // z.preprocess builds the opposite pipe; the guard must look past the
+        // transform at def.in to the real schema at def.out.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.bigint()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.preprocess(v => v, z.bigint()), z.symbol()]), 'input')).toThrow(
+            /must describe objects/
+        );
+        // Object-rooted preprocess stays accepted; date still throws via the
+        // explicit-type guard after the rewrite.
+        expect(
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.object({ a: z.string() })),
+                'input'
+            ).type
+        ).toBe('object');
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.preprocess(v => v, z.date()),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+    });
+
+    test('compositions built solely of non-finite literals keep listing (quiet verdicts)', () => {
+        // These converted silently pre-#2464 (zod emits {type: 'number', const: null}
+        // without throwing) — throwing here would fail the whole tools/list. The
+        // guard throws only when the composition also carries a LOUD member (one
+        // that made pre-#2464 conversion throw, e.g. a bigint).
+        expect(standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.literal(-Infinity)]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.literal(Infinity), z.literal(Number.NaN)]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal(Infinity)), 'input').type).toBe('object');
+    });
+
+    test('symbol- and function-valued output fields are not advertised as required', () => {
+        const schema = z.object({ s: z.symbol(), f: z.function(), name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // JSON.stringify drops Symbol- and function-valued keys from the payload, so
+        // no serialized result can ever carry them.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('a .catch() wrapping a union keeps a composition type skeleton (root still proves object)', () => {
+        const schema = z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]).catch({ a: 'd' });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // The catch node emits {anyOf, default} with no `type`; deleting `anyOf`
+        // would leave the root typeless and flip the 2025-era legacy wrap.
+        expect(result.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('a .catch() wrapping a discriminated union skeletonizes oneOf as anyOf', () => {
+        const du = z
+            .discriminatedUnion('t', [z.object({ t: z.literal('a'), x: z.string() }), z.object({ t: z.literal('b'), y: z.string() })])
+            .catch({ t: 'a', x: 'd' });
+
+        // With member constraints stripped, `oneOf` skeletons are indistinguishable —
+        // every payload would match BOTH members and Ajv rejects "must match exactly
+        // one schema in oneOf". The honest loosening is `anyOf` (wrap-neutral).
+        const root = standardSchemaToJsonSchema(du, 'output');
+        expect(root.oneOf).toBeUndefined();
+        expect(root.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        expect(root.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(root)).toBe(false);
+        const rootValidate = new AjvJsonSchemaValidator().getValidator(root);
+        expect(rootValidate({ t: 'a', x: 'hello' }).valid).toBe(true);
+
+        const nested = standardSchemaToJsonSchema(z.object({ res: du, name: z.string() }), 'output');
+        const res = (nested.properties as Record<string, Record<string, unknown>>).res!;
+        expect(res.oneOf).toBeUndefined();
+        expect(res.anyOf).toEqual([{ type: 'object' }, { type: 'object' }]);
+        const nestedValidate = new AjvJsonSchemaValidator().getValidator(nested);
+        expect(nestedValidate({ res: { t: 'a', x: 'hello' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a discriminated union with catch-wrapped discriminators loosens its oneOf to anyOf', () => {
+        // The catch degrade strips each discriminator's type/const and the
+        // required-filter drops 't', so the members become mutually satisfiable —
+        // the untouched parent's `oneOf` would then reject EVERY payload ("must
+        // match exactly one schema in oneOf").
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+            z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+        ]);
+
+        const root = standardSchemaToJsonSchema(du, 'output');
+        expect(root.oneOf).toBeUndefined();
+        expect(Array.isArray(root.anyOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(root)({ t: 'a', x: 'v' }).valid).toBe(true);
+
+        const nested = standardSchemaToJsonSchema(z.object({ res: du, name: z.string() }), 'output');
+        const res = (nested.properties as Record<string, Record<string, unknown>>).res!;
+        expect(res.oneOf).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(nested)({ res: { t: 'a', x: 'v' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a discriminated union of plain objects renames to anyOf (additionalProperties drop is loosening)', () => {
+        // The members' additionalProperties: false drop is member-visible
+        // loosening (two objects distinguished only by their extra keys become
+        // mutually satisfiable), so the rename gate must fire. Harmless for zod
+        // DUs — the discriminator consts keep members exclusive under anyOf.
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a'), x: z.string() }),
+            z.object({ t: z.literal('b'), y: z.string() })
+        ]);
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.oneOf).toBeUndefined();
+        expect(Array.isArray(result.anyOf)).toBe(true);
+        expect(result.type).toBe('object'); // wrap parity: the strict snapshot proves the oneOf
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ t: 'a', x: 'v' }).valid).toBe(true);
+        expect(validate({ t: 'c' }).valid).toBe(false); // discriminators still enforce
+        // STRICT objects keep additionalProperties: false — nothing loosens, the
+        // exactly-one oneOf survives.
+        const strictDu = standardSchemaToJsonSchema(
+            z.discriminatedUnion('t', [z.strictObject({ t: z.literal('a'), x: z.string() }), z.strictObject({ t: z.literal('b') })]),
+            'output'
+        );
+        expect(Array.isArray(strictDu.oneOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(strictDu)({ t: 'a', x: 'v' }).valid).toBe(true);
+    });
+
+    test('tolerant array/tuple elements also accept null in output schemas', () => {
+        // JSON.stringify turns an undefined array ELEMENT into null (it drops
+        // undefined-valued object keys), so the raw payload the server validates and
+        // ships ([1, undefined, 3]) reaches the wire as [1, null, 3].
+        const schema = z.object({
+            a: z.array(z.number().default(0)),
+            t: z.tuple([z.string().default('x'), z.number()]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ a: [1, null, 3], t: [null, 1], name: 'n' }).valid).toBe(true);
+        // Non-tolerant elements keep their strict subschema.
+        const plain = standardSchemaToJsonSchema(z.object({ a: z.array(z.number()) }), 'output');
+        expect((plain.properties as Record<string, Record<string, unknown>>).a!.items).toEqual({ type: 'number' });
+    });
+
+    test('z.never() union members are quiet non-object verdicts', () => {
+        // z.never() matches no value: it cannot make a union satisfiable, so a loud
+        // co-member must keep the pre-#2464 throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.never(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // ... while quiet shapes (which converted silently pre-#2464) keep listing.
+        expect(standardSchemaToJsonSchema(z.never(), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.never(), z.string()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.union([z.never(), z.never()]), 'input').type).toBe('object');
+    });
+
+    test('unrepresentable non-object OUTPUT roots throw too (loudness parity)', () => {
+        // These threw at tools/list pre-#2464; post-degrade they would list silently
+        // as permanently-broken tools (bigint results even fail JSON-RPC
+        // serialization; Map/Set ship {} garbage).
+        expect(() => standardSchemaToJsonSchema(z.bigint(), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.union([z.bigint(), z.symbol()]), 'output')).toThrow(/must describe objects/);
+        // Representable non-object output roots are legal per SEP-2106 ...
+        expect(standardSchemaToJsonSchema(z.string(), 'output').type).toBe('string');
+        expect(standardSchemaToJsonSchema(z.array(z.number()), 'output').type).toBe('array');
+        // ... and quiet typeless shapes keep listing.
+        expect(standardSchemaToJsonSchema(z.never(), 'output').type).toBeUndefined();
+    });
+
+    test('output pipes anchor loudness to their OUT side (codec roots keep listing)', () => {
+        // Pre-#2464, output conversion only visited a pipe's OUT side — these codecs
+        // (raw Date/bigint in, representable declared output) listed and worked
+        // wire-truthfully; anchoring the verdict to def.in threw 'non-object date'
+        // and killed the whole tools/list.
+        const dateCodec = z
+            .date()
+            .transform(d => d.toISOString())
+            .pipe(z.string().nullable() as unknown as z.ZodType<string | null, string>);
+        expect(standardSchemaToJsonSchema(dateCodec, 'output').anyOf).toBeDefined();
+        const bigintCodec = z
+            .bigint()
+            .transform(String)
+            .pipe(z.string().nullable() as unknown as z.ZodType<string | null, string>);
+        expect(standardSchemaToJsonSchema(bigintCodec, 'output').anyOf).toBeDefined();
+        // A bare-transform OUT side falls back to def.in: pre-#2464 zod threw
+        // 'Transforms cannot be represented' on output, so genuinely-unrepresentable
+        // inputs stay loud ...
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // ... and input-path pipe semantics are unchanged.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.bigint().transform(x => Number(x)),
+                'input'
+            )
+        ).toThrow(/must describe objects/);
+    });
+
+    test('quiet literal values (symbols) keep compositions listing', () => {
+        // Pre-#2464, z.literal(Symbol) silently emitted {type: 'symbol'} — only
+        // undefined/bigint literal VALUES threw. These compositions listed pre-#2464.
+        expect(
+            standardSchemaToJsonSchema(
+                z.union([z.literal(Symbol('a') as unknown as string), z.literal(Symbol('b') as unknown as string)]),
+                'input'
+            ).type
+        ).toBe('object');
+        expect(
+            standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.literal(Symbol('x') as unknown as string)), 'input')
+                .type
+        ).toBe('object');
+        // A representable co-value keeps mixed lists satisfiable (no early loud return).
+        expect(
+            standardSchemaToJsonSchema(z.union([z.literal(['x', Symbol('s') as unknown as string]), z.literal(['y', 1])]), 'input').type
+        ).toBe('object');
+        // Loud co-members and loud literal values still throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.literal(Symbol('a') as unknown as string), z.bigint()]), 'input')).toThrow(
+            /must describe objects/
+        );
+        // ... and a bare symbol literal root keeps throwing via the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.literal(Symbol('x') as unknown as string), 'input')).toThrow(/got type/);
+    });
+
+    test('the anyOf constraint wrap keeps annotations at the node top level', () => {
+        const schema = z.object({
+            f: z.file().describe('binary upload'),
+            inf: z.literal(Infinity).describe('sentinel'),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+
+        // An annotation buried inside an applicator branch the wire payload never
+        // matches applies to nothing — consumers read the top-level description.
+        expect(properties.f!.description).toBe('binary upload');
+        expect(properties.inf!.description).toBe('sentinel');
+        // The wire forms still validate.
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ f: {}, inf: null, name: 'n' }).valid).toBe(true);
+    });
+
+    test('z.file() union members are quiet non-object verdicts', () => {
+        // A File can never ride JSON, so a loud co-member restores the pre-#2464 throw ...
+        expect(() => standardSchemaToJsonSchema(z.union([z.file(), z.bigint()]), 'input')).toThrow(/must describe objects/);
+        // ... while quiet pre-#2464 shapes keep listing (or throwing via the
+        // explicit-type guard, for the bare string/binary emission).
+        expect(standardSchemaToJsonSchema(z.union([z.file(), z.string()]), 'input').type).toBe('object');
+        expect(standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.file()), 'input').type).toBe('object');
+        expect(() => standardSchemaToJsonSchema(z.file(), 'input')).toThrow(/got type/);
+    });
+
+    test('the oneOf rewrite reaches schemas under keyword-named properties', () => {
+        // Keys inside `properties` are user names, not keywords — a property
+        // literally named `description` still carries a schema that the loosen
+        // rewrite must reach.
+        const schema = z.object({
+            description: z.discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const description = (result.properties as Record<string, Record<string, unknown>>).description!;
+        expect(description.oneOf).toBeUndefined();
+        expect(Array.isArray(description.anyOf)).toBe(true);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ description: { t: 'a', x: 'v' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('tolerant tuple REST elements and non-finite literals accept their wire forms', () => {
+        const schema = z.object({
+            t: z.tuple([z.string()], z.number().default(0)),
+            inf: z.literal(Infinity),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A tuple rest element lands under `items`; an undefined rest element ships
+        // as null. Non-finite literal values also serialize to null, and zod's own
+        // emission ({type: 'number', const: null}) satisfies nothing.
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: ['a', 1, null], inf: null, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the oneOf rewrite does not descend into annotation values', () => {
+        const schema = z.object({
+            cfg: z.object({ oneOf: z.array(z.number()) }).default({ oneOf: [1, 2] }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `default` carries user DATA — its literal `oneOf` key must survive.
+        const cfg = (result.properties as Record<string, Record<string, unknown>>).cfg!;
+        expect(cfg.default).toEqual({ oneOf: [1, 2] });
+    });
+
+    test('the oneOf rewrite preserves a coexisting user anyOf via allOf', () => {
+        // zod merges .meta({anyOf}) verbatim beside the emitted oneOf — bailing there
+        // left a reject-everything oneOf after the members were loosened.
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.oneOf).toBeUndefined();
+        expect(result.anyOf).toEqual([{ type: 'object' }]); // the user's anyOf, unclobbered
+        const allOf = result.allOf as Array<{ anyOf: Array<Record<string, unknown>> }>;
+        expect(allOf).toHaveLength(1);
+        expect(allOf[0]!.anyOf.map(member => member.type)).toEqual(['object', 'object']);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
+    });
+
+    test('the oneOf rewrite skips negated and conditional positions', () => {
+        // Under `not`, oneOf→anyOf inverts polarity and TIGHTENS: {v: 4} matches
+        // both members, so it passed `not {oneOf}` pre-#2464 but would fail the
+        // rewritten `not {anyOf}`.
+        const schema = z.object({
+            v: z.number().meta({ not: { oneOf: [{ type: 'integer' }, { multipleOf: 2 }] } }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).v!.not).toEqual({
+            oneOf: [{ type: 'integer' }, { multipleOf: 2 }]
+        });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ v: 4, counted: 1, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the oneOf rewrite skips contains (count-tightening under maxContains)', () => {
+        // Per element, anyOf matches a superset of oneOf, so the contains-count can
+        // only rise — under a sibling maxContains the rename would TIGHTEN: 4 and 6
+        // match both branches (excluded by oneOf, counted by anyOf).
+        const schema = z.object({
+            arr: z.array(z.number()).meta({ contains: { oneOf: [{ type: 'integer' }, { multipleOf: 2 }] }, maxContains: 2 }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).arr!.contains).toEqual({
+            oneOf: [{ type: 'integer' }, { multipleOf: 2 }]
+        });
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ arr: [3, 5, 4, 6], counted: 1, name: 'n' }).valid).toBe(true);
+    });
+
+    test('positional pointer aliases ship the strict emission (reference guard)', () => {
+        // A hand-authored positional $ref could observe the loosen family's
+        // relocations (the oneOf→anyOf rename here) as a dangling pointer — the
+        // guard skips the loosen family instead, shipping the raw pre-#2464
+        // emission: compilable and working by construction, strict.
+        const du = z.discriminatedUnion('t', [
+            z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+            z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+        ]);
+        const schema = z.object({
+            du,
+            alias: z.unknown().meta({ $ref: '#/properties/du/oneOf/0' }),
+            dynAlias: z.unknown().optional().meta({ $dynamicRef: '#/properties/du/oneOf/1' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // Byte-equal to zod's own emission (nothing here for the date/id
+        // sanitizers to touch).
+        expect(result).toEqual(z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output', unrepresentable: 'any' }));
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/0');
+        expect(properties.dynAlias!.$dynamicRef).toBe('#/properties/du/oneOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, alias: { t: 'a' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a pointer alias beside a user anyOf ships strict (reference guard)', () => {
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }] });
+        const schema = z.object({
+            du,
+            alias: z.unknown().meta({ $ref: '#/properties/du/oneOf/1' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.du!.anyOf).toEqual([{ type: 'object' }]); // the user's, unmoved
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/1');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'b' }, alias: { t: 'b' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('pointers through an untouched oneOf stay put (no-loosening control)', () => {
+        const du = z.discriminatedUnion('t', [z.object({ t: z.literal('a') }), z.object({ t: z.literal('b') })]);
+        const schema = z.object({
+            du,
+            alias: z.string().optional().meta({ $ref: '#/properties/du/oneOf/0' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined();
+        expect(properties.alias!.$ref).toBe('#/properties/du/oneOf/0');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('catch nodes with pointer aliases ship strict (reference guard)', () => {
+        // Pre-guard, the catch degrade would have deleted the members' constraints
+        // and renamed the oneOf out from under the alias.
+        const schema = z.object({
+            cfg: z
+                .discriminatedUnion('t', [z.object({ t: z.literal('a'), x: z.string() }), z.object({ t: z.literal('b'), y: z.string() })])
+                .catch({ t: 'a', x: 'd' }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/oneOf/0' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.cfg!.oneOf).toBeDefined(); // no degrade, no rename
+        expect(properties.alias!.$ref).toBe('#/properties/cfg/oneOf/0');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ cfg: { t: 'a', x: 'v' }, alias: { t: 'a', x: 'w' }, name: 'n' }).valid
+        ).toBe(true);
+    });
+
+    test('array and tuple element aliases ship strict — no null wrap (reference guard)', () => {
+        const schema = z.object({
+            arr: z.array(z.object({ x: z.string() }).optional()),
+            t: z.tuple([z.object({ x: z.string() }).optional(), z.string()], z.object({ y: z.number() }).optional()),
+            itemsAlias: z.unknown().meta({ $ref: '#/properties/arr/items/properties/x' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect((properties.arr!.items as Record<string, unknown>).anyOf).toBeUndefined(); // strict: no null tolerance advertised
+        expect(properties.itemsAlias!.$ref).toBe('#/properties/arr/items/properties/x');
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ arr: [{ x: 'v' }], t: [{ x: 'v' }, 's'], itemsAlias: 'w', name: 'n' }).valid).toBe(true);
+        // Pre-#2464 strictness kept: a null element is rejected by the
+        // advertisement even though the raw payload may carry one.
+        expect(validate({ arr: [{ x: 'v' }, null], t: [{ x: 'v' }, 's'], itemsAlias: 'w', name: 'n' }).valid).toBe(false);
+    });
+
+    test('refs into catch subtrees stay resolvable under the guard', () => {
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/properties/q' }),
+            keptAlias: z.unknown().meta({ $ref: '#/properties/name' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect((properties.cfg!.properties as Record<string, unknown>).q).toEqual({ type: 'string' }); // no degrade
+        expect(properties.alias!.$ref).toBe('#/properties/cfg/properties/q');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ cfg: { q: 'x' }, alias: 'y', keptAlias: 'k', name: 'n' }).valid).toBe(
+            true
+        );
+    });
+
+    test('anchors and anchor-form refs ship strict (reference guard)', () => {
+        const schema = z.object({
+            cfg: z.object({ q: z.string().meta({ $anchor: 'innerA' }) }).catch({ q: 'd' }),
+            skel: z.union([z.object({ q: z.string().meta({ $anchor: 'deepA' }) }), z.object({ w: z.number() })]).catch({ q: 'd' }),
+            live: z.object({ q: z.string() }).meta({ $dynamicAnchor: 'liveD' }),
+            aliasA: z.unknown().meta({ $ref: '#innerA' }),
+            aliasB: z.unknown().meta({ $ref: '#deepA' }),
+            aliasC: z.unknown().meta({ $dynamicRef: '#liveD' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.aliasA!.$ref).toBe('#innerA'); // the anchors survive — no degrade ran
+        expect(properties.aliasB!.$ref).toBe('#deepA');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({
+                cfg: { q: 'x' },
+                skel: { q: 'y' },
+                live: { q: 'z' },
+                aliasA: 'a',
+                aliasB: 'b',
+                aliasC: { q: 'c' },
+                name: 'n'
+            }).valid
+        ).toBe(true);
+    });
+
+    test('embedded-$id resources ship strict (reference guard)', () => {
+        // Outside-in base-addressed and inside base-relative refs both resolve
+        // against the untouched emission — including inside the resource, where
+        // the rename walk used to fire $id-blind.
+        const schema = z.object({
+            du: z
+                .discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({}).meta({ $ref: '#/oneOf/0' })
+                ])
+                .meta({ $id: 'https://example.com/du' }),
+            outer: z.unknown().meta({ $ref: 'https://example.com/du#/oneOf/0' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.du!.oneOf).toBeDefined(); // rename skipped inside the resource too
+        expect(properties.outer!.$ref).toBe('https://example.com/du#/oneOf/0');
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ du: { t: 'a' }, outer: { t: 'a' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('refs under negative and conditional keywords ship strict (reference guard)', () => {
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+            negated: z.number().meta({ not: { $anchor: 'A', $ref: '#/properties/cfg/properties/q' } }),
+            early: z.unknown().meta({ $ref: '#/properties/negated/not' }),
+            arr: z.unknown().meta({
+                type: 'array',
+                prefixItems: [{ type: 'string' }],
+                contains: { $ref: '#/properties/cfg/properties/q' },
+                unevaluatedItems: false
+            }),
+            conditional: z.number().meta({ if: { $ref: '#/properties/cfg/properties/q' }, then: { multipleOf: 2 } }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.negated!.not).toBeDefined(); // conjuncts survive — their refs resolve
+        expect(properties.arr!.contains).toBeDefined();
+        expect(properties.arr!.unevaluatedItems).toBe(false);
+        expect(properties.conditional!.if).toBeDefined();
+        // Pre-PR-valid payload: `not` never matches a number, `contains`
+        // evaluates 'tail' for unevaluatedItems, `if` never fires its then-branch.
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ cfg: { q: 'x' }, negated: 4, early: 'e', arr: ['head', 'tail'], conditional: 3, name: 'n' }).valid).toBe(true);
+    });
+
+    test('probe-only-tolerant array and tuple elements get the null wrap', () => {
+        // The preprocess fn itself maps undefined to a value, so tolerance is
+        // invisible structurally and only the validate(undefined) probe sees it —
+        // the wrap sites must use the same predicate as the object/record
+        // branches.
+        const element = z.preprocess((value: unknown) => value ?? 0, z.number());
+        const result = standardSchemaToJsonSchema(
+            z.object({ a: z.array(element), t: z.tuple([element, z.string()], element), name: z.string() }),
+            'output'
+        );
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect((properties.a!.items as Record<string, unknown>).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
+        expect((properties.t!.prefixItems as Array<Record<string, unknown>>)[0]!.anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
+        expect((properties.t!.items as Record<string, unknown>).anyOf).toEqual([{ type: 'number' }, { type: 'null' }]);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ a: [1, null, 3], t: [null, 's', null], name: 'n' }).valid).toBe(true);
+    });
+
+    test('untouched conversions keep a dangling ref (neutralization is loosen-scoped)', () => {
+        // No degrade fired here: a ref the user broke themselves failed compile
+        // identically pre-#2464 and is not the loosen machinery's to repair.
+        const result = standardSchemaToJsonSchema(z.object({ alias: z.string().meta({ $ref: '#/nowhere' }), name: z.string() }), 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).alias!.$ref).toBe('#/nowhere');
+    });
+
+    test('non-root $defs ships strict (reference guard)', () => {
+        const schema = z.object({
+            cfg: z
+                .union([z.object({ v: z.string() }).meta({ $defs: { X: { type: 'string' } } }), z.object({ w: z.number() })])
+                .catch({ v: 'd' }),
+            f: z.file().meta({ $defs: { Y: { type: 'string' } } }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/anyOf/0/$defs/X' }),
+            wrapAlias: z.unknown().meta({ $ref: '#/properties/f/$defs/Y' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect((properties.cfg!.anyOf as Array<Record<string, unknown>>)[0]!.$defs).toEqual({ X: { type: 'string' } });
+        expect(properties.f!.$defs).toEqual({ Y: { type: 'string' } });
+        expect(properties.f!.anyOf).toBeUndefined(); // strict: no file wrap
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ cfg: { v: 'd' }, f: 'bytes', alias: 'a', wrapAlias: 'w', name: 'n' }).valid
+        ).toBe(true);
+    });
+
+    test('zod registry refs keep the loosening (stable under every mutation)', () => {
+        // Registry emissions — `$defs` at the conversion root, refs of the exact
+        // shape `#/$defs/<name>`, bare `#` — are zod's own output: the guard must
+        // NOT fire, and the loosen family may mutate `$defs` entries freely IN
+        // PLACE without breaking the refs.
+        const reg = z
+            .object({
+                q: z.string(),
+                du: z.discriminatedUnion('t', [z.object({ t: z.literal('a').catch('a') }), z.object({ t: z.literal('b') })]),
+                c: z.number().catch(0)
+            })
+            .meta({ id: 'Reg' });
+        const schema = z.object({ x: reg, y: reg, name: z.string() });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+        expect(properties.x!.$ref).toBe('#/$defs/Reg');
+        const entry = (result.$defs as Record<string, Record<string, unknown>>).Reg!;
+        // Loosening fired INSIDE the entry — the tolerant field left `required`
+        // and the DU's oneOf was renamed — while the registry ref still resolves.
+        expect(entry.required).not.toContain('c');
+        expect((entry.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeUndefined();
+        expect(
+            new AjvJsonSchemaValidator().getValidator(result)({ x: { q: 'a', du: { t: 'a' } }, y: { q: 'b', du: { t: 'b' } }, name: 'n' })
+                .valid
+        ).toBe(true);
+
+        // Recursive schemas emit registry-shaped cycle refs — loosening stays on.
+        type Tree = { v: string; kids?: Tree[] };
+        const tree: z.ZodType<Tree> = z.lazy(() => z.object({ v: z.string(), kids: z.array(tree).optional() }));
+        const rec = standardSchemaToJsonSchema(z.object({ tree, c: z.number().catch(0), name: z.string() }), 'output');
+        expect(rec.required).toEqual(['tree', 'name']);
+        expect(new AjvJsonSchemaValidator().getValidator(rec)({ tree: { v: 'r', kids: [{ v: 'k' }] }, name: 'n' }).valid).toBe(true);
+
+        // A POSITIVE-polarity hand-authored registry-shaped alias is loosen-safe
+        // too: entries mutate in place, so the alias observes the loosened entry.
+        const aliased = standardSchemaToJsonSchema(
+            z.object({ x: reg, alias: z.unknown().meta({ $ref: '#/$defs/Reg' }), name: z.string() }),
+            'output'
+        );
+        expect(((aliased.$defs as Record<string, Record<string, unknown>>).Reg!.required as string[]) ?? []).not.toContain('c');
+        expect(
+            new AjvJsonSchemaValidator().getValidator(aliased)({
+                x: { q: 'a', du: { t: 'a' } },
+                alias: { q: 'b', du: { t: 'b' } },
+                name: 'n'
+            }).valid
+        ).toBe(true);
+    });
+
+    test('nested nodes are never stamped by the loosen rewrite (vacuous keywords prove nothing)', () => {
+        // `properties`/`required` are vacuous for non-object instances — a
+        // hand-authored type-less oneOf member is satisfiable by 42, so stamping
+        // an enforced `type: 'object'` would reject pre-PR-valid payloads. The
+        // root's wrap stamp comes from the strict pre-loosen snapshot instead.
+        const schema = z.object({
+            counted: z.number().default(0), // unrelated loosening trigger
+            poly: z.unknown().meta({ oneOf: [{ properties: { a: { type: 'string' } } }], anyOf: [{}] }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const poly = (result.properties as Record<string, Record<string, unknown>>).poly!;
+        expect(poly.type).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ counted: 1, poly: 42, name: 'n' }).valid).toBe(true);
+        // Explicitly-typed members (zod DU emissions) keep the stamp — the
+        // 2025-era legacy-wrap protection is unaffected.
+        const du = standardSchemaToJsonSchema(
+            z
+                .discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+                ])
+                .meta({ anyOf: [{ type: 'object' }, { type: 'null' }] }),
+            'output'
+        );
+        expect(du.type).toBe('object');
+    });
+
+    test('polarity-consumed registry refs and unevaluated* keywords disable loosening', () => {
+        // (1) A registry-shaped ref under `not`: the entry loosens IN PLACE, so
+        // the negated consumer would observe every loosening as a tightening —
+        // the guard ships strict instead and `{}` keeps failing the target.
+        const regY = z.object({ q: z.string().default('d') }).meta({ id: 'Y' });
+        const negated = standardSchemaToJsonSchema(
+            z.object({ cfg: regY, guarded: z.unknown().meta({ not: { $ref: '#/$defs/Y' } }), name: z.string() }),
+            'output'
+        );
+        expect(((negated.$defs as Record<string, Record<string, unknown>>).Y!.required as string[]) ?? []).toContain('q'); // strict
+        expect(new AjvJsonSchemaValidator().getValidator(negated)({ cfg: { q: 'x' }, guarded: {}, name: 'n' }).valid).toBe(true);
+
+        // (2) A registry ref beside `unevaluatedProperties: false`: the catch
+        // degrade would strip the target's `properties`, so the still-resolving
+        // ref would stop contributing evaluation annotations.
+        const regX = z.object({ p: z.string() }).catch({ p: 'd' }).meta({ id: 'X' });
+        const annotated = standardSchemaToJsonSchema(
+            z.object({ cfg: regX, guarded: z.unknown().meta({ $ref: '#/$defs/X', unevaluatedProperties: false }), name: z.string() }),
+            'output'
+        );
+        expect(((annotated.$defs as Record<string, Record<string, unknown>>).X!.properties as Record<string, unknown>).p).toBeDefined();
+        expect(new AjvJsonSchemaValidator().getValidator(annotated)({ cfg: { p: 'v' }, guarded: { p: 'w' }, name: 'n' }).valid).toBe(true);
+
+        // (3) No ref at all: a hand-authored `unevaluatedProperties: false` on a
+        // zod-emitted union whose member the catch degrade would skeletonize
+        // loses that member's annotation contributions identically.
+        const refFree = standardSchemaToJsonSchema(
+            z.object({
+                x: z
+                    .union([z.looseObject({ p: z.string() }).catch({ p: 'd' }), z.looseObject({ q: z.number() })])
+                    .meta({ unevaluatedProperties: false }),
+                name: z.string()
+            }),
+            'output'
+        );
+        const member = ((refFree.properties as Record<string, Record<string, unknown>>).x!.anyOf as Array<Record<string, unknown>>)[0]!;
+        expect(member.properties).toBeDefined(); // strict: no skeleton
+        expect(new AjvJsonSchemaValidator().getValidator(refFree)({ x: { p: 'v' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the tuple wrap never mutates a registry-owned prefixItems array', () => {
+        // zod's Object.assign meta merge shares the user's array by reference and
+        // the override runs before the terminal deep clone — an in-place element
+        // write would corrupt registry metadata, nest one more anyOf per
+        // conversion, and leak false null-tolerance into input advertisements.
+        const userPrefixItems = [{ type: 'string' }, { type: 'number' }];
+        const schema = z.object({
+            t: z.tuple([z.string().default('x'), z.number()]).meta({ prefixItems: userPrefixItems }),
+            name: z.string()
+        });
+        const first = standardSchemaToJsonSchema(schema, 'output');
+        const second = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(userPrefixItems).toEqual([{ type: 'string' }, { type: 'number' }]); // registry untouched
+        // No nesting growth: both conversions advertise the identical single wrap.
+        expect(second).toEqual(first);
+        const prefixItems = (first.properties as Record<string, Record<string, unknown>>).t!.prefixItems as Array<Record<string, unknown>>;
+        expect(prefixItems[0]).toEqual({ anyOf: [{ type: 'string' }, { type: 'null' }] });
+    });
+
+    test('legacy-draft reference spellings disable loosening (dependencies, $recursiveRef)', () => {
+        // Ajv2020 with strict:false still compiles and ENFORCES draft-07
+        // `dependencies` and 2019-09 `$recursiveRef` — both must ship strict.
+        const gated = standardSchemaToJsonSchema(
+            z.object({
+                du: z.discriminatedUnion('t', [
+                    z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                    z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+                ]),
+                gated: z.unknown().meta({ type: 'object', dependencies: { a: { $ref: '#/properties/du/oneOf/0' } } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        expect((gated.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeDefined(); // strict: no rename
+        expect(new AjvJsonSchemaValidator().getValidator(gated)({ du: { t: 'a' }, gated: { b: 1 }, name: 'n' }).valid).toBe(true);
+
+        const recursive = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.number().default(0),
+                guarded: z.unknown().meta({ not: { $recursiveRef: '#' } }),
+                name: z.string().default('n')
+            }),
+            'output'
+        );
+        // Strict: the root keeps required/additionalProperties, so `{}` still
+        // fails the root and the negation keeps passing (pre-PR behavior).
+        expect(recursive.required).toEqual(['cfg', 'guarded', 'name']);
+        expect(new AjvJsonSchemaValidator().getValidator(recursive)({ cfg: 1, guarded: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('the wrap stamp reads the strict pre-loosen emission (parity with main at roots)', () => {
+        // Main decided the 2025-era wrap on the RAW emission — the epilogue now
+        // snapshots the proof on the strict pass, so loosen mutations of
+        // proof-relevant keys cannot flip the wire shape either direction.
+        // Keyword-presence-provable root oneOf: stamped with AND without an
+        // unrelated .default() trigger.
+        const root = z
+            .union([z.object({ c: z.number().default(0), a: z.string() }), z.null()])
+            .meta({ oneOf: [{ properties: { a: { type: 'string' } } }] });
+        const loosenedRoot = standardSchemaToJsonSchema(root, 'output');
+        expect(loosenedRoot.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(loosenedRoot)).toBe(false);
+        const untouchedRoot = standardSchemaToJsonSchema(
+            z.union([z.object({ a: z.string() }), z.null()]).meta({ oneOf: [{ properties: { a: { type: 'string' } } }] }),
+            'output'
+        );
+        expect(untouchedRoot.type).toBe('object');
+
+        // FAILING root oneOf (no object keyword): the allOf-push deletes the
+        // oneOf, but the snapshot keeps reading it — typeless and wrapped, with
+        // and without the trigger.
+        const failing = z
+            .union([z.object({ c: z.number().default(0), a: z.string() }), z.object({ b: z.string() })])
+            .meta({ oneOf: [{ minimum: 1 }] });
+        const failingLoosened = standardSchemaToJsonSchema(failing, 'output');
+        expect(failingLoosened.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(failingLoosened)).toBe(true);
+        const failingUntouched = standardSchemaToJsonSchema(
+            z.union([z.object({ a: z.string() }), z.object({ b: z.string() })]).meta({ oneOf: [{ minimum: 1 }] }),
+            'output'
+        );
+        expect(failingUntouched.type).toBeUndefined();
+
+        // NESTED member whose provability evidence the push relocates: the
+        // snapshot still proves it through the member's oneOf.
+        const nested = z.union([
+            z.object({ c: z.number().default(0), a: z.string() }),
+            z.unknown().meta({ oneOf: [{ properties: { q: { type: 'string' } } }], anyOf: [{}] })
+        ]);
+        expect(standardSchemaToJsonSchema(nested, 'output').type).toBe('object');
+
+        // Catch degrade deleting meta-authored proof keys (`required`): the
+        // snapshot read them before the degrade.
+        const catchRoot = z
+            .union([z.object({ x: z.number() }), z.null()])
+            .catch({ x: 1 })
+            .meta({ required: ['x'] });
+        expect(standardSchemaToJsonSchema(catchRoot, 'output').type).toBe('object');
+
+        // The snapshot honors main's DECISION ORDER too: an explicit non-object
+        // type on the strict root short-circuits before the proof, so
+        // meta-authored object keywords on a scalar catch root cannot prove it
+        // even though the degrade deletes the type before the epilogue runs.
+        const typedRoot = z
+            .number()
+            .catch(0)
+            .meta({ properties: { a: { type: 'string' } } });
+        const typedResult = standardSchemaToJsonSchema(typedRoot, 'output');
+        expect(typedResult.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(typedResult)).toBe(true); // wrap parity with main
+    });
+
+    test('nonoptional re-forbids undefined: .required() fields stay advertised required', () => {
+        // The structural walk must not propagate acceptance-tolerance through
+        // z.nonoptional() — the validate(undefined) probe decides instead.
+        const out = z.object({ a: z.string().optional(), b: z.number() }).required();
+        const result = standardSchemaToJsonSchema(out, 'output');
+        expect(result.required).toEqual(['a', 'b']); // zod's own truthful emission
+        // FILLING tolerance survives the wrapper: the default replaces undefined
+        // before nonoptional's check runs, so the probe keeps the field droppable.
+        const filled = standardSchemaToJsonSchema(z.object({ c: z.number().default(1).nonoptional(), b: z.number() }), 'output');
+        expect(filled.required).toEqual(['b']);
+    });
+
+    test('pipe tolerance needs the OUT side to be a bare transform', () => {
+        // A validating OUT side may reject the filled/passed value, so the walk
+        // claims nothing and the validate(undefined) probe decides — the filled 0
+        // fails min(1), and optional-through-coerce yields NaN.
+        const validatingOut = z.object({ p: z.number().default(0).pipe(z.number().min(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(validatingOut, 'output').required).toEqual(['p', 'name']);
+        const coerced = z.object({ p: z.string().optional().pipe(z.coerce.number()), name: z.string() });
+        expect(standardSchemaToJsonSchema(coerced, 'output').required).toEqual(['p', 'name']);
+        // A defaulted value satisfying the OUT side keeps the field droppable via
+        // the probe...
+        const satisfied = z.object({ p: z.number().default(5).pipe(z.number().min(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(satisfied, 'output').required).toEqual(['name']);
+        // ...and the bare-transform OUT side keeps the structural shortcut (the
+        // async stage below is exactly why the probe cannot be used there).
+        const bareTransform = z.object({
+            p: z
+                .number()
+                .default(7)
+                .transform(async value => value + 1),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(bareTransform, 'output').required).toEqual(['name']);
+    });
+
+    test('prefault, unmergeable intersections, and promise fields stay advertised required', () => {
+        // .prefault(v) feeds v THROUGH the inner schema — filling-then-revalidating
+        // is not filling, so the probe decides: the rejected fill keeps the field
+        // required, a valid fill keeps it droppable.
+        const prefaulted = z.object({ p: z.number().min(1).prefault(0), name: z.string() });
+        expect(standardSchemaToJsonSchema(prefaulted, 'output').required).toEqual(['p', 'name']);
+        const validPrefault = z.object({ p: z.number().min(1).prefault(5), name: z.string() });
+        expect(standardSchemaToJsonSchema(validPrefault, 'output').required).toEqual(['name']);
+        // Two scalar defaults with different values make zod throw 'Unmergable
+        // intersection' on every payload omitting the key.
+        const unmergeable = z.object({ m: z.intersection(z.number().default(0), z.number().default(1)), name: z.string() });
+        expect(standardSchemaToJsonSchema(unmergeable, 'output').required).toEqual(['m', 'name']);
+        // zod 4's promise parse rejects undefined regardless of the inner type.
+        const promised = z.object({ p: z.promise(z.number().default(0)), name: z.string() });
+        expect(standardSchemaToJsonSchema(promised, 'output').required).toEqual(['p', 'name']);
+    });
+
+    test('symbol leaves keep their wire-drop tolerance through nonoptional', () => {
+        // JSON.stringify drops symbol-valued keys regardless of what validation
+        // demands — serialization tolerance survives the re-forbid even though
+        // the probe (validation-only) cannot see it.
+        const required = z.object({ s: z.symbol().optional(), name: z.string() }).required();
+        expect(standardSchemaToJsonSchema(required, 'output').required).toEqual(['name']);
+        // Acceptance tolerance still must NOT survive.
+        const acceptance = z.object({ a: z.string().optional(), name: z.string() }).required();
+        expect(standardSchemaToJsonSchema(acceptance, 'output').required).toEqual(['a', 'name']);
+    });
+
+    test('checks on tolerance-granting nodes defer to the probe (sync verdicts)', () => {
+        // .refine() attaches to the SAME node and re-validates the filled/accepted
+        // value — the rejected fills stay required, the satisfied ones drop.
+        const rejected = z.object({
+            d: z
+                .number()
+                .default(0)
+                .refine(v => v >= 1),
+            c: z
+                .number()
+                .catch(0)
+                .refine(v => v >= 1),
+            a: z.any().refine(v => v !== undefined),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(rejected, 'output').required).toEqual(['d', 'c', 'a', 'name']);
+        const satisfied = z.object({
+            d: z
+                .number()
+                .default(5)
+                .refine(v => v >= 1),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(satisfied, 'output').required).toEqual(['name']);
+    });
+
+    test('non-plain intersection default fills defer to the probe', () => {
+        // Date fills have zero own enumerable keys (vacuously "disjoint") yet zod
+        // merges them only when the timestamps are EQUAL — undecidable
+        // structurally, correct both directions via the probe.
+        const unmergeable = z.object({
+            m: z.intersection(z.date().default(new Date(0)), z.date().default(new Date(86_400_000))),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(unmergeable, 'output').required).toEqual(['m', 'name']);
+        const sameTimestamp = z.object({
+            m: z.intersection(z.date().default(new Date(0)), z.date().default(new Date(0))),
+            name: z.string()
+        });
+        expect(standardSchemaToJsonSchema(sameTimestamp, 'output').required).toEqual(['name']);
+    });
+
+    test('recursive and cross-registered schemas strip the id and keep the loosening', () => {
+        // zod ITSELF emits #/$defs/<name> refs inside id-carrying entries for
+        // z.lazy self-refs and cross-registered schemas — root-base pointers that
+        // never resolve through the id base, so the strip is strictly safe and
+        // the loosen family must stay on.
+        type Cat = { name: string; friend?: Cat };
+        const Category: z.ZodType<Cat> = z.object({ name: z.string(), friend: z.lazy(() => Category).optional() }).meta({ id: 'Category' });
+        const schema = z.object({ cat: Category, counted: z.number().default(0), name: z.string() });
+        for (const io of ['output', 'input'] as const) {
+            const result = standardSchemaToJsonSchema(schema, io);
+            expect(((result.$defs as Record<string, Record<string, unknown>>).Category ?? {}).id).toBeUndefined();
+            expect(
+                new AjvJsonSchemaValidator().getValidator(result)({ cat: { name: 'c', friend: { name: 'f' } }, counted: 1, name: 'n' })
+                    .valid
+            ).toBe(true);
+        }
+        // The loosening applied on output: the defaulted field left required.
+        expect(standardSchemaToJsonSchema(schema, 'output').required).toEqual(['cat', 'name']);
+    });
+
+    test('union- and lazy-nested symbols keep their wire-drop tolerance through nonoptional', () => {
+        const unioned = z.object({ s: z.union([z.symbol(), z.string()]).nonoptional(), name: z.string() });
+        expect(standardSchemaToJsonSchema(unioned, 'output').required).toEqual(['name']);
+        const lazied = z.object({ s: z.lazy(() => z.symbol()).nonoptional(), name: z.string() });
+        expect(standardSchemaToJsonSchema(lazied, 'output').required).toEqual(['name']);
+    });
+
+    test('registry-shaped refs inside an id resource keep the id (context-aware gate)', () => {
+        // cfworker resolves a `$ref: '#'` inside a draft-04 id resource
+        // base-relatively to THAT resource — zod never emits that spelling there,
+        // so it is hand-authored and the strip would invert every verdict.
+        const reg = z.object({ q: z.string(), self: z.unknown().optional().meta({ $ref: '#' }) }).meta({ id: 'RegSelf' });
+        const schema = z.object({ x: reg, name: z.string() });
+        for (const io of ['output', 'input'] as const) {
+            const result = standardSchemaToJsonSchema(schema, io);
+            expect(((result.$defs as Record<string, Record<string, unknown>>).RegSelf ?? {}).id).toBe('RegSelf');
+            const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+            expect(validate({ x: { q: 'a', self: { q: 'b' } }, name: 'n' }).valid).toBe(true); // resource-shaped self
+            expect(validate({ x: { q: 'a', self: { x: { q: 'c' }, name: 'm' } }, name: 'n' }).valid).toBe(false); // root-shaped self
+        }
+        // Registry-only documents (no refs inside entries) still get the strip.
+        const plain = z.object({ q: z.string() }).meta({ id: 'RegPlain' });
+        const stripped = standardSchemaToJsonSchema(z.object({ x: plain, y: plain, name: z.string() }), 'output');
+        expect(((stripped.$defs as Record<string, Record<string, unknown>>).RegPlain ?? {}).id).toBeUndefined();
+    });
+
+    test('input conversions keep draft-04 id when hand-authored refs need its base', () => {
+        // The input branch defers the strip under the same gate as the output
+        // paths — no reference guard runs on input, but the hand-authored-ref
+        // test does.
+        const reg = z.object({ q: z.string() }).meta({ id: 'RegIn' });
+        const inResult = standardSchemaToJsonSchema(
+            z.object({ x: reg, alias: z.unknown().meta({ $ref: 'RegIn' }), name: z.string() }),
+            'input'
+        );
+        expect(((inResult.$defs as Record<string, Record<string, unknown>>).RegIn ?? {}).id).toBe('RegIn');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(inResult);
+        expect(validate({ x: { q: 'a' }, alias: { q: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a' }, alias: { nope: 1 }, name: 'n' }).valid).toBe(false); // ref enforces
+        // Registry-only inputs still get the strip (Ajv compilability).
+        const registryOnly = standardSchemaToJsonSchema(z.object({ x: reg, y: reg, name: z.string() }), 'input');
+        expect(((registryOnly.$defs as Record<string, Record<string, unknown>>).RegIn ?? {}).id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(registryOnly)({ x: { q: 'a' }, y: { q: 'b' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('fragment refs inside an id resource keep the id (base-relative resolution)', () => {
+        // cfworker resolves a fragment pointer inside a draft-04 id resource
+        // relative to THAT base — stripping the id would retarget it to the root
+        // and dangle. Any hand-authored ref, fragment-form included, keeps the id.
+        const reg = z.object({ q: z.string(), alias: z.unknown().meta({ $ref: '#/properties/q' }) }).meta({ id: 'RegY' });
+        const result = standardSchemaToJsonSchema(z.object({ x: reg, name: z.string() }), 'output');
+
+        expect(((result.$defs as Record<string, Record<string, unknown>>).RegY ?? {}).id).toBe('RegY');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ x: { q: 'a', alias: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a', alias: 1 }, name: 'n' }).valid).toBe(false); // resolves against the RegY base
+    });
+
+    test('guard-shipped documents keep draft-04 id when URI-form refs need its base', () => {
+        // cfworker resolves URI-form refs through `schema.$id || schema.id` base
+        // registration — the strict emission must keep the `id` the ref resolves
+        // through (Ajv rejected these documents pre-#2464 too, so nothing Ajv
+        // regresses).
+        const reg = z.object({ q: z.string() }).meta({ id: 'RegX' });
+        const schema = z.object({
+            x: reg,
+            alias: z.unknown().meta({ $ref: 'RegX' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(result.required).toEqual(['x', 'alias', 'name']); // guard fired: strict
+        expect(((result.$defs as Record<string, Record<string, unknown>>).RegX ?? {}).id).toBe('RegX');
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ x: { q: 'a' }, alias: { q: 'b' }, name: 'n' }).valid).toBe(true);
+        expect(validate({ x: { q: 'a' }, alias: { nope: 1 }, name: 'n' }).valid).toBe(false); // ref still enforces
+
+        // Fragment-only guard-fired documents still get the post-hoc strip, so
+        // Ajv keeps compiling registry-id documents with exotic constructs.
+        const fragmentOnly = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.object({ q: z.string().default('d') }).meta({ id: 'Y' }),
+                guarded: z.unknown().meta({ not: { $ref: '#/$defs/Y' } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        expect(((fragmentOnly.$defs as Record<string, Record<string, unknown>>).Y ?? {}).id).toBeUndefined();
+        expect(new AjvJsonSchemaValidator().getValidator(fragmentOnly)({ cfg: { q: 'x' }, guarded: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('a solo additionalProperties drop still fires the oneOf rename', () => {
+        // The drop is member-visible loosening through positive-polarity registry
+        // refs: both $defs entries lose additionalProperties: false, the payload
+        // matches both, and a surviving exactly-one oneOf would reject everything.
+        const A = z.object({ kind: z.string() }).meta({ id: 'ReproA' });
+        const B = z.object({ kind: z.string(), extra: z.number() }).meta({ id: 'ReproB' });
+        const schema = z.object({
+            x: A,
+            y: B,
+            // A string-keyed record carrier: not missing-key-tolerant, so no other
+            // loosen mutation fires — the drop must set the flag itself.
+            choice: z.record(z.string(), z.unknown()).meta({ oneOf: [{ $ref: '#/$defs/ReproA' }, { $ref: '#/$defs/ReproB' }] }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        const choice = (result.properties as Record<string, Record<string, unknown>>).choice!;
+        expect(choice.oneOf).toBeUndefined();
+        expect(Array.isArray(choice.anyOf)).toBe(true);
+        const payload = { x: { kind: 'k' }, y: { kind: 'k', extra: 1 }, choice: { kind: 'k', extra: 1 }, name: 'n' };
+        expect(new AjvJsonSchemaValidator().getValidator(result)(payload).valid).toBe(true);
+    });
+
+    test('refs inside draft-07 additionalItems disable loosening (cfworker enforces it)', () => {
+        // @cfworker/json-schema validates additionalItems in every draft mode and
+        // collects refs inside it — a dangling one throws at validator build.
+        const schema = z.object({
+            du: z.discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ]),
+            arr: z.unknown().meta({ type: 'array', items: [{ type: 'string' }], additionalItems: { $ref: '#/properties/du/oneOf/0' } }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).du!.oneOf).toBeDefined(); // strict shipped
+        const validate = new CfWorkerJsonSchemaValidator().getValidator(result);
+        expect(validate({ du: { t: 'a' }, arr: ['head', { t: 'a', x: 'v' }], name: 'n' }).valid).toBe(true);
+        expect(validate({ du: { t: 'a' }, arr: ['head', { z: 1 }], name: 'n' }).valid).toBe(false); // ref still enforces
+
+        // Catch-degrade spelling: the ref's target would be deleted.
+        const degraded = standardSchemaToJsonSchema(
+            z.object({
+                cfg: z.object({ q: z.string() }).catch({ q: 'd' }),
+                arr: z
+                    .unknown()
+                    .meta({ type: 'array', items: [{ type: 'string' }], additionalItems: { $ref: '#/properties/cfg/properties/q' } }),
+                name: z.string()
+            }),
+            'output'
+        );
+        const cfg = (degraded.properties as Record<string, Record<string, unknown>>).cfg!;
+        expect((cfg.properties as Record<string, unknown>).q).toEqual({ type: 'string' }); // strict: no degrade
+        expect(new CfWorkerJsonSchemaValidator().getValidator(degraded)({ cfg: { q: 'x' }, arr: ['head', 'tail'], name: 'n' }).valid).toBe(
+            true
+        );
+    });
+
+    test('relocated members keep their stamp beside a null-membered user anyOf', () => {
+        // The loosen rewrite relocates the DU members under allOf beside the
+        // user's .meta({anyOf}) — the epilogue's strict pre-loosen snapshot read
+        // the emitted oneOf (first-present-key-wins) and stamps the root, where
+        // the post-loosen document alone could not prove it (the user's anyOf has
+        // a null member).
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }, { type: 'null' }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+    });
+
+    test('untouched multi-key composition roots keep the typeless root (first-present-key-wins)', () => {
+        // No loosening fires here, so the emission reaches the epilogue proof
+        // untouched: its first present composition key (the union's anyOf) has a
+        // null member, so main never stamped — an any-key-may-prove rule reading
+        // the user's allOf instead would flip the 2025-era legacy wrap for a
+        // WORKING pre-#2464 registration.
+        const schema = z.union([z.object({ a: z.string() }), z.null()]).meta({ allOf: [{ type: 'object' }] });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect(result.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(true);
+    });
+
+    test('bigint-valued literal output roots throw across spellings', () => {
+        // These emit an explicit {type: 'number', const: …} under
+        // unrepresentable: 'any' (bypassing the typeless guard), yet no result can
+        // ever be serialized — JSON.stringify throws on BigInt. Pre-#2464 they threw.
+        expect(() => standardSchemaToJsonSchema(z.literal(1n), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.literal(1n).optional(), 'output')).toThrow(/must describe objects/);
+        expect(() => standardSchemaToJsonSchema(z.literal(1n).readonly(), 'output')).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.lazy(() => z.literal(1n)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // The input spelling keeps throwing via the explicit-type guard.
+        expect(() => standardSchemaToJsonSchema(z.literal(1n), 'input')).toThrow(/got type/);
+    });
+
+    test('untouched intersection output roots keep their pre-#2464 verdicts', () => {
+        // A loud conjunct must throw even though the object conjunct could prove the
+        // root (an intersection value can never satisfy both sides) ...
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.bigint()), 'output')).toThrow(
+            /must describe objects/
+        );
+        // ... and a quiet non-provable conjunct keeps the typeless root, preserving
+        // the 2025-era legacy wrap for a WORKING pre-#2464 registration.
+        const anyConjunct = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.any()), 'output');
+        expect(anyConjunct.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(anyConjunct)).toBe(true);
+    });
+
+    test('an all-date union side keeps date intersections loud on output', () => {
+        // `z.union([z.date(), z.date()])` admits only Dates — no value satisfies
+        // both it and the object side, and pre-#2464 the conversion threw on the
+        // date. The union spelling must not slip past the direct-side parity check.
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.date()])), 'output')
+        ).toThrow(/must describe objects/);
+        // A date union ROOT stays quiet — the date override makes those emissions
+        // wire-truthful, so 'timestamp or one of these' style tools keep listing.
+        const root = standardSchemaToJsonSchema(z.union([z.date(), z.date()]), 'output');
+        expect(root.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(root)).toBe(true);
+    });
+
+    test('mixed quiet-member unions carrying a date keep intersections loud on output', () => {
+        // A quiet co-member that adds no JSON-satisfiable value (never matches
+        // nothing; Files and non-finite literals are never JSON objects) must not
+        // launder the union's date-sidedness: all three spellings threw on the
+        // date pre-#2464.
+        for (const coMember of [z.never(), z.literal(Infinity), z.file()]) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), coMember])), 'output')
+            ).toThrow(/must describe objects/);
+        }
+        // No date member, no date side: a union of nevers listed pre-#2464 (it
+        // emitted {not: {}} members without throwing) and must keep doing so.
+        const noDate = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.never(), z.never()])), 'output');
+        expect(noDate.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(noDate)).toBe(true);
+    });
+
+    test('date-carrying non-object unions keep intersections loud on output (structural)', () => {
+        // Every co-member spelling that provably cannot satisfy the object side —
+        // representable non-objects (short-circuited the old may-be-object bail)
+        // and quiet compositions of unsatisfiable kinds (escaped the old leaf-kind
+        // enumeration) — must not launder the date: all seven threw pre-#2464.
+        const coMembers = [
+            z.string(),
+            z.number(),
+            z.null(),
+            z.literal('x'),
+            z.union([z.never(), z.never()]),
+            z.intersection(z.never(), z.never()),
+            z.union([z.file(), z.literal(Infinity)]),
+            // A JSON array is never a JSON object — array/tuple members are as
+            // provably non-object as the primitives above.
+            z.array(z.string()),
+            z.tuple([z.string()])
+        ];
+        for (const coMember of coMembers) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.date(), coMember])), 'output')
+            ).toThrow(/must describe objects/);
+        }
+        // Loud non-date co-member verdicts survive the bail too, on BOTH io paths
+        // (the input spelling used to list as a stamped phantom tool).
+        for (const io of ['output', 'input'] as const) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.union([z.bigint(), z.array(z.string())])), io)
+            ).toThrow(/must describe objects/);
+        }
+        // A PLAIN array side (no union, no date) was no-throw pre-#2464 — the
+        // defined-but-quiet verdict keeps it listing.
+        const plainArray = standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.array(z.string())), 'output');
+        expect(plainArray.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(plainArray)).toBe(true);
+        // A may-be-object member makes the intersection satisfiable — keeps listing.
+        const satisfiable = standardSchemaToJsonSchema(
+            z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+            'output'
+        );
+        expect(satisfiable.type).toBeUndefined();
+        expect(isNonObjectJsonSchemaRoot(satisfiable)).toBe(true);
+        // Root/union positions are untouched: outside intersections a
+        // representable member discharges the union (a working
+        // 'timestamp-or-string' tool on either io path).
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'output').type).toBeUndefined();
+        expect(standardSchemaToJsonSchema(z.union([z.date(), z.string()]), 'input').type).toBe('object');
+    });
+
+    test('a may-be-object union member cannot launder loudness past a non-object conjunct', () => {
+        // The union's object member makes the union satisfiable against an OBJECT
+        // conjunct — but against a provably non-object conjunct (array/string) the
+        // object possibility is dead, and the loud date/bigint member must
+        // surface: all of these threw pre-#2464.
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.array(z.string()), z.union([z.date(), z.object({ b: z.number() })])), 'output')
+        ).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(z.intersection(z.string(), z.union([z.date(), z.object({ b: z.number() })])), 'output')
+        ).toThrow(/must describe objects/);
+        for (const io of ['output', 'input'] as const) {
+            expect(() =>
+                standardSchemaToJsonSchema(z.intersection(z.array(z.string()), z.union([z.bigint(), z.object({ b: z.number() })])), io)
+            ).toThrow(/must describe objects/);
+        }
+        // Against an OBJECT conjunct the same union keeps listing (satisfiable) —
+        // the pinned control — and its inner loudness rides through NESTED
+        // intersections until a non-object conjunct kills the object possibility.
+        const satisfiable = standardSchemaToJsonSchema(
+            z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+            'output'
+        );
+        expect(satisfiable.type).toBeUndefined();
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z.intersection(
+                    z.intersection(z.object({ a: z.string() }), z.union([z.date(), z.object({ b: z.number() })])),
+                    z.array(z.string())
+                ),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+    });
+
+    test('piped and undefined-filtered loud literal output roots throw', () => {
+        // A bigint literal on a pipe's OUT side emits {type: 'number', const: 1},
+        // bypassing the typeless guard — pre-#2464 the conversion threw.
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z
+                    .number()
+                    .transform(() => 1n)
+                    .pipe(z.literal(1n)),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        expect(() =>
+            standardSchemaToJsonSchema(
+                z
+                    .number()
+                    .transform(() => 1n)
+                    .pipe(z.literal([1n, 2n])),
+                'output'
+            )
+        ).toThrow(/must describe objects/);
+        // zod filters undefined out of the value list, emitting {type: 'string',
+        // const: 'a'} — but the undefined value threw pre-#2464.
+        expect(() => standardSchemaToJsonSchema(z.literal([undefined, 'a']), 'output')).toThrow(/must describe objects/);
+        // Representable literal output roots keep listing.
+        expect(standardSchemaToJsonSchema(z.literal('a'), 'output').type).toBe('string');
+    });
+
+    test('the catch degrade keeps reference targets ($anchor) compilable', () => {
+        // $anchor/$dynamicAnchor/$id constrain no instance value — deleting them only
+        // dangles inbound $refs, making the advertisement uncompilable (every
+        // callTool would fail at Ajv compile, before the request is sent).
+        const schema = z.object({
+            cfg: z.object({ q: z.string() }).catch({ q: 'd' }).meta({ $anchor: 'cfgAnchor' }),
+            alias: z.unknown().meta({ $ref: '#cfgAnchor' }),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        expect((result.properties as Record<string, Record<string, unknown>>).cfg!.$anchor).toBe('cfgAnchor');
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate({ cfg: { q: 'x' }, alias: { q: 'y' }, name: 'n' }).valid).toBe(true);
+    });
+
+    test('skeletons and the catch degrade keep member anchors and $defs compilable', () => {
+        // (1) compositionTypeSkeleton must carry member reference targets — a
+        // catch-of-union member's $anchor with a sibling $ref alias dangled.
+        const unionSchema = z.object({
+            cfg: z.union([z.object({ q: z.string() }).meta({ $anchor: 'cfgA' }), z.object({ r: z.number() })]).catch({ q: 'd' }),
+            alias: z.unknown().meta({ $ref: '#cfgA' }),
+            name: z.string()
+        });
+        const unionResult = standardSchemaToJsonSchema(unionSchema, 'output');
+        const unionValidate = new AjvJsonSchemaValidator().getValidator(unionResult);
+        expect(unionValidate({ cfg: { q: 'x' }, alias: { q: 'y' }, name: 'n' }).valid).toBe(true);
+
+        // (2) $defs is a pure reference CONTAINER — deleting it from a catch node
+        // dangled cross-subtree $refs into it.
+        const defsSchema = z.object({
+            cfg: z
+                .object({ q: z.string() })
+                .catch({ q: 'd' })
+                .meta({ $defs: { X: { type: 'string' } } }),
+            alias: z.unknown().meta({ $ref: '#/properties/cfg/$defs/X' }),
+            name: z.string()
+        });
+        const defsResult = standardSchemaToJsonSchema(defsSchema, 'output');
+        const defsValidate = new AjvJsonSchemaValidator().getValidator(defsResult);
+        expect(defsValidate({ cfg: { q: 'x' }, alias: 's', name: 'n' }).valid).toBe(true);
+    });
+
+    test('date-containing intersections stay loud on the output path', () => {
+        // No value satisfies both an object side and a Date, and every
+        // date-containing intersection threw pre-#2464 — the quiet output-path date
+        // verdict must not flow into intersection positions.
+        expect(() => standardSchemaToJsonSchema(z.intersection(z.object({ a: z.string() }), z.date()), 'output')).toThrow(
+            /must describe objects/
+        );
+        // Wire-truthful date output shapes keep listing (pinned elsewhere too).
+        expect(Array.isArray(standardSchemaToJsonSchema(z.date().nullable(), 'output').anyOf)).toBe(true);
+    });
+
+    test('user conjuncts defeating the post-loosen proof still get the root stamp (strict snapshot)', () => {
+        // A .meta() carrying BOTH a non-all-object anyOf AND a non-object-provable
+        // allOf conjunct defeats every() on every composition key after the push —
+        // but the epilogue's strictRootProven snapshot read the STRICT emission,
+        // whose first present key was the DU's all-object oneOf, so the root is
+        // stamped exactly as pre-#2464 (the push branch itself stamps nothing).
+        const du = z
+            .discriminatedUnion('t', [
+                z.object({ t: z.literal('a').catch('a'), x: z.string().optional() }),
+                z.object({ t: z.literal('b').catch('b'), y: z.string().optional() })
+            ])
+            .meta({ anyOf: [{ type: 'object' }, { type: 'null' }], allOf: [{ minProperties: 1 }] });
+        const result = standardSchemaToJsonSchema(du, 'output');
+
+        expect(result.type).toBe('object');
+        expect(isNonObjectJsonSchemaRoot(result)).toBe(false);
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ t: 'a', x: 'v' }).valid).toBe(true);
+    });
+
+    test('nullable date output roots list and validate their wire forms', () => {
+        // The date override makes date-rooted OUTPUT emissions wire-truthful (a raw
+        // Date ships as an ISO string), so 'timestamp or null' must list — classifying
+        // date as loud on output killed the whole tools/list for it.
+        const result = standardSchemaToJsonSchema(z.date().nullable(), 'output');
+
+        expect(Array.isArray(result.anyOf)).toBe(true);
+        const validate = new AjvJsonSchemaValidator().getValidator(result);
+        expect(validate(new Date().toISOString()).valid).toBe(true);
+        expect(validate(null).valid).toBe(true);
+        // Input-path date members stay loud (pinned elsewhere: union(date,date) throws)
+        // and output unions still turn loud with a genuinely-loud co-member.
+        expect(() => standardSchemaToJsonSchema(z.union([z.date(), z.bigint()]), 'output')).toThrow(/must describe objects/);
+    });
+
+    test('custom .meta() keys are annotation-opaque at both carve-out sites', () => {
+        // zod merges arbitrary .meta() keys verbatim and 2020-12 validators ignore
+        // unknown keywords — they are annotations by construction, like x-*.
+        const schema = z.object({
+            v: z.number().meta({ ui: { oneOf: [1, 2] } }),
+            c: z
+                .number()
+                .catch(0)
+                .meta({ ui: { hint: 'slider' }, title: 't' }),
+            counted: z.number().default(0), // trips the loosened flag
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+        const properties = result.properties as Record<string, Record<string, unknown>>;
+
+        // The oneOf rewrite must not recurse into the custom key's DATA ...
+        expect(properties.v!.ui).toEqual({ oneOf: [1, 2] });
+        // ... and the catch degrade must keep it (while still stripping constraints).
+        expect(properties.c).toEqual({ default: 0, title: 't', ui: { hint: 'slider' } });
+    });
+
+    test('z.file() output fields also accept their wire form', () => {
+        // A File serializes to {} on the wire while zod emits string/binary.
+        const result = standardSchemaToJsonSchema(z.object({ f: z.file(), name: z.string() }), 'output');
+
+        expect(new AjvJsonSchemaValidator().getValidator(result)({ f: {}, name: 'n' }).valid).toBe(true);
+    });
+
+    test('.catch() and union-nested defaults with async stages are dropped from output required', () => {
+        const schema = z.object({
+            c: z
+                .number()
+                .catch(0)
+                .transform(async v => v),
+            u: z.union([
+                z
+                    .number()
+                    .default(7)
+                    .transform(async v => v),
+                z.string()
+            ]),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // A check-free static .catch() tolerates a missing key by construction
+        // (like a default; async stages live DOWNSTREAM in bare-transform pipes),
+        // and a union accepts one whenever ANY member does — both must be
+        // recognized structurally, since the async stages push the validate probe
+        // to a Promise.
+        expect(result.required).toEqual(['name']);
+    });
+
+    test('union-wrapped symbols, async any/unknown, and preprocess defaults are dropped from output required', () => {
+        const schema = z.object({
+            s: z.union([z.symbol(), z.string()]),
+            a: z.any().transform(async v => v),
+            u: z.unknown().transform(async v => v),
+            p: z.preprocess(v => v, z.number().default(7)),
+            checked: z.any().refine(async () => true),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // JSON.stringify drops Symbol-valued keys whichever union member matched;
+        // check-free any/unknown accept undefined outright (async stages live
+        // downstream); and z.preprocess builds the opposite pipe (transform at
+        // def.in, the default at def.out). A CHECK on the tolerant node itself
+        // (`z.any().refine(async …)`) re-validates undefined — undecidable
+        // structurally, async for the probe — so it conservatively stays
+        // required.
+        expect(result.required).toEqual(['checked', 'name']);
+
+        // Same predicate at the record call site.
+        const record = standardSchemaToJsonSchema(z.record(z.enum(['a', 'b']), z.union([z.symbol(), z.string()])), 'output');
+        expect(record.required).toBeUndefined();
+    });
+
+    test('optional-in-pipe, void, undefined-literals, and both-tolerant intersections drop from output required', () => {
+        const schema = z.object({
+            opt: z
+                .string()
+                .optional()
+                .transform(async v => v ?? 'x'),
+            w: z.void().transform(async v => v),
+            l: z.literal(undefined).transform(async v => v),
+            m: z
+                .intersection(z.object({ a: z.string() }).default({ a: 'x' }), z.object({ b: z.string() }).default({ b: 'y' }))
+                .transform(async v => v),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `optional` grants tolerance itself and must be recognized before the
+        // wrapper unwind steps past it; void/undefined-literals accept a missing key
+        // outright; an intersection tolerates one for the provably-mergeable
+        // disjoint-key object-defaults shape (each default fills and the fills
+        // merge). Async stages live DOWNSTREAM in bare-transform pipes — they
+        // defeat the probe, so all must be decided structurally on the check-free
+        // IN sides.
+        expect(result.required).toEqual(['name']);
+
+        // Same predicate at the record call site.
+        const record = standardSchemaToJsonSchema(
+            z.record(
+                z.enum(['a', 'b']),
+                z
+                    .string()
+                    .optional()
+                    .transform(async v => v ?? 'x')
+            ),
+            'output'
+        );
+        expect(record.required).toBeUndefined();
+    });
+
+    test('a required field whose transform throws on undefined stays required and does not crash', async () => {
+        const schema = z.object({
+            n: z.unknown().transform(v => (v as string).length),
+            c: z.custom<string>(() => true).transform(v => (v as string).length),
+            name: z.string()
+        });
+        const result = standardSchemaToJsonSchema(schema, 'output');
+
+        // `n` unwinds to the undefined-accepting `z.unknown()` leaf, so it counts as
+        // missing-key tolerant structurally (loosen-only). `c` unwinds to `custom`
+        // (no structural verdict), so the probe runs: the transform throws on
+        // undefined (depending on the zod version the probe throws synchronously or
+        // returns a rejecting Promise) — the field conservatively stays required, and
+        // no unhandled rejection may escape (vitest fails the run on one).
+        expect(result.required).toEqual(['c', 'name']);
+        await new Promise(resolve => setTimeout(resolve, 10));
+    });
+
+    test('plain z.object() output schemas do not advertise additionalProperties:false', () => {
+        const result = standardSchemaToJsonSchema(z.object({ name: z.string() }), 'output');
+
+        // zod validation passes unknown keys through on plain objects, so the raw
+        // payload may carry extras the advertised schema must not forbid.
+        expect(result.additionalProperties).toBeUndefined();
+    });
+
+    test('z.strictObject() output schemas keep additionalProperties:false', () => {
+        const result = standardSchemaToJsonSchema(z.strictObject({ name: z.string() }), 'output');
+
+        // Strict objects reject extras during validation, so the promise is kept.
+        expect(result.additionalProperties).toBe(false);
     });
 });
