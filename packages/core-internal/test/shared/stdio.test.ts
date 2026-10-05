@@ -1,3 +1,4 @@
+import { vi } from 'vitest';
 import { ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
 import type { JSONRPCMessage } from '../../src/types/index';
 
@@ -155,4 +156,18 @@ describe('buffer size limit', () => {
         readBuffer.append(Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: 'ping' }) + '\n'));
         expect(readBuffer.readMessage()).not.toBeNull();
     });
+});
+
+test('should clear backing allocation when final byte is consumed', () => {
+    const readBuffer = new ReadBuffer();
+    const largePayload = 'x'.repeat(1024);
+    readBuffer.append(Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: largePayload }) + '\n'));
+    expect(readBuffer.readMessage()).toEqual({ jsonrpc: '2.0', method: largePayload });
+
+    const appendSpy = vi.spyOn(Buffer, 'concat');
+    const nextChunk = Buffer.from(JSON.stringify(testMessage) + '\n');
+    readBuffer.append(nextChunk);
+    expect(appendSpy).not.toHaveBeenCalled();
+    expect(readBuffer.readMessage()).toEqual(testMessage);
+    appendSpy.mockRestore();
 });
