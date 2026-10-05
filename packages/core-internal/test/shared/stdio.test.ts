@@ -143,6 +143,69 @@ describe('buffer size limit', () => {
         expect(readBuffer.readMessage()).toBeNull();
     });
 
+    describe('resync after an oversized message', () => {
+        const line = JSON.stringify(testMessage) + '\n';
+
+        test('resumes at the next message boundary, not mid-message', () => {
+            const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
+            readBuffer.append(Buffer.alloc(60, 0x41));
+            expect(() => readBuffer.append(Buffer.alloc(60, 0x41))).toThrow(/ReadBuffer exceeded maximum size/);
+
+            // The tail of the oversized message, then a real one. Before, the
+            // tail landed in an empty buffer and was fed to the parser as if it
+            // were a message of its own.
+            readBuffer.append(Buffer.from('AAAA"}]}}\n' + line));
+            expect(readBuffer.readMessage()).toEqual(testMessage);
+            expect(readBuffer.readMessage()).toBeNull();
+        });
+
+        test('drops the remainder without buffering it, however many chunks it spans', () => {
+            const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
+            expect(() => readBuffer.append(Buffer.alloc(101, 0x41))).toThrow();
+
+            // 240 more bytes of the same message. Before, these accumulated in
+            // the cleared buffer and overflowed a second time.
+            for (let i = 0; i < 3; i++) {
+                expect(() => readBuffer.append(Buffer.alloc(80, 0x41))).not.toThrow();
+            }
+            expect(readBuffer.readMessage()).toBeNull();
+
+            readBuffer.append(Buffer.from('\n' + line));
+            expect(readBuffer.readMessage()).toEqual(testMessage);
+        });
+
+        test('keeps what follows the boundary inside the chunk that overflowed', () => {
+            const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
+            readBuffer.append(Buffer.alloc(60, 0x41));
+            expect(() => readBuffer.append(Buffer.from('A'.repeat(50) + '\n' + line))).toThrow();
+
+            expect(readBuffer.readMessage()).toEqual(testMessage);
+            expect(readBuffer.readMessage()).toBeNull();
+        });
+
+        test('never hands the parser more than the limit, even after the boundary', () => {
+            const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
+            // Two oversized messages in one chunk: the second is dropped too,
+            // rather than kept as an unchecked buffer larger than the limit.
+            const chunk = Buffer.from('A'.repeat(150) + '\n' + 'B'.repeat(150) + '\n' + line);
+            expect(() => readBuffer.append(chunk)).toThrow();
+
+            expect(readBuffer.readMessage()).toEqual(testMessage);
+            expect(readBuffer.readMessage()).toBeNull();
+        });
+
+        test('clear() abandons the resync', () => {
+            const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
+            expect(() => readBuffer.append(Buffer.alloc(101, 0x41))).toThrow();
+            readBuffer.clear();
+
+            // A fresh stream after clear() must not be skipped as if it were
+            // the tail of the old message.
+            readBuffer.append(Buffer.from(line));
+            expect(readBuffer.readMessage()).toEqual(testMessage);
+        });
+    });
+
     test('should allow appending up to exactly the max size', () => {
         const readBuffer = new ReadBuffer({ maxBufferSize: 100 });
         // Should not throw — exactly at limit
