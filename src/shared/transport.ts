@@ -143,21 +143,21 @@ export type TransportSendOptions = {
     /**
      * If present, `relatedRequestId` is used to indicate to the transport which incoming request to associate this outgoing message with.
      */
-    relatedRequestId?: RequestId;
+    relatedRequestId?: RequestId | undefined;
 
     /**
      * The resumption token used to continue long-running requests that were interrupted.
      *
      * This allows clients to reconnect and continue from where they left off, if supported by the transport.
      */
-    resumptionToken?: string;
+    resumptionToken?: string | undefined;
 
     /**
      * A callback that is invoked when the resumption token changes, if supported by the transport.
      *
      * This allows clients to persist the latest token for potential reconnection.
      */
-    onresumptiontoken?: (token: string) => void;
+    onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
@@ -215,5 +215,5 @@ export interface Transport {
     /**
      * Sets the protocol version used for the connection (called when the initialize response is received).
      */
-    setProtocolVersion?: (version: string) => void;
+    setProtocolVersion?: ((version: string) => void) | undefined;
 }

@@ -2,7 +2,7 @@
 '@modelcontextprotocol/sdk': patch
 ---
 
-Add explicit `| undefined` to the optional properties of the `Transport` interface (`onclose`, `onerror`, `onmessage`, `sessionId`).
+Add explicit `| undefined` to the optional properties of the `Transport` interface (`onclose`, `onerror`, `onmessage`, `sessionId`, `setProtocolVersion`) and of `TransportSendOptions` (`relatedRequestId`, `resumptionToken`, `onresumptiontoken`).
 
 Under `exactOptionalPropertyTypes: true`, `onclose?: () => void` means the property may be absent but never explicitly `undefined`. The concrete transports declare these members as accessors typed `(() => void) | undefined`, so the SDK's own transports were not assignable to the
 SDK's own `Transport` interface, and `server.connect(new StreamableHTTPServerTransport(...))` failed with TS2379. Consumers had to either cast at the call site or disable the flag for their whole project.
