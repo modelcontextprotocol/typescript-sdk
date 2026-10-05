@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { Notification, TextContent } from '@modelcontextprotocol/core-internal';
+import type { Notification, ServerContext, TextContent } from '@modelcontextprotocol/core-internal';
 import {
     getDisplayName,
     InMemoryTransport,
@@ -411,16 +411,14 @@ describe('Zod v4', () => {
             expect(template.listCallback).toBe(list);
 
             const abortController = new AbortController();
+            // A partial context is enough for what the callback reads.
             const result = await template.listCallback?.({
-                signal: abortController.signal,
-                requestId: 'not-implemented',
-                sendRequest: () => {
-                    throw new Error('Not implemented');
-                },
-                sendNotification: () => {
-                    throw new Error('Not implemented');
+                mcpReq: {
+                    id: 'not-implemented',
+                    method: 'resources/list',
+                    signal: abortController.signal
                 }
-            });
+            } as unknown as ServerContext);
             expect(result?.resources).toHaveLength(1);
             expect(list).toHaveBeenCalled();
         });
@@ -598,11 +596,12 @@ describe('Zod v4', () => {
                     name: z.string(),
                     value: z.number()
                 }),
-                callback: async ({ name, value }) => ({
+                // `update()` types `args` as `unknown`; narrow it here.
+                callback: async args => ({
                     content: [
                         {
                             type: 'text',
-                            text: `Updated: ${name}, ${value}`
+                            text: `Updated: ${(args as { name: string }).name}, ${(args as { value: number }).value}`
                         }
                     ]
                 })
@@ -850,7 +849,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            mcpServer.registerResource('test://resource', 'Test Resource', async () => ({
+            mcpServer.registerResource('test-resource', 'test://resource', {}, async () => ({
                 contents: [{ uri: 'test://resource', text: 'Test' }]
             }));
 
@@ -871,7 +870,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            mcpServer.registerPrompt('test-prompt', async () => ({
+            mcpServer.registerPrompt('test-prompt', {}, async () => ({
                 messages: [{ role: 'assistant', content: { type: 'text', text: 'Test' } }]
             }));
 
@@ -4173,6 +4172,91 @@ describe('Zod v4', () => {
                     required: false
                 }
             ]);
+        });
+
+        test('should accept omitted prompt arguments when all schema fields are optional', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt(
+                'echo',
+                {
+                    argsSchema: z.object({
+                        context: z.string().optional()
+                    })
+                },
+                ({ context }) => ({
+                    messages: [
+                        {
+                            role: 'user',
+                            content: {
+                                type: 'text',
+                                text: `context: ${context ?? 'none'}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'prompts/get',
+                params: {
+                    name: 'echo'
+                }
+            });
+
+            expect(result.messages).toEqual([
+                {
+                    role: 'user',
+                    content: {
+                        type: 'text',
+                        text: 'context: none'
+                    }
+                }
+            ]);
+        });
+
+        test('should reject omitted prompt arguments when a schema field is required', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerPrompt('echo', { argsSchema: z.object({ context: z.string() }) }, ({ context }) => ({
+                messages: [{ role: 'user', content: { type: 'text', text: `context: ${context}` } }]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'prompts/get',
+                    params: {
+                        name: 'echo'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('context')
+            });
         });
 
         /***

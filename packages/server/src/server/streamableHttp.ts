@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -20,6 +20,8 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 import { MAX_BATCH_SIZE, readRequestBody, requestBodyTooLargeMessage, resolveMaxRequestBodySize } from './requestBody';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { createScopeChallengeResponse, findScopeChallenge, scopeChallengeResourceMetadataUrl } from './scopeChallenge';
 import { armSseKeepAlive, DEFAULT_SSE_KEEP_ALIVE_MS } from './sseKeepAlive';
 
 export type StreamId = string;
@@ -233,6 +235,10 @@ export interface HandleRequestOptions {
  * @example Hono.js
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_hono"
  * app.all('/mcp', async c => {
+ *     // Stateless example: create a server and a transport per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
  *     return transport.handleRequest(c.req.raw);
  * });
  * ```
@@ -241,6 +247,10 @@ export interface HandleRequestOptions {
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_workers"
  * const worker = {
  *     async fetch(request: Request): Promise<Response> {
+ *         // Stateless example: create a server and a transport per request.
+ *         const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *         const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *         await server.connect(transport);
  *         return transport.handleRequest(request);
  *     }
  * };
@@ -250,6 +260,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _hasHandledRequest: boolean = false;
     private _closed: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -267,6 +278,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
     private _keepAliveMs: number;
     private _maxRequestBodySize: number;
+    private _scopeChallengeResolver?: ScopeChallengeHandler;
 
     sessionId?: string;
     onclose?: () => void;
@@ -302,6 +314,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         });
         return timer;
+    }
+
+    /** Sets the scope challenge resolver for parsed JSON-RPC requests. */
+    setScopeChallengeResolver(resolver: ScopeChallengeHandler): void {
+        this._scopeChallengeResolver = resolver;
     }
 
     /**
@@ -352,6 +369,19 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         );
     }
 
+    private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
+        // Active whenever a connected McpServer supplied a resolver (it
+        // resolves per-primitive scopeChallenge callbacks); the challenge's
+        // resource_metadata parameter is derived from the verified AuthInfo
+        // and omitted when unavailable.
+        if (!this._scopeChallengeResolver) {
+            return undefined;
+        }
+        const requests: JSONRPCRequest[] = messages.filter(message => isJSONRPCRequest(message));
+        const challenge = await findScopeChallenge(requests, authInfo, this._scopeChallengeResolver);
+        return challenge === undefined ? undefined : createScopeChallengeResponse(challenge, scopeChallengeResourceMetadataUrl(authInfo));
+    }
+
     /**
      * Validates request headers for DNS rebinding protection.
      * @returns Error response if validation fails, `undefined` if validation passes.
@@ -393,6 +423,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         if (this._closed) {
             return this.createJsonErrorResponse(404, -32_001, 'Session not found');
         }
+
+        // A stateless transport (no sessionIdGenerator) serves exactly one request.
+        if (!this.sessionIdGenerator && this._hasHandledRequest) {
+            throw new Error('Stateless transport cannot be reused across requests. Create a new transport per request.');
+        }
+        this._hasHandledRequest = true;
 
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
@@ -854,6 +890,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (this._closed) {
                 return this.createJsonErrorResponse(404, -32_001, 'Session not found');
+            }
+
+            // Check before opening SSE so an insufficient token can receive HTTP 403.
+            let scopeChallengeResponse: Response | undefined;
+            try {
+                scopeChallengeResponse = await this._checkScopeChallenge(messages, options?.authInfo);
+            } catch (error) {
+                this.onerror?.(error as Error);
+                return this.createJsonErrorResponse(500, -32_603, 'Internal server error');
+            }
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests

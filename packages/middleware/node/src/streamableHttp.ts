@@ -15,6 +15,7 @@ import type {
     JSONRPCMessage,
     MessageExtraInfo,
     RequestId,
+    ScopeChallengeHandler,
     Transport,
     WebStandardStreamableHTTPServerTransportOptions
 } from '@modelcontextprotocol/server';
@@ -65,8 +66,12 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  *
  * @example Using with a pre-parsed request body (e.g. Express)
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_express"
- * app.post('/mcp', (req, res) => {
- *     transport.handleRequest(req, res, req.body);
+ * app.post('/mcp', async (req, res) => {
+ *     // Stateless example: create a server and a transport per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
+ *     await transport.handleRequest(req, res, req.body);
  * });
  * ```
  */
@@ -167,6 +172,11 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      */
     setSupportedProtocolVersions(versions: string[]): void {
         this._webStandardTransport.setSupportedProtocolVersions(versions);
+    }
+
+    /** Sets the scope challenge resolver used by the wrapped Web Standard transport. */
+    setScopeChallengeResolver(resolver: ScopeChallengeHandler): void {
+        this._webStandardTransport.setScopeChallengeResolver(resolver);
     }
 
     /**

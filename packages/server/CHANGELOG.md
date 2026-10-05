@@ -1,5 +1,161 @@
 # @modelcontextprotocol/server
 
+## 2.3.0
+
+### Minor Changes
+
+- [#2929](https://github.com/modelcontextprotocol/typescript-sdk/pull/2929) [`40f8f4e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/40f8f4e229d963cd7fd2890bda2aeebe7005299a) Thanks [@claude](https://github.com/apps/claude)! - `requireBearerAuth` and `verifyBearerToken` take a new optional `expectedResource`, which makes them accept only tokens issued for this resource (the token's audience). Set it to the value your authorization server puts into tokens meant for this server, usually the server's URL. When it is set, a token is accepted only if the verifier reports that value in `AuthInfo.resource`; the two are compared as strings, ignoring a fragment and one trailing slash. A token reported for another value, or for none, is answered `401 invalid_token` with the usual `WWW-Authenticate` challenge. When it is not set, nothing changes. To use it, pass `expectedResource` and have `verifyAccessToken` fill `AuthInfo.resource`, for example from the `aud` claim. The option is declared on a new exported type, `VerifyBearerTokenOptions`, which extends `BearerAuthOptions`; `BearerAuthOptions` itself is unchanged. The Express `requireBearerAuth` passes the option through. With Express, `@modelcontextprotocol/express` has to be upgraded to this release as well: 2.0.1 does not pass the option on, so nothing is compared. Its options type does not have the option, so TypeScript reports an `expectedResource` written in a call to the 2.0.1 `requireBearerAuth` as an error.
+
+- [#2926](https://github.com/modelcontextprotocol/typescript-sdk/pull/2926) [`6d8dbc6`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6d8dbc6cb590edf766fcb66b636ca6b654e99c37) Thanks [@claude](https://github.com/apps/claude)! - `McpServer` now accepts a `maxToolInputElements` option that limits the number of elements in tool-call arguments: the largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain. It is off by default, so behavior is unchanged unless you set it. When it is set and a call exceeds it, that call is answered with an `isError: true` tool result that names the limit, before the input schema runs, and the server keeps serving. Set it above the largest arguments your tools legitimately accept; `maxRequestBodySize` remains the primary limit on request size. The value must be a number of at least 1, or `Infinity` for no limit; any other value is rejected at construction. The options type is exported as `McpServerOptions`.
+
+- [#2918](https://github.com/modelcontextprotocol/typescript-sdk/pull/2918) [`84804c2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/84804c22e45a662675a198f853b7f00063838a8d) Thanks [@claude](https://github.com/apps/claude)! - A `Server` or `McpServer` now serves one connection at a time, and a Streamable HTTP server transport without sessions (`sessionIdGenerator: undefined`) serves one request. An app that uses one server object, or one stateless transport, for every HTTP request fails on the second request after this upgrade. Build the server and the transport per request instead.
+
+    What keeps working without a change:
+    - `createMcpHandler(buildServer)` and `serveStdio(buildServer)`, where `buildServer` returns a new server on every call.
+    - A handler that builds a new server and a new stateless transport for each request.
+    - One server and one transport per session (a transport with a `sessionIdGenerator`).
+    - Connecting a server again after `close()`.
+    - `Client`.
+
+    What fails now, how it shows, and what to change:
+    - One server object with a new stateless transport per request (`const server = new McpServer(...)` outside the handler, `await server.connect(transport)` inside it): the second HTTP request the process receives fails, and so does every later one. `connect()` rejects with an `SdkError` of code `ALREADY_CONNECTED`. If the handler closes the transport when the response ends, requests that arrive one after the other still work and a request that overlaps another one fails. Change: move `new McpServer(...)` and its registrations into the handler.
+    - One stateless transport for every request (a transport built once with `sessionIdGenerator: undefined`): the second HTTP request fails. `WebStandardStreamableHTTPServerTransport.handleRequest()` rejects with `Stateless transport cannot be reused across requests. Create a new transport per request.`, and `NodeStreamableHTTPServerTransport.handleRequest()` answers `500`. Change: build the server and the transport inside the handler and connect them there.
+    - `createMcpHandler(() => server)` with a server built once: a request that arrives after the previous response has been read to its end still works. A request that arrives while another one is being served is answered `500` with the JSON-RPC error `-32603` (`Internal server error`); the reason is reported only through the `onerror` option. Change: pass a function that builds the server, as in `createMcpHandler(buildServer)`.
+    - One server object for every session: the `initialize` request of the second session fails with `ALREADY_CONNECTED`. Change: build a server per session.
+
+    What the caller sees when `connect()` or `handleRequest()` rejects depends on the host. Express 5, Fastify and Hono answer `500`. A plain `node:http` listener without its own error handling gets an unhandled rejection, which ends the process.
+
+    The README examples of `@modelcontextprotocol/express`, `@modelcontextprotocol/fastify`, `@modelcontextprotocol/hono` and `@modelcontextprotocol/node`, and the handler examples in the JSDoc of `WebStandardStreamableHTTPServerTransport` and `NodeStreamableHTTPServerTransport`, now build a server and a transport per request.
+
+- [#2907](https://github.com/modelcontextprotocol/typescript-sdk/pull/2907) [`e55f9ac`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e55f9ac1b1cae413599b499cbaa45c0378edba78) Thanks [@claude](https://github.com/apps/claude)! - `allowedOrigins` and `validateOriginHeader` accept lowercase entries of the form `<scheme>://*`, such as `moz-extension://*` or `chrome-extension://*`, which admit every origin of that scheme. This lets a server admit MCP clients that run as a browser extension when the extension ID cannot be listed, as on Firefox, where it differs on every install. `http://*` and `https://*` are not honoured, and the defaults are unchanged.
+
+### Patch Changes
+
+- [#2599](https://github.com/modelcontextprotocol/typescript-sdk/pull/2599) [`5238fba`](https://github.com/modelcontextprotocol/typescript-sdk/commit/5238fba4424f82ec1ae9f6f458dd655ab322062d) Thanks [@freya0926](https://github.com/freya0926)! - A server can now serve, and a client can now call, `tasks/get` and `tasks/cancel` of the Tasks extension (SEP-2663) on a 2026-07-28 connection, when the handler is registered and the request is sent with an explicit schema. Every other method that a protocol revision removed is still refused. If one server factory serves both eras and such a handler is meant for 2025-era clients only, register it only when `ctx.era === 'legacy'`.
+
+- [#2107](https://github.com/modelcontextprotocol/typescript-sdk/pull/2107) [`2fc49ea`](https://github.com/modelcontextprotocol/typescript-sdk/commit/2fc49eaf17a6b9ac0810c875cc96d3b949f9522c) Thanks [@pragnyanramtha](https://github.com/pragnyanramtha)! - `prompts/get` without `arguments` no longer fails with "Invalid arguments" when every argument of the prompt is optional. A missing `arguments` is now validated as `{}`, as it already is for `tools/call`, so a top-level `.optional()` or `.default(...)` on `argsSchema` no longer sees `undefined`.
+
+- [#2889](https://github.com/modelcontextprotocol/typescript-sdk/pull/2889) [`4d94e7b`](https://github.com/modelcontextprotocol/typescript-sdk/commit/4d94e7b1ccf769d94a7bbba7789f1ee6c7dfdd8c) Thanks [@claude](https://github.com/apps/claude)! - `registerTool` no longer converts tool schemas up front, so a server built per request stops converting every tool on every request. The warning about an invalid `x-mcp-header` declaration now appears each time tools are listed, not when the tool is registered.
+
+- [#2908](https://github.com/modelcontextprotocol/typescript-sdk/pull/2908) [`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1) Thanks [@claude](https://github.com/apps/claude)! - The `license` field of the package manifests is now `Apache-2.0`; the `LICENSE` file shipped in each package carries the full terms, including the MIT text for earlier contributions. No code change.
+
+- [#2841](https://github.com/modelcontextprotocol/typescript-sdk/pull/2841) [`2237555`](https://github.com/modelcontextprotocol/typescript-sdk/commit/2237555ed036c3e80341c0f3c28684e9c3ff0728) Thanks [@sharziki](https://github.com/sharziki)! - `McpServer.registerPrompt()` now types the callback correctly when no `argsSchema` is given: its one parameter is the server context. Before, reading `ctx.mcpReq` there was a type error although it worked at runtime. Prompts registered with an `argsSchema` are unchanged.
+
+- Updated dependencies [[`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1)]:
+    - @modelcontextprotocol/core@2.3.0
+
+## 2.2.0
+
+### Patch Changes
+
+- [#2885](https://github.com/modelcontextprotocol/typescript-sdk/pull/2885) [`9dd722f`](https://github.com/modelcontextprotocol/typescript-sdk/commit/9dd722fd0b533b3cb44cd2834409f7ea4dd32b00) Thanks [@claude](https://github.com/apps/claude)! - Sending a notification on a closed connection no longer produces a briefly unhandled promise rejection (seen as `unhandledrejection` on Cloudflare Workers) in addition to the returned rejection.
+
+- [#2778](https://github.com/modelcontextprotocol/typescript-sdk/pull/2778) [`e3fb9ed`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e3fb9edcdec70ed7c8463548ea9b90bbcb74c4ab) Thanks [@vjymisal0](https://github.com/vjymisal0)! - Fix a stack overflow in `createMcpHandler` when the factory returns the same server instance for more than one request. Returning a fresh instance per request is still required.
+
+- [#2651](https://github.com/modelcontextprotocol/typescript-sdk/pull/2651) [`c55efa6`](https://github.com/modelcontextprotocol/typescript-sdk/commit/c55efa62fc4218592418ffbd313d1a906286f1d3) Thanks [@sushantkumar23](https://github.com/sushantkumar23)! - `createMcpHandler` now ends a `subscriptions/listen` stream right after the acknowledgement when it honored none of the requested notification types, instead of holding the stream open with nothing to deliver. The client receives the acknowledgement and then the `resultType: "complete"` result. Streams that honor at least one type are unchanged.
+
+- Updated dependencies [[`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd)]:
+    - @modelcontextprotocol/core@2.2.0
+
+## 2.1.0
+
+### Minor Changes
+
+- [#1624](https://github.com/modelcontextprotocol/typescript-sdk/pull/1624) [`6032170`](https://github.com/modelcontextprotocol/typescript-sdk/commit/60321700871029401a2e3bed8fdf4f02c9ec3331) Thanks [@SamMorrowDrums](https://github.com/SamMorrowDrums)! - Add request-time OAuth scope challenges for tools, resources, resource templates,
+  and prompts. Each primitive's `scopeChallenge` callback receives the parsed
+  request and verified authentication info, then either continues or returns the
+  exact scope set for an `insufficient_scope` response. `requireScopes` provides a
+  small helper for static all-of checks.
+
+    `createMcpHandler` and Streamable HTTP transports return HTTP 403 with an
+    `insufficient_scope` challenge before handler execution or SSE setup. The
+    preflight is active whenever a registered primitive carries a `scopeChallenge`
+    callback — there is no handler- or transport-level configuration. The
+    challenge's `WWW-Authenticate` header is built by the same formatter as the
+    bearer-auth 401/403 answers, and its `resource_metadata` parameter is derived
+    from the verified `AuthInfo`: `requireBearerAuth` / `verifyBearerToken` now
+    stamp their configured `resourceMetadataUrl` onto the `AuthInfo` they return
+    (new optional `AuthInfo.resourceMetadataUrl` field), with a fallback to the
+    well-known location for an HTTP(S) RFC 8707 `resource` identifier; the
+    parameter is omitted when neither is available.
+
+### Patch Changes
+
+- [#2726](https://github.com/modelcontextprotocol/typescript-sdk/pull/2726) [`6fa4227`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6fa42279fecaba423635072f716bbb2f6f7c77f3) Thanks [@LuckTerence](https://github.com/LuckTerence)! - `SdkError` and `SdkHttpError` accept standard `ErrorOptions` as an optional fourth constructor argument and forward it to `Error`, so a wrapped error is reachable through the standard `Error.cause` chain. Version-negotiation probe failures (`SdkErrorCode.EraNegotiationFailed`) now use it: the underlying `TypeError: fetch failed` and the DNS or socket error beneath it surface via `error.cause`, so pino, Sentry, and `util.inspect` render `ENOTFOUND` / `ECONNREFUSED` / `ETIMEDOUT` instead of stopping at the `SdkError` (#2657). The previous `error.data.cause` slot is still populated for compatibility but is deprecated and slated for removal; read `error.cause` instead.
+
+- [#2654](https://github.com/modelcontextprotocol/typescript-sdk/pull/2654) [`03842cd`](https://github.com/modelcontextprotocol/typescript-sdk/commit/03842cd9cae9a9b142c77d2fb65e829fc4e03eab) Thanks [@pshah19](https://github.com/pshah19)! - Treat request id `0` as a real id. Two guards tested a `RequestId` for truthiness, so the legal JSON-RPC ids `0` and `''` were read as absent. Id `0` is not a corner case: the outbound request counter is zero-based, so it is the first id every peer assigns, which on the server→client leg is the first `sampling/createMessage`, `elicitation/create`, or `roots/list` a server sends.
+    - `notifications/cancelled` carrying id `0` was ignored, and the in-flight handler ran to completion with its `AbortSignal` never fired.
+    - A notification sent with `relatedRequestId: 0` wrongly passed the debounce gate (for methods opted into `debouncedNotificationMethods`). Because the pending set is keyed by method alone, a second such notification in the same tick was silently dropped rather than sent.
+
+    Absent is now the only value that means "no id".
+
+- [#2668](https://github.com/modelcontextprotocol/typescript-sdk/pull/2668) [`3e90449`](https://github.com/modelcontextprotocol/typescript-sdk/commit/3e90449fd52997da43b79a536d2c19c446603cc7) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - Stop sending `notifications/cancelled` for the `initialize` handshake. The spec is explicit that a client MUST NOT attempt to cancel its `initialize` request, but the outbound cancel path fired for any in-flight request: aborting the `AbortSignal` passed to `connect()`, or letting the handshake hit its timeout, put a forbidden cancellation on the wire naming the initialize request id.
+
+    The local behaviour is unchanged — the caller's promise still rejects with the same abort/timeout error, and `connect()` still tears the connection down. Only the wire notification is suppressed. Every other method keeps the existing cancellation path.
+
+- [#2698](https://github.com/modelcontextprotocol/typescript-sdk/pull/2698) [`7b781ed`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7b781ed4e25355a25d15974f3c76de81299694ed) Thanks [@maxisbey](https://github.com/maxisbey)! - Read Streamable HTTP request bodies with a size limit. Every SDK-owned body read —
+  `WebStandardStreamableHTTPServerTransport` (and the Node transport built on it),
+  `createMcpHandler`, `toNodeHandler`, and `createMcpHonoApp`'s JSON pre-parse — now stops at
+  4 MiB by default (the limit the legacy SSE transport already uses; the Express adapter and stdio
+  bound their reads too) and answers `413 Payload Too Large` before anything is parsed.
+  `toWebRequest` (when it reads the Node stream itself) now rejects once the body exceeds the
+  limit with an error whose `name` is `'RequestBodyTooLargeError'` and `status` is `413`, and
+  `toNodeHandler` answers that with `413`; hand-wired callers of `toWebRequest` should handle the
+  rejection or pass a pre-parsed body, and `isLegacyRequest` reports such a request as non-legacy
+  so the modern handler answers it. JSON-RPC batch arrays are limited to 100 messages; a longer
+  batch is answered `400` / `-32600` and none of it is dispatched.
+
+    The limit is configurable with a new `maxRequestBodySize` option (bytes, default
+    `DEFAULT_MAX_REQUEST_BODY_SIZE` = 4 MiB, exported from `@modelcontextprotocol/server`) on
+    `WebStandardStreamableHTTPServerTransportOptions`, `CreateMcpHandlerOptions` (forwarded to its
+    stateless legacy leg; `isLegacyRequest` and `legacyStatelessFallback` take the same option),
+    `CreateMcpHonoAppOptions`, and `ToNodeHandlerOptions` / `ToWebRequestOptions` (the adapter's
+    bound applies before the handler's, so raise both). The bounded reader is exported as
+    `readRequestBody` for adapter authors. Hosts that pre-parse the body and pass it as
+    `parsedBody` skip the SDK's read and its size limit entirely; the batch bound applies either way.
+
+    `createMcpHonoApp` and `createMcpExpressApp` now run their Host/Origin validation before the
+    JSON body parser, so a request from a disallowed Host or Origin with an invalid JSON body is
+    answered `403` rather than `400`, and its body is not read.
+
+- [#2590](https://github.com/modelcontextprotocol/typescript-sdk/pull/2590) [`75dc7ea`](https://github.com/modelcontextprotocol/typescript-sdk/commit/75dc7ea6e2913e1ac37d4f06eec62cd5cfac9e7a) Thanks [@davidpavlovschi](https://github.com/davidpavlovschi)! - Reject a modern (2026-07-28) POST that omits the required `MCP-Protocol-Version` header.
+
+    `createMcpHandler` accepted a request whose body carried a valid per-request `_meta`
+    envelope but whose `MCP-Protocol-Version` header was absent: the request was classified
+    modern, dispatched, and answered `200` — tool handlers ran. Only the _mismatch_ case
+    (header present, disagreeing with the body) was rejected, so of the standard headers
+    SEP-2243 requires on a modern POST, presence was enforced for `Mcp-Method` (and for
+    `Mcp-Name` on the methods that mirror `params.name` / `params.uri`) but not for
+    `MCP-Protocol-Version`.
+
+    Such a request is now refused with `400 Bad Request` and JSON-RPC `-32020`
+    (`HeaderMismatch`), matching the shape the sibling missing-header cells already emit and
+    echoing the request id — per the Streamable HTTP spec, which requires the header on every
+    POST and lists a missing required standard header as a `HeaderMismatch` failure. The
+    spec's allowance to treat a header-less request as `2025-03-26` is available only to a
+    server that also serves pre-2025-06-18 clients, and permits routing it to _legacy_
+    handling — never serving it as 2026-07-28; under `legacy: 'reject'` the requirement is
+    unconditional.
+
+    Era classification is deliberately unchanged and stays body-primary: a proxy that strips
+    the header still must not change the era, so such a request is still _classified_ modern
+    and is refused one rung later, at `standard-header-validation` — the same rung that
+    already answers a missing `Mcp-Method`. Legacy-era traffic is untouched, notifications
+    are unaffected, body-less `GET` / `DELETE` session operations are method-routed before
+    any header validation, and stdio serving (which has no HTTP headers) is not involved.
+
+    Clients built with this SDK always send the header, so no first-party client is affected;
+    hand-rolled clients that omitted it must add it.
+
+- [#2494](https://github.com/modelcontextprotocol/typescript-sdk/pull/2494) [`6a05402`](https://github.com/modelcontextprotocol/typescript-sdk/commit/6a054025e8cebaecead76fb51d92ba3974e8d091) Thanks [@claude](https://github.com/apps/claude)! - `StdioServerTransport` now closes itself and fires `onclose` when its stdin ends or closes. The stdio binding says servers "SHOULD exit promptly when their standard input is closed" — stdin EOF is the primary graceful-shutdown signal, and on some platforms (notably Windows, where no signal is delivered when the parent goes away) the only reliable one. Previously the transport listened only for `data` and `error`, so when an MCP client hung up its end of the pipe (window closed, session restarted, host crashed) the server never noticed: `onclose` never fired, nothing tore down, and server processes accumulated as zombies until killed by hand. The transport now attaches `end`/`close` listeners on stdin that close the transport (idempotently — `onclose` still fires exactly once if `close()` is also called), so `Server`/`McpServer` and `serveStdio` tear down through the existing `onclose` chain and a well-behaved server process exits naturally. Requests still in flight when stdin ends are aborted (their handlers observe `signal.aborted`) and their responses are not written: EOF means the client has hung up and is no longer waiting. A client that wants answers keeps stdin open until it has read them.
+
+- [#2613](https://github.com/modelcontextprotocol/typescript-sdk/pull/2613) [`70de0c8`](https://github.com/modelcontextprotocol/typescript-sdk/commit/70de0c8b569b0d664a56b90be2f141d1d1645880) Thanks [@jwcarman](https://github.com/jwcarman)! - Emit and validate the `Mcp-Name` header for tasks requests per SEP-2663's Streamable HTTP binding: the client transport now mirrors `params.taskId` into `Mcp-Name` on `tasks/get` / `tasks/update` / `tasks/cancel` (previously omitted, causing conforming servers to reject every task poll with `-32020 HeaderMismatch`), and the server-side standard-header validation cross-checks it via the same shared `MCP_NAME_HEADER_SOURCE` table.
+
+    On the server, `createMcpHandler` now answers a modern (2026-07-28) `tasks/get` / `tasks/update` / `tasks/cancel` POST that omits `Mcp-Name`, or whose header disagrees with `params.taskId`, with `400` / `-32020` (`HeaderMismatch`) at the `standard-header-validation` rung, the same treatment `tools/call` / `prompts/get` / `resources/read` already get. Legacy-era (2025-11-25) tasks traffic is unaffected. Clients built with this SDK release send the header; hand-rolled clients that omitted it must add it.
+
+- Updated dependencies [[`dcc0102`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcc01028ff6a499a5728c2b6181c1727d52e2fab)]:
+    - @modelcontextprotocol/core@2.1.0
+
 ## 2.0.0
 
 ### Minor Changes

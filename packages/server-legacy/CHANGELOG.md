@@ -1,5 +1,28 @@
 # @modelcontextprotocol/server-legacy
 
+## 2.3.0
+
+### Patch Changes
+
+- [#2908](https://github.com/modelcontextprotocol/typescript-sdk/pull/2908) [`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1) Thanks [@claude](https://github.com/apps/claude)! - The `license` field of the package manifests is now `Apache-2.0`; the `LICENSE` file shipped in each package carries the full terms, including the MIT text for earlier contributions. No code change.
+
+- Updated dependencies [[`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1)]:
+    - @modelcontextprotocol/core@2.3.0
+
+## 2.2.0
+
+### Patch Changes
+
+- Updated dependencies [[`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd)]:
+    - @modelcontextprotocol/core@2.2.0
+
+## 2.1.0
+
+### Patch Changes
+
+- Updated dependencies [[`dcc0102`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcc01028ff6a499a5728c2b6181c1727d52e2fab)]:
+    - @modelcontextprotocol/core@2.1.0
+
 ## 2.0.0
 
 ### Minor Changes

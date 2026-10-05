@@ -33,6 +33,34 @@ describe('validateOriginHeader', () => {
         expect(validateOriginHeader('http://localhost.evil.example.com', localhostAllowedOrigins()).ok).toBe(false);
     });
 
+    it('allows one browser extension when its ID is listed', () => {
+        const allowed = ['abcdefghijklmnopabcdefghijklmnop'];
+        expect(validateOriginHeader('chrome-extension://abcdefghijklmnopabcdefghijklmnop', allowed).ok).toBe(true);
+        expect(validateOriginHeader('chrome-extension://ponmlkjihgfedcbaponmlkjihgfedcba', allowed).ok).toBe(false);
+    });
+
+    it('allows every origin of a scheme listed as `<scheme>://*`', () => {
+        const allowed = ['myapp.local', 'chrome-extension://*'];
+        expect(validateOriginHeader('chrome-extension://abcdefghijklmnopabcdefghijklmnop', allowed).ok).toBe(true);
+        expect(validateOriginHeader('moz-extension://0a1b2c3d-0000-4000-8000-000000000000', allowed).ok).toBe(false);
+        expect(validateOriginHeader('https://evil.example.com', allowed).ok).toBe(false);
+        expect(validateOriginHeader('https://chrome-extension', allowed).ok).toBe(false);
+        expect(validateOriginHeader('null', allowed).ok).toBe(false);
+    });
+
+    it('does not honour `http://*` or `https://*`: websites are listed by hostname', () => {
+        const allowed = ['http://*', 'https://*', 'myapp.local'];
+        expect(validateOriginHeader('https://evil.example.com', allowed).ok).toBe(false);
+        expect(validateOriginHeader('http://evil.example.com', allowed).ok).toBe(false);
+        expect(validateOriginHeader('https://myapp.local', allowed).ok).toBe(true);
+    });
+
+    it('localhostAllowedOrigins rejects browser-extension origins unless their scheme is added', () => {
+        const extension = 'moz-extension://0a1b2c3d-0000-4000-8000-000000000000';
+        expect(validateOriginHeader(extension, localhostAllowedOrigins()).ok).toBe(false);
+        expect(validateOriginHeader(extension, [...localhostAllowedOrigins(), 'moz-extension://*']).ok).toBe(true);
+    });
+
     it('denies on failure: unparseable Origin values and the opaque null origin are rejected, never passed through', () => {
         for (const malformed of ['null', 'not a url', 'evil.example.com', 'about:blank']) {
             const result = validateOriginHeader(malformed, localhostAllowedOrigins());
