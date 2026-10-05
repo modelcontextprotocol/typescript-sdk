@@ -28,6 +28,11 @@ export type StdioServerParameters = {
      * How to handle stderr of the child process. This matches the semantics of Node's `child_process.spawn`.
      *
      * The default is "inherit", meaning messages to stderr will be printed to the parent process's stderr.
+     *
+     * When set to "pipe" or "overlapped", stderr is exposed on `StdioClientTransport.stderr`.
+     * The SDK drains that stream so an unread pipe cannot fill and deadlock the session.
+     * Attach a `data` listener (or `.pipe()` it) before `start()` / `Client.connect` to
+     * receive every chunk; without a listener the bytes are discarded.
      */
     stderr?: IOType | Stream | number;
 
@@ -172,6 +177,10 @@ export class StdioClientTransport implements Transport {
 
             if (this._stderrStream && this._process.stderr) {
                 this._process.stderr.pipe(this._stderrStream);
+                // Flowing mode discards unread chunks so a chatty child cannot
+                // fill the PassThrough (16 KiB highWaterMark) and block on
+                // write(2). Listeners attached before start() still receive data.
+                this._stderrStream.resume();
             }
         });
     }
@@ -182,6 +191,13 @@ export class StdioClientTransport implements Transport {
      * If stderr piping was requested, a PassThrough stream is returned _immediately_, allowing callers to
      * attach listeners before the start method is invoked. This prevents loss of any early
      * error output emitted by the child process.
+     *
+     * After `start()`, the SDK puts this stream in flowing mode so piping is safe without a
+     * consumer — unread stderr is drained and cannot deadlock the session. A listener (or
+     * `.pipe()` destination) attached before `start()` still receives every chunk. A late
+     * listener sees only data written after it attached; bytes already drained are not
+     * replayed. The paused-mode API (`read()` in a loop) is not supported once `start()`
+     * has put the stream in flowing mode — use `data` events or `.pipe()`.
      */
     get stderr(): Stream | null {
         if (this._stderrStream) {
