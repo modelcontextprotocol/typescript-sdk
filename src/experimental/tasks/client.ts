@@ -178,13 +178,15 @@ export class ExperimentalClientTasks<
      * Retrieves the result of a completed task.
      *
      * @param taskId - The task identifier
-     * @param resultSchema - Zod schema for validating the result
+     * @param resultSchema - Zod schema for validating the result (defaults to CallToolResultSchema)
      * @param options - Optional request options
      * @returns The task result
      *
      * @experimental
      */
-    async getTaskResult<T extends AnyObjectSchema>(taskId: string, resultSchema?: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
+    async getTaskResult<
+        T extends typeof CallToolResultSchema | typeof CompatibilityCallToolResultSchema | AnyObjectSchema = typeof CallToolResultSchema
+    >(taskId: string, resultSchema: T = CallToolResultSchema as T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         // Delegate to the client's underlying Protocol method
         return (
             this._client as unknown as {
