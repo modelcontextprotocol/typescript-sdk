@@ -164,7 +164,8 @@ verifies(
     'logging:set-level:invalid-level',
     async ({ transport }: TestArgs) => {
         const client = newClient();
-        await using _ = await wire(transport, loggingServer, client);
+        // strictValidation off: the invalid level must actually reach the server for it to reject.
+        await using _ = await wire(transport, loggingServer, client, { strictValidation: false });
 
         const tap = tapWire(client);
 
