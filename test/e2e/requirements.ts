@@ -2030,12 +2030,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'When the SSE response body stream errors during read, transport.onerror is invoked with an Error that preserves the original thrown error (as the instance itself or via .cause), not a string-interpolated wrapper that discards its type and stack.',
         transports: ['streamableHttp'],
-        note: 'Session-id continuity testing requires the per-session host (validates session recovery/GET stream behavior).',
-        knownFailures: [
-            {
-                note: 'src/client/streamableHttp.ts error-wrapping code: SSE body-stream errors wrapped as new Error(`SSE stream disconnected: ...`) with no .cause, losing original instance/stack.'
-            }
-        ]
+        note: 'Session-id continuity testing requires the per-session host (validates session recovery/GET stream behavior).'
     },
 
     // Client auth
