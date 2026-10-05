@@ -132,6 +132,17 @@ export class McpServer {
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
+
+        // A capability declared in the options gets its handlers now, so registering after connect() works.
+        if (options?.capabilities?.tools) {
+            this.setToolRequestHandlers();
+        }
+        if (options?.capabilities?.resources) {
+            this.setResourceRequestHandlers();
+        }
+        if (options?.capabilities?.prompts) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**
