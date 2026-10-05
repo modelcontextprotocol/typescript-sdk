@@ -211,14 +211,6 @@ export class UriTemplate {
         }
 
         if (part.operator === '?' || part.operator === '&') {
-            for (let i = 0; i < part.names.length; i++) {
-                const name = part.names[i]!;
-                const prefix = i === 0 ? '\\' + part.operator : '&';
-                patterns.push({
-                    pattern: prefix + this.escapeRegExp(name) + '=([^&]+)',
-                    name
-                });
-            }
             return patterns;
         }
 
@@ -227,7 +219,7 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
-                pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
+                pattern = part.exploded ? '([^/?#,]+(?:,[^/?#,]+)*)' : '([^/?#,]+)';
                 break;
             }
             case '+':
@@ -256,10 +248,18 @@ export class UriTemplate {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
+        const queryNames: Array<{ name: string; exploded: boolean }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
                 pattern += this.escapeRegExp(part);
+            } else if (part.operator === '?' || part.operator === '&') {
+                for (const name of part.names) {
+                    UriTemplate.validateLength(name, MAX_VARIABLE_LENGTH, 'Variable name');
+                    queryNames.push({ name, exploded: part.exploded });
+                }
+
+                pattern += part.operator === '?' ? String.raw`(?:\?[^#]*)?` : '(?:&[^#]*)?';
             } else {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
@@ -283,6 +283,22 @@ export class UriTemplate {
             const cleanName = name.replace('*', '');
 
             result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+        }
+
+        if (queryNames.length > 0) {
+            const queryStart = uri.indexOf('?');
+            if (queryStart !== -1) {
+                const queryEnd = uri.indexOf('#', queryStart);
+                const query = uri.slice(queryStart + 1, queryEnd === -1 ? undefined : queryEnd);
+                const params = new URLSearchParams(query);
+
+                for (const { name, exploded } of queryNames) {
+                    const value = params.get(name);
+                    if (value !== null) {
+                        result[name] = exploded && value.includes(',') ? value.split(',') : value;
+                    }
+                }
+            }
         }
 
         return result;
