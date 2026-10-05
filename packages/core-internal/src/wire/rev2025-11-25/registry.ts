@@ -4,7 +4,7 @@
  * codec interface; the registry CONTENT is byte-identical to the pre-split
  * maps and is pinned by reference in `test/types/registryPins.test.ts`).
  *
- * This era serves all five legacy protocol versions (2024-10-07 …
+ * This era serves all four legacy protocol versions (2024-11-05 …
  * 2025-11-25), exactly as the single schema set did before the split. It is
  * BEHAVIOR-FROZEN behind the Q10-L2 byte-identity suite: the request and
  * notification maps carry the full deliberate 2025-11-25 wire vocabulary,
