@@ -6,12 +6,34 @@ import Ajv from 'ajv';
 import _addFormats from 'ajv-formats';
 import type { JsonSchemaType, JsonSchemaValidator, JsonSchemaValidatorResult, jsonSchemaValidator } from './types.js';
 
+/**
+ * Logger for the default Ajv instance. JSON Schema treats `format` as an annotation,
+ * so schemas are allowed to declare formats this validator does not know about (e.g.
+ * vendor-specific ones like `google-duration`), and unknown formats must be ignored
+ * silently. Ajv's default logger emits one "unknown format ... ignored" warning per
+ * schema path on every compile, so a single server-side format could flood the console
+ * on each `listTools` call. Other warnings and errors are still surfaced on the console.
+ * Callers who prefer to see (or map) unknown-format diagnostics can pass their own
+ * pre-configured Ajv instance instead.
+ */
+const defaultAjvLogger = {
+    log: (...args: unknown[]) => console.log(...args),
+    warn: (...args: unknown[]) => {
+        const message = args[0];
+        if (!(typeof message === 'string' && message.startsWith('unknown format'))) {
+            console.warn(...args);
+        }
+    },
+    error: (...args: unknown[]) => console.error(...args)
+};
+
 function createDefaultAjvInstance(): Ajv {
     const ajv = new Ajv({
         strict: false,
         validateFormats: true,
         validateSchema: false,
-        allErrors: true
+        allErrors: true,
+        logger: defaultAjvLogger
     });
 
     const addFormats = _addFormats as unknown as typeof _addFormats.default;
