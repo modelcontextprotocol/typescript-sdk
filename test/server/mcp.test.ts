@@ -252,6 +252,70 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(capabilities?.extensions).toBeDefined();
             expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
         });
+
+        /***
+         * Test: Capabilities Declared in the Constructor
+         */
+        test('should allow registering after connect when the capability was declared', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerTool('late-tool', { inputSchema: { name: z.string() } }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}` }]
+            }));
+            mcpServer.registerResource('late-resource', 'test://late', {}, async () => ({
+                contents: [{ uri: 'test://late', text: 'late' }]
+            }));
+            mcpServer.registerPrompt('late-prompt', {}, async () => ({
+                messages: [{ role: 'user', content: { type: 'text', text: 'late' } }]
+            }));
+
+            const tools = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(tools.tools.map(tool => tool.name)).toEqual(['late-tool']);
+            const resources = await client.request({ method: 'resources/list' }, ListResourcesResultSchema);
+            expect(resources.resources.map(resource => resource.name)).toEqual(['late-resource']);
+            const prompts = await client.request({ method: 'prompts/list' }, ListPromptsResultSchema);
+            expect(prompts.prompts.map(prompt => prompt.name)).toEqual(['late-prompt']);
+
+            const result = await client.request(
+                { method: 'tools/call', params: { name: 'late-tool', arguments: { name: 'world' } } },
+                CallToolResultSchema
+            );
+            expect(result.content).toEqual([{ type: 'text', text: 'Hello, world' }]);
+        });
+
+        test('should answer list requests with empty lists when a capability was declared and nothing is registered', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: {}, resources: {}, prompts: {} } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            expect((await client.request({ method: 'tools/list' }, ListToolsResultSchema)).tools).toEqual([]);
+            expect((await client.request({ method: 'resources/list' }, ListResourcesResultSchema)).resources).toEqual([]);
+            expect((await client.request({ method: 'prompts/list' }, ListPromptsResultSchema)).prompts).toEqual([]);
+        });
+
+        test('should still refuse registering after connect when the capability was not declared', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            expect(() => mcpServer.registerTool('late-tool', {}, async () => ({ content: [] }))).toThrow(
+                'Cannot register capabilities after connecting to transport'
+            );
+        });
     });
 
     describe('ResourceTemplate', () => {
