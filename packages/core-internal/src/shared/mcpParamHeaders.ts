@@ -48,8 +48,10 @@ export interface XMcpHeaderDeclaration {
     type: string;
 }
 
-/** The result of scanning a tool's `inputSchema` for `x-mcp-header` declarations. */
-export type XMcpHeaderScanResult = { valid: true; declarations: readonly XMcpHeaderDeclaration[] } | { valid: false; reason: string };
+/** The result of scanning a tool's `inputSchema`; an invalid one carries `declarations` when `number` types are its only fault. */
+export type XMcpHeaderScanResult =
+    | { valid: true; declarations: readonly XMcpHeaderDeclaration[] }
+    | { valid: false; reason: string; declarations?: readonly XMcpHeaderDeclaration[] };
 
 /**
  * RFC 9110 §5.1 `token` syntax (`1*tchar`). Rejects empty, space, control
@@ -61,7 +63,7 @@ const RFC9110_TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
  * JSON Schema `type` values the spec admits on an `x-mcp-header` property:
  * `integer`, `string` and `boolean`. `number` is explicitly not permitted
  * (2026-07-28 Streamable HTTP, "Schema Extension"), so a tool that annotates a
- * `number`-typed property is rejected like any other invalid declaration.
+ * `number`-typed property is invalid (the server still checks its headers).
  * Everything else (`object`, `array`, `null`, absent) is rejected too.
  */
 const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set(['string', 'integer', 'boolean']);
@@ -69,7 +71,8 @@ const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set(['string', 'in
 /**
  * Scan a tool's JSON-serialized `inputSchema` for `x-mcp-header` declarations
  * and validate every constraint the spec places on them. Returns either the
- * collected declarations (possibly empty) or the first violated constraint.
+ * collected declarations (possibly empty) or the first violated constraint
+ * (with the declarations too, when `number`-typed declarations are the only fault).
  *
  * The walk descends through `properties` at any depth (the spec's "any nesting
  * depth" clause). The static-reachability MUST is enforced as a structural
@@ -82,6 +85,7 @@ const PERMITTED_X_MCP_HEADER_TYPES: ReadonlySet<string> = new Set(['string', 'in
 export function scanXMcpHeaderDeclarations(inputSchema: unknown): XMcpHeaderScanResult {
     const declarations: XMcpHeaderDeclaration[] = [];
     const seenLower = new Map<string, string>();
+    let numberFault: string | undefined;
 
     const visit = (node: unknown, path: readonly string[], reachable: boolean): string | undefined => {
         if (node === null || typeof node !== 'object') return undefined;
@@ -100,7 +104,10 @@ export function scanXMcpHeaderDeclarations(inputSchema: unknown): XMcpHeaderScan
             }
             const type = typeof schema.type === 'string' ? schema.type : undefined;
             if (type === undefined || !PERMITTED_X_MCP_HEADER_TYPES.has(type)) {
-                return `${pathName(path)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? '<none>'}`;
+                const fault = `${pathName(path)}: x-mcp-header is only permitted on primitive-typed properties (string, integer, boolean); got ${type ?? '<none>'}`;
+                // A `number` type is a fault, but the walk goes on so the server can still check the tool's headers.
+                if (type !== 'number') return fault;
+                numberFault ??= fault;
             }
             const lower = raw.toLowerCase();
             const prior = seenLower.get(lower);
@@ -139,7 +146,8 @@ export function scanXMcpHeaderDeclarations(inputSchema: unknown): XMcpHeaderScan
     };
 
     const fault = visit(inputSchema, [], true);
-    return fault === undefined ? { valid: true, declarations } : { valid: false, reason: fault };
+    if (fault !== undefined) return { valid: false, reason: numberFault ?? fault };
+    return numberFault === undefined ? { valid: true, declarations } : { valid: false, reason: numberFault, declarations };
 }
 
 /**
@@ -325,7 +333,7 @@ export function buildMcpParamHeaders(
  * A sentinel-carrying header whose payload is not canonical Base64 / valid
  * UTF-8 is rejected as invalid characters.
  *
- * Integer-typed declarations are compared numerically (the spec's SHOULD —
+ * Integer- and number-typed declarations are compared numerically (the spec's SHOULD —
  * `42.0` and `42` are equal); everything else is compared as decoded strings.
  *
  * Returns `undefined` when every check passes, or an
