@@ -373,6 +373,11 @@ describe('protocol tests', () => {
         await expect(requestPromise).resolves.toEqual({ result: 'done' });
         expect(onProgressMock.mock.calls).toEqual([[{ progress: 1 }], [{ progress: 2 }]]);
         expect(onerrorMock).not.toHaveBeenCalled();
+
+        transport.onmessage?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 0, progress: 3 } });
+        await vi.waitFor(() => expect(onerrorMock).toHaveBeenCalledOnce());
+        expect(onerrorMock.mock.calls[0]![0].message).toContain('unknown token');
+        expect(onProgressMock).toHaveBeenCalledTimes(2);
     });
 
     describe('progress notification timeout behavior', () => {
