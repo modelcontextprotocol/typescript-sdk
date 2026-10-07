@@ -1380,7 +1380,10 @@ export type RegisteredTool = {
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update<InputArgs extends ZodRawShapeCompat | AnySchema = ZodRawShapeCompat, OutputArgs extends ZodRawShapeCompat | AnySchema = ZodRawShapeCompat>(updates: {
+    update<
+        InputArgs extends ZodRawShapeCompat | AnySchema = ZodRawShapeCompat,
+        OutputArgs extends ZodRawShapeCompat | AnySchema = ZodRawShapeCompat
+    >(updates: {
         name?: string | null;
         title?: string;
         description?: string;
