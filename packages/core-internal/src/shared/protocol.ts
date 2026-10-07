@@ -1221,7 +1221,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-        this._progressHandlers.delete(messageId);
+        // Deferred so progress notifications received before this response, still queued on microtasks, reach the handler.
+        void Promise.resolve().then(() => this._progressHandlers.delete(messageId));
 
         if (isJSONRPCResultResponse(response)) {
             handler(response);
