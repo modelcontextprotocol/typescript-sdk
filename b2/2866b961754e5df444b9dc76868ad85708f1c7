@@ -1,0 +1,69 @@
+.changeset/tasks-extension.md
+  s_eb77895b097fc6::t_f81721bf15851c 1-13
+docs/.vitepress/nav.ts
+  s_eb77895b097fc6::t_d41fc72e75244f 30,57
+docs/clients/tasks.md
+  s_eb77895b097fc6::t_304488ecb4ce25 1-81
+docs/servers/tasks.md
+  s_eb77895b097fc6::t_500d94296950bf 1-78
+packages/client/package.json
+  s_eb77895b097fc6::t_426b5ef13bc5a7 43-52,128-130
+packages/client/src/ext/tasks/index.ts
+  s_eb77895b097fc6::t_b74ad20dcf2be7 1-62
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_eb77895b097fc6::t_ef3da768a3a610 1-134
+packages/client/src/index.ts
+  s_eb77895b097fc6::t_fea7ed72b5b2a6 75
+packages/client/test/ext/tasks/tasksClientExtension.test.ts
+  s_eb77895b097fc6::t_07e6f24959623c 1-148
+packages/client/tsconfig.json
+  s_eb77895b097fc6::t_b011ed571efa0f 20-21
+packages/client/tsdown.config.ts
+  s_eb77895b097fc6::t_79f00a3cdff157 8,32
+packages/core-internal/package.json
+  s_eb77895b097fc6::t_ba2eb1e3808acb 36-39
+packages/core-internal/src/ext/tasks/index.ts
+  s_eb77895b097fc6::t_187b13b1546b6b 1-7
+packages/core-internal/src/ext/tasks/schemas.ts
+  s_eb77895b097fc6::t_a5bcbf774b33a8 1-177
+packages/core-internal/src/ext/tasks/types.ts
+  s_eb77895b097fc6::t_9cb5495b0e5cd6 1-220
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_eb77895b097fc6::t_4909e5771a9c46 40,44
+packages/server/package.json
+  s_eb77895b097fc6::t_ff682feb43f6d7 43-52,128-130,155,163-164
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_eb77895b097fc6::t_701642896ddcca 1-254
+packages/server/src/ext/tasks/index.ts
+  s_eb77895b097fc6::t_84f05988eaeb93 1-68
+packages/server/src/ext/tasks/store.ts
+  s_eb77895b097fc6::t_8b58c38238ac35 1-54
+packages/server/src/ext/tasks/tasksExtension.ts
+  s_eb77895b097fc6::t_264d4f153d7e86 1-165
+packages/server/test/ext/tasks/inMemoryStore.test.ts
+  s_eb77895b097fc6::t_156589ef838d63 1-82
+packages/server/test/ext/tasks/tasks.e2e.test.ts
+  s_eb77895b097fc6::t_89a3f581490339 1-196
+packages/server/tsconfig.json
+  s_eb77895b097fc6::t_33fdc057cd7bd4 20-24
+packages/server/tsdown.config.ts
+  s_eb77895b097fc6::t_b58a8e21ec3837 8,32
+pnpm-lock.yaml
+  s_eb77895b097fc6::t_d5ede7f52405ce 1800-1802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b22866b961754e5df444b9dc76868ad85708f1c7",
+  "prompts": {},
+  "sessions": {
+    "s_eb77895b097fc6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f65c1e3-b88b-49de-8ccc-1c2a95c65fe7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
