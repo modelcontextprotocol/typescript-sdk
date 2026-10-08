@@ -17,12 +17,13 @@ import { McpServer, type RegisteredPrompt } from '../../../src/server/mcp.js';
 import {
     ErrorCode,
     GetPromptRequestSchema,
+    isJSONRPCRequest,
     ListPromptsRequestSchema,
     McpError,
     PromptListChangedNotificationSchema
 } from '../../../src/types.js';
 
-import { wire } from '../helpers/index.js';
+import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -289,6 +290,66 @@ verifies('prompts:get:missing-required-args', async ({ transport }: TestArgs) =>
         code: ErrorCode.InvalidParams,
         message: expect.stringMatching(/text|required|invalid/i)
     });
+});
+
+verifies('prompts:get:omitted-args:all-optional', async ({ transport }: TestArgs) => {
+    // Declared outside the factory so stateless hosting (fresh server per request) still records into it.
+    const received: unknown[] = [];
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerPrompt(
+            'code-review',
+            { description: 'Review code, optionally focused on one aspect.', argsSchema: { focus: z.string().optional() } },
+            args => {
+                received.push(args);
+                return {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: { type: 'text', text: args.focus ? `Review the code, focusing on ${args.focus}:` : 'Review the code:' }
+                        }
+                    ]
+                };
+            }
+        );
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+    const { sent } = tapWire(client);
+
+    // getPrompt({ name }) puts no `arguments` key on the wire at all (unlike `arguments: {}`).
+    const result = await client.getPrompt({ name: 'code-review' });
+
+    const request = sent.find(m => isJSONRPCRequest(m) && m.method === 'prompts/get');
+    expect(request).toBeDefined();
+    if (!request || !isJSONRPCRequest(request)) throw new Error('expected prompts/get request');
+    expect(request.params).not.toHaveProperty('arguments');
+    expect(result.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Review the code:' } }]);
+    // The omitted field is validated as an empty object, so the handler sees no keys rather than undefined.
+    expect(received).toEqual([{}]);
+});
+
+verifies('prompts:get:omitted-args:required', async ({ transport }: TestArgs) => {
+    // Shared across factory calls so stateless still observes the count.
+    const handlerCalls = { n: 0 };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerPrompt('summarize', { argsSchema: { text: z.string() } }, ({ text }) => {
+            handlerCalls.n++;
+            return { messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following text:\n${text}` } }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    // No `arguments` key at all: still -32602, and the message names the missing argument.
+    await expect(client.getPrompt({ name: 'summarize' })).rejects.toMatchObject({
+        code: ErrorCode.InvalidParams,
+        message: expect.stringContaining('text')
+    });
+    expect(handlerCalls.n).toBe(0);
 });
 
 verifies('prompts:get:unknown-name', async ({ transport }: TestArgs) => {

@@ -35,6 +35,7 @@ import {
     type ElicitRequest,
     ElicitRequestSchema,
     ErrorCode,
+    isJSONRPCRequest,
     type JSONRPCMessage,
     ListToolsRequestSchema,
     LoggingMessageNotificationSchema,
@@ -46,7 +47,7 @@ import {
 } from '../../../src/types.js';
 import { AjvJsonSchemaValidator } from '../../../src/validation/ajv-provider.js';
 
-import { wire } from '../helpers/index.js';
+import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -511,6 +512,57 @@ verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
     expect((reply as { result: { isError?: boolean } }).result.isError).toBe(true);
 
     client.transport!.onmessage = original;
+});
+
+verifies('tools:call:omitted-args:all-optional', async ({ transport }: TestArgs) => {
+    // Declared outside the factory so stateless hosting (fresh server per request) still records into it.
+    const received: unknown[] = [];
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('list-files', { inputSchema: z.object({ verbose: z.boolean().optional() }) }, args => {
+            received.push(args);
+            return { content: [{ type: 'text', text: args.verbose ? 'a.ts (12 bytes)' : 'a.ts' }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+    const { sent } = tapWire(client);
+
+    // callTool({ name }) puts no `arguments` key on the wire at all (unlike `arguments: {}`).
+    const result = await client.callTool({ name: 'list-files' });
+
+    const request = sent.find(m => isJSONRPCRequest(m) && m.method === 'tools/call');
+    expect(request).toBeDefined();
+    if (!request || !isJSONRPCRequest(request)) throw new Error('expected tools/call request');
+    expect(request.params).not.toHaveProperty('arguments');
+    expect(result.isError).toBeFalsy();
+    expect(result.content).toEqual([{ type: 'text', text: 'a.ts' }]);
+    // The omitted field is validated as an empty object, so the handler sees no keys rather than undefined.
+    expect(received).toEqual([{}]);
+});
+
+verifies('tools:call:omitted-args:required', async ({ transport }: TestArgs) => {
+    // Shared across factory calls so stateless still observes the count.
+    const handlerCalls = { n: 0 };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('search', { inputSchema: z.object({ query: z.string() }) }, ({ query }) => {
+            handlerCalls.n++;
+            return { content: [{ type: 'text', text: `results for ${query}` }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    // No `arguments` key at all: McpServer reports the input validation failure as an isError result that names the missing argument.
+    const result = await client.callTool({ name: 'search' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toEqual([{ type: 'text', text: expect.stringMatching(/validation/i) }]);
+    expect(result.content).toEqual([{ type: 'text', text: expect.stringContaining('query') }]);
+    expect(handlerCalls.n).toBe(0);
 });
 
 verifies(
