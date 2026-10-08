@@ -2,13 +2,7 @@ import { readdirSync } from 'node:fs';
 import { dirname, posix, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-/**
- * `migration/upgrade-to-v2.md` is assembled with `<!--@include: -->` from the
- * v1→v2 upgrade agent skill in `skills/mcp-typescript-sdk-upgrade-to-v2/`, its
- * source. The skill's links work wherever it is installed — cross-file
- * (`references/auth.md#auth`, `../SKILL.md#…`) and absolute site URLs — so on
- * the assembled page they are mapped back to in-page anchors and relative links.
- */
+/** The docs page assembled with `<!--@include: -->` from the skill in `skills/mcp-typescript-sdk-upgrade-to-v2/`. */
 export const SKILL_PAGE = 'migration/upgrade-to-v2.md';
 
 const skillDir = resolve(dirname(fileURLToPath(import.meta.url)), '../../skills/mcp-typescript-sdk-upgrade-to-v2');

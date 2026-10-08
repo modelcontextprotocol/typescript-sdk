@@ -69,12 +69,7 @@ function stripFrontmatter(markdown: string): string {
     return end === -1 ? markdown : markdown.slice(end + 5).replace(/^\n+/, '');
 }
 
-/**
- * Expand VitePress `<!--@include: path[#region]-->` directives (paths relative to
- * `file`) as the rendered page does, but throw on a missing file or region where
- * VitePress silently leaves the comment. The including page owns the spacing, so
- * included content is trimmed of edge blank lines.
- */
+/** Expand `<!--@include: path[#region]-->` directives (paths relative to `file`), throwing on a missing file or region. */
 function expandIncludes(markdown: string, file: string): string {
     return markdown.replace(/<!--\s*@include:\s*(.*?)\s*-->/g, (_match, spec: string) => {
         const [path, region] = spec.split('#');

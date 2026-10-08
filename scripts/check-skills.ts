@@ -1,22 +1,12 @@
 #!/usr/bin/env tsx
-/**
- * Check the agent skills under `skills/` against the Agent Skills spec
- * (https://agentskills.io/specification) and their own links:
- *
- * - `name` matches the skill's directory and the spec's character rules;
- *   `description` is 1–1024 characters; SKILL.md stays under 500 lines.
- * - Every relative link resolves inside the skill — file and `#anchor`, using
- *   GitHub's heading slugs as GitHub and skills.sh render them. A skill is
- *   installed on its own, so anything outside it is linked by absolute URL.
- *
- * Run: pnpm check:skills
- */
+/** Check each skill under `skills/` against https://agentskills.io/specification, and that its links resolve inside it. */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { githubSlug } from '../docs/.vitepress/skill';
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SKILLS = join(ROOT, 'skills');
 
 /** Lines outside fenced code blocks. */
@@ -68,8 +58,8 @@ for (const name of readdirSync(SKILLS)) {
         errors.push(`skills/${name}: name must be ≤64 of a-z, 0-9 and single hyphens`);
     if (description.length === 0 || description.length > 1024)
         errors.push(`skills/${name}/SKILL.md: description is ${description.length} characters (1–1024)`);
-    const lines = text.split('\n').length;
-    if (lines > 500) errors.push(`skills/${name}/SKILL.md: ${lines} lines; move detail into references/ (limit 500)`);
+    const lines = text.replace(/\n$/, '').split('\n').length;
+    if (lines >= 500) errors.push(`skills/${name}/SKILL.md: ${lines} lines; move detail into references/ (keep it under 500)`);
 
     for (const file of markdownFiles(dir)) {
         const where = relative(ROOT, file);
