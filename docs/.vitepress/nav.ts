@@ -27,6 +27,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'Elicitation', link: '/servers/elicitation' },
             { text: 'Sampling (sunset)', link: '/servers/sampling' },
             { text: 'Input required', link: '/servers/input-required' },
+            { text: 'Skills (extension)', link: '/servers/skills' },
             { text: 'Notifications', link: '/servers/notifications' },
             { text: 'Errors', link: '/servers/errors' }
         ]
@@ -53,6 +54,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'Handle server requests', link: '/clients/server-requests' },
             { text: 'Roots (sunset)', link: '/clients/roots' },
             { text: 'Subscriptions', link: '/clients/subscriptions' },
+            { text: 'Skills (extension)', link: '/clients/skills' },
             { text: 'OAuth', link: '/clients/oauth' },
             { text: 'Machine auth', link: '/clients/machine-auth' },
             { text: 'Middleware', link: '/clients/middleware' },
