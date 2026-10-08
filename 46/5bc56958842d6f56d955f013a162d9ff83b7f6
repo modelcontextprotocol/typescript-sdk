@@ -1,0 +1,87 @@
+docs/advanced/extensions.md
+  s_a5c48038294d8c::t_8aea2d6628dc11 63-66,84-85
+  s_a5c48038294d8c::t_8b4b7532327939 75
+  s_a5c48038294d8c::t_e05fb4e7e6e91d 7-44,54,73,81-83
+  s_a5c48038294d8c::t_bbae1807042e27 46,48,52-53,55-62,67-72
+  s_eb77895b097fc6::t_bf003eaed3aeb3 1-6,45,47,49-51,74,76-80
+packages/server/src/server/extension.ts
+  s_a5c48038294d8c::t_94e4ec467474fd 22-23
+  s_a5c48038294d8c::t_54023edde34367 13-14,26
+  s_902f0d8aed10dd::t_bf207ed52782de 1-12,16-21,24-25,27-28
+  s_a5c48038294d8c::t_f470132c36e8d1 15
+packages/core-internal/src/shared/protocol.ts
+  s_a5c48038294d8c::t_c038e1fc864ff7 201-211,574,1810-1811,1813-1816,1860,1868,1871
+  s_a5c48038294d8c::t_65a66fb6cca973 575-576,1023,1532-1546,1787,1807,1817-1818,1820-1851,1873
+  s_a5c48038294d8c::t_210169d1680ed6 573,1801-1804,1808-1809,1812,1853-1859
+  s_a5c48038294d8c::t_e1ce587ff4f6ec 1788-1800,1805-1806,1866-1867,1870
+  s_eb77895b097fc6::t_9eb506992b64d4 1819,1852,1861-1865,1869,1872,1874
+packages/client/src/client/extension.ts
+  s_a5c48038294d8c::t_dc1064f65d3316 14-15,26
+  s_a5c48038294d8c::t_a08817c4748d05 10,22-23
+  s_a5c48038294d8c::t_1086362aa098e9 16
+  s_eb77895b097fc6::t_5468ee774100c9 1-9,11-13,17-21,24-25,27-28
+packages/server/src/server/server.ts
+  s_a5c48038294d8c::t_1e14f858a49c3f 75-76,78-84,361-362,364-365
+  s_a5c48038294d8c::t_be1aa7c62c2035 363
+packages/client/src/index.ts
+  s_a5c48038294d8c::t_fe75d94656e7ae 71
+.changeset/server-extensions.md
+  s_a5c48038294d8c::t_f6af09540b3e1f 3
+  s_a5c48038294d8c::t_cf28e45e030aa9 7
+  s_a5c48038294d8c::t_4501c28510377e 1-2,4-6,8-9
+packages/client/test/client/extensions.test.ts
+  s_a5c48038294d8c::t_8f23db98138e3e 28,66-71,123-134
+  s_a5c48038294d8c::t_217aaa8b587937 1-25,27,29-65,72-92,94-122,135-145
+  s_a5c48038294d8c::t_7e96e3e9e57c09 26,93
+packages/client/src/client/client.ts
+  s_a5c48038294d8c::t_71068a1170d48a 671
+  s_a5c48038294d8c::t_305f20319d5fa8 83,185-191,669-670,672-673
+packages/server/src/index.ts
+  s_a5c48038294d8c::t_af94591da39316 58
+packages/server/src/server/mcp.ts
+  s_a5c48038294d8c::t_17f4d85d92234b 283-288
+packages/core-internal/test/shared/requestMiddleware.test.ts
+  s_a5c48038294d8c::t_643fc6f9b7fd73 92,95-102,105-107,110-111,114-117,119-120,122-123,152
+  s_a5c48038294d8c::t_77926d28406956 94,103-104,108-109,112-113,118,121
+  s_a5c48038294d8c::t_9f1b4c822dfced 2-91,124-151
+  s_eb77895b097fc6::t_8b197a958232c7 1,93,153
+packages/server/test/server/extensions.test.ts
+  s_a5c48038294d8c::t_7e438a640a976e 1-3,5-56,58,60-74,76-78,80-81,83-93,95-118
+  s_a5c48038294d8c::t_49558f7a80b9de 57,75,82
+  s_a5c48038294d8c::t_d887dd7c68c368 79
+  s_a5c48038294d8c::t_fe619289b36225 4,59,94
+docs/.vitepress/nav.ts
+  s_a5c48038294d8c::t_918ef20bf336aa 69
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "465bc56958842d6f56d955f013a162d9ff83b7f6",
+  "prompts": {},
+  "sessions": {
+    "s_902f0d8aed10dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b071c91a-4a12-4b69-b33c-ae6f25b8521d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_eb77895b097fc6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f65c1e3-b88b-49de-8ccc-1c2a95c65fe7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
