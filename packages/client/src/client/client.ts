@@ -80,6 +80,8 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import type { ClientExtension } from './extension';
+import { installClientExtensions } from './extension';
 import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
@@ -181,6 +183,18 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
 }
 
 export type ClientOptions = ProtocolOptions & {
+    /**
+     * Extensions to set up at construction, in order. Each is advertised under
+     * `capabilities.extensions[id]` as `{}`, then its `setup` runs with a
+     * `ClientExtensionContext`. A duplicate id fails construction before any
+     * extension is set up.
+     *
+     * Experimental: the shape of an extension may change in a minor release.
+     *
+     * @experimental
+     */
+    extensions?: readonly ClientExtension[];
+
     /**
      * Capabilities to advertise as being supported by this client.
      */
@@ -680,6 +694,8 @@ export class Client extends Protocol<ClientContext> {
         if (options?.listChanged) {
             this._listChangedConfig = options.listChanged;
         }
+
+        installClientExtensions(this, options?.extensions ?? []);
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
