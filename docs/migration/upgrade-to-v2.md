@@ -1,7 +1,7 @@
 ---
 title: Upgrading from v1.x to v2
-# Assembled from skills/mcp-typescript-sdk-upgrade-to-v2/ (SKILL.md and references/): edit those files, not this page.
-description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
+description: 'Upgrade from @modelcontextprotocol/sdk (v1.x) to the v2 packages: run the codemod, then make the changes it cannot.'
+source: 'This page is assembled from skills/mcp-typescript-sdk-upgrade-to-v2/ (SKILL.md and references/), so edit those files. Read it rendered at https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2'
 ---
 
 <!--@include: ../../skills/mcp-typescript-sdk-upgrade-to-v2/SKILL.md#intro-->
