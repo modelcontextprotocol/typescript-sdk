@@ -13,7 +13,7 @@ import {
     fetchWithinOrigin,
     IdJagTokenExchangeResponseSchema,
     OAuthErrorResponseSchema,
-    OAuthTokensSchema,
+    OAuthTokenResponseSchema,
     withoutIssuer
 } from '@modelcontextprotocol/core-internal';
 
@@ -304,7 +304,7 @@ export async function exchangeJwtAuthGrant(options: {
     const responseBody = await response.json();
 
     // Validate response using core schema
-    const parseResult = OAuthTokensSchema.safeParse(withoutIssuer(responseBody));
+    const parseResult = OAuthTokenResponseSchema.safeParse(withoutIssuer(responseBody));
     if (!parseResult.success) {
         throw new Error(`Invalid token response: ${parseResult.error.message}`);
     }
