@@ -6,6 +6,7 @@ import { defineConfig, type DefaultTheme } from 'vitepress';
 
 import { generateLlmsArtifacts } from './llms';
 import { guideSidebar } from './nav';
+import { rewriteSkillLink } from './skill';
 
 const docsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -45,6 +46,8 @@ export default defineConfig({
                 const href = tokens[idx].attrGet('href');
                 if (href?.startsWith('/specification/')) {
                     tokens[idx].attrSet('href', `https://modelcontextprotocol.io${href}`);
+                } else if (href) {
+                    tokens[idx].attrSet('href', rewriteSkillLink(href, env.relativePath, siteUrl));
                 }
                 return orig(tokens, idx, options, env, self);
             };

@@ -4,6 +4,7 @@ import { dirname, join, posix } from 'node:path';
 import type { DefaultTheme } from 'vitepress';
 
 import { guideSidebar } from './nav';
+import { rewriteSkillLink } from './skill';
 
 /**
  * LLM-facing renditions of the docs, generated into the site output at build
@@ -68,6 +69,29 @@ function stripFrontmatter(markdown: string): string {
     return end === -1 ? markdown : markdown.slice(end + 5).replace(/^\n+/, '');
 }
 
+/**
+ * Expand VitePress `<!--@include: path[#region]-->` directives (paths relative to
+ * `file`) as the rendered page does, but throw on a missing file or region where
+ * VitePress silently leaves the comment. The including page owns the spacing, so
+ * included content is trimmed of edge blank lines.
+ */
+function expandIncludes(markdown: string, file: string): string {
+    return markdown.replace(/<!--\s*@include:\s*(.*?)\s*-->/g, (_match, spec: string) => {
+        const [path, region] = spec.split('#');
+        const target = join(dirname(file), path!);
+        const raw = readFileSync(target, 'utf8');
+        let content = stripFrontmatter(raw);
+        if (region) {
+            const lines = raw.split('\n');
+            const start = lines.indexOf(`<!-- #region ${region} -->`);
+            const end = lines.indexOf(`<!-- #endregion ${region} -->`);
+            if (start === -1 || end < start) throw new Error(`${file}: include region #${region} not found in ${path}`);
+            content = lines.slice(start + 1, end).join('\n');
+        }
+        return expandIncludes(content.replace(/^\s*\n/, '').replace(/\n\s*$/, ''), target);
+    });
+}
+
 /** Drop the `source="…"` wiring attribute from fence info lines. */
 function stripFenceAttributes(markdown: string): string {
     return markdown.replace(/^```(\w+)\s+source="[^"]*"\s*$/gm, '```$1');
@@ -103,10 +127,15 @@ function absolutizeLinks(markdown: string, pageDir: string, site: string, source
 }
 
 function renderPage(docsDir: string, page: Page, site: string): { markdown: string; description?: string } {
-    const raw = readFileSync(join(docsDir, page.sourcePath), 'utf8');
+    const file = join(docsDir, page.sourcePath);
+    const raw = readFileSync(file, 'utf8');
     const pageDir = posix.dirname(page.sourcePath);
+    const body = expandIncludes(stripFrontmatter(raw), file).replace(
+        /\]\(([^)\s]+)\)/g,
+        (_match, target: string) => `](${rewriteSkillLink(target, page.sourcePath, site)})`
+    );
     return {
-        markdown: absolutizeLinks(stripFenceAttributes(stripFrontmatter(raw)), pageDir === '.' ? '' : pageDir, site, page.sourcePath),
+        markdown: absolutizeLinks(stripFenceAttributes(body), pageDir === '.' ? '' : pageDir, site, page.sourcePath),
         description: frontmatterDescription(raw)
     };
 }
