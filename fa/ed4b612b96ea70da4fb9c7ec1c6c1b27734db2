@@ -1,0 +1,53 @@
+.changeset/skills-extension.md
+  s_eb77895b097fc6::t_e2d2fc31f44657 1-13
+docs/.vitepress/nav.ts
+  s_eb77895b097fc6::t_a219c51adead60 30,57
+docs/servers/skills.md
+  s_eb77895b097fc6::t_5cfcc9195d48c3 1-57
+packages/client/package.json
+  s_eb77895b097fc6::t_1f912b9fdc9810 43-52,128-130
+packages/client/src/ext/skills/skillsClientExtension.ts
+  s_eb77895b097fc6::t_8270916b4cbb1c 1-133
+packages/client/tsconfig.json
+  s_eb77895b097fc6::t_e98ba023b3b6f3 20-21
+packages/client/tsdown.config.ts
+  s_eb77895b097fc6::t_e9b34413229f59 8,32
+packages/core-internal/package.json
+  s_eb77895b097fc6::t_55d2fd0862f0b3 36-39
+packages/core-internal/src/ext/skills/types.ts
+  s_eb77895b097fc6::t_7dc7a9fc93192f 1-106
+packages/core-internal/test/ext/skills/schemas.test.ts
+  s_eb77895b097fc6::t_88cbd65ebd388c 1-37
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_eb77895b097fc6::t_c252ad5c0345bd 40,44
+packages/server/package.json
+  s_eb77895b097fc6::t_ca2a2571541f26 43-52,128-130,157
+packages/server/src/ext/skills/index.ts
+  s_eb77895b097fc6::t_7e7d2da37d890a 1-46
+packages/server/src/ext/skills/skillsExtension.ts
+  s_eb77895b097fc6::t_26df95dd4d9048 1-130
+packages/server/test/ext/skills/skills.e2e.test.ts
+  s_eb77895b097fc6::t_7393975145b3df 1-203
+packages/server/tsconfig.json
+  s_eb77895b097fc6::t_1c726e8c839826 20-26
+packages/server/tsdown.config.ts
+  s_eb77895b097fc6::t_d5549ff4219fce 8,32
+pnpm-lock.yaml
+  s_eb77895b097fc6::t_f077779601ec0f 1800-1802
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "faed4b612b96ea70da4fb9c7ec1c6c1b27734db2",
+  "prompts": {},
+  "sessions": {
+    "s_eb77895b097fc6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f65c1e3-b88b-49de-8ccc-1c2a95c65fe7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
