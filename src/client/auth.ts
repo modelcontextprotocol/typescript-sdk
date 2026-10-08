@@ -16,7 +16,7 @@ import {
     OAuthClientInformationFullSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
-    OAuthTokensSchema
+    OAuthTokenResponseSchema
 } from '../shared/auth.js';
 import { checkResourceAllowed, resourceUrlFromServerUrl } from '../shared/auth-utils.js';
 import {
@@ -434,8 +434,8 @@ function discardIfIssuerMismatch<T extends { issuer?: string }>(stored: T | null
     return issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
 
-// `issuer` is added by the client when it stores a value; authorization server responses are parsed without it.
-const TokenResponseSchema = OAuthTokensSchema.omit({ issuer: true });
+// `issuer` is added by the client when it stores a value; authorization server responses are parsed without it
+// (token responses go through OAuthTokenResponseSchema, which omits `issuer` the same way).
 const RegistrationResponseSchema = OAuthClientInformationFullSchema.omit({ issuer: true });
 
 function boundElsewhereError(stored: { issuer?: string }, issuer: string): Error {
@@ -1363,7 +1363,7 @@ async function executeTokenRequest(
         throw await parseErrorResponse(response);
     }
 
-    return TokenResponseSchema.parse(await response.json());
+    return OAuthTokenResponseSchema.parse(await response.json());
 }
 
 /**
@@ -1457,7 +1457,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
 }
 
 /**
