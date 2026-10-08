@@ -14,18 +14,10 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 
+import { githubSlug } from '../docs/.vitepress/skill';
+
 const ROOT = resolve(import.meta.dirname, '..');
 const SKILLS = join(ROOT, 'skills');
-
-/** GitHub's heading slug (github-slugger) for a heading's markdown text. */
-function slug(heading: string): string {
-    return heading
-        .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-        .replaceAll('`', '')
-        .toLowerCase()
-        .replace(/[^\p{L}\p{M}\p{N}\p{Pc} -]/gu, '')
-        .replaceAll(' ', '-');
-}
 
 /** Lines outside fenced code blocks. */
 function prose(markdown: string): string[] {
@@ -37,7 +29,9 @@ function prose(markdown: string): string[] {
 }
 
 function anchors(file: string): Set<string> {
-    return new Set(prose(readFileSync(file, 'utf8')).flatMap(line => (/^#{1,6} (.*)$/.exec(line) ? [slug(line.replace(/^#+ /, ''))] : [])));
+    return new Set(
+        prose(readFileSync(file, 'utf8')).flatMap(line => (/^#{1,6} (.*)$/.exec(line) ? [githubSlug(line.replace(/^#+ /, ''))] : []))
+    );
 }
 
 /** A single-line frontmatter value, unquoted. */

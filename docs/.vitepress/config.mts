@@ -6,7 +6,7 @@ import { defineConfig, type DefaultTheme } from 'vitepress';
 
 import { generateLlmsArtifacts } from './llms';
 import { guideSidebar } from './nav';
-import { rewriteSkillLink } from './skill';
+import { githubSlug, rewriteSkillLink } from './skill';
 
 const docsDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -46,11 +46,32 @@ export default defineConfig({
                 const href = tokens[idx].attrGet('href');
                 if (href?.startsWith('/specification/')) {
                     tokens[idx].attrSet('href', `https://modelcontextprotocol.io${href}`);
-                } else if (href) {
-                    tokens[idx].attrSet('href', rewriteSkillLink(href, env.relativePath, siteUrl));
                 }
                 return orig(tokens, idx, options, env, self);
             };
+            // Resolve skill links on the assembled page, then GitHub-style anchors to VitePress's heading ids.
+            md.core.ruler.push('page_links', state => {
+                const ids = new Set<string>();
+                const byGithubSlug = new Map<string, string>();
+                const seen = new Map<string, number>();
+                state.tokens.forEach((token, i) => {
+                    const id = token.type === 'heading_open' ? token.attrGet('id') : null;
+                    if (!id) return;
+                    const slug = githubSlug(state.tokens[i + 1]!.content);
+                    const n = seen.get(slug) ?? 0;
+                    seen.set(slug, n + 1);
+                    ids.add(id);
+                    byGithubSlug.set(n ? `${slug}-${n}` : slug, id);
+                });
+                for (const link of state.tokens.flatMap(token => token.children ?? [])) {
+                    const href = link.type === 'link_open' ? link.attrGet('href') : null;
+                    if (!href) continue;
+                    const rewritten = rewriteSkillLink(href, state.env.relativePath, siteUrl);
+                    const anchor = /^#(.+)$/.exec(rewritten)?.[1];
+                    const id = anchor && !ids.has(anchor) ? byGithubSlug.get(decodeURIComponent(anchor)) : undefined;
+                    link.attrSet('href', id ? `#${id}` : rewritten);
+                }
+            });
         }
     },
     buildEnd(siteConfig) {
