@@ -4,6 +4,8 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     encodeMcpParamValue,
+    fetchLeavingRedirects,
+    fetchWithinOrigin,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
@@ -16,7 +18,8 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
-    SdkHttpError
+    SdkHttpError,
+    unfollowedRedirect
 } from '@modelcontextprotocol/core-internal';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -158,8 +161,8 @@ export type StreamableHTTPClientTransportOptions = {
      * {@linkcode AuthProvider.token | token()} is called before every request to obtain the
      * bearer token. When the server responds with 401, {@linkcode AuthProvider.onUnauthorized | onUnauthorized()}
      * is called (if provided) to refresh credentials, then the request is retried once. If
-     * the retry also gets 401, or `onUnauthorized` is not provided, {@linkcode UnauthorizedError}
-     * is thrown.
+     * the retry also gets 401, `SdkHttpError` (`SdkErrorCode.ClientHttpAuthentication`) is thrown.
+     * If `onUnauthorized` is not provided, {@linkcode UnauthorizedError} is thrown.
      *
      * For simple bearer tokens: `{ token: async () => myApiKey }`.
      *
@@ -189,6 +192,11 @@ export type StreamableHTTPClientTransportOptions = {
      * token, `mcp-session-id`, and `mcp-protocol-version`. A caller-supplied `Authorization`
      * value is therefore only sent while the provider has no token, which lets a static API
      * key fall back to OAuth once the provider obtains one.
+     *
+     * A `redirect` of `'error'` or `'manual'` is passed to fetch as it is for the POST, GET and
+     * DELETE requests to the server URL. For the OAuth requests, and for any other value,
+     * `redirect` is consulted only when
+     * {@linkcode StreamableHTTPClientTransportOptions.redirectPolicy | redirectPolicy} is `'follow'`.
      */
     requestInit?: RequestInit;
 
@@ -196,6 +204,21 @@ export type StreamableHTTPClientTransportOptions = {
      * Custom fetch implementation used for all network requests.
      */
     fetch?: FetchLike;
+
+    /**
+     * How a redirect of one of the transport's requests is handled, including the OAuth
+     * requests it makes for {@linkcode StreamableHTTPClientTransportOptions.authProvider | authProvider}.
+     * The option does not reach requests that a provider makes with a fetch of its own, such as
+     * those of the `assertion` callback of a `CrossAppAccessProvider`.
+     *
+     * - `'same-origin'` (default): a redirect is followed only when it stays within the origin
+     *   of the request and keeps the method, and any other redirect fails the request.
+     * - `'follow'`: redirects are left to the fetch implementation, as in earlier versions. It
+     *   follows them to any origin unless `requestInit.redirect` says otherwise.
+     *
+     * @default 'same-origin'
+     */
+    redirectPolicy?: 'same-origin' | 'follow';
 
     /**
      * Options to configure the reconnection behavior.
@@ -328,6 +351,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
+    private _redirectPolicy?: 'same-origin' | 'follow';
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
@@ -371,7 +395,9 @@ export class StreamableHTTPClientTransport implements Transport {
         } else {
             this._authProvider = opts?.authProvider;
         }
+        this._redirectPolicy = opts?.redirectPolicy;
         this._fetchWithInit = createFetchWithInit(opts?.fetch, opts?.requestInit);
+        if (this._redirectPolicy === 'follow') this._fetchWithInit = fetchLeavingRedirects(this._fetchWithInit);
         this._sessionId = opts?.sessionId;
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
@@ -446,6 +472,17 @@ export class StreamableHTTPClientTransport implements Transport {
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
+    }
+
+    /** `baseFetch` with redirects handled as `redirectPolicy` says. */
+    private _redirects(baseFetch: FetchLike): FetchLike {
+        return this._redirectPolicy === 'follow' ? baseFetch : fetchWithinOrigin(baseFetch);
+    }
+
+    /** Error text for a redirect `response` that was not followed, or `undefined` for any other response. */
+    private _unfollowedRedirect(url: string | URL, response: Response): string | undefined {
+        const text = this._redirectPolicy === 'follow' ? undefined : unfollowedRedirect(url, response);
+        return text && `${text} (redirectPolicy: 'same-origin')`;
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -562,7 +599,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 requestSignal !== undefined && transportSignal !== undefined
                     ? anySignal(transportSignal, requestSignal)
                     : (requestSignal ?? transportSignal);
-            const response = await (this._fetch ?? fetch)(this._url, {
+            const response = await this._redirects(this._fetch ?? fetch)(this._url, {
                 ...this._requestInit,
                 method: 'GET',
                 headers,
@@ -639,7 +676,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                const reason = this._unfollowedRedirect(this._url, response) ?? response.statusText;
+                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${reason}`, {
                     status: response.status,
                     statusText: response.statusText
                 });
@@ -1022,7 +1060,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            const response = await this._redirects(this._fetch ?? fetch)(this._url, init);
 
             // The spec assigns the session id "at initialization time … on the HTTP response containing the InitializeResult"; it is ignored everywhere else.
             // Clients include only an id "returned by the server during initialization", so a sessionless handshake clears any stale id.
@@ -1116,7 +1154,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                const reason = this._unfollowedRedirect(this._url, response) ?? text;
+                throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${reason}`, {
                     status: response.status,
                     statusText: response.statusText,
                     text
@@ -1222,7 +1261,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
-            const response = await (this._fetch ?? fetch)(this._url, init);
+            const response = await this._redirects(this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});
 
             // We specifically handle 405 as a valid response according to the spec,
@@ -1230,7 +1269,7 @@ export class StreamableHTTPClientTransport implements Transport {
             if (!response.ok && response.status !== 405) {
                 throw new SdkHttpError(
                     SdkErrorCode.ClientHttpFailedToTerminateSession,
-                    `Failed to terminate session: ${response.statusText}`,
+                    `Failed to terminate session: ${this._unfollowedRedirect(this._url, response) ?? response.statusText}`,
                     {
                         status: response.status,
                         statusText: response.statusText

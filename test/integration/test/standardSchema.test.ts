@@ -57,8 +57,8 @@ describe('Standard Schema Support', () => {
                 const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
-                expect(result.tools[0].name).toBe('greet');
-                expect(result.tools[0].inputSchema).toMatchObject({
+                expect(result.tools[0]?.name).toBe('greet');
+                expect(result.tools[0]?.inputSchema).toMatchObject({
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
                     type: 'object',
                     properties: {
@@ -67,7 +67,7 @@ describe('Standard Schema Support', () => {
                     }
                 });
                 // Check required array contains both fields (order may vary by library)
-                expect(result.tools[0].inputSchema.required).toEqual(expect.arrayContaining(['name', 'age']));
+                expect(result.tools[0]?.inputSchema.required).toEqual(expect.arrayContaining(['name', 'age']));
             });
 
             test('should register tool with ArkType input and output schemas', async () => {
@@ -91,7 +91,7 @@ describe('Standard Schema Support', () => {
 
                 const result = await client.request({ method: 'tools/list' });
 
-                expect(result.tools[0].outputSchema).toMatchObject({
+                expect(result.tools[0]?.outputSchema).toMatchObject({
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
                     type: 'object',
                     properties: {
@@ -99,7 +99,7 @@ describe('Standard Schema Support', () => {
                         operation: { type: 'string' }
                     }
                 });
-                expect(result.tools[0].outputSchema!.required).toEqual(expect.arrayContaining(['result', 'operation']));
+                expect(result.tools[0]?.outputSchema!.required).toEqual(expect.arrayContaining(['result', 'operation']));
             });
         });
 
@@ -212,8 +212,8 @@ describe('Standard Schema Support', () => {
                 const result = await client.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
-                expect(result.tools[0].name).toBe('greet');
-                expect(result.tools[0].inputSchema).toMatchObject({
+                expect(result.tools[0]?.name).toBe('greet');
+                expect(result.tools[0]?.inputSchema).toMatchObject({
                     type: 'object',
                     properties: {
                         name: { type: 'string' },
@@ -239,7 +239,7 @@ describe('Standard Schema Support', () => {
 
                 const result = await client.request({ method: 'tools/list' });
 
-                expect(result.tools[0].inputSchema.properties).toMatchObject({
+                expect(result.tools[0]?.inputSchema.properties).toMatchObject({
                     city: { type: 'string', description: 'The city name' },
                     country: { type: 'string', description: 'The country code' }
                 });
@@ -396,7 +396,7 @@ describe('Standard Schema Support', () => {
             await connectClientAndServer();
 
             const listed = await client.request({ method: 'tools/list' });
-            expect(listed.tools[0].inputSchema).toMatchObject({
+            expect(listed.tools[0]?.inputSchema).toMatchObject({
                 type: 'object',
                 properties: { name: { type: 'string' } },
                 required: ['name']

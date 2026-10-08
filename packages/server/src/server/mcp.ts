@@ -52,6 +52,50 @@ import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
 
+// Counts array elements and object members in `value`, stopping once the running total passes `max`.
+function toolInputElementCount(value: unknown, max: number): number {
+    let count = 0;
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node === null || typeof node !== 'object') continue;
+        if (Array.isArray(node)) {
+            for (const child of node) {
+                if (++count > max) return count;
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        } else {
+            for (const key in node) {
+                if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                if (++count > max) return count;
+                const child = (node as Record<string, unknown>)[key];
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        }
+    }
+    return count;
+}
+
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a number of at least 1.
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+    if (value === undefined || value === Infinity) return undefined;
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+        throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
+    }
+    return value;
+}
+
+/**
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements`.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
+     * A number of at least 1; unset or `Infinity` means no limit.
+     */
+    maxToolInputElements?: number;
+};
+
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
@@ -71,18 +115,15 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private readonly _maxToolInputElements: number | undefined;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    /**
-     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
-     * registration-time scan and the pre-dispatch validation step share one
-     * conversion instead of paying it twice per request under the
-     * per-request-factory `createMcpHandler` model.
-     */
+    /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
     private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
 
     /**
@@ -98,15 +139,7 @@ export class McpServer {
         if (tool === undefined || !tool.enabled) return undefined;
         if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
         if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
-        // Lazy path: the memo slot is unset because `registerTool`'s eager
-        // conversion threw (and was swallowed per its "warn, never throw"
-        // contract) or `update({paramsSchema})`/rename invalidated it. The
-        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
-        // `tools/call` whose body-authoritative dispatch would otherwise
-        // succeed — return `undefined` so validation is skipped and the
-        // conversion failure stays where it always surfaced (`tools/list`).
-        // A successful re-derive is memoized so the per-request-factory
-        // `createMcpHandler` model does not re-convert on every call.
+        // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
         try {
             const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
             this._toolInputSchemaJson[name] = json;
@@ -116,8 +149,9 @@ export class McpServer {
         }
     }
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
@@ -238,7 +272,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -319,6 +353,16 @@ export class McpServer {
                 : undefined
             : undefined
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
+        if (
+            this._maxToolInputElements !== undefined &&
+            toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements
+        ) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+            );
+        }
+
         if (!tool.inputSchema) {
             return undefined as Args;
         }
@@ -889,42 +933,21 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
-        // SEP-2243 registration-time declaration-validity check (additive: warn,
-        // never throw — clients enforce by exclusion, servers by header
-        // validation; a malformed declaration here should not block local
-        // development against a stdio client that ignores it). The conversion
-        // is memoized so the pre-dispatch validation step in `createMcpHandler`
-        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
-        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
-        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
-        // the "warn, never throw" contract.
-        if (inputSchema !== undefined) {
-            try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
-                this._toolInputSchemaJson[name] = json;
-                const scan = scanXMcpHeaderDeclarations(json);
-                if (!scan.valid) {
-                    console.warn(
-                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
-                            `conforming Streamable HTTP clients: ${scan.reason}`
-                    );
-                }
-            } catch {
-                // Conversion failure: leave the cache slot unset so the lazy
-                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
-                // the failure where it always has.
-            }
-        }
-
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
+        let outputSchemaJson: Record<string, unknown> | undefined;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
-            outputSchemaJson: convertOutputSchemaJson(outputSchema),
+            get outputSchemaJson() {
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema));
+            },
+            set outputSchemaJson(value) {
+                outputSchemaJson = value;
+            },
             annotations,
             icons,
             execution,
@@ -1116,6 +1139,19 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
@@ -1152,7 +1188,7 @@ export class McpServer {
             scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
@@ -1353,7 +1389,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     /**
      * @hidden
-     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * The converted JSON Schema of `outputSchema`, memoised on first use (and on
      * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
      * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
      * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
@@ -1412,6 +1448,19 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input');
+    const scan = scanXMcpHeaderDeclarations(json);
+    if (!scan.valid) {
+        console.warn(
+            `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                `conforming Streamable HTTP clients: ${scan.reason}`
+        );
+    }
+    return json;
+}
 
 /**
  * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
@@ -1561,7 +1610,7 @@ function createPromptHandler(
         ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
-            const parseResult = await validateStandardSchema(argsSchema, args);
+            const parseResult = await validateStandardSchema(argsSchema, args ?? {});
             if (!parseResult.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }

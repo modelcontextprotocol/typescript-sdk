@@ -32,6 +32,8 @@ import {
     RegistrationRejectedError,
     resolveClientMetadata,
     SdkError,
+    SdkErrorCode,
+    SdkHttpError,
     SSEClientTransport,
     SseError,
     startAuthorization,
@@ -2221,7 +2223,7 @@ verifies(
         const STALE = 'stale-bearer-token';
         const ROTATED = 'rotated-but-still-rejected-token';
 
-        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must surface as UnauthorizedError.
+        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must reject with SdkHttpError (ClientHttpAuthentication).
         let currentToken = STALE;
         let unauthorizedCalls = 0;
         const provider: AuthProvider = {
@@ -2244,7 +2246,9 @@ verifies(
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise = client.connect(transport);
+            await expect(connectPromise).rejects.toBeInstanceOf(SdkHttpError);
+            await expect(connectPromise).rejects.toMatchObject({ code: SdkErrorCode.ClientHttpAuthentication, status: 401 });
 
             // onUnauthorized ran once and the transport retried exactly once before giving up.
             expect(unauthorizedCalls).toBe(1);
@@ -2253,7 +2257,7 @@ verifies(
             await client.close();
         }
     },
-    { title: 'second 401 after retry surfaces as UnauthorizedError' }
+    { title: 'second 401 after retry rejects with SdkHttpError' }
 );
 
 verifies('client-auth:authprovider:oauth-provider-adapted', async (_args: TestArgs) => {

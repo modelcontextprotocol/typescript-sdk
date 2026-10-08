@@ -48,11 +48,10 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 
 const app = createMcpExpressApp();
-const server = new McpServer({ name: 'my-server', version: '1.0.0' });
 
 app.post('/mcp', async (req, res) => {
-    // Stateless example: create a transport per request.
-    // For stateful mode (sessions), keep a transport instance around and reuse it.
+    // Stateless example: create a server and a transport per request (with sessions: one pair per session).
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' });
     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
     await server.connect(transport);
     await transport.handleRequest(req, res, req.body);

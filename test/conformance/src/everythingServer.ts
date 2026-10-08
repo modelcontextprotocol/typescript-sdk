@@ -200,7 +200,10 @@ function createMcpServer() {
             inputSchema: fromJsonSchema<{ region?: string; level?: number }>({
                 type: 'object',
                 properties: {
-                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' },
+                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' } as Record<
+                        string,
+                        unknown
+                    >,
                     level: { type: 'integer', description: 'non-mirrored argument' }
                 }
             })

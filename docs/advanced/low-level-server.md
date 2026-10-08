@@ -113,8 +113,9 @@ Keeping the schema you advertise in `tools/list` identical to the one you valida
 `serveStdio` — from `@modelcontextprotocol/server/stdio` — and `createMcpHandler` each take an `McpServerFactory`, and the factory returns either an `McpServer` or a `Server`.
 
 ```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_serve"
-serveStdio(() => server);
-createMcpHandler(() => server);
+// `buildServer` wraps the construction above: the factory runs per connection (stdio) or per request (HTTP).
+serveStdio(buildServer);
+createMcpHandler(buildServer);
 ```
 
 Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md) — applies to this server unchanged.
