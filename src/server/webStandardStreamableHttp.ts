@@ -853,7 +853,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const rawProtocolHeader = req.headers.get('mcp-protocol-version');
             let negotiatedVersion: string | undefined;
             if (rawProtocolHeader) {
-                const requestedVersions = rawProtocolHeader.split(',').map(v => v.trim()).filter(Boolean);
+                const requestedVersions = rawProtocolHeader
+                    .split(',')
+                    .map(v => v.trim())
+                    .filter(Boolean);
                 negotiatedVersion = SUPPORTED_PROTOCOL_VERSIONS.find(v => requestedVersions.includes(v));
             }
             const clientProtocolVersion = initRequest
@@ -1064,7 +1067,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
         if (protocolVersion !== null) {
-            const versions = protocolVersion.split(',').map(v => v.trim()).filter(Boolean);
+            const versions = protocolVersion
+                .split(',')
+                .map(v => v.trim())
+                .filter(Boolean);
             const hasSupportedVersion = versions.some(v => SUPPORTED_PROTOCOL_VERSIONS.includes(v));
 
             if (!hasSupportedVersion) {
