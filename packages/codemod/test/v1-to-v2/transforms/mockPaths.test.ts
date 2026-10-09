@@ -632,3 +632,16 @@ describe('removed symbols in mocks and dynamic imports', () => {
         expect(text).toContain(`vi.mock('@modelcontextprotocol/server'`);
     });
 });
+
+describe('constant template literal module specifiers', () => {
+    it('rewrites dynamic imports with backtick specifiers', () => {
+        const result = applyTransform('const { McpServer } = await import(`@modelcontextprotocol/sdk/server/mcp.js`);');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+    it('rewrites mock calls with backtick specifiers', () => {
+        const result = applyTransform('vi.mock(`@modelcontextprotocol/sdk/server/mcp.js`, () => ({ McpServer: vi.fn() }));');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+});
