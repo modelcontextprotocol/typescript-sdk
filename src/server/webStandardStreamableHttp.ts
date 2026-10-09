@@ -850,9 +850,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // For initialize requests, get from request params.
             // For other requests, get from header (already validated).
             const initRequest = messages.find(m => isInitializeRequest(m));
+            const rawProtocolHeader = req.headers.get('mcp-protocol-version');
+            let negotiatedVersion: string | undefined;
+            if (rawProtocolHeader) {
+                const requestedVersions = rawProtocolHeader.split(',').map(v => v.trim()).filter(Boolean);
+                negotiatedVersion = SUPPORTED_PROTOCOL_VERSIONS.find(v => requestedVersions.includes(v));
+            }
             const clientProtocolVersion = initRequest
                 ? initRequest.params.protocolVersion
-                : (req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+                : (negotiatedVersion ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
             if (this._enableJsonResponse) {
                 // For JSON response mode, return a Promise that resolves when all responses are ready
@@ -1057,18 +1063,23 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private validateProtocolVersion(req: Request): Response | undefined {
         const protocolVersion = req.headers.get('mcp-protocol-version');
 
-        if (protocolVersion !== null && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion)) {
-            this.onerror?.(
-                new Error(
-                    `Bad Request: Unsupported protocol version: ${protocolVersion}` +
-                        ` (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
-                )
-            );
-            return this.createJsonErrorResponse(
-                400,
-                -32000,
-                `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
-            );
+        if (protocolVersion !== null) {
+            const versions = protocolVersion.split(',').map(v => v.trim()).filter(Boolean);
+            const hasSupportedVersion = versions.some(v => SUPPORTED_PROTOCOL_VERSIONS.includes(v));
+
+            if (!hasSupportedVersion) {
+                this.onerror?.(
+                    new Error(
+                        `Bad Request: Unsupported protocol version: ${protocolVersion}` +
+                            ` (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                    )
+                );
+                return this.createJsonErrorResponse(
+                    400,
+                    -32000,
+                    `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${SUPPORTED_PROTOCOL_VERSIONS.join(', ')})`
+                );
+            }
         }
         return undefined;
     }
