@@ -2333,6 +2333,76 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+
+    /***
+     * Test: A failed listTools() refresh keeps the previous cached tool metadata
+     */
+    test('should keep cached tool metadata when a listTools() refresh fails to compile an output schema', async () => {
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: { name: 'test-server', version: '1.0.0' }
+        }));
+
+        const validCatalog = {
+            tools: [
+                {
+                    name: 'versioned',
+                    inputSchema: { type: 'object' as const },
+                    outputSchema: {
+                        type: 'object' as const,
+                        properties: { generation: { const: 'old' } },
+                        required: ['generation'],
+                        additionalProperties: false
+                    }
+                },
+                {
+                    name: 'task-only',
+                    inputSchema: { type: 'object' as const },
+                    execution: { taskSupport: 'required' as const }
+                }
+            ]
+        };
+
+        // The nested `type` passes the protocol schema but fails to compile in Ajv
+        const invalidCatalog = {
+            tools: [
+                {
+                    name: 'invalid',
+                    inputSchema: { type: 'object' as const },
+                    outputSchema: {
+                        type: 'object' as const,
+                        properties: { value: { type: 'not-a-json-schema-type' } }
+                    }
+                }
+            ]
+        };
+
+        const catalogs = [validCatalog, invalidCatalog];
+        server.setRequestHandler(ListToolsRequestSchema, async () => catalogs.shift()!);
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            content: [{ type: 'text', text: 'new' }],
+            structuredContent: { generation: 'new' }
+        }));
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await client.listTools();
+        await expect(client.listTools()).rejects.toThrow();
+
+        // The validator from the last successful listTools() is still in place
+        await expect(client.callTool({ name: 'versioned' })).rejects.toThrow(/Structured content does not match the tool's output schema/);
+
+        // So is the task support metadata
+        await expect(client.callTool({ name: 'task-only' })).rejects.toThrow(/requires task-based execution/);
+    });
 });
 
 describe('Task-based execution', () => {
