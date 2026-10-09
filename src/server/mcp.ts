@@ -56,7 +56,7 @@ import {
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
-import { RequestHandlerExtra } from '../shared/protocol.js';
+import { RequestHandlerExtra, RequestOptions } from '../shared/protocol.js';
 import { Transport } from '../shared/transport.js';
 
 import { validateAndWarnToolName } from '../shared/toolNameValidation.js';
@@ -440,7 +440,16 @@ export class McpServer {
         // Validate input and create task
         const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
         const handler = tool.handler as ToolTaskHandler<ZodRawShapeCompat | undefined>;
-        const taskExtra = { ...extra, taskStore: extra.taskStore };
+        const taskExtra = {
+            ...extra,
+            taskStore: extra.taskStore,
+            // The client did not request a task, so it never calls tasks/result: send task-related requests on this call instead of queueing them.
+            sendRequest: ((request, resultSchema, options) => {
+                const direct: RequestOptions = { ...options };
+                delete direct.relatedTask;
+                return extra.sendRequest(request, resultSchema, direct);
+            }) as typeof extra.sendRequest
+        };
 
         const createTaskResult: CreateTaskResult = args // undefined only if tool.inputSchema is undefined
             ? await Promise.resolve((handler as ToolTaskHandler<ZodRawShapeCompat>).createTask(args, taskExtra))
