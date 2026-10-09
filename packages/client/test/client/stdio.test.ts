@@ -181,3 +181,23 @@ test('DEFAULT_INHERITED_ENV_VARS matches the host platform', () => {
         expect(DEFAULT_INHERITED_ENV_VARS).toEqual(['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER']);
     }
 });
+
+test('discards a partial frame after the child exits before restarting', async () => {
+    const params: StdioServerParameters = { command: process.execPath, args: ['-e', `process.stdout.write('{"jsonrpc":');`] };
+    const client = new StdioClientTransport(params);
+    const received: JSONRPCMessage[] = [];
+    client.onmessage = message => received.push(message);
+    const firstClosed = new Promise<void>(resolve => {
+        client.onclose = resolve;
+    });
+    await client.start();
+    await firstClosed;
+    params.args = ['-e', `console.log(JSON.stringify({jsonrpc:'2.0',id:1,method:'ping'}));`];
+    const secondClosed = new Promise<void>(resolve => {
+        client.onclose = resolve;
+    });
+    await client.start();
+    await secondClosed;
+    expect(received).toEqual([{ jsonrpc: '2.0', id: 1, method: 'ping' }]);
+    await client.close();
+});
