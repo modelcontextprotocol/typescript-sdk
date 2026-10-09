@@ -632,3 +632,14 @@ describe('removed symbols in mocks and dynamic imports', () => {
         expect(text).toContain(`vi.mock('@modelcontextprotocol/server'`);
     });
 });
+
+describe('quoted symbol names', () => {
+    it('renames a quoted mock factory property', () => {
+        const result = applyTransform(`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({ 'McpError': vi.fn() }));`);
+        expect(result).toContain('ProtocolError: vi.fn()');
+    });
+    it('renames a quoted dynamic import binding property', () => {
+        const result = applyTransform(`const { 'McpError': LocalError } = await import('@modelcontextprotocol/sdk/types.js');`);
+        expect(result).toContain('ProtocolError: LocalError');
+    });
+});
