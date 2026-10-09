@@ -255,7 +255,9 @@ const TEST_PATH_RE = /(^|\/)(test|tests|__tests__)\/|\.(test|spec)\.[cm]?[jt]sx?
 function writeManifest(manifestPath: string, raw: string, pkgJson: Record<string, unknown>): void {
     const indent = detectIndent(raw);
     let output = JSON.stringify(pkgJson, null, indent);
-    if (raw.endsWith('\n')) output += '\n';
+    const lineEnding = raw.includes('\r\n') ? '\r\n' : '\n';
+    if (lineEnding === '\r\n') output = output.replaceAll('\n', lineEnding);
+    if (raw.endsWith('\n')) output += lineEnding;
     writeFileSync(manifestPath, output);
 }
 
