@@ -11,7 +11,7 @@
  * `dts.compilerOptions.paths` so the type is inlined as a plain named export.
  * Runtime code is unaffected (this is a `.d.ts`; the path mapping is dts-only).
  */
-// Field-for-field copy of fast-uri@3.1.0's URIComponent (types/index.d.ts).
+// Field-for-field copy of fast-uri@3.1.8's URIComponent (types/index.d.ts).
 // Keep in sync when bumping fast-uri/ajv.
 export interface URIComponent {
     scheme?: string;
