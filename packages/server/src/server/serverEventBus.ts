@@ -67,7 +67,11 @@ export class InMemoryServerEventBus implements ServerEventBus {
             try {
                 listener(event);
             } catch (error) {
-                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                try {
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                } catch {
+                    // Reporting failures must not interrupt delivery to the remaining listeners.
+                }
             }
         }
     }
