@@ -234,7 +234,10 @@ function parseManifest(manifestPath: string): ParsedManifest | undefined {
         devDeps,
         peerDeps,
         optionalDeps,
-        declaresV1: (deps !== undefined && V1_PACKAGE in deps) || (devDeps !== undefined && V1_PACKAGE in devDeps)
+        declaresV1:
+            (deps !== undefined && V1_PACKAGE in deps) ||
+            (devDeps !== undefined && V1_PACKAGE in devDeps) ||
+            (optionalDeps !== undefined && V1_PACKAGE in optionalDeps)
     };
 }
 
@@ -334,6 +337,7 @@ export function updatePackageJson(
 
         const inDeps = deps !== undefined && V1_PACKAGE in deps;
         const inDevDeps = devDeps !== undefined && V1_PACKAGE in devDeps;
+        const inOptionalDeps = optionalDeps !== undefined && V1_PACKAGE in optionalDeps;
         const warning = zodWarning(deps, devDeps, peerDeps, optionalDeps);
 
         const declaresAnyV2 = Object.keys({ ...deps, ...devDeps }).some(dep => dep in V2_PACKAGE_VERSIONS);
@@ -349,7 +353,9 @@ export function updatePackageJson(
         // package's own contract.
         const declaresZod = [deps, devDeps, peerDeps, optionalDeps].some(section => section !== undefined && 'zod' in section);
         const needsInjectedZod = injectedFiles !== undefined && injectedFiles.length > 0 && !declaresZod;
-        const addInjectedZod = (targetSection: 'dependencies' | 'devDependencies'): 'dependencies' | 'devDependencies' => {
+        const addInjectedZod = (
+            targetSection: 'dependencies' | 'devDependencies' | 'optionalDependencies'
+        ): 'dependencies' | 'devDependencies' | 'optionalDependencies' => {
             // Classify against the path RELATIVE to the package — a test/ segment in
             // some ancestor directory (CI checkout dirs) must not demote the dep.
             const testOnly = injectedFiles!.every(file => TEST_PATH_RE.test(toPosix(path.relative(manifest.dir, file))));
@@ -361,7 +367,7 @@ export function updatePackageJson(
             return section;
         };
 
-        if (!inDeps && !inDevDeps) {
+        if (!inDeps && !inDevDeps && !inOptionalDeps) {
             if (needsInjectedZod) {
                 addInjectedZod('dependencies');
                 if (isNearest && !dryRun) {
@@ -384,13 +390,14 @@ export function updatePackageJson(
         );
 
         // If v1 SDK was in both sections, prefer dependencies.
-        const targetSection = inDeps ? 'dependencies' : 'devDependencies';
+        const targetSection = inDeps ? 'dependencies' : inDevDeps ? 'devDependencies' : 'optionalDependencies';
 
         const added: string[] = [];
         for (const pkg of packagesToAdd) {
             const alreadyInDeps = deps !== undefined && pkg in deps;
             const alreadyInDevDeps = devDeps !== undefined && pkg in devDeps;
-            if (alreadyInDeps || alreadyInDevDeps) continue;
+            const alreadyInOptionalDeps = optionalDeps !== undefined && pkg in optionalDeps;
+            if (alreadyInDeps || alreadyInDevDeps || alreadyInOptionalDeps) continue;
 
             if (!pkgJson[targetSection]) {
                 pkgJson[targetSection] = {};
@@ -409,6 +416,7 @@ export function updatePackageJson(
 
         if (inDeps) delete deps![V1_PACKAGE];
         if (inDevDeps) delete devDeps![V1_PACKAGE];
+        if (inOptionalDeps) delete optionalDeps![V1_PACKAGE];
 
         // Only the nearest manifest is written; the others are reported so the user
         // applies (or deliberately skips) each workspace-member edit themselves.
