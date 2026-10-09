@@ -270,7 +270,10 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
                 const isMockCall = dot !== -1 && MOCK_CALLERS.has(exprText.slice(0, dot)) && MOCK_METHODS.has(exprText.slice(dot + 1));
                 const isModuleRef = call.getExpression().getKind() === SyntaxKind.ImportKeyword || exprText === 'require' || isMockCall;
                 if (!isModuleRef) continue;
-                const spec = call.getArguments()[0]?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue();
+                const argument = call.getArguments()[0];
+                const spec =
+                    argument?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue() ??
+                    argument?.asKind(SyntaxKind.NoSubstitutionTemplateLiteral)?.getLiteralValue();
                 if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
             }
         }

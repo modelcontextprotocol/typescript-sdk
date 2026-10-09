@@ -117,7 +117,7 @@ function rewriteMockCall(
     if (args.length === 0) return 0;
 
     const firstArg = args[0]!;
-    if (!Node.isStringLiteral(firstArg)) return 0;
+    if (!Node.isStringLiteral(firstArg) && !Node.isNoSubstitutionTemplateLiteral(firstArg)) return 0;
 
     const specifier = firstArg.getLiteralValue();
     if (!isSdkSpecifier(specifier)) return 0;
@@ -375,7 +375,7 @@ function rewriteDynamicImports(
         if (args.length === 0) return;
 
         const firstArg = args[0]!;
-        if (!Node.isStringLiteral(firstArg)) return;
+        if (!Node.isStringLiteral(firstArg) && !Node.isNoSubstitutionTemplateLiteral(firstArg)) return;
 
         const specifier = firstArg.getLiteralValue();
         if (!isSdkSpecifier(specifier)) return;
