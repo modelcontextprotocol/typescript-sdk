@@ -2366,9 +2366,22 @@ describe('outputSchema validation', () => {
             ]
         };
 
-        // The nested `type` passes the protocol schema but fails to compile in Ajv
+        // Loosens `versioned` and `task-only`, then the nested `type` of `invalid` passes the protocol schema but fails to compile in Ajv
         const invalidCatalog = {
             tools: [
+                {
+                    name: 'versioned',
+                    inputSchema: { type: 'object' as const },
+                    outputSchema: {
+                        type: 'object' as const,
+                        properties: { generation: { const: 'new' } },
+                        required: ['generation']
+                    }
+                },
+                {
+                    name: 'task-only',
+                    inputSchema: { type: 'object' as const }
+                },
                 {
                     name: 'invalid',
                     inputSchema: { type: 'object' as const },
@@ -2395,7 +2408,7 @@ describe('outputSchema validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await client.listTools();
-        await expect(client.listTools()).rejects.toThrow();
+        await expect(client.listTools()).rejects.toThrow(/not-a-json-schema-type/);
 
         // The validator from the last successful listTools() is still in place
         await expect(client.callTool({ name: 'versioned' })).rejects.toThrow(/Structured content does not match the tool's output schema/);
