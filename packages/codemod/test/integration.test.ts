@@ -88,6 +88,121 @@ describe('integration', () => {
         expect(output).not.toContain('extra');
     });
 
+    it('points migrated stdio servers at the modern serving entry', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `const server = new McpServer({ name: 'test', version: '1.0' });`,
+                `await server.connect(new StdioServerTransport());`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('serveStdio'));
+        expect(notice?.level).toBe(DiagnosticLevel.Info);
+        expect(notice?.message).toContain('2026-07-28');
+        expect(notice?.advisoryOnly).toBe(true);
+    });
+
+    it('points aliased migrated HTTP servers at the modern serving entry', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { StreamableHTTPServerTransport as HttpTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
+                `const transport = new HttpTransport({});`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('createMcpHandler'));
+        expect(notice?.level).toBe(DiagnosticLevel.Info);
+        expect(notice?.message).toContain('2026-07-28');
+        expect(notice?.advisoryOnly).toBe(true);
+    });
+
+    it('points migrated web-standard HTTP servers at the modern serving entry', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';`,
+                `const transport = new WebStandardStreamableHTTPServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('createMcpHandler'));
+        expect(notice?.level).toBe(DiagnosticLevel.Info);
+        expect(notice?.message).toContain('2026-07-28');
+        expect(notice?.advisoryOnly).toBe(true);
+    });
+
+    it('emits a modern server notice for every construction call site', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `if (process.argv[2] === 'a') new StdioServerTransport();`,
+                `else new StdioServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notices = result.diagnostics.filter(d => d.message.includes('serveStdio'));
+        expect(notices).toHaveLength(2);
+    });
+
+    it('resolves modern server notice lines after later transforms rewrite imports', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import type { IsomorphicHeaders } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `const headers: IsomorphicHeaders = {};`,
+                `new StdioServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('serveStdio'));
+        const outputLines = readFileSync(path.join(dir, 'server.ts'), 'utf8').split(/\r?\n/);
+        expect(notice?.line).toBeDefined();
+        expect(outputLines[notice!.line! - 1]).toContain('new StdioServerTransport()');
+    });
+
+    it('does not emit a modern server notice for unused server imports or client transports', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'client.ts'),
+            [
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';`,
+                `const transport = new StdioClientTransport({ command: 'node', args: ['server.js'] });`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.diagnostics.some(d => d.message.includes('2026-07-28'))).toBe(false);
+    });
+
     it('preserves a leading #! shebang on a migrated file', () => {
         // Regression: the imports transform consumed the line-1 shebang (leading trivia of the first
         // import), silently breaking CLI packages whose `bin` points at the compiled entry.
