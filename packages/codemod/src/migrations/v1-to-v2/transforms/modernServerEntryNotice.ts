@@ -36,16 +36,20 @@ export const modernServerEntryNoticeTransform: Transform = {
 
                 const binding = namedImport.getAliasNode() ?? namedImport.getNameNode().asKind(SyntaxKind.Identifier);
                 if (binding === undefined) continue;
-                const construction = binding
+                const constructions = binding
                     .findReferencesAsNodes()
+                    .filter(reference => reference.getSourceFile() === sourceFile)
                     .map(reference => reference.getParentIfKind(SyntaxKind.NewExpression))
-                    .find(node => node?.getExpression().getText() === binding.getText());
-                if (construction === undefined) continue;
+                    .filter(construction => construction?.getExpression().getText() === binding.getText());
 
-                diagnostics.push({
-                    ...info(filePath, construction.getStartLineNumber(), `${message} See ${MODERN_PROTOCOL_GUIDE}.`),
-                    advisoryOnly: true
-                });
+                for (const construction of constructions) {
+                    if (construction === undefined) continue;
+                    diagnostics.push({
+                        ...info(filePath, construction.getStartLineNumber(), `${message} See ${MODERN_PROTOCOL_GUIDE}.`),
+                        advisoryOnly: true,
+                        resolveCurrentLine: () => construction.getStartLineNumber()
+                    });
+                }
             }
         }
 
