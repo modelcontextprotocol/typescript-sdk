@@ -147,6 +147,45 @@ describe('integration', () => {
         expect(notice?.advisoryOnly).toBe(true);
     });
 
+    it('emits a modern server notice for every construction call site', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `if (process.argv[2] === 'a') new StdioServerTransport();`,
+                `else new StdioServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notices = result.diagnostics.filter(d => d.message.includes('serveStdio'));
+        expect(notices).toHaveLength(2);
+    });
+
+    it('resolves modern server notice lines after later transforms rewrite imports', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import type { IsomorphicHeaders } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `const headers: IsomorphicHeaders = {};`,
+                `new StdioServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('serveStdio'));
+        const outputLines = readFileSync(path.join(dir, 'server.ts'), 'utf8').split(/\r?\n/);
+        expect(notice?.line).toBeDefined();
+        expect(outputLines[notice!.line! - 1]).toContain('new StdioServerTransport()');
+    });
+
     it('does not emit a modern server notice for unused server imports or client transports', () => {
         const dir = createTempDir();
         writeFileSync(
