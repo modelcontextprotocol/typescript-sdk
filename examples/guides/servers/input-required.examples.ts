@@ -47,18 +47,22 @@ server.registerTool(
         inputSchema: z.object({ env: z.string() })
     },
     async ({ env }, ctx): Promise<CallToolResult | InputRequiredResult> => {
-        const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
-        if (confirmed?.confirm !== true) {
-            return inputRequired({
-                inputRequests: {
-                    confirm: inputRequired.elicit({
-                        message: `Deploy to ${env}?`,
-                        requestedSchema: confirmationSchema
-                    })
-                }
-            });
+        // A declined or cancelled answer is final: returning inputRequired() again
+        // would put the same question to the operator on every retry.
+        if (inputResponse(ctx.mcpReq.inputResponses, 'confirm').kind === 'elicit') {
+            const confirmed = acceptedContent(ctx.mcpReq.inputResponses, 'confirm', confirmationSchema);
+            return confirmed?.confirm === true
+                ? { content: [{ type: 'text', text: `Deployed to ${env}` }] }
+                : { content: [{ type: 'text', text: 'Deployment cancelled by the operator' }], isError: true };
         }
-        return { content: [{ type: 'text', text: `Deployed to ${env}` }] };
+        return inputRequired({
+            inputRequests: {
+                confirm: inputRequired.elicit({
+                    message: `Deploy to ${env}?`,
+                    requestedSchema: confirmationSchema
+                })
+            }
+        });
     }
 );
 //#endregion registerTool_inputRequired
