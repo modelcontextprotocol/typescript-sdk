@@ -1,0 +1,87 @@
+{
+  "result": {
+    "capabilities": [],
+    "analysis_run": {
+      "run_id": "00000000-0000-4000-8000-000000000000",
+      "process_lineage": {
+        "status": "not_observed"
+      }
+    },
+    "analysis_activity": {
+      "status": "not_observed",
+      "providers": []
+    },
+    "provider_operation_health": {
+      "state": "idle",
+      "stage": "launch",
+      "retry_action": "retry",
+      "exit_code": 0,
+      "requests": []
+    },
+    "analysis_provider_binding": {
+      "provider": {
+        "id": "x",
+        "name": "x",
+        "version": "x"
+      },
+      "selection_source": "request",
+      "analysis_profile": {
+        "provider": {
+          "id": "x",
+          "name": "x",
+          "version": "x"
+        },
+        "parameters": {},
+        "digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    "analysis_provider_candidates": [],
+    "tool_availability": [],
+    "client_features": {
+      "elicitation_form": false,
+      "elicitation_url": false,
+      "roots": false,
+      "sampling": false
+    },
+    "server_identity": {
+      "package": {
+        "name": "x",
+        "version": "x",
+        "root_path": "x",
+        "build_commit": "x"
+      },
+      "server": {
+        "name": "x",
+        "version": "x",
+        "started_at": "x",
+        "command_path": "x"
+      },
+      "sdk": {
+        "server": "x",
+        "client_test": "x",
+        "core": "x"
+      },
+      "negotiated_protocol_version": "x",
+      "client": {
+        "name": "x",
+        "version": "x"
+      },
+      "skill": {
+        "name": "x",
+        "expected_version": "x"
+      },
+      "catalog": {},
+      "protocol_features": {
+        "progress": false,
+        "cancellation": false,
+        "elicitation": false
+      },
+      "alignment": {
+        "state": "aligned",
+        "reasons": [],
+        "remediation": "x"
+      }
+    },
+    "open": false
+  }
+}
