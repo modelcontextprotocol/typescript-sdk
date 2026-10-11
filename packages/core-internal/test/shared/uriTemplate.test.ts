@@ -311,4 +311,100 @@ describe('UriTemplate', () => {
             expect(elapsed).toBeLessThan(100);
         });
     });
+
+    describe('RFC 6570 prefix modifier', () => {
+        it('should report variableNames without the prefix modifier', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.variableNames).toEqual(['name']);
+        });
+
+        it('should truncate scalar values to prefix length for simple string expansion', () => {
+            const template = new UriTemplate('{name:3}');
+            expect(template.expand({ name: 'abcdef' })).toBe('abc');
+            expect(template.variableNames).toEqual(['name']);
+        });
+
+        it('should expand prefix in URI path context', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.expand({ name: 'abcdef' })).toBe('resource:///abc');
+        });
+
+        it('should apply prefix to Unicode code points before percent-encoding', () => {
+            const template = new UriTemplate('{name:2}');
+            expect(template.expand({ name: '你好世界' })).toBe(encodeURIComponent('你好'));
+        });
+
+        it('should handle supplementary Unicode characters (surrogate pairs)', () => {
+            const template = new UriTemplate('{emoji:2}');
+            expect(template.expand({ emoji: '👋🌍🎉' })).toBe(encodeURIComponent('👋🌍'));
+        });
+
+        it('should use the entire string when prefix is longer than value', () => {
+            const template = new UriTemplate('{name:30}');
+            expect(template.expand({ name: 'abcdef' })).toBe('abcdef');
+        });
+
+        it('should return empty string when variable is missing', () => {
+            const template = new UriTemplate('{name:3}');
+            expect(template.expand({})).toBe('');
+        });
+
+        it('should support prefix modifiers with reserved expansion (+ operator)', () => {
+            const template = new UriTemplate('{+path:4}/here');
+            expect(template.expand({ path: '/foo/bar' })).toBe('/foo/here');
+            expect(template.variableNames).toEqual(['path']);
+        });
+
+        it('should support prefix modifiers with fragment operator (#)', () => {
+            const template = new UriTemplate('X{#var:2}');
+            expect(template.expand({ var: '/test' })).toBe('X#/t');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with label operator (.)', () => {
+            const template = new UriTemplate('X{.var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X.te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with path operator (/)', () => {
+            const template = new UriTemplate('X{/var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X/te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with query operator (?)', () => {
+            const template = new UriTemplate('X{?var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X?var=te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should support prefix modifiers with form continuation operator (&)', () => {
+            const template = new UriTemplate('X{&var:2}');
+            expect(template.expand({ var: 'test' })).toBe('X&var=te');
+            expect(template.variableNames).toEqual(['var']);
+        });
+
+        it('should ignore prefix modifier on composite (array) values per RFC 6570', () => {
+            const template = new UriTemplate('{list:2}');
+            expect(template.expand({ list: ['red', 'green'] })).toBe('red,green');
+            expect(template.variableNames).toEqual(['list']);
+        });
+
+        it('should handle multiple variables with prefix modifiers', () => {
+            const template = new UriTemplate('{x:2,y:3}');
+            expect(template.expand({ x: '1024', y: '768' })).toBe('10,768');
+            expect(template.variableNames).toEqual(['x', 'y']);
+        });
+
+        it('should match URIs and extract variables for templates with prefix modifiers', () => {
+            const template = new UriTemplate('resource:///{name:3}');
+            expect(template.match('resource:///abc')).toEqual({ name: 'abc' });
+        });
+
+        it('should match query parameters for templates with prefix modifiers', () => {
+            const template = new UriTemplate('/search{?q:5}');
+            expect(template.match('/search?q=hello')).toEqual({ q: 'hello' });
+        });
+    });
 });

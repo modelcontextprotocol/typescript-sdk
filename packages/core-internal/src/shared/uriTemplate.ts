@@ -7,6 +7,20 @@ const MAX_VARIABLE_LENGTH = 1_000_000; // 1MB
 const MAX_TEMPLATE_EXPRESSIONS = 10_000;
 const MAX_REGEX_LENGTH = 1_000_000; // 1MB
 
+interface VarSpec {
+    name: string;
+    exploded: boolean;
+    prefix?: number;
+}
+
+interface TemplateExpressionPart {
+    name: string;
+    operator: string;
+    names: string[];
+    exploded: boolean;
+    vars: VarSpec[];
+}
+
 export class UriTemplate {
     /**
      * Returns true if the given string contains any URI template expressions.
@@ -25,7 +39,7 @@ export class UriTemplate {
         }
     }
     private readonly template: string;
-    private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
+    private readonly parts: Array<string | TemplateExpressionPart>;
 
     get variableNames(): string[] {
         return this.parts.flatMap(part => (typeof part === 'string' ? [] : part.names));
@@ -41,8 +55,8 @@ export class UriTemplate {
         return this.template;
     }
 
-    private parse(template: string): Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> {
-        const parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> = [];
+    private parse(template: string): Array<string | TemplateExpressionPart> {
+        const parts: Array<string | TemplateExpressionPart> = [];
         let currentText = '';
         let i = 0;
         let expressionCount = 0;
@@ -64,7 +78,8 @@ export class UriTemplate {
                 const expr = template.slice(i + 1, end);
                 const operator = this.getOperator(expr);
                 const exploded = expr.includes('*');
-                const names = this.getNames(expr);
+                const vars = this.getVarSpecs(expr);
+                const names = vars.map(v => v.name);
                 const name = names[0]!;
 
                 // Validate variable name length
@@ -72,7 +87,7 @@ export class UriTemplate {
                     UriTemplate.validateLength(name, MAX_VARIABLE_LENGTH, 'Variable name');
                 }
 
-                parts.push({ name, operator, names, exploded });
+                parts.push({ name, operator, names, exploded, vars });
                 i = end + 1;
             } else {
                 currentText += template[i];
@@ -92,13 +107,38 @@ export class UriTemplate {
         return operators.find(op => expr.startsWith(op)) || '';
     }
 
-    private getNames(expr: string): string[] {
+    private parseVarSpec(spec: string): VarSpec {
+        const trimmed = spec.trim();
+        const exploded = trimmed.endsWith('*');
+        const withoutExplode = exploded ? trimmed.slice(0, -1) : trimmed;
+        const colonIndex = withoutExplode.indexOf(':');
+        if (colonIndex !== -1) {
+            const name = withoutExplode.slice(0, colonIndex).trim();
+            const prefixStr = withoutExplode.slice(colonIndex + 1).trim();
+            const prefix = /^\d+$/.test(prefixStr) ? Number.parseInt(prefixStr, 10) : undefined;
+            return { name, exploded, prefix: prefix !== undefined && prefix > 0 ? prefix : undefined };
+        }
+        return { name: withoutExplode.trim(), exploded };
+    }
+
+    private getVarSpecs(expr: string): VarSpec[] {
         const operator = this.getOperator(expr);
         return expr
             .slice(operator.length)
             .split(',')
-            .map(name => name.replace('*', '').trim())
-            .filter(name => name.length > 0);
+            .map(spec => this.parseVarSpec(spec))
+            .filter(v => v.name.length > 0);
+    }
+
+    private getNames(expr: string): string[] {
+        return this.getVarSpecs(expr).map(v => v.name);
+    }
+
+    private applyPrefix(value: string, prefix?: number): string {
+        if (prefix === undefined || prefix <= 0) {
+            return value;
+        }
+        return [...value].slice(0, prefix).join('');
     }
 
     private encodeValue(value: string, operator: string): string {
@@ -109,24 +149,16 @@ export class UriTemplate {
         return encodeURIComponent(value);
     }
 
-    private expandPart(
-        part: {
-            name: string;
-            operator: string;
-            names: string[];
-            exploded: boolean;
-        },
-        variables: Variables
-    ): string {
+    private expandPart(part: TemplateExpressionPart, variables: Variables): string {
         if (part.operator === '?' || part.operator === '&') {
-            const pairs = part.names
-                .map(name => {
-                    const value = variables[name];
+            const pairs = part.vars
+                .map(v => {
+                    const value = variables[v.name];
                     if (value === undefined) return '';
                     const encoded = Array.isArray(value)
-                        ? value.map(v => this.encodeValue(v, part.operator)).join(',')
-                        : this.encodeValue(value.toString(), part.operator);
-                    return `${name}=${encoded}`;
+                        ? value.map(val => this.encodeValue(val, part.operator)).join(',')
+                        : this.encodeValue(this.applyPrefix(value.toString(), v.prefix), part.operator);
+                    return `${v.name}=${encoded}`;
                 })
                 .filter(pair => pair.length > 0);
 
@@ -135,16 +167,24 @@ export class UriTemplate {
             return separator + pairs.join('&');
         }
 
-        if (part.names.length > 1) {
-            const values = part.names.map(name => variables[name]).filter(v => v !== undefined);
+        if (part.vars.length > 1) {
+            const values = part.vars
+                .map(v => {
+                    const value = variables[v.name];
+                    if (value === undefined) return;
+                    if (Array.isArray(value)) return value[0];
+                    return this.applyPrefix(value.toString(), v.prefix);
+                })
+                .filter(v => v !== undefined);
             if (values.length === 0) return '';
-            return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
+            return values.join(',');
         }
 
         const value = variables[part.name];
         if (value === undefined) return '';
 
-        const values = Array.isArray(value) ? value : [value];
+        const varSpec = part.vars[0];
+        const values = Array.isArray(value) ? value : [this.applyPrefix(value.toString(), varSpec?.prefix)];
         const encoded = values.map(v => this.encodeValue(v, part.operator));
 
         switch (part.operator) {
@@ -197,12 +237,7 @@ export class UriTemplate {
         return str.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
     }
 
-    private partToRegExp(part: {
-        name: string;
-        operator: string;
-        names: string[];
-        exploded: boolean;
-    }): Array<{ pattern: string; name: string }> {
+    private partToRegExp(part: TemplateExpressionPart): Array<{ pattern: string; name: string }> {
         const patterns: Array<{ pattern: string; name: string }> = [];
 
         // Validate variable name length for matching
