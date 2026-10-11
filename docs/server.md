@@ -45,6 +45,8 @@ Examples:
 - Stateless Streamable HTTP: [`simpleStatelessStreamableHttp.ts`](../src/examples/server/simpleStatelessStreamableHttp.ts)
 - Stateful with resumability: [`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts)
 
+A stateful server keeps one transport per session in memory, so it should close sessions that have been idle for a while and limit how many can be open at once. `simpleStreamableHttp.ts` shows both; pick a limit that fits in memory.
+
 ### stdio
 
 For local integrations where the client spawns the server as a child process, use `StdioServerTransport`. Communication happens over stdin/stdout using JSON-RPC:
@@ -109,6 +111,35 @@ const app = express();
 app.use(express.json());
 app.use(hostHeaderValidation(['localhost', '127.0.0.1', 'myhost.local']));
 ```
+
+## Bearer token authentication
+
+`requireBearerAuth` verifies the `Authorization: Bearer` token of a request with a verifier you supply and puts the resulting `AuthInfo` on `req.auth`. To accept only tokens issued for this resource (the token's audience), set `expectedResource` to the value your authorization
+server puts into tokens meant for this server, usually the server's URL, and have the verifier report that value in `AuthInfo.resource`:
+
+```typescript
+import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
+
+const mcpServerUrl = new URL('https://api.example.com/mcp');
+
+const auth = requireBearerAuth({
+    verifier: {
+        async verifyAccessToken(token) {
+            const payload = await verifyJwt(token); // your JWT library or introspection call
+            // `aud` is one value, a list, or absent: report the entry on this server's origin, if any, and let `expectedResource` compare it.
+            const audience = [payload.aud ?? []].flat().find(aud => URL.canParse(aud) && new URL(aud).origin === mcpServerUrl.origin);
+            const resource = audience ? new URL(audience) : undefined;
+            return { token, clientId: payload.sub, scopes: payload.scopes, expiresAt: payload.exp, resource };
+        }
+    },
+    expectedResource: mcpServerUrl
+});
+
+app.post('/mcp', auth, handleMcpRequest);
+```
+
+With `expectedResource` set, a token is accepted only if `AuthInfo.resource` is that value (one trailing slash aside); a token reported for another value, or for none, gets `401 invalid_token`. Without it, `AuthInfo.resource` is not compared with anything.
+[`simpleStreamableHttp.ts`](../src/examples/server/simpleStreamableHttp.ts) sets it when started with `--oauth --oauth-strict`.
 
 ## Tools, resources, and prompts
 
@@ -230,6 +261,18 @@ server.sendToolListChanged();
 Tools can return `resource_link` content items to reference large resources without embedding them directly, allowing clients to fetch only what they need.
 
 The README's `list-files` example shows the pattern conceptually; for concrete usage, see the Streamable HTTP examples in `src/examples/server`.
+
+#### Limit the number of elements in tool arguments
+
+A `tools/call` request can carry very large arrays and objects in its `arguments`. `McpServer` can limit the number of elements it accepts. Pass `maxToolInputElements` to the constructor: the largest number of array elements and object members, combined, that a single call's
+`arguments` may contain. It must be a number of at least 1, or `Infinity` for no limit.
+
+```typescript
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { maxToolInputElements: 10_000 });
+```
+
+It is off by default — leave it unset and behavior is unchanged. When it is set and a call exceeds it, that call comes back as an `isError: true` tool result naming the limit, before the schema runs, and the server keeps handling other calls. Choose a value above the largest
+arguments your tools legitimately accept. The transport's `maxRequestBodySize` (4 MiB by default) is the primary limit on request size; `maxToolInputElements` is a finer limit on the number of elements for servers that may receive large payloads.
 
 ### Resources
 

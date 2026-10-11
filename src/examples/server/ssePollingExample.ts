@@ -17,7 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { McpServer } from '../../server/mcp.js';
 import { createMcpExpressApp } from '../../server/express.js';
 import { StreamableHTTPServerTransport } from '../../server/streamableHttp.js';
-import { CallToolResult } from '../../types.js';
+import { CallToolResult, isInitializeRequest } from '../../types.js';
 import { InMemoryEventStore } from '../shared/inMemoryEventStore.js';
 import cors from 'cors';
 
@@ -115,31 +115,81 @@ app.use(cors());
 // Create event store for resumability
 const eventStore = new InMemoryEventStore();
 
-// Track transports by session ID for session reuse
-const transports = new Map<string, StreamableHTTPServerTransport>();
+// Close sessions that have been idle for IDLE_MS, and keep at most MAX_SESSIONS open
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
+
+// Track sessions by session ID for session reuse
+type Session = { transport: StreamableHTTPServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
+
+// Count open responses so a long-running request or a listening SSE stream is not treated as idle
+const trackResponse = (session: Session, res: Response) => {
+    if (!res.socket || res.destroyed) return;
+    session.open++;
+    res.on('close', () => {
+        session.open--;
+        session.lastActive = Date.now();
+    });
+};
+
+// Close sessions with nothing open and no activity for IDLE_MS
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
+    }
+}, 60_000).unref();
 
 // Handle all MCP requests
 app.all('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    // Reuse existing transport or create new one
-    let transport = sessionId ? transports.get(sessionId) : undefined;
-
-    if (!transport) {
-        transport = new StreamableHTTPServerTransport({
-            sessionIdGenerator: () => randomUUID(),
-            eventStore,
-            retryInterval: 2000, // Default retry interval for priming events
-            onsessioninitialized: id => {
-                console.log(`[${id}] Session initialized`);
-                transports.set(id, transport!);
-            }
-        });
-
-        // Create a new server per session and connect it to the transport
-        const server = getServer();
-        await server.connect(transport);
+    // Reuse the existing transport for a known session
+    const session = sessionId ? sessions.get(sessionId) : undefined;
+    if (session) {
+        trackResponse(session, res);
+        await session.transport.handleRequest(req, res, req.body);
+        return;
     }
+    if (sessionId) {
+        // Unknown or expired session ID - the client should start a new session
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Session not found' }, id: null });
+        return;
+    }
+    if (!isInitializeRequest(req.body)) {
+        // Invalid request - no session ID and not an initialization request
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Bad Request: No valid session ID provided' }, id: null });
+        return;
+    }
+    if (sessions.size >= MAX_SESSIONS) {
+        res.status(503).json({ jsonrpc: '2.0', error: { code: -32000, message: 'Too many open sessions' }, id: null });
+        return;
+    }
+
+    // New initialization request - create a transport for the session
+    const transport = new StreamableHTTPServerTransport({
+        sessionIdGenerator: () => randomUUID(),
+        eventStore,
+        retryInterval: 2000, // Default retry interval for priming events
+        onsessioninitialized: id => {
+            console.log(`[${id}] Session initialized`);
+            sessions.set(id, { transport, open: 0, lastActive: Date.now() });
+        }
+    });
+
+    // Set up onclose handler to clean up transport when closed
+    transport.onclose = () => {
+        const sid = transport.sessionId;
+        if (sid && sessions.has(sid)) {
+            console.log(`[${sid}] Transport closed, removing from sessions map`);
+            sessions.delete(sid);
+        }
+    };
+
+    // Create a new server per session and connect it to the transport
+    const server = getServer();
+    await server.connect(transport);
 
     await transport.handleRequest(req, res, req.body);
 });

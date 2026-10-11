@@ -1,0 +1,120 @@
+import { Client } from '../../src/client/index.js';
+import { InMemoryTransport } from '../../src/inMemory.js';
+import { McpServer, type McpServerOptions } from '../../src/server/mcp.js';
+import { z } from 'zod';
+
+type ToolResult = { content?: Array<{ text?: string }>; isError?: boolean };
+
+const ok = () => ({ content: [{ type: 'text' as const, text: 'ok' }] });
+
+// Connects a client to a server with three tools; `call` resolves with the result of one tools/call.
+async function connect(options?: McpServerOptions) {
+    const mcpServer = new McpServer({ name: 'test', version: '1.0' }, options);
+    const handlers = { t: vi.fn(ok), objects: vi.fn(ok), plain: vi.fn(ok) };
+    mcpServer.registerTool('t', { inputSchema: { items: z.array(z.string()) } }, handlers.t);
+    mcpServer.registerTool(
+        'objects',
+        { inputSchema: { items: z.array(z.object({ a: z.number(), b: z.number().optional() })) } },
+        handlers.objects
+    );
+    mcpServer.registerTool('plain', {}, handlers.plain);
+
+    const client = new Client({ name: 'c', version: '1.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+    const call = async (name: string, args: Record<string, unknown>): Promise<ToolResult> =>
+        (await client.callTool({ name, arguments: args })) as ToolResult;
+    return { call, handlers };
+}
+
+async function callArrayTool(items: unknown, options?: McpServerOptions): Promise<ToolResult> {
+    const { call } = await connect(options);
+    return call('t', { items });
+}
+
+describe('maxToolInputElements', () => {
+    it('accepts a large array when no limit is set', async () => {
+        const result = await callArrayTool(Array(60_000).fill('x'));
+        expect(result.isError).toBeFalsy();
+        expect(result.content?.[0]?.text).toBe('ok');
+    });
+
+    it('refuses arguments past a configured limit', async () => {
+        const result = await callArrayTool(Array(60_000).fill('x'), { maxToolInputElements: 1_000 });
+        expect(result.isError).toBe(true);
+        expect(result.content?.[0]?.text).toContain('more than the maximum');
+    });
+
+    it('accepts arguments within a configured limit', async () => {
+        const result = await callArrayTool(Array(1_000).fill('x'), { maxToolInputElements: 2_000 });
+        expect(result.isError).toBeFalsy();
+        expect(result.content?.[0]?.text).toBe('ok');
+    });
+
+    it('treats Infinity as no limit', async () => {
+        const result = await callArrayTool(Array(60_000).fill('x'), { maxToolInputElements: Infinity });
+        expect(result.isError).toBeFalsy();
+        expect(result.content?.[0]?.text).toBe('ok');
+    });
+
+    it('rejects a limit that is not a number of at least 1 at construction', () => {
+        expect(() => new McpServer({ name: 't', version: '1.0' }, { maxToolInputElements: Number.NaN })).toThrow();
+        expect(() => new McpServer({ name: 't', version: '1.0' }, { maxToolInputElements: 0 })).toThrow();
+        expect(() => new McpServer({ name: 't', version: '1.0' }, { maxToolInputElements: 0.5 })).toThrow();
+        expect(() => new McpServer({ name: 't', version: '1.0' }, { maxToolInputElements: -1 })).toThrow();
+    });
+
+    it('counts members of nested objects together with array elements', async () => {
+        const { call } = await connect({ maxToolInputElements: 12 });
+        const full = { a: 1, b: 2 };
+
+        // 1 top-level member + 4 array elements + 7 object members = 12
+        const atLimit = await call('objects', { items: [full, full, full, { a: 1 }] });
+        expect(atLimit.isError).toBeFalsy();
+        expect(atLimit.content?.[0]?.text).toBe('ok');
+
+        // 1 top-level member + 4 array elements + 8 object members = 13
+        const pastLimit = await call('objects', { items: [full, full, full, full] });
+        expect(pastLimit.isError).toBe(true);
+        expect(pastLimit.content?.[0]?.text).toContain('more than the maximum');
+    });
+
+    it('answers an ordinary call after a refused call on the same server', async () => {
+        const { call } = await connect({ maxToolInputElements: 1_000 });
+
+        const refused = await call('t', { items: Array(60_000).fill('x') });
+        expect(refused.isError).toBe(true);
+
+        const answered = await call('t', { items: ['x'] });
+        expect(answered.isError).toBeFalsy();
+        expect(answered.content?.[0]?.text).toBe('ok');
+    });
+
+    it('does not invoke the handler for a refused call', async () => {
+        const { call, handlers } = await connect({ maxToolInputElements: 1_000 });
+
+        await call('t', { items: ['x'] });
+        expect(handlers.t).toHaveBeenCalledTimes(1);
+
+        const refused = await call('t', { items: Array(60_000).fill('x') });
+        expect(refused.isError).toBe(true);
+        expect(handlers.t).toHaveBeenCalledTimes(1);
+    });
+
+    it('applies the limit to a tool registered without an input schema', async () => {
+        const items = Array(20).fill('x');
+
+        const limited = await connect({ maxToolInputElements: 10 });
+        const refused = await limited.call('plain', { items });
+        expect(refused.isError).toBe(true);
+        expect(refused.content?.[0]?.text).toContain('more than the maximum');
+        expect(limited.handlers.plain).not.toHaveBeenCalled();
+
+        const unlimited = await connect();
+        const answered = await unlimited.call('plain', { items });
+        expect(answered.isError).toBeFalsy();
+        expect(answered.content?.[0]?.text).toBe('ok');
+        expect(unlimited.handlers.plain).toHaveBeenCalledTimes(1);
+    });
+});

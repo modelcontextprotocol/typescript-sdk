@@ -225,6 +225,23 @@ describe('Proxy OAuth Server Provider', () => {
             );
             expect(tokens).toEqual(mockTokenResponse);
         });
+
+        it.each(['https://upstream.example.com', 42])('does not forward an issuer of %j from the upstream token response', async issuer => {
+            (global.fetch as Mock).mockImplementation(() =>
+                Promise.resolve({
+                    ok: true,
+                    json: () => Promise.resolve({ ...mockTokenResponse, issuer })
+                })
+            );
+
+            const exchanged = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
+            const refreshed = await provider.exchangeRefreshToken(validClient, 'test-refresh-token');
+
+            expect(exchanged).toEqual(mockTokenResponse);
+            expect(exchanged).not.toHaveProperty('issuer');
+            expect(refreshed).toEqual(mockTokenResponse);
+            expect(refreshed).not.toHaveProperty('issuer');
+        });
     });
 
     describe('client registration', () => {
@@ -255,6 +272,28 @@ describe('Proxy OAuth Server Provider', () => {
             );
             expect(result).toEqual(newClient);
         });
+
+        it.each(['https://upstream.example.com', 42])(
+            'does not forward an issuer of %j from the upstream registration response',
+            async issuer => {
+                const newClient: OAuthClientInformationFull = {
+                    client_id: 'new-client',
+                    redirect_uris: ['https://new-client.com/callback']
+                };
+
+                (global.fetch as Mock).mockImplementation(() =>
+                    Promise.resolve({
+                        ok: true,
+                        json: () => Promise.resolve({ ...newClient, issuer })
+                    })
+                );
+
+                const result = await provider.clientsStore.registerClient!(newClient);
+
+                expect(result).toEqual(newClient);
+                expect(result).not.toHaveProperty('issuer');
+            }
+        );
 
         it('handles registration failure', async () => {
             mockFailedResponse();

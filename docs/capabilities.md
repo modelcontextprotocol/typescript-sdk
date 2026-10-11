@@ -180,7 +180,7 @@ For a runnable example that uses the in-memory store shipped with the SDK, see:
 On the client, you use:
 
 - `client.experimental.tasks.callToolStream(...)` to start a tool call that may create a task and emit status updates over time.
-- `client.experimental.tasks.getTask(...)` and `client.experimental.tasks.getTaskResult(...)` to check status and fetch results after reconnecting.
+- `client.experimental.tasks.getTask(...)` and `client.experimental.tasks.getTaskResult(...)` to check status and fetch results later. With the in-memory store a task is reachable from the session that created it, so a client that reconnects has to continue the same session.
 
 The interactive client in:
 
