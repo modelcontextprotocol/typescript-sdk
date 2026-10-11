@@ -335,7 +335,23 @@ function createLegacyStatelessFallback(
 ): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
-            return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
+            // RFC 9110 §15.5.6 requires Allow on 405. Stateless serving only accepts POST.
+            return Response.json(
+                {
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32_000,
+                        message: 'Method not allowed.'
+                    },
+                    id: null
+                },
+                {
+                    status: 405,
+                    headers: {
+                        Allow: 'POST'
+                    }
+                }
+            );
         }
         try {
             const product = await factory({
