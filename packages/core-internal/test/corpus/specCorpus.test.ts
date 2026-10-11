@@ -3,8 +3,8 @@
  *
  * Two corpora, one harness:
  *
- * - `fixtures/2026-07-28/` is VENDORED from the spec repository's draft
- *   example set (`schema/draft/examples/`), regenerated only via
+ * - `fixtures/2026-07-28/` is VENDORED from the released spec repository
+ *   example set (`schema/2026-07-28/examples/`), regenerated only via
  *   `pnpm fetch:spec-examples` (provenance in its manifest.json). Every
  *   example directory is named after a spec type; each file is a canonical
  *   instance of that type.
@@ -59,7 +59,7 @@ const ERROR_OBJECT_DIRS = new Set([
 ]);
 
 /**
- * Draft (2026-07-28) vocabulary the SDK does not model yet, at directory
+ * 2026-07-28 vocabulary the SDK does not model yet, at directory
  * granularity. Each entry names the reason; the harness asserts the schema is
  * genuinely absent so a stale entry (vocabulary landed but still listed)
  * fails loudly. These burn down as the corresponding features land.
@@ -72,7 +72,7 @@ const PENDING_2026: Record<string, string> = {
 /**
  * Individual draft examples whose vocabulary the SDK does not accept yet
  * (file granularity — the directory's schema exists but this instance uses a
- * draft-only widening). Stale-checked: each listed file must actually FAIL to
+ * revision-specific widening). Stale-checked: each listed file must actually FAIL to
  * parse, so the entry is removed the moment the widening lands.
  */
 const PENDING_2026_FILES: Record<string, string> = {
@@ -172,12 +172,14 @@ describe('corpus inventory pins', () => {
     test('the vendored 2026-07-28 corpus matches its manifest (provenance + drift pin)', () => {
         const manifest = JSON.parse(readFileSync(join(FIXTURES_ROOT, '2026-07-28', 'manifest.json'), 'utf8')) as {
             revision: string;
-            source: { commit: string };
+            source: { path: string; commit: string };
             directoryCount: number;
             fileCount: number;
             directories: Record<string, string[]>;
         };
         expect(manifest.revision).toBe('2026-07-28');
+        expect(manifest.source.path).toBe('schema/2026-07-28/examples');
+        expect(manifest.source.commit).toBe('271ecc9accafdd9b83a3c869fa67c22953b2af80');
 
         const dirs = listTypeDirs('2026-07-28');
         expect(dirs).toEqual(Object.keys(manifest.directories).sort());
@@ -186,8 +188,8 @@ describe('corpus inventory pins', () => {
 
         // The corpus size at the pinned spec commit. A change here means the
         // vendored corpus was regenerated — review the delta deliberately.
-        expect(manifest.directoryCount).toBe(87);
-        expect(manifest.fileCount).toBe(128);
+        expect(manifest.directoryCount).toBe(88);
+        expect(manifest.fileCount).toBe(129);
     });
 
     test('the frozen 2025-11-25 corpus keeps its inventory', () => {

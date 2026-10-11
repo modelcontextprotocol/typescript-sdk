@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import type { Diagnostic, TransformContext } from '../types';
 import { info, warning } from './diagnostics';
+import { MOCK_CALLERS, MOCK_METHODS } from './importUtils';
 
 const PROJECT_ROOT_MARKERS = ['.git', 'node_modules'];
 
@@ -10,14 +11,33 @@ const SCAN_EXTENSIONS = new Set(['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '
 const SCAN_SKIP_DIRS = new Set(['node_modules', 'dist', '.git', 'build', '.next', '.nuxt', 'coverage']);
 const SCAN_FILE_BUDGET = 5000;
 
-// Matches a quoted v1 SDK client/server subpath import specifier — e.g.
+// Matches a quoted v1 SDK client/server subpath — e.g.
 //   '@modelcontextprotocol/sdk/client/index.js'   "@modelcontextprotocol/sdk/server/mcp.js"
 //   '@modelcontextprotocol/sdk/client'            (extensionless / bare subpath; see the extensionless
 //                                                  import matching the codemod already supports)
-// Anchored to the opening quote and a trailing `/` or closing quote so that comments or prose that
-// merely mention the path do not count, and `…/client` is not confused with `…/clientfoo`.
-const CLIENT_IMPORT_RE = /['"`]@modelcontextprotocol\/sdk\/client(?:\/|['"`])/;
-const SERVER_IMPORT_RE = /['"`]@modelcontextprotocol\/sdk\/server(?:\/|['"`])/;
+// — but only in a module-specifier position: after `from` (static imports and re-exports), `import`
+// (side-effect and dynamic imports, tolerating webpack-style /* magic comments */ inside `import(`),
+// `require(` / `require.resolve(`, or the vi./jest. mock-method calls the mock-paths transform
+// rewrites (MOCK_CALLERS/MOCK_METHODS). A bare SDK path in ordinary string data (example text, log
+// messages, config values) no longer counts toward project-type inference (#2760).
+//
+// Known limitation: the scan is lexical, not a parser, so a string whose TEXT embeds a full import
+// statement (e.g. help text quoting `from '@modelcontextprotocol/sdk/server/mcp.js'`) still counts —
+// the inner `from '` is indistinguishable from a real specifier position without parsing, which the
+// budget-bounded scan deliberately avoids.
+//
+// The tail is anchored to a trailing `/` or closing quote so `…/client` is not confused with
+// `…/clientfoo`.
+const MOCK_CALL = String.raw`(?:${[...MOCK_CALLERS].join('|')})\s*\.\s*(?:${[...MOCK_METHODS].join('|')})`;
+const SPECIFIER_POSITION =
+    String.raw`(?:\bfrom\s*` + // static import / re-export
+    String.raw`|\bimport\s*\(\s*(?:\/\*[\s\S]*?\*\/\s*)*` + // dynamic import(), optional magic comments
+    String.raw`|\bimport\s*` + // side-effect import
+    String.raw`|\brequire\s*(?:\.\s*resolve\s*)?\(\s*` + // require() / require.resolve()
+    String.raw`|\b${MOCK_CALL}\s*\(\s*` + // vi.mock(...), jest.requireActual(...), ...
+    `)`;
+const CLIENT_IMPORT_RE = new RegExp(SPECIFIER_POSITION + /['"`]@modelcontextprotocol\/sdk\/client(?:\/|['"`])/.source);
+const SERVER_IMPORT_RE = new RegExp(SPECIFIER_POSITION + /['"`]@modelcontextprotocol\/sdk\/server(?:\/|['"`])/.source);
 
 export function findPackageJson(startDir: string): string | undefined {
     let dir = path.resolve(startDir);

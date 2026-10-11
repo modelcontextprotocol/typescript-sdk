@@ -47,8 +47,54 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
 import { Server } from './server';
+
+// Counts array elements and object members in `value`, stopping once the running total passes `max`.
+function toolInputElementCount(value: unknown, max: number): number {
+    let count = 0;
+    const stack: unknown[] = [value];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node === null || typeof node !== 'object') continue;
+        if (Array.isArray(node)) {
+            for (const child of node) {
+                if (++count > max) return count;
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        } else {
+            for (const key in node) {
+                if (!Object.prototype.hasOwnProperty.call(node, key)) continue;
+                if (++count > max) return count;
+                const child = (node as Record<string, unknown>)[key];
+                if (child !== null && typeof child === 'object') stack.push(child);
+            }
+        }
+    }
+    return count;
+}
+
+// Resolves the configured element ceiling: no limit when unset or Infinity, else a number of at least 1.
+function resolveMaxToolInputElements(value: number | undefined): number | undefined {
+    if (value === undefined || value === Infinity) return undefined;
+    if (typeof value !== 'number' || Number.isNaN(value) || value < 1) {
+        throw new RangeError(`maxToolInputElements must be a number of at least 1, or Infinity, got ${String(value)}`);
+    }
+    return value;
+}
+
+/**
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements`.
+ */
+export type McpServerOptions = ServerOptions & {
+    /**
+     * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
+     * A number of at least 1; unset or `Infinity` means no limit.
+     */
+    maxToolInputElements?: number;
+};
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -69,18 +115,15 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private readonly _maxToolInputElements: number | undefined;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    /**
-     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
-     * registration-time scan and the pre-dispatch validation step share one
-     * conversion instead of paying it twice per request under the
-     * per-request-factory `createMcpHandler` model.
-     */
+    /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
     private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
 
     /**
@@ -96,15 +139,7 @@ export class McpServer {
         if (tool === undefined || !tool.enabled) return undefined;
         if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
         if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
-        // Lazy path: the memo slot is unset because `registerTool`'s eager
-        // conversion threw (and was swallowed per its "warn, never throw"
-        // contract) or `update({paramsSchema})`/rename invalidated it. The
-        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
-        // `tools/call` whose body-authoritative dispatch would otherwise
-        // succeed — return `undefined` so validation is skipped and the
-        // conversion failure stays where it always surfaced (`tools/list`).
-        // A successful re-derive is memoized so the per-request-factory
-        // `createMcpHandler` model does not re-convert on every call.
+        // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
         try {
             const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
             this._toolInputSchemaJson[name] = json;
@@ -114,8 +149,9 @@ export class McpServer {
         }
     }
 
-    constructor(serverInfo: Implementation, options?: ServerOptions) {
+    constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
+        this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
         // list method (potentially with an empty result) rather than "Method not found" — even
@@ -146,6 +182,9 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        if (supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
+        }
         return await this.server.connect(transport);
     }
 
@@ -155,6 +194,53 @@ export class McpServer {
     async close(): Promise<void> {
         await this.server.close();
     }
+
+    /** @internal */
+    resolveScopeChallenge: ScopeChallengeHandler = context => {
+        switch (context.request.method) {
+            case 'tools/call': {
+                const toolName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof toolName !== 'string') return;
+                const tool = this._registeredTools[toolName];
+                if (tool === undefined || !tool.enabled) return;
+                return tool.scopeChallenge?.(context);
+            }
+            case 'resources/read': {
+                const resourceUri = (context.request.params as { uri?: unknown } | undefined)?.uri;
+                if (typeof resourceUri !== 'string') return;
+
+                let uri: URL;
+                try {
+                    uri = new URL(resourceUri);
+                } catch {
+                    return;
+                }
+
+                const resource = this._registeredResources[uri.toString()];
+                if (resource !== undefined) {
+                    return resource.enabled ? resource.scopeChallenge?.(context) : undefined;
+                }
+
+                for (const template of Object.values(this._registeredResourceTemplates)) {
+                    const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
+                    if (variables) {
+                        return template.enabled ? template.scopeChallenge?.(context) : undefined;
+                    }
+                }
+                return;
+            }
+            case 'prompts/get': {
+                const promptName = (context.request.params as { name?: unknown } | undefined)?.name;
+                if (typeof promptName !== 'string') return;
+                const prompt = this._registeredPrompts[promptName];
+                if (prompt === undefined || !prompt.enabled) return;
+                return prompt.scopeChallenge?.(context);
+            }
+            default: {
+                return;
+            }
+        }
+    };
 
     private _toolHandlersInitialized = false;
 
@@ -186,7 +272,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -267,6 +353,16 @@ export class McpServer {
                 : undefined
             : undefined
     >(tool: ToolType, args: Args, toolName: string): Promise<Args> {
+        if (
+            this._maxToolInputElements !== undefined &&
+            toolInputElementCount(args, this._maxToolInputElements) > this._maxToolInputElements
+        ) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Invalid arguments for tool ${toolName}: arguments contain more than the maximum of ${this._maxToolInputElements} elements`
+            );
+        }
+
         if (!tool.inputSchema) {
             return undefined as Args;
         }
@@ -502,6 +598,12 @@ export class McpServer {
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
+                    if (!template.enabled) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InvalidParams,
+                            `Resource template ${template.resourceTemplate.uriTemplate} disabled`
+                        );
+                    }
                     return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
@@ -588,31 +690,27 @@ export class McpServer {
     registerResource(
         name: string,
         uriOrTemplate: string,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceCallback
     ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata & { cacheHint?: CacheHint },
+        config: ResourceMetadata & { cacheHint?: CacheHint; scopeChallenge?: ScopeChallengeHandler },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
-        // The cache hint configures the encode-time cache fields of this
-        // resource's `resources/read` results (2026-07-28); it is not resource
-        // metadata and never appears on `resources/list` entries.
-        const cacheHint = config.cacheHint;
-        let metadata: ResourceMetadata = config;
+        // These options configure request handling and are not advertised as
+        // resource metadata by `resources/list`.
+        const { cacheHint, scopeChallenge, ...resourceMetadata } = config;
+        const metadata: ResourceMetadata = resourceMetadata;
         if (cacheHint !== undefined) {
             assertValidCacheHint(cacheHint, `resource ${name}`);
-            const rest = { ...config };
-            delete rest.cacheHint;
-            metadata = rest;
         }
 
         if (typeof uriOrTemplate === 'string') {
@@ -625,6 +723,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 metadata,
+                scopeChallenge,
                 readCallback as ReadResourceCallback
             );
             if (cacheHint !== undefined) {
@@ -644,6 +743,7 @@ export class McpServer {
                 (config as BaseMetadata).title,
                 uriOrTemplate,
                 metadata,
+                scopeChallenge,
                 readCallback as ReadResourceTemplateCallback
             );
             if (cacheHint !== undefined) {
@@ -661,6 +761,7 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
         const registeredResource: RegisteredResource = {
@@ -668,6 +769,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResource.update({ enabled: false }),
             enable: () => registeredResource.update({ enabled: true }),
@@ -681,6 +783,9 @@ export class McpServer {
                 if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResource.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResource.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -694,6 +799,7 @@ export class McpServer {
         title: string | undefined,
         template: ResourceTemplate,
         metadata: ResourceMetadata | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
         const registeredResourceTemplate: RegisteredResourceTemplate = {
@@ -701,6 +807,7 @@ export class McpServer {
             title,
             metadata,
             readCallback,
+            scopeChallenge,
             enabled: true,
             disable: () => registeredResourceTemplate.update({ enabled: false }),
             enable: () => registeredResourceTemplate.update({ enabled: true }),
@@ -714,6 +821,9 @@ export class McpServer {
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates.enabled !== undefined) registeredResourceTemplate.enabled = updates.enabled;
                 this.sendResourceListChanged();
             }
@@ -737,6 +847,7 @@ export class McpServer {
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
         icons: Icon[] | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -748,6 +859,7 @@ export class McpServer {
             description,
             argsSchema,
             icons,
+            scopeChallenge,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -762,6 +874,9 @@ export class McpServer {
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
                 if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredPrompt.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -811,51 +926,32 @@ export class McpServer {
         annotations: ToolAnnotations | undefined,
         icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
+        scopeChallenge: ScopeChallengeHandler | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
-        // SEP-2243 registration-time declaration-validity check (additive: warn,
-        // never throw — clients enforce by exclusion, servers by header
-        // validation; a malformed declaration here should not block local
-        // development against a stdio client that ignores it). The conversion
-        // is memoized so the pre-dispatch validation step in `createMcpHandler`
-        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
-        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
-        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
-        // the "warn, never throw" contract.
-        if (inputSchema !== undefined) {
-            try {
-                const json = standardSchemaToJsonSchema(inputSchema, 'input');
-                this._toolInputSchemaJson[name] = json;
-                const scan = scanXMcpHeaderDeclarations(json);
-                if (!scan.valid) {
-                    console.warn(
-                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
-                            `conforming Streamable HTTP clients: ${scan.reason}`
-                    );
-                }
-            } catch {
-                // Conversion failure: leave the cache slot unset so the lazy
-                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
-                // the failure where it always has.
-            }
-        }
-
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
+        let outputSchemaJson: Record<string, unknown> | undefined;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
-            outputSchemaJson: convertOutputSchemaJson(outputSchema),
+            get outputSchemaJson() {
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema));
+            },
+            set outputSchemaJson(value) {
+                outputSchemaJson = value;
+            },
             annotations,
             icons,
             execution,
+            scopeChallenge,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -911,6 +1007,9 @@ export class McpServer {
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
+                if (updates.scopeChallenge !== undefined) {
+                    registeredTool.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
+                }
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -959,6 +1058,8 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            /** Determines whether this tool call needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -973,6 +1074,7 @@ export class McpServer {
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -986,6 +1088,7 @@ export class McpServer {
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -994,8 +1097,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
-
+        const { title, description, inputSchema, outputSchema, annotations, icons, scopeChallenge, _meta } = config;
         return this._createRegisteredTool(
             name,
             title,
@@ -1005,6 +1107,7 @@ export class McpServer {
             annotations,
             icons,
             undefined,
+            scopeChallenge,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1036,6 +1139,19 @@ export class McpServer {
      * );
      * ```
      */
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: undefined;
+            icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback
+    ): RegisteredPrompt;
     registerPrompt<Args extends StandardSchemaWithJSON>(
         name: string,
         config: {
@@ -1043,6 +1159,8 @@ export class McpServer {
             description?: string;
             argsSchema?: Args;
             icons?: Icon[];
+            /** Determines whether this prompt retrieval needs an OAuth scope challenge. */
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -1055,6 +1173,7 @@ export class McpServer {
             description?: string;
             argsSchema?: Args;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -1066,15 +1185,16 @@ export class McpServer {
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
             icons?: Icon[];
+            scopeChallenge?: ScopeChallengeHandler;
             _meta?: Record<string, unknown>;
         },
-        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
+        cb: PromptCallback | PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, icons, _meta } = config;
+        const { title, description, argsSchema, icons, scopeChallenge, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -1083,6 +1203,7 @@ export class McpServer {
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             icons,
+            scopeChallenge,
             _meta
         );
 
@@ -1268,7 +1389,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     /**
      * @hidden
-     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * The converted JSON Schema of `outputSchema`, memoised on first use (and on
      * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
      * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
      * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
@@ -1278,6 +1399,7 @@ export type RegisteredTool = {
     annotations?: ToolAnnotations;
     icons?: Icon[];
     execution?: ToolExecution;
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1293,6 +1415,7 @@ export type RegisteredTool = {
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
         icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
@@ -1325,6 +1448,19 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input');
+    const scan = scanXMcpHeaderDeclarations(json);
+    if (!scan.valid) {
+        console.warn(
+            `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                `conforming Streamable HTTP clients: ${scan.reason}`
+        );
+    }
+    return json;
+}
 
 /**
  * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
@@ -1365,6 +1501,7 @@ export type RegisteredResource = {
     metadata?: ResourceMetadata;
     /** Cache hint applied to this resource's `resources/read` results on the 2026-07-28 revision. */
     cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1374,6 +1511,7 @@ export type RegisteredResource = {
         title?: string;
         uri?: string | null;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceCallback;
         enabled?: boolean;
     }): void;
@@ -1395,6 +1533,7 @@ export type RegisteredResourceTemplate = {
     metadata?: ResourceMetadata;
     /** Cache hint applied to this template's `resources/read` results on the 2026-07-28 revision. */
     cacheHint?: CacheHint;
+    scopeChallenge?: ScopeChallengeHandler;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;
@@ -1404,6 +1543,7 @@ export type RegisteredResourceTemplate = {
         title?: string;
         template?: ResourceTemplate;
         metadata?: ResourceMetadata;
+        scopeChallenge?: ScopeChallengeHandler | null;
         callback?: ReadResourceTemplateCallback;
         enabled?: boolean;
     }): void;
@@ -1433,6 +1573,7 @@ export type RegisteredPrompt = {
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
     icons?: Icon[];
+    scopeChallenge?: ScopeChallengeHandler;
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
@@ -1445,6 +1586,7 @@ export type RegisteredPrompt = {
         description?: string;
         argsSchema?: Args;
         icons?: Icon[];
+        scopeChallenge?: ScopeChallengeHandler | null;
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
@@ -1468,7 +1610,7 @@ function createPromptHandler(
         ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
-            const parseResult = await validateStandardSchema(argsSchema, args);
+            const parseResult = await validateStandardSchema(argsSchema, args ?? {});
             if (!parseResult.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid arguments for prompt ${name}: ${parseResult.error}`);
             }

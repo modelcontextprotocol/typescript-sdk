@@ -35,7 +35,8 @@ import type {
     ServerCapabilities,
     ServerContext,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core-internal';
 import {
     assertValidCacheHint,
@@ -244,7 +245,7 @@ export function installModernOnlyHandlers(server: Server, servedModernVersions: 
  * Package-internal: the instance's implementation identity, for the serving
  * entries to stamp onto entry-built results (the `subscriptions/listen`
  * graceful-close result — built outside the encode seam, but the spec's
- * `SubscriptionsListenResultMeta` extends `ResultMetaObject`, so it carries
+ * `SubscriptionsListenResultMetaObject` extends `ResultMetaObject`, so it carries
  * the serverInfo SHOULD like every other result). Not public API.
  */
 export function serverIdentityOf(server: Server): Implementation {
@@ -349,6 +350,17 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /** Attaches to the given transport; rejects while this instance is connected to another one. */
+    override async connect(transport: Transport): Promise<void> {
+        if (this.transport !== undefined) {
+            throw new SdkError(
+                SdkErrorCode.AlreadyConnected,
+                'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
+            );
+        }
+        await super.connect(transport);
     }
 
     /**

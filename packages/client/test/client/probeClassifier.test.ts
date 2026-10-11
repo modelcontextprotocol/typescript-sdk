@@ -270,6 +270,25 @@ describe('row: network outage → typed connect error (Node)', () => {
         const verdict = classify({ kind: 'network-error', error: new TypeError('fetch failed') }, { environment: 'node' });
         expect(verdict.kind).toBe('error');
     });
+
+    test('the underlying network error is reachable via Error.cause (#2657)', () => {
+        // Node's fetch wraps the socket/DNS failure: `TypeError: fetch failed` with
+        // the error that actually names the failure (ENOTFOUND / ECONNREFUSED /
+        // ETIMEDOUT) on its own `cause`.
+        const dnsError = Object.assign(new Error('getaddrinfo ENOTFOUND unreachable.invalid'), { code: 'ENOTFOUND' });
+        const fetchError = new TypeError('fetch failed', { cause: dnsError });
+        const verdict = classify({ kind: 'network-error', error: fetchError });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            // Walking `.cause` (what loggers and error reporters do) must reach the
+            // error that names the failure instead of dead-ending on the SdkError.
+            expect(verdict.error.cause).toBe(fetchError);
+            expect((verdict.error.cause as Error).cause).toBe(dnsError);
+            // The legacy data.cause slot stays populated too (kept for compatibility,
+            // slated for removal).
+            expect(((verdict.error as SdkError).data as { cause?: unknown }).cause).toBe(fetchError);
+        }
+    });
 });
 
 describe('row: timeout — transport-aware verdict', () => {
@@ -325,5 +344,42 @@ describe('row: browser opaque CORS/preflight TypeError, PROBE PHASE ONLY → leg
     test('browser non-TypeError network failure stays a typed connect error', () => {
         const verdict = classify({ kind: 'network-error', error: new Error('socket hang up') }, { environment: 'browser' });
         expect(verdict.kind).toBe('error');
+    });
+});
+
+describe('row: unusable-reply — the HTTP layer answered 2xx with an unusable body → typed connect error', () => {
+    const jsonSyntaxError = () => {
+        try {
+            JSON.parse('');
+            throw new Error('unreachable');
+        } catch (error) {
+            return error;
+        }
+    };
+
+    test.each([true, false])('an empty JSON body is never an era verdict (fallbackAvailable: %s)', fallbackAvailable => {
+        const cause = jsonSyntaxError();
+        const verdict = classify({ kind: 'unusable-reply', error: cause }, { fallbackAvailable });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect(verdict.error).toBeInstanceOf(SdkError);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(verdict.error.message).toContain('the server answered with an unusable reply');
+            expect((verdict.error as SdkError).data).toMatchObject({ cause });
+            expect(verdict.error.cause).toBe(cause);
+        }
+    });
+
+    test('an unaccepted media type (bare 204, text/plain) is never an era verdict', () => {
+        const cause = new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected content type: text/plain', {
+            contentType: 'text/plain'
+        });
+        const verdict = classify({ kind: 'unusable-reply', error: cause });
+        expect(verdict.kind).toBe('error');
+        if (verdict.kind === 'error') {
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect(verdict.error.message).toContain('the server answered with an unusable reply (Unexpected content type: text/plain)');
+            expect(verdict.error.cause).toBe(cause);
+        }
     });
 });

@@ -1390,3 +1390,81 @@ describe('probe window preserves pre-set transport handlers', () => {
         await client.close();
     });
 });
+
+// A probe answered 2xx without a usable reply is not era evidence: connect() rejects and says so.
+describe('probe unusable-reply classification', () => {
+    /** Rejects the probe send with `probeError`, then serves legacy initialize. */
+    class UnusableReplyTransport extends ScriptedTransport {
+        constructor(private readonly probeError: Error) {
+            super(legacyServerScript);
+        }
+
+        override async send(message: JSONRPCMessage): Promise<void> {
+            if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                throw this.probeError;
+            }
+            await super.send(message);
+        }
+    }
+
+    const emptyJsonBody = (): Error => {
+        try {
+            JSON.parse('');
+            throw new Error('unreachable');
+        } catch (error) {
+            return error as Error;
+        }
+    };
+    const unusableReplies: Array<[string, () => Error]> = [
+        ['an empty 2xx body parsed as application/json (a gateway swallowing the probe)', emptyJsonBody],
+        [
+            'a bare 204 / text-plain answer the transport does not accept',
+            () =>
+                new SdkError(SdkErrorCode.ClientHttpUnexpectedContent, 'Unexpected content type: text/plain', {
+                    contentType: 'text/plain'
+                })
+        ]
+    ];
+    const rejectionOf = (connecting: Promise<void>) =>
+        connecting.then(
+            () => {
+                throw new Error('connect unexpectedly resolved');
+            },
+            (error: unknown) => error
+        );
+
+    test.each(unusableReplies)('%s rejects connect() with its own message and never sends initialize', async (_label, makeError) => {
+        const transport = new UnusableReplyTransport(makeError());
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await rejectionOf(client.connect(transport));
+
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect((rejection as SdkError).message).toContain('the server answered with an unusable reply');
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+
+    test('a known-legacy verdict skips the probe, so the same server connects', async () => {
+        const transport = new UnusableReplyTransport(emptyJsonBody());
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        await client.connect(transport, { prior: { kind: 'legacy' } });
+
+        expect(requests(transport.sent).some(r => r.method === 'server/discover')).toBe(false);
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(true);
+        await client.close();
+    });
+
+    test('a genuine network failure keeps its own message (not reported as an unusable reply)', async () => {
+        const transport = new UnusableReplyTransport(new TypeError('fetch failed'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await rejectionOf(client.connect(transport));
+
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+        expect((rejection as SdkError).message).not.toContain('unusable reply');
+        expect(requests(transport.sent).some(r => r.method === 'initialize')).toBe(false);
+    });
+});

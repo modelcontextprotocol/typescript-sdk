@@ -82,6 +82,12 @@ describe('getOAuthProtectedResourceMetadataUrl', () => {
             'https://api.example.com/.well-known/oauth-protected-resource'
         );
     });
+
+    it('preserves the resource identifier query', () => {
+        expect(getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp?tenant=acme'))).toBe(
+            'https://api.example.com/.well-known/oauth-protected-resource/mcp?tenant=acme'
+        );
+    });
 });
 
 describe('oauthMetadataResponse', () => {

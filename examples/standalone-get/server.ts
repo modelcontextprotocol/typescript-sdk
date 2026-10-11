@@ -55,18 +55,38 @@ function buildServer(): McpServer {
     return server;
 }
 
-const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+const IDLE_MS = 30 * 60_000;
+const MAX_SESSIONS = 1000;
+
+type Session = { transport: NodeStreamableHTTPServerTransport; open: number; lastActive: number };
+const sessions = new Map<string, Session>();
 const app = createMcpExpressApp();
+
+// Count open responses so a long-running request or a listening stream is not treated as idle.
+const trackResponse = (session: Session, res: Response) => {
+    if (!res.socket || res.destroyed) return;
+    session.open++;
+    res.on('close', () => {
+        session.open--;
+        session.lastActive = Date.now();
+    });
+};
 
 app.post('/mcp', async (req: Request, res: Response) => {
     const sid = req.headers['mcp-session-id'] as string | undefined;
-    if (sid && sessions.has(sid)) {
-        await sessions.get(sid)!.handleRequest(req, res, req.body);
+    const session = sid ? sessions.get(sid) : undefined;
+    if (session) {
+        trackResponse(session, res);
+        await session.transport.handleRequest(req, res, req.body);
     } else if (!sid && isInitializeRequest(req.body)) {
+        if (sessions.size >= MAX_SESSIONS) {
+            res.status(503).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Too many open sessions' }, id: null });
+            return;
+        }
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             onsessioninitialized: id => {
-                sessions.set(id, transport);
+                sessions.set(id, { transport, open: 0, lastActive: Date.now() });
             }
         });
         transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
@@ -83,15 +103,24 @@ app.post('/mcp', async (req: Request, res: Response) => {
 // session termination per the MCP spec) route to the session's transport.
 const sessionVerb = async (req: Request, res: Response) => {
     const sid = req.headers['mcp-session-id'] as string | undefined;
-    const t = sid ? sessions.get(sid) : undefined;
-    if (!t) {
+    const session = sid ? sessions.get(sid) : undefined;
+    if (!session) {
         res.status(sid ? 404 : 400).send(sid ? 'Session not found' : 'Missing session ID');
         return;
     }
-    await t.handleRequest(req, res);
+    trackResponse(session, res);
+    await session.transport.handleRequest(req, res);
 };
 app.get('/mcp', sessionVerb);
 app.delete('/mcp', sessionVerb);
+
+// Close sessions with nothing open and no activity for IDLE_MS.
+setInterval(() => {
+    const cutoff = Date.now() - IDLE_MS;
+    for (const { transport, open, lastActive } of sessions.values()) {
+        if (open === 0 && lastActive < cutoff) transport.close().catch(console.error);
+    }
+}, 60_000).unref();
 
 const { port } = parseExampleArgs();
 app.listen(port, () => {

@@ -598,6 +598,11 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             if (state.era === 'modern' && (await tryServeListen(message))) {
                 return;
             }
+            if (isTornDown()) {
+                // Closed while entry listen routing was being checked (a
+                // buffered final message can race stdin EOF): stay closed.
+                return;
+            }
             state.instance.channel.deliver(message);
             return;
         }
@@ -690,6 +695,11 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     state = { phase: 'pinned', era: 'modern', instance };
                 }
                 if (await tryServeListen(message)) {
+                    return;
+                }
+                if (isTornDown()) {
+                    // Closed while entry listen routing was being checked (a
+                    // buffered final message can race stdin EOF): stay closed.
                     return;
                 }
                 state.instance.channel.deliver(message, { classification: opening.classification });
