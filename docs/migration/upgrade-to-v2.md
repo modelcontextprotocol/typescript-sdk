@@ -661,6 +661,15 @@ are still **accepted via `@deprecated` overloads** on `registerTool`/`registerPr
 (auto-wrapped with `z.object()`), and `completable()` accepts any `StandardSchemaV1`;
 prefer wrapping explicitly. Zod v4, ArkType, and Valibot all implement the spec.
 
+⚠ **Do not apply the v2 `z.object()` style backwards on older v1.** Positional
+`server.tool()`, and `registerTool` before 1.22, expect the raw shape
+`{ name: z.string() }`. Passing `z.object({ name: z.string() })` crashes
+`tools/list` with `Cannot read properties of null (reading '_def')` on v1.12
+through v1.21 (`registerTool`), and publishes an empty `inputSchema` via
+`server.tool()` on v1.12 through v1.27 so clients omit every argument. Keep the
+raw shape until the code is on v2 — see
+[Troubleshooting](../troubleshooting.md#mcp-error-32603-cannot-read-properties-of-null-reading-def).
+
 For **optional completable arguments**, apply `.optional()` to the _result_ of
 `completable()` — `completable(z.string(), cb).optional()`, not
 `completable(z.string().optional(), cb)`. v2 resolves completion metadata on the schema
