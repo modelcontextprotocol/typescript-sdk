@@ -276,7 +276,7 @@ verifies('subscriptions:listen:capacity-guard', async () => {
                     jsonrpc: '2.0',
                     id,
                     method: 'subscriptions/listen',
-                    params: { _meta: modernEnvelopeMeta(), notifications: {} }
+                    params: { _meta: modernEnvelopeMeta(), notifications: { toolsListChanged: true } }
                 })
             })
         );

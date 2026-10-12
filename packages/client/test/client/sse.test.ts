@@ -1783,10 +1783,43 @@ describe('SSEClientTransport', () => {
             await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
         });
 
-        it('SSE connect 401 retry does not poison future 401s — onUnauthorized called on each attempt', async () => {
+        it('SSE connect: a second 401 right after a refresh rejects, onUnauthorized called once', async () => {
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    getAttempt++;
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            // Backstop so an unbounded retry ends the test with a clear failure instead of a hang.
+            let calls = 0;
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'still-bad'),
+                onUnauthorized: vi.fn(async () => {
+                    if (++calls >= 10) throw new Error('backstop: onUnauthorized called 10 times');
+                })
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            const error = await transport.start().catch(e => e);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(getAttempt).toBe(2);
+            expect(onerror).toHaveBeenCalledTimes(1);
+        });
+
+        it('SSE connect 401 retry does not poison future 401s — a 401 on a later reconnect refreshes again', async () => {
             // Regression: _startOrAuth(true) baked isAuthRetry=true into the retry EventSource's
             // onerror closure, so a subsequent 401 (token expiry on reconnect) would throw
-            // instead of refreshing. Fix: retry always calls _startOrAuth() fresh.
+            // instead of refreshing. The retry guard resets once the stream opens.
             await resourceServer.close();
 
             let getAttempt = 0;
@@ -1796,7 +1829,8 @@ describe('SSEClientTransport', () => {
                     return;
                 }
                 getAttempt++;
-                if (getAttempt < 3) {
+                // 1: 401, 2: opens then drops, 3: 401 on the automatic reconnect, 4: opens and stays.
+                if (getAttempt === 1 || getAttempt === 3) {
                     res.writeHead(401).end();
                     return;
                 }
@@ -1805,8 +1839,12 @@ describe('SSEClientTransport', () => {
                     'Cache-Control': 'no-cache, no-transform',
                     Connection: 'keep-alive'
                 });
+                res.write('retry: 10\n');
                 res.write('event: endpoint\n');
                 res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                if (getAttempt === 2) {
+                    res.end();
+                }
             });
             resourceBaseUrl = await listenOnRandomPort(resourceServer);
 
@@ -1816,17 +1854,75 @@ describe('SSEClientTransport', () => {
             };
             transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
 
-            await transport.start(); // should resolve on attempt 3
+            await transport.start(); // resolves on attempt 2
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
 
+            await vi.waitFor(() => expect(getAttempt).toBe(4), { timeout: 3000 });
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
-            expect(getAttempt).toBe(3);
+        });
+
+        it('SSE reconnect: a retry that fails at the network level does not use up the refresh — a later 401 refreshes again', async () => {
+            await resourceServer.close();
+
+            let getAttempt = 0;
+            resourceServer = createServer((req, res) => {
+                if (req.method !== 'GET') {
+                    res.writeHead(404).end();
+                    return;
+                }
+                getAttempt++;
+                // 1: opens then drops, 2: 401, 3: connection reset right after the refresh, 4: 401 again, 5: opens and stays.
+                if (getAttempt === 2 || getAttempt === 4) {
+                    res.writeHead(401).end();
+                    return;
+                }
+                if (getAttempt === 3) {
+                    req.socket.destroy();
+                    return;
+                }
+                res.writeHead(200, {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache, no-transform',
+                    Connection: 'keep-alive'
+                });
+                res.write('retry: 10\n');
+                res.write('event: endpoint\n');
+                res.write(`data: ${resourceBaseUrl.href}post\n\n`);
+                if (getAttempt === 1) {
+                    res.end();
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            // The EventSource created after a refresh waits its default 3 s before it reconnects: skip that wait.
+            vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+            try {
+                await transport.start();
+                // Two errors so far: the dropped stream (attempt 1) and the reset (attempt 3).
+                await vi.waitFor(() => expect(onerror).toHaveBeenCalledTimes(2));
+                expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+
+                await vi.advanceTimersByTimeAsync(3000);
+                await vi.waitFor(() => expect(getAttempt).toBe(5));
+                expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+                expect(onerror).toHaveBeenCalledTimes(2);
+            } finally {
+                vi.useRealTimers();
+            }
         });
 
         it('retry failure during SSE connect fires onerror exactly once', async () => {
             // Regression: when the retry EventSource rejected, its onerror fired inside, then
             // the outer .then() rejection handler fired onerror AGAIN for the same error.
             // Fix: inner retry chains to .then(resolve, reject) — no outer onerror call.
-            // onUnauthorized's own failure is handled separately and fires onerror once.
             await resourceServer.close();
 
             resourceServer = createServer((req, res) => {
@@ -1836,20 +1932,40 @@ describe('SSEClientTransport', () => {
             });
             resourceBaseUrl = await listenOnRandomPort(resourceServer);
 
-            const onUnauthorized: AuthProvider['onUnauthorized'] = vi
-                .fn()
-                .mockResolvedValueOnce(undefined) // first call succeeds → triggers retry
-                .mockRejectedValueOnce(new Error('refresh failed')); // second call (in retry) throws
             const authProvider: AuthProvider = {
                 token: vi.fn(async () => 'token'),
-                onUnauthorized
+                onUnauthorized: vi.fn(async () => {})
+            };
+            transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
+            const onerror = vi.fn();
+            transport.onerror = onerror;
+
+            await expect(transport.start()).rejects.toThrow('Server returned 401 after re-authentication');
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror.mock.calls[0]![0].message).toBe('Server returned 401 after re-authentication');
+        });
+
+        it('a failing onUnauthorized during SSE connect fires onerror exactly once', async () => {
+            await resourceServer.close();
+
+            resourceServer = createServer((req, res) => {
+                if (req.method === 'GET') {
+                    res.writeHead(401).end(); // always 401
+                }
+            });
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const authProvider: AuthProvider = {
+                token: vi.fn(async () => 'token'),
+                onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('refresh failed'))
             };
             transport = new SSEClientTransport(resourceBaseUrl, { authProvider });
             const onerror = vi.fn();
             transport.onerror = onerror;
 
             await expect(transport.start()).rejects.toThrow('refresh failed');
-            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(2);
+            expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(onerror).toHaveBeenCalledTimes(1);
             expect(onerror.mock.calls[0]![0].message).toBe('refresh failed');
         });

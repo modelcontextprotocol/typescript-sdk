@@ -150,15 +150,11 @@ function expectErrorResponse(
 }
 describe('Zod v4', () => {
     /**
-     * Helper to create and start test HTTP server with MCP setup
+     * Helper to connect a new MCP server to a new transport
      */
-    async function createTestServer(config?: TestServerConfig): Promise<{
-        server: Server;
-        transport: NodeStreamableHTTPServerTransport;
-        mcpServer: McpServer;
-        baseUrl: URL;
-    }> {
-        config ??= { sessionIdGenerator: () => randomUUID() };
+    async function createTestPair(
+        config: TestServerConfig
+    ): Promise<{ transport: NodeStreamableHTTPServerTransport; mcpServer: McpServer }> {
         const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
         mcpServer.registerTool(
@@ -182,6 +178,21 @@ describe('Zod v4', () => {
         });
 
         await mcpServer.connect(transport);
+
+        return { transport, mcpServer };
+    }
+
+    /**
+     * Helper to create and start test HTTP server with MCP setup
+     */
+    async function createTestServer(config?: TestServerConfig): Promise<{
+        server: Server;
+        transport: NodeStreamableHTTPServerTransport;
+        mcpServer: McpServer;
+        baseUrl: URL;
+    }> {
+        config ??= { sessionIdGenerator: () => randomUUID() };
+        const { transport, mcpServer } = await createTestPair(config);
 
         const server = createServer(async (req, res) => {
             try {
@@ -1603,7 +1614,15 @@ describe('Zod v4', () => {
         let baseUrl: URL;
 
         beforeEach(async () => {
-            const result = await createTestServer({ sessionIdGenerator: undefined });
+            const result = await createTestServer({
+                sessionIdGenerator: undefined,
+                // A stateless transport serves one request: connect a new pair for each.
+                customRequestHandler: async (req, res) => {
+                    const pair = await createTestPair({ sessionIdGenerator: undefined });
+                    res.on('close', () => void pair.transport.close());
+                    await pair.transport.handleRequest(req, res);
+                }
+            });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
@@ -1655,9 +1674,8 @@ describe('Zod v4', () => {
             expect(response2.status).toBe(200);
         });
 
-        it('should reject second SSE stream even in stateless mode', async () => {
-            // Despite no session ID requirement, the transport still only allows
-            // one standalone SSE stream at a time
+        it('should open an SSE stream per request in stateless mode', async () => {
+            // Each request has its own transport, so the one-stream limit of a transport is never reached
 
             // Initialize the server first
             await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -1672,7 +1690,7 @@ describe('Zod v4', () => {
             });
             expect(stream1.status).toBe(200);
 
-            // Open second SSE stream - should still be rejected, stateless mode still only allows one
+            // Open second SSE stream - served by its own transport
             const stream2 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
@@ -1680,7 +1698,17 @@ describe('Zod v4', () => {
                     'mcp-protocol-version': '2025-11-25'
                 }
             });
-            expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+            expect(stream2.status).toBe(200);
+        });
+
+        it('should answer 500 to a second request on the same transport', async () => {
+            const shared = await createTestServer({ sessionIdGenerator: undefined });
+            try {
+                expect((await sendPostRequest(shared.baseUrl, TEST_MESSAGES.initialize)).status).toBe(200);
+                expect((await sendPostRequest(shared.baseUrl, TEST_MESSAGES.toolsList)).status).toBe(500);
+            } finally {
+                await stopTestServer(shared);
+            }
         });
     });
 
@@ -2942,7 +2970,7 @@ describe('Zod v4', () => {
         describe('Combined validations', () => {
             it('should validate both host and origin when both are configured', async () => {
                 const result = await createTestServerWithDnsProtection({
-                    sessionIdGenerator: undefined,
+                    sessionIdGenerator: () => randomUUID(),
                     allowedHosts: ['localhost'],
                     allowedOrigins: ['http://localhost:3001'],
                     enableDnsRebindingProtection: true

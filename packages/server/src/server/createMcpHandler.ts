@@ -297,6 +297,13 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
     return jsonRpcErrorResponse(500, -32_603, 'Internal server error', undefined, id);
 }
 
+/** Throws when the factory returned an instance that is still connected to another exchange. */
+function assertNotServing(server: Server): void {
+    if (server.transport !== undefined) {
+        throw new Error('The factory returned an instance that is still serving another request. Return a new instance for each request.');
+    }
+}
+
 /* ------------------------------------------------------------------------ *
  * The default legacy fallback
  * ------------------------------------------------------------------------ */
@@ -786,6 +793,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+        assertNotServing(server);
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /
         // per-stream filtering / subscription-id stamping / keepalive /
@@ -852,6 +860,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             }
         }
 
+        // Checked again after the awaits above, before anything is written to the instance.
+        assertNotServing(server);
+
         // Era-write at instance binding, then modern-only handler installation —
         // both before the instance is connected to the per-request transport.
         setNegotiatedProtocolVersion(server, claimedRevision);
@@ -867,10 +878,15 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // Track the instance until its exchange tears down so close() can abort it.
         const previousOnClose = server.onclose;
         inflight.add(server);
-        server.onclose = () => {
+        const onExchangeClose = () => {
             inflight.delete(server);
+            // Restore by identity so a handler installed during the exchange is kept.
+            if (server.onclose === onExchangeClose) {
+                server.onclose = previousOnClose;
+            }
             previousOnClose?.();
         };
+        server.onclose = onExchangeClose;
 
         try {
             const response = await invoke(product, route.message, {

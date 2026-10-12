@@ -33,6 +33,11 @@ export interface CreateMcpExpressAppOptions {
      * binds (the same condition as host validation): requests without an `Origin`
      * header pass, while a present `Origin` whose hostname is not localhost-class
      * is rejected with `403`.
+     *
+     * A client that runs as a browser extension sends its extension ID as the origin
+     * hostname: list that ID to admit one extension. A lowercase entry of the form
+     * `<scheme>://*` (e.g. `'moz-extension://*'`) admits every extension of that browser.
+     * `http://*` and `https://*` are not honoured.
      */
     allowedOrigins?: string[];
 

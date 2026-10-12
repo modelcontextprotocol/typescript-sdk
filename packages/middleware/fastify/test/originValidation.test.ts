@@ -82,6 +82,20 @@ describe('@modelcontextprotocol/fastify origin validation', () => {
             expect(good.statusCode).toBe(200);
         });
 
+        test('admits a browser-extension origin once its scheme is listed in allowedOrigins', async () => {
+            const headers = { host: 'localhost:3000', origin: 'chrome-extension://abcdefghijklmnopabcdefghijklmnop' };
+
+            const byDefault = createMcpFastifyApp();
+            byDefault.get('/health', async () => 'ok');
+            const rejected1 = await byDefault.inject({ method: 'GET', url: '/health', headers });
+            expect(rejected1.statusCode).toBe(403);
+
+            const withScheme = createMcpFastifyApp({ allowedOrigins: ['localhost', 'chrome-extension://*'] });
+            withScheme.get('/health', async () => 'ok');
+            const admitted2 = await withScheme.inject({ method: 'GET', url: '/health', headers });
+            expect(admitted2.statusCode).toBe(200);
+        });
+
         test('uses allowedOrigins when provided', async () => {
             const app = createMcpFastifyApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'], allowedOrigins: ['myapp.local'] });
             app.get('/health', async () => 'ok');

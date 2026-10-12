@@ -144,6 +144,10 @@ describe('scanXMcpHeaderDeclarations — constraint table', () => {
         expect(invalid({ type: 'object', properties: { a: { type: 'array', [X_MCP_HEADER_KEY]: 'Items' } } })).toMatch(/primitive/);
     });
 
+    test('number-typed property is rejected (only integer, string, boolean are permitted)', () => {
+        expect(invalid({ type: 'object', properties: { a: { type: 'number', [X_MCP_HEADER_KEY]: 'Score' } } })).toMatch(/primitive/);
+    });
+
     test('null-typed property is rejected', () => {
         expect(invalid({ type: 'object', properties: { a: { type: 'null', [X_MCP_HEADER_KEY]: 'Nil' } } })).toMatch(/primitive/);
     });

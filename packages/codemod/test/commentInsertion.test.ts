@@ -330,6 +330,36 @@ describe('comment insertion', () => {
 });
 
 describe('markers whose import-declaration anchor is removed by the same pass', () => {
+    it('keeps a license header first and still writes the marker below it (#2575)', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'package.json'),
+            JSON.stringify({ name: 'app', dependencies: { '@modelcontextprotocol/sdk': '^1.29.0' } })
+        );
+        const file = path.join(dir, 'auth.ts');
+        writeFileSync(
+            file,
+            [
+                `// Copyright (c) 2026 Example Corp.`,
+                `// SPDX-License-Identifier: Apache-2.0`,
+                ``,
+                `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';`,
+                ``,
+                `export const guard = requireBearerAuth({ verifier });`,
+                ''
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir, dryRun: false });
+
+        const lines = readFileSync(file, 'utf8').split('\n');
+        expect(lines.slice(0, 3)).toEqual(['// Copyright (c) 2026 Example Corp.', '// SPDX-License-Identifier: Apache-2.0', '']);
+        expect(lines[3]).toBe(`import { requireBearerAuth } from "@modelcontextprotocol/server-legacy/auth";`);
+        const markerIndex = lines.findIndex(line => line.includes(CODEMOD_ERROR_PREFIX));
+        expect(lines[markerIndex + 1]).toContain('requireBearerAuth({ verifier })');
+        expect(result.diagnostics.find(d => d.insertComment)?.line).toBe(markerIndex + 1);
+    });
+
     it('inserts the resource-server auth helper marker at the usage site', () => {
         const dir = createTempDir();
         writeFileSync(

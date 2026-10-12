@@ -3,7 +3,7 @@
 // bundler emits only as non-fatal warnings (its failOnWarn does not fail on
 // MISSING_EXPORT). Run after `pnpm build:all`.
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -65,6 +65,48 @@ try {
     );
     execFileSync('pnpm', ['exec', 'tsc', '-p', dir], { cwd: repo, stdio: 'inherit' });
     console.log('dist-types smoke: clean (skipLibCheck: false)');
+
+    // CommonJS consumer: resolves through the package `exports` map to the .d.cts files, which must not import ESM-only packages.
+    const cjs = path.join(dir, 'cjs');
+    mkdirSync(path.join(cjs, 'node_modules', '@modelcontextprotocol'), { recursive: true });
+    for (const pkg of ['client', 'server']) {
+        symlinkSync(path.join(repo, 'packages', pkg), path.join(cjs, 'node_modules', '@modelcontextprotocol', pkg), 'dir');
+    }
+    writeFileSync(
+        path.join(cjs, 'consumer.cts'),
+        [
+            "import { Client } from '@modelcontextprotocol/client';",
+            "import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';",
+            "import { McpServer } from '@modelcontextprotocol/server';",
+            "import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';",
+            "export const c = new Client({ name: 'smoke', version: '1.0.0' });",
+            "export const s = new McpServer({ name: 'smoke', version: '1.0.0' });",
+            'export { StdioClientTransport, StdioServerTransport };',
+            ''
+        ].join('\n')
+    );
+    writeFileSync(
+        path.join(cjs, 'tsconfig.json'),
+        JSON.stringify(
+            {
+                compilerOptions: {
+                    strict: true,
+                    noEmit: true,
+                    skipLibCheck: false,
+                    module: 'node16',
+                    moduleResolution: 'node16',
+                    target: 'es2022',
+                    types: ['node'],
+                    typeRoots: [path.join(repo, 'node_modules', '@types')]
+                },
+                include: ['consumer.cts']
+            },
+            null,
+            2
+        )
+    );
+    execFileSync('pnpm', ['exec', 'tsc', '-p', cjs], { cwd: repo, stdio: 'inherit' });
+    console.log('dist-types smoke (CommonJS consumer): clean (skipLibCheck: false)');
 } finally {
     rmSync(dir, { recursive: true, force: true });
 }
