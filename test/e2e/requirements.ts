@@ -379,6 +379,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "Log notifications emitted by a tool handler during execution reach the client's logging callback before the tool result returns."
     },
+    'tools:call:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#calling-tools',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool whose input schema fields are all optional runs the handler with an empty object and returns its result.'
+    },
+    'tools:call:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
+        behavior:
+            'tools/call that omits the arguments field entirely for a tool with a required argument is answered as a tool execution error (isError: true) whose content names the missing argument, without invoking the handler.'
+    },
     'tools:call:progress': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
         behavior: "Progress notifications emitted by a tool handler reach the caller's progress callback before the tool result returns.",
@@ -822,6 +832,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'prompts:get:no-args': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
         behavior: "prompts/get with no arguments returns the prompt's messages."
+    },
+    'prompts:get:omitted-args:all-optional': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',
+        behavior:
+            "prompts/get that omits the arguments field entirely for a prompt whose declared arguments are all optional returns the prompt's messages."
+    },
+    'prompts:get:omitted-args:required': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
+        behavior:
+            'prompts/get that omits the arguments field entirely for a prompt with a required argument returns JSON-RPC error -32602 (Invalid params) naming that argument.'
     },
     'prompts:get:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#error-handling',
@@ -1519,12 +1539,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'A stateless per-request transport cannot be reused for a second request.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'changed in v2: the stateless reuse guard was removed, so a second request on the same per-request transport is processed instead of rejected.'
-            }
-        ]
+        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:stateless:no-session-id': {
         source: 'sdk',
@@ -1586,12 +1601,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#access-token-usage',
         behavior: 'The resource server validates that the token audience matches its resource identifier.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing.'
-            }
-        ]
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:auth:authinfo-propagates': {
         source: 'sdk',
@@ -2927,15 +2937,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client-auth:authprovider:onunauthorized-retry': {
         source: 'sdk',
         behavior:
-            'When the server answers 401, the transport awaits AuthProvider.onUnauthorized() and retries the request once with the refreshed token; a second 401 (or a provider without onUnauthorized) surfaces as UnauthorizedError.',
+            'When the server answers 401, the transport awaits AuthProvider.onUnauthorized() and retries the request once with the refreshed token; a second 401 on that retry rejects with SdkHttpError (ClientHttpAuthentication), while a provider without onUnauthorized surfaces the 401 as UnauthorizedError.',
         transports: ['streamableHttp'],
-        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.",
-        knownFailures: [
-            {
-                test: 'second 401 after retry surfaces as UnauthorizedError',
-                note: 'A second 401 after onUnauthorized() re-authentication surfaces as SdkHttpError (ClientHttpAuthentication) instead of the UnauthorizedError documented on AuthProvider.onUnauthorized().'
-            }
-        ]
+        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
     'client-auth:authprovider:oauth-provider-adapted': {
         source: 'sdk',

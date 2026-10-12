@@ -21,7 +21,7 @@ export default defineConfig({
     shims: true,
     dts: {
         resolver: 'tsc',
-        resolve: ['ajv', 'ajv-formats', 'json-schema-typed'],
+        resolve: ['ajv', 'ajv-formats', 'json-schema-typed', 'jose'],
         compilerOptions: {
             baseUrl: '.',
             paths: {

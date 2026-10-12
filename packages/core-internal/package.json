@@ -1,9 +1,9 @@
 {
     "name": "@modelcontextprotocol/core-internal",
     "private": true,
-    "version": "2.0.1",
+    "version": "2.0.4",
     "description": "Model Context Protocol implementation for TypeScript - Core package",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",

@@ -23,7 +23,8 @@ import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from
 
 const authProvider = new ClientCredentialsProvider({
     clientId: 'reporting-job',
-    clientSecret: 'reporting-job-secret'
+    clientSecret: 'reporting-job-secret',
+    expectedIssuer: 'https://auth.example.com'
 });
 
 const client = new Client({ name: 'reporting-job', version: '1.0.0' });
@@ -48,7 +49,8 @@ function privateKeyJwt_provider(pemEncodedKey: string) {
     const authProvider = new PrivateKeyJwtProvider({
         clientId: 'reporting-job',
         privateKey: pemEncodedKey,
-        algorithm: 'RS256'
+        algorithm: 'RS256',
+        expectedIssuer: 'https://auth.example.com'
     });
 
     const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
@@ -76,7 +78,8 @@ function crossAppAccess_provider(getIdToken: () => Promise<string>) {
             return grant.jwtAuthGrant;
         },
         clientId: 'reporting-job',
-        clientSecret: 'reporting-job-secret'
+        clientSecret: 'reporting-job-secret',
+        expectedIssuer: 'https://auth.example.com'
     });
 
     const transport = new StreamableHTTPClientTransport(new URL('https://api.example.com/mcp'), { authProvider });
