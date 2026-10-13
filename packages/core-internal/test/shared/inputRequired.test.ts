@@ -270,27 +270,32 @@ describe('inputRequired() builder', () => {
         expect(act).toThrow(TypeError);
         expect(act).toThrow(/unsupported JSON Schema constraint\(s\).*additionalProperties/);
 
-        expect(() =>
-            inputRequired.elicit({
-                message: 'Name?',
-                requestedSchema: {
-                    '~standard': {
-                        version: 1,
-                        vendor: 'test',
-                        validate: (value: unknown) => ({ value }),
-                        jsonSchema: {
-                            input: () => ({
-                                $defs: { Name: { type: 'string' } },
-                                type: 'object',
-                                properties: { name: { $ref: '#/$defs/Name' } },
-                                required: ['name']
-                            }),
-                            output: () => ({})
-                        }
+        // $defs/$ref no longer reach elicitation validation: standardSchemaToJsonSchema
+        // inlines local $ref and strips $defs, so the schema converts cleanly.
+        const request = inputRequired.elicit({
+            message: 'Name?',
+            requestedSchema: {
+                '~standard': {
+                    version: 1,
+                    vendor: 'test',
+                    validate: (value: unknown) => ({ value }),
+                    jsonSchema: {
+                        input: () => ({
+                            $defs: { Name: { type: 'string' } },
+                            type: 'object',
+                            properties: { name: { $ref: '#/$defs/Name' } },
+                            required: ['name']
+                        }),
+                        output: () => ({})
                     }
-                } as never
-            })
-        ).toThrow(/\$defs/);
+                }
+            } as never
+        });
+        expect((request.params as { requestedSchema: unknown }).requestedSchema).toEqual({
+            type: 'object',
+            properties: { name: { type: 'string' } },
+            required: ['name']
+        });
     });
 
     test('elicit drops annotation-only root keywords', () => {
