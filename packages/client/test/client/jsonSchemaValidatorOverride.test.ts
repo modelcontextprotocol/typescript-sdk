@@ -114,6 +114,124 @@ describe('client JSON Schema validator overrides', () => {
         await serverTransport.close();
     });
 
+    test('awaits asynchronous compiler and validator while keeping sync providers supported', async () => {
+        const compiledSchemas: JsonSchemaType[] = [];
+        const observedValues: unknown[] = [];
+        const client = new Client(
+            { name: 'async-validation-client', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: {
+                    async getValidator<T>(schema: JsonSchemaType) {
+                        compiledSchemas.push(schema);
+                        await Promise.resolve();
+                        return async (value: unknown): Promise<JsonSchemaValidatorResult<T>> => {
+                            await Promise.resolve();
+                            observedValues.push(value);
+                            return { valid: true, data: value as T, errorMessage: undefined };
+                        };
+                    }
+                }
+            }
+        );
+        const { clientTransport, serverTransport } = await connectInitializedClient(client);
+        await client.listTools();
+        await expect(client.callTool({ name: 'structured-tool' })).resolves.toMatchObject({
+            structuredContent: { count: 42 }
+        });
+        await expect(client.callTool({ name: 'structured-tool' })).resolves.toMatchObject({
+            structuredContent: { count: 42 }
+        });
+        expect(compiledSchemas).toHaveLength(1);
+        expect(observedValues).toEqual([{ count: 42 }, { count: 42 }]);
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
+    test('rejects async compilation failure before sending a tools/call request', async () => {
+        const client = new Client(
+            { name: 'async-failure-client', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: {
+                    getValidator<T>(_schema: JsonSchemaType): Promise<(input: unknown) => JsonSchemaValidatorResult<T>> {
+                        return Promise.reject(new Error('remote schema compile refused'));
+                    }
+                }
+            }
+        );
+        const { clientTransport, serverTransport } = await connectInitializedClient(client);
+        await client.listTools();
+        await expect(client.callTool({ name: 'structured-tool' })).rejects.toThrow(
+            /invalid outputSchema: remote schema compile refused/
+        );
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
+    test('reports asynchronous output-validation mismatch as InvalidParams', async () => {
+        const client = new Client(
+            { name: 'async-mismatch-client', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: {
+                    getValidator<T>(_schema: JsonSchemaType) {
+                        return async (_value: unknown): Promise<JsonSchemaValidatorResult<T>> => ({
+                            valid: false, data: undefined, errorMessage: 'async validation mismatch'
+                        });
+                    }
+                }
+            }
+        );
+        const { clientTransport, serverTransport } = await connectInitializedClient(client);
+        await client.listTools();
+        await expect(client.callTool({ name: 'structured-tool' })).rejects.toThrow(
+            /Structured content does not match the tool's output schema: async validation mismatch/
+        );
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
+    test('async compiler failure in explicit toolDefinition does not poison the listed schema', async () => {
+        const client = new Client(
+            { name: 'async-isolation-client', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: {
+                    async getValidator<T>(schema: JsonSchemaType) {
+                        if (schema.title === 'reject-me') throw new Error('isolated compilation failure');
+                        return async (value: unknown): Promise<JsonSchemaValidatorResult<T>> => ({
+                            valid: true, data: value as T, errorMessage: undefined
+                        });
+                    }
+                }
+            }
+        );
+        const { clientTransport, serverTransport } = await connectInitializedClient(client);
+        await client.listTools();
+        await expect(
+            client.callTool(
+                { name: 'structured-tool' },
+                {
+                    toolDefinition: {
+                        name: 'structured-tool',
+                        inputSchema: { type: 'object' },
+                        outputSchema: { type: 'object', title: 'reject-me' }
+                    }
+                }
+            )
+        ).rejects.toThrow(/isolated compilation failure/);
+        await expect(client.callTool({ name: 'structured-tool' })).resolves.toMatchObject({
+            structuredContent: { count: 42 }
+        });
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
     describe('outputSchema compile-error lifecycle (substrate-held; no parallel map)', () => {
         // SEP-2106 §invalid-outputSchema: a tool whose outputSchema fails to compile is
         // surfaced as a typed InvalidParams BEFORE the request is sent. The compile error is
