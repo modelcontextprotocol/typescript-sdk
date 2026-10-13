@@ -149,3 +149,18 @@ describe('InMemoryServerEventBus', () => {
         ]);
     });
 });
+
+describe('listener error reporting', () => {
+    it('continues dispatch when the error reporter throws', () => {
+        const bus = new InMemoryServerEventBus(() => {
+            throw new Error('reporting failed');
+        });
+        const delivered: unknown[] = [];
+        bus.subscribe(() => {
+            throw new Error('listener failed');
+        });
+        bus.subscribe(event => delivered.push(event));
+        expect(() => bus.publish({ kind: 'tools_list_changed' })).not.toThrow();
+        expect(delivered).toEqual([{ kind: 'tools_list_changed' }]);
+    });
+});
