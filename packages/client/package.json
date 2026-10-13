@@ -130,7 +130,8 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
         "test": "vitest run",
-        "test:watch": "vitest"
+        "test:watch": "vitest",
+        "bench:production-catalog": "pnpm run build && node scripts/production-catalog-cold-bench.mjs"
     },
     "dependencies": {
         "@modelcontextprotocol/core": "workspace:*",
