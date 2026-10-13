@@ -216,6 +216,10 @@ function getTopLevelObjectLiteral(factoryArg: import('ts-morph').Node): import('
     return undefined;
 }
 
+function getSymbolName(node: import('ts-morph').Node): string {
+    return Node.isStringLiteral(node) ? node.getLiteralValue() : node.getText();
+}
+
 function collectFactorySymbols(factoryArg: import('ts-morph').Node): string[] {
     const obj = getTopLevelObjectLiteral(factoryArg);
     if (!obj) return [];
@@ -223,7 +227,7 @@ function collectFactorySymbols(factoryArg: import('ts-morph').Node): string[] {
     const symbols: string[] = [];
     for (const prop of obj.getProperties()) {
         if (Node.isPropertyAssignment(prop) || Node.isShorthandPropertyAssignment(prop)) {
-            symbols.push(prop.getName());
+            symbols.push(getSymbolName(prop.getNameNode()));
         }
     }
     return symbols;
@@ -236,7 +240,7 @@ function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymb
     let changes = 0;
     for (const prop of obj.getProperties()) {
         if (Node.isPropertyAssignment(prop)) {
-            const name = prop.getName();
+            const name = getSymbolName(prop.getNameNode());
             const newName = renamedSymbols[name];
             if (newName) {
                 prop.getNameNode().replaceWithText(newName);
@@ -296,7 +300,7 @@ function getModuleBindingPattern(node: import('ts-morph').CallExpression): impor
 function getDestructuredKeys(node: import('ts-morph').CallExpression): string[] {
     const pattern = getModuleBindingPattern(node);
     if (!pattern) return [];
-    return pattern.getElements().map(el => el.getPropertyNameNode()?.getText() ?? el.getName());
+    return pattern.getElements().map(el => (el.getPropertyNameNode() ? getSymbolName(el.getPropertyNameNode()!) : el.getName()));
 }
 
 /**
@@ -470,7 +474,8 @@ function rewriteDynamicImports(
         const bindingPattern = getModuleBindingPattern(node);
         if (bindingPattern) {
             for (const element of bindingPattern.getElements()) {
-                const propertyName = element.getPropertyNameNode()?.getText();
+                const propertyNameNode = element.getPropertyNameNode();
+                const propertyName = propertyNameNode ? getSymbolName(propertyNameNode) : undefined;
                 const bindingName = element.getName();
                 const lookupKey = propertyName ?? bindingName;
                 const newName = allRenames[lookupKey];
