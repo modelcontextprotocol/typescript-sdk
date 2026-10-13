@@ -97,6 +97,10 @@ class MyOAuthProvider implements OAuthClientProvider {
 
 The SDK calls the `save*` methods as the flow produces values and reads them back through `tokens()`, `clientInformation()`, `codeVerifier()`, and `discoveryState()`. On a later `connect()` it reads `tokens()` before anything else, so a provider backed by durable storage skips the browser round trip.
 
+::: tip
+When the requested scope includes `offline_access`, the SDK adds `prompt=consent` to the authorization URL. Set `skipOfflineAccessConsentPrompt = true` on the provider to omit it when consent is already granted out of band, such as a Microsoft Entra ID tenant with admin consent and user consent disabled.
+:::
+
 ## Finish the flow from the callback
 
 The authorization server redirects the end user to `redirectUrl` with `code` and `state` in the query. Compare `state`, hand the whole query to `finishAuth`, and reconnect.
