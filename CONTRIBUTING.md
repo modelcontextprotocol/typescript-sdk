@@ -118,7 +118,7 @@ Details about this repository that neither the code nor the tools will tell you.
 - **Tests** — Tests live under each package's `test/` directory; a test file next to its source never runs.
 - **Adapters** — The packages under `packages/middleware/` are thin adapters, versioned separately from client and server, so a user can run a new server with an older adapter.
 - **Package roots** — A package's root entry stays runtime-neutral so browser and Workers bundlers can use it; Node-only code lives at a subpath export such as `./stdio`.
-- **Migration guide** — `docs/migration/upgrade-to-v2.md` covers the upgrade from v1 only; mechanical renames go in `packages/codemod/src/migrations/v1-to-v2/mappings/`.
+- **Migration guide** — `docs/migration/upgrade-to-v2.md` covers the upgrade from v1 only. Its text lives in the agent skill `skills/mcp-typescript-sdk-upgrade-to-v2/` (one `references/` file per subsystem), which the page includes, so edit it there; mechanical renames go in `packages/codemod/src/migrations/v1-to-v2/mappings/`.
 
 ### Running Examples
 
