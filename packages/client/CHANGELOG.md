@@ -1,5 +1,14 @@
 # @modelcontextprotocol/client
 
+## 2.3.2
+
+### Patch Changes
+
+- [#2762](https://github.com/modelcontextprotocol/typescript-sdk/pull/2762) [`b022522`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b022522089a0c8b632595c6e7b536453945ed5a9) Thanks [@pcarleton](https://github.com/pcarleton)! - `x-mcp-header` on a `number`-typed tool parameter is now rejected, matching the 2026-07-28 spec ("Parameters with type `number` are not permitted"; clients MUST exclude such tools from `tools/list`). Previously `number` was accepted only to satisfy an older conformance fixture that has since been corrected. `integer`, `string` and `boolean` are unaffected.
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.3.2
+
 ## 2.3.1
 
 ### Patch Changes
