@@ -17,7 +17,8 @@
                 "./node_modules/@modelcontextprotocol/core-internal/src/validators/cfWorkerProvider.ts"
             ],
             "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
-            "@modelcontextprotocol/client/_shims": ["./src/shimsNode.ts"]
+            "@modelcontextprotocol/client/_shims": ["./src/shimsNode.ts"],
+            "@modelcontextprotocol/core-internal/ext/tasks": ["./node_modules/@modelcontextprotocol/core-internal/src/ext/tasks/index.ts"]
         }
     }
 }
