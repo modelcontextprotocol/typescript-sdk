@@ -109,16 +109,34 @@ export class UriTemplate {
 
     private parseVarSpec(spec: string): VarSpec {
         const trimmed = spec.trim();
-        const exploded = trimmed.endsWith('*');
-        const withoutExplode = exploded ? trimmed.slice(0, -1) : trimmed;
-        const colonIndex = withoutExplode.indexOf(':');
-        if (colonIndex !== -1) {
-            const name = withoutExplode.slice(0, colonIndex).trim();
-            const prefixStr = withoutExplode.slice(colonIndex + 1).trim();
-            const prefix = /^\d+$/.test(prefixStr) ? Number.parseInt(prefixStr, 10) : undefined;
-            return { name, exploded, prefix: prefix !== undefined && prefix > 0 ? prefix : undefined };
+
+        // Prefix and explode modifiers are mutually exclusive per RFC 6570
+        if (trimmed.includes(':') && trimmed.includes('*')) {
+            return { name: trimmed.replaceAll('*', '').trim(), exploded: false };
         }
-        return { name: withoutExplode.trim(), exploded };
+
+        if (trimmed.endsWith('*')) {
+            const name = trimmed.slice(0, -1).trim();
+            return { name, exploded: true };
+        }
+
+        const colonIndex = trimmed.indexOf(':');
+        if (colonIndex !== -1) {
+            const name = trimmed.slice(0, colonIndex).trim();
+            const prefixStr = trimmed.slice(colonIndex + 1).trim();
+            // RFC 6570 defines max-length as 1*4DIGIT (non-zero positive integer < 10000)
+            if (/^[1-9]\d{0,3}$/.test(prefixStr)) {
+                return {
+                    name,
+                    exploded: false,
+                    prefix: Number.parseInt(prefixStr, 10)
+                };
+            }
+            // Malformed prefix (e.g. :0, :10000, :abc) - preserve unresolved behavior
+            return { name: trimmed, exploded: false };
+        }
+
+        return { name: trimmed, exploded: false };
     }
 
     private getVarSpecs(expr: string): VarSpec[] {

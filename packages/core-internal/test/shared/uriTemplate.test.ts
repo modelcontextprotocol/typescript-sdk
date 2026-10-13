@@ -406,5 +406,37 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('/search{?q:5}');
             expect(template.match('/search?q=hello')).toEqual({ q: 'hello' });
         });
+
+        describe('malformed and combined modifier boundary cases', () => {
+            it('should not resolve prefix of :0 and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:0}');
+                expect(template.variableNames).toEqual(['name:0']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should not resolve prefix with five or more digits and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:10000}');
+                expect(template.variableNames).toEqual(['name:10000']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should not resolve non-digit prefix and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:abc}');
+                expect(template.variableNames).toEqual(['name:abc']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should reject combined prefix and explode modifiers :N* and preserve unresolved behavior', () => {
+                const template = new UriTemplate('{name:3*}');
+                expect(template.variableNames).toEqual(['name:3']);
+                expect(template.expand({ name: 'abcdef' })).toBe('');
+            });
+
+            it('should accept valid upper boundary prefix length (up to 4 digits, e.g. 9999)', () => {
+                const template = new UriTemplate('{name:9999}');
+                expect(template.variableNames).toEqual(['name']);
+                expect(template.expand({ name: 'abcdef' })).toBe('abcdef');
+            });
+        });
     });
 });
