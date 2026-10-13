@@ -20,7 +20,6 @@ import type {
     JSONRPCResponse,
     JsonSchemaType,
     JsonSchemaValidator,
-    jsonSchemaValidator,
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
@@ -180,6 +179,16 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
+/**
+ * Client-only JSON Schema validator that can compile and validate asynchronously.
+ * The shared jsonSchemaValidator/fromJsonSchema contract remains synchronous.
+ */
+export type ClientOutputValidator<T> = (input: unknown) => ReturnType<JsonSchemaValidator<T>> | Promise<ReturnType<JsonSchemaValidator<T>>>;
+
+export interface ClientJsonSchemaValidator {
+    getValidator<T>(schema: JsonSchemaType): ClientOutputValidator<T> | Promise<ClientOutputValidator<T>>;
+}
+
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
@@ -194,7 +203,7 @@ export type ClientOptions = ProtocolOptions & {
      *
      * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
-    jsonSchemaValidator?: jsonSchemaValidator;
+    jsonSchemaValidator?: ClientJsonSchemaValidator;
 
     /**
      * Opt-in protocol version negotiation (protocol revision 2026-07-28 and later).
@@ -490,7 +499,7 @@ interface ListenStateEntry {
  * @internal
  */
 type OutputSchemaCompileResult =
-    | { ok: true; validator: JsonSchemaValidator<unknown> }
+    | { ok: true; validator: ClientOutputValidator<unknown> }
     | { ok: false; validator?: undefined; compileError: unknown };
 
 /**
@@ -532,7 +541,7 @@ export class Client extends Protocol<ClientContext> {
     private _serverVersion?: Implementation;
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
-    private _jsonSchemaValidator: jsonSchemaValidator;
+    private _jsonSchemaValidator: ClientJsonSchemaValidator;
     /**
      * The response-cache substrate. Owns the backing store, the per-method
      * eviction-generation counter, the user-supplied/default flag, and the
@@ -1840,11 +1849,13 @@ export class Client extends Protocol<ClientContext> {
      * `compileError !== undefined`) means a custom provider that does
      * `throw undefined` is still treated as a captured failure.
      */
-    private _compileOutputValidator(tool: Tool): OutputSchemaCompileResult | undefined {
+    private async _compileOutputValidator(tool: Tool): Promise<OutputSchemaCompileResult | undefined> {
         if (!tool.outputSchema) return undefined;
         try {
-            return { ok: true, validator: this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType) };
+            const validator = await this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+            return { ok: true, validator };
         } catch (error) {
+            // Captures both synchronous throws and asynchronous compilation rejections.
             return { ok: false, compileError: error };
         }
     }
@@ -2383,7 +2394,7 @@ export class Client extends Protocol<ClientContext> {
                 ? await this._cache
                       .outputValidator(params.name, tool => this._compileOutputValidator(tool))
                       .catch(error => void this._reportStoreError(error))
-                : this._compileOutputValidator(options.toolDefinition);
+                : await this._compileOutputValidator(options.toolDefinition);
         const assertCompiled = (): void => {
             if (compiled === undefined || compiled.ok) return;
             const err = compiled.compileError;
@@ -2458,7 +2469,7 @@ export class Client extends Protocol<ClientContext> {
             if (result.structuredContent !== undefined && !result.isError) {
                 try {
                     // Validate the structured content against the schema
-                    const validationResult = validator(result.structuredContent);
+                    const validationResult = await validator(result.structuredContent);
 
                     if (!validationResult.valid) {
                         throw new ProtocolError(
