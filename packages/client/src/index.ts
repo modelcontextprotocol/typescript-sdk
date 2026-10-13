@@ -68,6 +68,7 @@ export {
     StaticPrivateKeyJwtProvider
 } from './client/authExtensions';
 export type { CacheableRequestOptions, CallToolRequestOptions, ClientOptions, ConnectOptions, McpSubscription } from './client/client';
+export type { ClientExtension } from './client/extension';
 export { Client } from './client/client';
 export { getSupportedElicitationModes } from './client/client';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess';
