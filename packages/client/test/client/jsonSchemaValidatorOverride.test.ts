@@ -163,9 +163,7 @@ describe('client JSON Schema validator overrides', () => {
         );
         const { clientTransport, serverTransport } = await connectInitializedClient(client);
         await client.listTools();
-        await expect(client.callTool({ name: 'structured-tool' })).rejects.toThrow(
-            /invalid outputSchema: remote schema compile refused/
-        );
+        await expect(client.callTool({ name: 'structured-tool' })).rejects.toThrow(/invalid outputSchema: remote schema compile refused/);
         await client.close();
         await clientTransport.close();
         await serverTransport.close();
@@ -179,7 +177,9 @@ describe('client JSON Schema validator overrides', () => {
                 jsonSchemaValidator: {
                     getValidator<T>(_schema: JsonSchemaType) {
                         return async (_value: unknown): Promise<JsonSchemaValidatorResult<T>> => ({
-                            valid: false, data: undefined, errorMessage: 'async validation mismatch'
+                            valid: false,
+                            data: undefined,
+                            errorMessage: 'async validation mismatch'
                         });
                     }
                 }
@@ -204,7 +204,9 @@ describe('client JSON Schema validator overrides', () => {
                     async getValidator<T>(schema: JsonSchemaType) {
                         if (schema.title === 'reject-me') throw new Error('isolated compilation failure');
                         return async (value: unknown): Promise<JsonSchemaValidatorResult<T>> => ({
-                            valid: true, data: value as T, errorMessage: undefined
+                            valid: true,
+                            data: value as T,
+                            errorMessage: undefined
                         });
                     }
                 }

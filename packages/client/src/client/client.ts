@@ -183,8 +183,7 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
  * Client-only JSON Schema validator that can compile and validate asynchronously.
  * The shared jsonSchemaValidator/fromJsonSchema contract remains synchronous.
  */
-export type ClientOutputValidator<T> = (input: unknown) =>
-    ReturnType<JsonSchemaValidator<T>> | Promise<ReturnType<JsonSchemaValidator<T>>>;
+export type ClientOutputValidator<T> = (input: unknown) => ReturnType<JsonSchemaValidator<T>> | Promise<ReturnType<JsonSchemaValidator<T>>>;
 
 export interface ClientJsonSchemaValidator {
     getValidator<T>(schema: JsonSchemaType): ClientOutputValidator<T> | Promise<ClientOutputValidator<T>>;
