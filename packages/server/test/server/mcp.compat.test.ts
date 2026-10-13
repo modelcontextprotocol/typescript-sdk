@@ -77,6 +77,60 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         expect(isStandardSchema(prompts['p']?.argsSchema)).toBe(true);
     });
 
+    it('registerPrompt accepts chained completable() schemas and resolves completions end-to-end', async () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerPrompt(
+            'review',
+            {
+                argsSchema: {
+                    language: completable(z.string(), v => ['typescript', 'python'].filter(l => l.startsWith(v)))
+                        .describe('language')
+                        .optional()
+                }
+            },
+            async ({ language }) => ({
+                messages: [{ role: 'user' as const, content: { type: 'text' as const, text: language ?? 'default' } }]
+            })
+        );
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        await server.connect(srv);
+        await client.start();
+
+        const responses: JSONRPCMessage[] = [];
+        client.onmessage = m => responses.push(m);
+
+        await client.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'c', version: '1.0.0' }
+            }
+        } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+
+        await client.send({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'completion/complete',
+            params: {
+                ref: { type: 'ref/prompt', name: 'review' },
+                argument: { name: 'language', value: 'type' }
+            }
+        } as JSONRPCMessage);
+
+        await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 2)).toBe(true));
+
+        const result = responses.find(r => 'id' in r && r.id === 2) as { result?: { completion: { values: string[] } } };
+        expect(result.result?.completion.values).toEqual(['typescript']);
+
+        await server.close();
+    });
+
     it('callback receives validated, typed args end-to-end via tools/call', async () => {
         const server = new McpServer({ name: 't', version: '1.0.0' });
 
