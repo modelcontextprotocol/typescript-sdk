@@ -780,8 +780,11 @@ export class McpServer {
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.title !== undefined) registeredResource.title = updates.title;
                 if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.title !== undefined) {
+                    registeredResource.title = updates.title;
+                    registeredResource.metadata = { ...registeredResource.metadata, title: updates.title };
+                }
                 if (updates.callback !== undefined) registeredResource.readCallback = updates.callback;
                 if (updates.scopeChallenge !== undefined) {
                     registeredResource.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
@@ -817,9 +820,12 @@ export class McpServer {
                     delete this._registeredResourceTemplates[name];
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
-                if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
                 if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.title !== undefined) {
+                    registeredResourceTemplate.title = updates.title;
+                    registeredResourceTemplate.metadata = { ...registeredResourceTemplate.metadata, title: updates.title };
+                }
                 if (updates.callback !== undefined) registeredResourceTemplate.readCallback = updates.callback;
                 if (updates.scopeChallenge !== undefined) {
                     registeredResourceTemplate.scopeChallenge = updates.scopeChallenge === null ? undefined : updates.scopeChallenge;
