@@ -1,5 +1,18 @@
 # @modelcontextprotocol/server
 
+## 2.3.2
+
+### Patch Changes
+
+- [#2960](https://github.com/modelcontextprotocol/typescript-sdk/pull/2960) [`43c45f4`](https://github.com/modelcontextprotocol/typescript-sdk/commit/43c45f4941d824e7251a7d1266823a84af90fab3) Thanks [@claude](https://github.com/apps/claude)! - A server whose tool puts `x-mcp-header` on a `number`-typed parameter keeps checking that tool's `Mcp-Param-*` headers on `tools/call`, as 2.3.0 does: a header that is missing for a value in the body, or that disagrees with the body, is answered `400` with JSON-RPC error `-32020`. Clients on a 2026-07-28 connection other than stdio no longer list such a tool and send no `Mcp-Param-*` headers for it, so a call that carries a value for a declared parameter is rejected the same way; the server logs a warning each time tools are listed. Use an integer (`z.int()`) or remove the annotation.
+
+- [#3005](https://github.com/modelcontextprotocol/typescript-sdk/pull/3005) [`b381559`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b381559edc0dbe25ab8324cada345b49bd1d2fc4) Thanks [@chaeyn](https://github.com/chaeyn)! - Reflect resource and resource template `update({ title })` changes in list responses. Preserve other metadata and individual resource titles when a template supplies list entries.
+
+- [#2762](https://github.com/modelcontextprotocol/typescript-sdk/pull/2762) [`b022522`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b022522089a0c8b632595c6e7b536453945ed5a9) Thanks [@pcarleton](https://github.com/pcarleton)! - `x-mcp-header` on a `number`-typed tool parameter is now rejected, matching the 2026-07-28 spec ("Parameters with type `number` are not permitted"; clients MUST exclude such tools from `tools/list`). Previously `number` was accepted only to satisfy an older conformance fixture that has since been corrected. `integer`, `string` and `boolean` are unaffected.
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.3.2
+
 ## 2.3.1
 
 ### Patch Changes
