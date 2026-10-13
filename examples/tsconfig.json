@@ -27,7 +27,12 @@
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
-            "@mcp-examples/shared": ["./node_modules/@mcp-examples/shared/src/index.ts"]
+            "@mcp-examples/shared": ["./node_modules/@mcp-examples/shared/src/index.ts"],
+            "@modelcontextprotocol/server/ext/tasks": ["./node_modules/@modelcontextprotocol/server/src/ext/tasks/index.ts"],
+            "@modelcontextprotocol/client/ext/tasks": ["./node_modules/@modelcontextprotocol/client/src/ext/tasks/index.ts"],
+            "@modelcontextprotocol/core-internal/ext/tasks": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/ext/tasks/index.ts"
+            ]
         }
     }
 }
