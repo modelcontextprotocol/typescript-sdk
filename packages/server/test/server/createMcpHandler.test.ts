@@ -623,6 +623,20 @@ describe('createMcpHandler — stateless legacy fallback (the default)', () => {
         }
     });
 
+    it('reads the body where the runtime has no Request.body stream (Firefox), keeping the size limit', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+        const withoutBodyStream = (request: Request): Request => Object.defineProperty(request, 'body', { value: undefined });
+
+        const served = await handler.fetch(withoutBodyStream(postRequest(modernToolsCall('echo', { text: 'no body stream' }))));
+        expect(served.status).toBe(200);
+        expect(await served.text()).toContain('no body stream');
+
+        const refused = await handler.fetch(withoutBodyStream(postRequest('x'.repeat(4 * 1024 * 1024 + 1))));
+        expect(refused.status).toBe(413);
+        expect(state.contexts).toHaveLength(1);
+    });
+
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {
         const { factory, state } = testFactory();
         const handler = createMcpHandler(factory);
