@@ -1,7 +1,7 @@
 import { OptionDefaults } from 'typedoc';
 import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative, sep } from 'node:path';
 
 // Find all package.json files under packages/ and build package list.
 // Exclude node_modules and the codemod batch-test's cloned real-world repos, which are not part
@@ -22,7 +22,8 @@ const packages = packageJsonPaths.map(p => {
 // (the schemas mirror the documented types 1:1) so monorepo-wide invalid-link validation can stay ON.
 const DOCS_EXCLUDED_PACKAGES = new Set(['@modelcontextprotocol/core']);
 const publicPackages = packages.filter(p => p.manifest.private !== true && !DOCS_EXCLUDED_PACKAGES.has(p.manifest.name));
-const entryPoints = publicPackages.map(p => p.rootDir);
+// Relative POSIX globs let TypeDoc escape special characters in the checkout path.
+const entryPoints = publicPackages.map(p => relative(process.cwd(), p.rootDir).split(sep).join('/'));
 
 console.log(
     'Typedoc selected public packages:',
