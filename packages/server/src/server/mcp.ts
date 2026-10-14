@@ -117,14 +117,16 @@ export class McpServer {
 
     private readonly _maxToolInputElements: number | undefined;
 
-    private _registeredResources: { [uri: string]: RegisteredResource } = {};
+    // Null-prototype maps so names inherited from Object.prototype
+    // (constructor, toString, __proto__, …) are not treated as already registered.
+    private _registeredResources: { [uri: string]: RegisteredResource } = Object.create(null);
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
-    } = {};
-    private _registeredTools: { [name: string]: RegisteredTool } = {};
-    private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    } = Object.create(null);
+    private _registeredTools: { [name: string]: RegisteredTool } = Object.create(null);
+    private _registeredPrompts: { [name: string]: RegisteredPrompt } = Object.create(null);
     /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
-    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
+    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = Object.create(null);
 
     /**
      * The JSON-serialized `inputSchema` of a registered tool, or `undefined`
