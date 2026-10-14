@@ -391,15 +391,36 @@ describe('UriTemplate', () => {
             expect(template.variableNames).toEqual(['list']);
         });
 
-        it('should handle multiple variables with prefix modifiers', () => {
-            const template = new UriTemplate('{x:2,y:3}');
-            expect(template.expand({ x: '1024', y: '768' })).toBe('10,768');
+        it('should handle multiple variables with prefix modifiers and encode values', () => {
+            const template = new UriTemplate('{x,y:2}');
+            expect(template.expand({ x: '1024', y: 'é ü' })).toBe('1024,%C3%A9%20');
             expect(template.variableNames).toEqual(['x', 'y']);
+        });
+
+        it('should join multiple variables using the operator separator', () => {
+            const pathTemplate = new UriTemplate('{/x,y}');
+            expect(pathTemplate.expand({ x: '1024', y: '768' })).toBe('/1024/768');
+
+            const labelTemplate = new UriTemplate('{.x,y}');
+            expect(labelTemplate.expand({ x: '1024', y: '768' })).toBe('.1024.768');
+
+            const fragTemplate = new UriTemplate('{#x,y}');
+            expect(fragTemplate.expand({ x: '1024', y: '768' })).toBe('#1024,768');
+
+            const partialTemplate = new UriTemplate('{/x,y}');
+            expect(partialTemplate.expand({ x: '1024' })).toBe('/1024');
         });
 
         it('should match URIs and extract variables for templates with prefix modifiers', () => {
             const template = new UriTemplate('resource:///{name:3}');
             expect(template.match('resource:///abc')).toEqual({ name: 'abc' });
+        });
+
+        it('pins that match() extracts the segment value without enforcing prefix truncation', () => {
+            const template = new UriTemplate('/users/{id:3}');
+            // Prefix modifiers apply during expansion (RFC 6570); match() extracts the matched segment
+            expect(template.match('/users/abc')).toEqual({ id: 'abc' });
+            expect(template.match('/users/abcdef')).toEqual({ id: 'abcdef' });
         });
 
         it('should match query parameters for templates with prefix modifiers', () => {

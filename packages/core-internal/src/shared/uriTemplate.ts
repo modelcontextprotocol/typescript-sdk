@@ -185,30 +185,24 @@ export class UriTemplate {
             return separator + pairs.join('&');
         }
 
-        if (part.vars.length > 1) {
-            const values = part.vars
-                .map(v => {
-                    const value = variables[v.name];
-                    if (value === undefined) return;
-                    if (Array.isArray(value)) return value[0];
-                    return this.applyPrefix(value.toString(), v.prefix);
-                })
-                .filter(v => v !== undefined);
-            if (values.length === 0) return '';
-            return values.join(',');
+        const encoded: string[] = [];
+        for (const v of part.vars) {
+            const value = variables[v.name];
+            if (value === undefined) continue;
+            if (Array.isArray(value)) {
+                for (const item of value) {
+                    encoded.push(this.encodeValue(item, part.operator));
+                }
+            } else {
+                const str = this.applyPrefix(value.toString(), v.prefix);
+                encoded.push(this.encodeValue(str, part.operator));
+            }
         }
 
-        const value = variables[part.name];
-        if (value === undefined) return '';
-
-        const varSpec = part.vars[0];
-        const values = Array.isArray(value) ? value : [this.applyPrefix(value.toString(), varSpec?.prefix)];
-        const encoded = values.map(v => this.encodeValue(v, part.operator));
+        if (encoded.length === 0) return '';
 
         switch (part.operator) {
-            case '': {
-                return encoded.join(',');
-            }
+            case '':
             case '+': {
                 return encoded.join(',');
             }
