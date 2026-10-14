@@ -617,6 +617,48 @@ describe('protocol tests', () => {
             await Promise.resolve();
             await expect(requestPromise).resolves.toEqual({ result: 'success' });
         });
+
+        test('should deliver progress when notification and response arrive in the same turn', async () => {
+            // Repro for #3018: progress was deferred via Promise.resolve(), so
+            // a same-turn response deleted the progress handler first.
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onProgressMock = vi.fn();
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                onprogress: onProgressMock
+            });
+
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 50,
+                        total: 100
+                    }
+                });
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 0,
+                    result: { result: 'success' }
+                });
+            }
+
+            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+            expect(onProgressMock).toHaveBeenCalledWith({
+                progress: 50,
+                total: 100
+            });
+            expect(onErrorMock).not.toHaveBeenCalled();
+        });
     });
 
     describe('Debounced Notifications', () => {
