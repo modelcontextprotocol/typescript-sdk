@@ -1,9 +1,13 @@
+import { Readable, Writable } from 'node:stream';
+
+import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/core-internal';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { vi } from 'vitest';
 import * as z from 'zod/v4';
-import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/core-internal';
-import { PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY } from '@modelcontextprotocol/core-internal';
+
 import { McpServer } from '../../src/server/mcp';
 import { serveStdio } from '../../src/server/serveStdio';
+import { StdioServerTransport } from '../../src/server/stdio';
 
 function deferred() {
     let resolve!: () => void;
@@ -141,15 +145,28 @@ test.skipIf(!process.env.MCP_LIFECYCLE_LONG_RUN)(
                 let completed = 0;
                 let replies = 0;
                 const ids = new Set<number>();
-                const wire: Transport = {
-                    start: async () => {},
-                    close: async () => {},
-                    send: async message => {
+                const input = new Readable({ read() {} });
+                const output = new Writable({
+                    write(chunk, _encoding, callback) {
+                        const message: JSONRPCMessage = JSON.parse(chunk.toString());
                         expect('error' in message).toBe(false);
                         if ('result' in message && message.id !== 0) expect(JSON.stringify(message.result)).toContain('completed');
                         replies++;
-                        await new Promise<void>(resolve => setImmediate(resolve));
+                        setImmediate(callback);
                     }
+                });
+                const official = new StdioServerTransport(input, output, { maxBufferSize: 1_048_576 });
+                const completions = new Map<number, () => void>();
+                const wire: Transport = {
+                    start: () => official.start(),
+                    close: () => official.close(),
+                    send: message => official.send(message)
+                };
+                official.onmessage = message => {
+                    if (!('id' in message) || typeof message.id !== 'number') throw new Error('unexpected inbound frame');
+                    const complete = completions.get(message.id);
+                    if (!complete) throw new Error('unowned inbound frame');
+                    wire.onmessage!(message, { onMessageProcessed: complete });
                 };
                 let handled = 0;
                 const handle = serveStdio(
@@ -170,20 +187,16 @@ test.skipIf(!process.env.MCP_LIFECYCLE_LONG_RUN)(
                         ids.add(id);
                         active++;
                         peak = Math.max(peak, active);
-                        wire.onmessage!(
-                            { jsonrpc: '2.0', id, method, params },
-                            {
-                                onMessageProcessed: () => {
-                                    expect(ids.delete(id)).toBe(true);
-                                    active--;
-                                    completed++;
-                                    resolve();
-                                }
-                            }
-                        );
+                        completions.set(id, () => {
+                            expect(ids.delete(id)).toBe(true);
+                            completions.delete(id);
+                            active--;
+                            completed++;
+                            resolve();
+                        });
+                        input.push(Buffer.from(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n'));
                     });
-                if (era === 'legacy') await request(0, 'initialize', init.params);
-                else await request(0, 'server/discover', { _meta: envelope });
+                await (era === 'legacy' ? request(0, 'initialize', init.params) : request(0, 'server/discover', { _meta: envelope }));
                 const started = performance.now();
                 while (performance.now() - started < duration) {
                     await Promise.all(
@@ -201,7 +214,10 @@ test.skipIf(!process.env.MCP_LIFECYCLE_LONG_RUN)(
                 expect(completed).toBeGreaterThan(4000);
                 expect(replies).toBe(completed);
                 expect(handled).toBe(completed - 1);
+                expect(completions.size).toBe(0);
                 await handle.close();
+                input.destroy();
+                output.end();
             })
         );
     },
