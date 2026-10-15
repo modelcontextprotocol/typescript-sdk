@@ -39,6 +39,8 @@ describe.each(['2025-11-25', '2026-07-28'])('raw request params on %s', revision
             server.onerror = error => resolve({ transportError: error.message });
         });
         const wireParams = { ...params, _meta: { ...envelope, ...(params._meta as Record<string, unknown> | undefined) } };
+        // Simulate JSON wire serialization, including omission of undefined values.
+        // eslint-disable-next-line unicorn/prefer-structured-clone
         await peer.send(JSON.parse(JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: wireParams })) as JSONRPCRequest);
         return { response: await response, wireParams };
     }
