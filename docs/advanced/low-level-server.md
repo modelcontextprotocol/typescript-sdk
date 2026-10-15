@@ -127,10 +127,14 @@ Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, ne
 ```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_escapeHatch"
 const mcp = new McpServer({ name: 'catalog', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
 
-mcp.registerTool('search', { description: 'Search the product catalog', inputSchema: z.object({ query: z.string() }) }, async ({ query }) => {
-    const names = catalog.filter(product => product.name.includes(query)).map(product => product.name);
-    return { content: [{ type: 'text', text: names.join('\n') }] };
-});
+mcp.registerTool(
+    'search',
+    { description: 'Search the product catalog', inputSchema: z.object({ query: z.string() }) },
+    async ({ query }) => {
+        const names = catalog.filter(product => product.name.includes(query)).map(product => product.name);
+        return { content: [{ type: 'text', text: names.join('\n') }] };
+    }
+);
 
 const subscriptions = new Set<string>();
 mcp.server.setRequestHandler('resources/subscribe', async request => {
