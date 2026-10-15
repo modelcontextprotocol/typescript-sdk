@@ -22,11 +22,13 @@ describe('named object output schemas', () => {
             for (const [name, outputSchema] of Object.entries({ inline, referenced })) {
                 server.registerTool(name, { outputSchema }, async () => ({ content: [], structuredContent: output }));
             }
-            server.registerTool(
-                'string',
-                { outputSchema: fromJsonSchema<string>({ $ref: '#/$defs/Text', $defs: { Text: { type: 'string' } } }) },
-                async () => ({ content: [], structuredContent: 'hello' })
-            );
+            for (const [name, schema] of Object.entries({ string: { type: 'string' }, typeless: { additionalProperties: false } })) {
+                server.registerTool(
+                    name,
+                    { outputSchema: fromJsonSchema<string>({ $ref: '#/$defs/Text', $defs: { Text: schema } }) },
+                    async () => ({ content: [], structuredContent: 'hello' })
+                );
+            }
             server.registerTool('invalid', { outputSchema: referenced }, async () => ({
                 content: [],
                 structuredContent: { id: 'n1' } as typeof output
@@ -54,8 +56,10 @@ describe('named object output schemas', () => {
                     expect(schema).not.toHaveProperty('properties.result');
                 }
             }
-            const stringResult = await client.callTool({ name: 'string' });
-            expect(stringResult.structuredContent).toEqual(version === '2026-07-28' ? 'hello' : { result: 'hello' });
+            for (const name of ['string', 'typeless']) {
+                const stringResult = await client.callTool({ name });
+                expect(stringResult.structuredContent).toEqual(version === '2026-07-28' ? 'hello' : { result: 'hello' });
+            }
             const invalidResult = await client.callTool({ name: 'invalid' });
             expect(invalidResult.isError).toBe(true);
         } finally {

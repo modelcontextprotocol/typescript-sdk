@@ -74,6 +74,18 @@ describe('referenced output schemas', () => {
     test.each([
         ['string', { ...reference, $defs: { Value: { type: 'string' } } }],
         ['nullable object', { ...reference, $defs: { Value: { type: ['object', 'null'] } } }],
+        ['typeless properties', { ...reference, $defs: { Value: { properties: { value: { type: 'string' } } } } }],
+        ['typeless pattern properties', { ...reference, $defs: { Value: { patternProperties: { '.*': { type: 'string' } } } } }],
+        ['typeless required', { ...reference, $defs: { Value: { required: ['value'] } } }],
+        ['typeless additional properties', { ...reference, $defs: { Value: { additionalProperties: false } } }],
+        [
+            'reference chain to a typeless target',
+            { ...reference, $defs: { Value: { $ref: '#/$defs/Other' }, Other: { required: ['value'] } } }
+        ],
+        [
+            'referenced union with a typeless member',
+            { ...reference, $defs: { Value: { anyOf: [object, { additionalProperties: false }] } } }
+        ],
         ['mixed union', { anyOf: [reference, { type: 'string' }], $defs: { Value: object } }],
         ['missing target', { ...reference, $defs: {} }],
         ['external reference', { $ref: 'https://example.com/schema', $defs: { Value: object } }],
@@ -96,5 +108,38 @@ describe('referenced output schemas', () => {
         ]
     ])('leaves %s unchanged when an object root cannot be established', (_name, schema) => {
         expect(convert(schema as Record<string, unknown>)).toBe(schema);
+    });
+
+    test.each([{ properties: {} }, { patternProperties: {} }, { required: ['value'] }, { additionalProperties: false }])(
+        'preserves inline object-keyword compatibility for %j',
+        schema => {
+            expect(convert(schema)).toEqual({ type: 'object', ...schema });
+        }
+    );
+
+    test.each([false, true])('keeps inline and referenced classification separate (reference first: %s)', referenceFirst => {
+        const target = { additionalProperties: false };
+        const members = referenceFirst ? [reference, target] : [target, reference];
+        const schema = { anyOf: members, $defs: { Value: target } };
+        expect(convert(schema)).toBe(schema);
+    });
+
+    test('bounds reference lookups for a shared definition graph', () => {
+        const definitions: Record<string, unknown> = { Level0: object };
+        for (let level = 1; level <= 22; level++) {
+            definitions[`Level${level}`] = { anyOf: [{ $ref: `#/$defs/Level${level - 1}` }, { $ref: `#/$defs/Level${level - 1}` }] };
+        }
+        let lookups = 0;
+        const schema = {
+            $ref: '#/$defs/Level22',
+            $defs: new Proxy(definitions, {
+                get(target, key) {
+                    if (++lookups > 100) throw new Error('Shared definitions were repeatedly traversed');
+                    return Reflect.get(target, key);
+                }
+            })
+        };
+        expect(convert(schema).type).toBe('object');
+        expect(lookups).toBeLessThanOrEqual(100);
     });
 });
