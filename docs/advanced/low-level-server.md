@@ -124,6 +124,7 @@ Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md
 
 Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, never per program. Declare the extra capability in the constructor, keep `registerTool` for the tools, and hand-register the one method `McpServer` has no API for.
 
+<!-- prettier-ignore -->
 ```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_escapeHatch"
 const mcp = new McpServer({ name: 'catalog', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
 
