@@ -238,10 +238,18 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
  * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
  * directly (`properties`/`patternProperties`/`additionalProperties`/`required`), or it is a
  * composition (`oneOf`/`anyOf`/`allOf`) whose every member is itself `type:'object'` or recursively
- * provably object-shaped (e.g. a nested `discriminatedUnion`). `$ref` is not followed. Used to
+ * provably object-shaped (e.g. a nested `discriminatedUnion`). Local JSON Pointer references
+ * are followed without crossing nested `$id` boundaries. Used to
  * decide whether stamping `type:'object'` is safe (redundant-but-valid) versus self-contradictory.
  */
-function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
+function isProvablyObjectShapedRoot(schema: Record<string, unknown>, root = schema, ancestors: ReadonlySet<object> = new Set()): boolean {
+    if (schema.type !== undefined) return schema.type === 'object';
+    if (ancestors.has(schema) || (schema !== root && schema.$id !== undefined)) return false;
+    const seen = new Set(ancestors).add(schema);
+    if (schema.$ref !== undefined) {
+        const target = resolveLocalSchemaReference(root, schema.$ref);
+        return target !== undefined && isProvablyObjectShapedRoot(target, root, seen);
+    }
     if ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema) {
         return true;
     }
@@ -249,14 +257,30 @@ function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
         const members = schema[key];
         if (Array.isArray(members) && members.length > 0) {
             return members.every(
-                m =>
-                    m !== null &&
-                    typeof m === 'object' &&
-                    ((m as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(m as Record<string, unknown>))
+                m => m !== null && typeof m === 'object' && isProvablyObjectShapedRoot(m as Record<string, unknown>, root, seen)
             );
         }
     }
     return false;
+}
+
+function resolveLocalSchemaReference(root: Record<string, unknown>, ref: unknown): Record<string, unknown> | undefined {
+    if (typeof ref !== 'string' || !ref.startsWith('#/')) return undefined;
+    let pointer: string;
+    try {
+        pointer = decodeURIComponent(ref.slice(2));
+    } catch {
+        return undefined;
+    }
+    let target: unknown = root;
+    for (const token of pointer.split('/')) {
+        if (target === null || typeof target !== 'object' || /~(?:[^01]|$)/.test(token)) return undefined;
+        if (target !== root && '$id' in target) return undefined;
+        const key = token.replaceAll('~1', '/').replaceAll('~0', '~');
+        if (!Object.hasOwn(target, key)) return undefined;
+        target = (target as Record<string, unknown>)[key];
+    }
+    return target !== null && typeof target === 'object' && !Array.isArray(target) ? (target as Record<string, unknown>) : undefined;
 }
 
 // Validation
