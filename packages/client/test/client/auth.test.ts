@@ -597,6 +597,22 @@ describe('OAuth Authorization', () => {
             code_challenge_methods_supported: ['S256']
         };
 
+        it('accepts client-credentials-only OAuth metadata without an authorization endpoint', async () => {
+            const metadata = {
+                issuer: 'https://auth.example.com',
+                token_endpoint: 'https://auth.example.com/token',
+                grant_types_supported: ['client_credentials'],
+                response_types_supported: []
+            };
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => metadata
+            });
+
+            await expect(discoverOAuthMetadata('https://auth.example.com')).resolves.toEqual(metadata);
+        });
+
         it('returns metadata when discovery succeeds', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -1780,6 +1796,16 @@ describe('OAuth Authorization', () => {
             redirect_uris: ['http://localhost:3000/callback'],
             client_name: 'Test Client'
         };
+
+        it('rejects authorization-code login when authorization_endpoint is absent', async () => {
+            await expect(
+                startAuthorization('https://auth.example.com', {
+                    metadata: { ...validMetadata, authorization_endpoint: undefined },
+                    clientInformation: validClientInfo,
+                    redirectUrl: 'http://localhost:3000/callback'
+                })
+            ).rejects.toThrow('Incompatible auth server: missing authorization_endpoint');
+        });
 
         it('generates authorization URL with PKCE challenge', async () => {
             const { authorizationUrl, codeVerifier } = await startAuthorization('https://auth.example.com', {
