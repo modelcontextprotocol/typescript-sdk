@@ -536,14 +536,13 @@ export class Client extends Protocol<ClientContext> {
     /**
      * The response-cache substrate. Owns the backing store, the per-method
      * eviction-generation counter, the user-supplied/default flag, and the
-     * stamp-memoized derived `name → Tool` / `name → output-validator`
+     * stamp-memoized derived `name → Tool` / `name → output-metadata`
      * indices — the cache-coordination state that used to live as separate
      * private fields here. The internal aggregating walk writes one entry per
      * list verb; `list_changed` evicts the matching method;
      * `_resetConnectionState` resets the lot. {@linkcode callTool}'s
-     * output-schema validation reads the derived `outputValidator` index (the
-     * substrate's first production caller); the stacked SEP-2243 PR wires
-     * `Mcp-Param-*` mirroring through `toolDefinition` on top.
+     * header mirroring and output-schema validation share the source Tool and
+     * compiled validator held together in the `outputValidator` index.
      */
     private readonly _cache: ClientResponseCache;
     private readonly _defaultCacheTtlMs: number;
@@ -1850,24 +1849,6 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Resolve the SEP-2243 `x-mcp-header` declaration scan for a tool name.
-     *
-     * The caller-supplied `toolDefinition` escape hatch wins; otherwise the
-     * cached `tools/list` entry (via the cache's `toolDefinition`) is the
-     * source. Freshness is the response cache's lifecycle: `list_changed`
-     * evicts, otherwise the held schema is the best information available
-     * regardless of age, and a stale schema is recovered through the
-     * `HEADER_MISMATCH` → evict-refetch-retry path in {@linkcode callTool}.
-     * On a miss the call proceeds without `Mcp-Param-*` headers (the spec's
-     * "client SHOULD send without custom headers" guidance) and relies on the
-     * same recovery.
-     */
-    private async _resolveXMcpHeaderScan(name: string, override: Tool | undefined): Promise<XMcpHeaderScanResult | undefined> {
-        const tool = override ?? (await this._cache.toolDefinition(name));
-        return tool === undefined ? undefined : scanXMcpHeaderDeclarations(tool.inputSchema);
-    }
-
-    /**
      * Reads the contents of a resource by URI.
      *
      * Honours the result's `ttlMs`/`cacheScope` (SEP-2549): a still-fresh
@@ -2343,9 +2324,9 @@ export class Client extends Protocol<ClientContext> {
         // of running SEP-2243 from a browser; pass `null` for the designated
         // argument or supply `options.toolDefinition` against a relaxed server.
         const mirroringActive = this.getProtocolEra() === 'modern' && detectProbeEnvironment() !== 'browser';
-        // Mirroring (and output-schema validation below) read the cached
-        // `tools/list` entry directly via `_cache.toolDefinition` /
-        // `_cache.outputValidator`. `callTool` never issues a `tools/list`
+        // Mirroring and output-schema validation share one cached tool
+        // definition per attempt, including across an asynchronous store read.
+        // `callTool` never issues a `tools/list`
         // itself — the cache is populated by the caller's own
         // {@linkcode listTools | listTools()} (which now auto-aggregates) and
         // by the `HEADER_MISMATCH` recovery path below. A cold cache means
@@ -2353,15 +2334,11 @@ export class Client extends Protocol<ClientContext> {
         // "client SHOULD send without custom headers" guidance) and without
         // output-schema validation (the v1.x opportunistic behaviour, kept so
         // a legacy/stdio `callTool` still issues zero extra requests).
-        const buildSendOptions = async (): Promise<CallToolRequestOptions | undefined> => {
-            if (!mirroringActive) return options;
-            // A custom store's `get()` may reject (the documented store
-            // contract); route that to `onerror` and degrade to sending
-            // without `Mcp-Param-*` headers — same posture as a cold cache —
-            // rather than aborting the call before it reaches the wire.
+        const buildSendOptions = (): CallToolRequestOptions | undefined => {
+            if (!mirroringActive || metadata === undefined) return options;
             let scan: XMcpHeaderScanResult | undefined;
             try {
-                scan = await this._resolveXMcpHeaderScan(params.name, options?.toolDefinition);
+                scan = scanXMcpHeaderDeclarations(metadata.tool.inputSchema);
             } catch (error) {
                 this._reportStoreError(error);
             }
@@ -2378,13 +2355,18 @@ export class Client extends Protocol<ClientContext> {
         // derived views must agree — and is compiled in isolation (never written to the cache). The
         // cache read is guarded: a custom store whose `get()` rejects routes to `onerror` and
         // degrades to skipping validation (same outcome as a cold cache).
-        let compiled =
+        // Memoize the source definition together with its compiled validator:
+        // a concurrent catalog refresh must not mix one generation's output
+        // schema with another generation's header declarations.
+        const resolveMetadata = () =>
             options?.toolDefinition === undefined
-                ? await this._cache
-                      .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                ? this._cache
+                      .outputValidator(params.name, tool => ({ tool, compiled: this._compileOutputValidator(tool) }))
                       .catch(error => void this._reportStoreError(error))
-                : this._compileOutputValidator(options.toolDefinition);
+                : { tool: options.toolDefinition, compiled: this._compileOutputValidator(options.toolDefinition) };
+        let metadata = await resolveMetadata();
         const assertCompiled = (): void => {
+            const compiled = metadata?.compiled;
             if (compiled === undefined || compiled.ok) return;
             const err = compiled.compileError;
             const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
@@ -2397,7 +2379,7 @@ export class Client extends Protocol<ClientContext> {
         // map there is no wider union to narrow away.
         let result: CallToolResult;
         try {
-            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+            result = await this.request({ method: 'tools/call', params }, buildSendOptions());
         } catch (error) {
             // SEP-2243 one-refresh-on-miss: a `HEADER_MISMATCH` rejection on a
             // modern connection means the server enforced an `Mcp-Param-*`
@@ -2429,18 +2411,17 @@ export class Client extends Protocol<ClientContext> {
             // `HEADER_MISMATCH` — the refetch failure is observable only
             // through `onerror`.
             await this.listTools(undefined, refreshOptions).catch(error_ => this._reportStoreError(error_));
-            // Re-resolve the output validator against the freshly-fetched entry — the pre-flight
-            // `compiled` was resolved from the now-evicted cache and may be stale (different
-            // outputSchema) or absent (cold cache on the first attempt). The recovery path is only
+            // Re-resolve both metadata views against the freshly-fetched entry — the pre-flight
+            // snapshot came from the now-evicted cache and may be stale (different input/output
+            // schemas) or absent (cold cache on the first attempt). The recovery path is only
             // entered when `options.toolDefinition` is undefined, so the cache is the sole source.
             // Re-run the same fail-fast compile-error check before issuing the retry.
-            compiled = await this._cache
-                .outputValidator(params.name, tool => this._compileOutputValidator(tool))
-                .catch(error_ => void this._reportStoreError(error_));
+            metadata = await resolveMetadata();
             assertCompiled();
-            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+            result = await this.request({ method: 'tools/call', params }, buildSendOptions());
         }
 
+        const compiled = metadata?.compiled;
         const validator = compiled !== undefined && compiled.ok ? compiled.validator : undefined;
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
