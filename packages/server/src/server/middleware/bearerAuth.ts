@@ -44,9 +44,14 @@ export interface BearerAuthOptions {
     requiredScopes?: string[];
 
     /**
-     * Optional Protected Resource Metadata URL to advertise in the
-     * `WWW-Authenticate` header on 401/403 responses, per
-     * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728}.
+     * Protected Resource Metadata URL to advertise in the `WWW-Authenticate`
+     * header on 401/403 responses, per
+     * {@link https://datatracker.ietf.org/doc/html/rfc9728 | RFC 9728} §5.1.
+     *
+     * The MCP authorization spec requires MCP servers to send it, so pass it for
+     * any protected MCP endpoint. When omitted, clients must guess the well-known
+     * location and strict clients can fail discovery; leave it out only for
+     * non-MCP or legacy deployments.
      *
      * Typically built with `getOAuthProtectedResourceMetadataUrl`, exported
      * from this package.
