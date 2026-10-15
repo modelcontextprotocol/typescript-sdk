@@ -117,6 +117,47 @@ describe('verifyDpopToken', () => {
         ).rejects.toMatchObject({ code: 'invalid_dpop_proof' });
     });
 
+    it('rejects a token issued for another resource when expectedResource is set', async () => {
+        const expectedResource = new URL('https://mcp.example.com/mcp');
+        const otherResource = new URL('https://other.example.com/mcp');
+        const proof = await buildProof(signer, 'POST', url, boundToken);
+        const request = { authorization: `DPoP ${boundToken}`, dpop: proof, method: 'POST', url };
+        await expect(verifyDpopToken(request, options)).resolves.toMatchObject({ token: boundToken });
+
+        const mismatched: DpopAuthOptions = {
+            verifier: verifierFor({
+                [boundToken]: {
+                    token: boundToken,
+                    clientId: 'client-1',
+                    scopes: ['mcp'],
+                    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+                    resource: otherResource,
+                    cnf: { jkt: signer.jkt }
+                }
+            }),
+            expectedResource
+        };
+        await expect(verifyDpopToken(request, mismatched)).rejects.toMatchObject({
+            code: OAuthErrorCode.InvalidToken,
+            message: 'Token was not issued for this resource'
+        });
+
+        const matched: DpopAuthOptions = {
+            ...mismatched,
+            verifier: verifierFor({
+                [boundToken]: {
+                    token: boundToken,
+                    clientId: 'client-1',
+                    scopes: ['mcp'],
+                    expiresAt: Math.floor(Date.now() / 1000) + 3600,
+                    resource: expectedResource,
+                    cnf: { jkt: signer.jkt }
+                }
+            })
+        };
+        await expect(verifyDpopToken(request, matched)).resolves.toMatchObject({ token: boundToken });
+    });
+
     it('rejects when the proof key does not match the token cnf.jkt (RFC 9449 §4.3 step 12b)', async () => {
         const otherSigner = await generateSigner();
         const proof = await buildProof(otherSigner, 'POST', url, boundToken);

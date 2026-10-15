@@ -42,8 +42,8 @@ function reconstructRequestUrl(req: Request): string {
 export function requireDpopAuth(options: DpopAuthMiddlewareOptions): RequestHandler {
     // Destructure at creation so a plain-JS caller passing undefined or malformed options crashes
     // at startup, not on the first request.
-    const { verifier, requiredScopes = [], resourceMetadataUrl, iatSkewSeconds, nonce } = options;
-    const resolved = { verifier, requiredScopes, resourceMetadataUrl, iatSkewSeconds, nonce };
+    const { verifier, requiredScopes = [], resourceMetadataUrl, expectedResource, iatSkewSeconds, nonce } = options;
+    const resolved = { verifier, requiredScopes, resourceMetadataUrl, expectedResource, iatSkewSeconds, nonce };
     return async (req, res, next) => {
         try {
             req.auth = await verifyDpopToken(

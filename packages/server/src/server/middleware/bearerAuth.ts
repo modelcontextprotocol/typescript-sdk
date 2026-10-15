@@ -98,6 +98,17 @@ function sameResource(reported: URL | undefined, expected: URL): boolean {
 }
 
 /**
+ * Refuse a token whose reported resource is not `expectedResource`.
+ * Shared by {@link verifyBearerToken} and `verifyDpopToken` so both gates apply the same check.
+ * No-op when `expectedResource` is unset.
+ */
+export function assertExpectedResource(authInfo: AuthInfo, expectedResource: URL | undefined): void {
+    if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
+    }
+}
+
+/**
  * Build a `WWW-Authenticate: Bearer …` challenge header value (RFC 6750).
  *
  * The single formatter behind every challenge this package emits — the
@@ -147,9 +158,7 @@ export async function verifyBearerToken(
     const authInfo = await verifier.verifyAccessToken(token);
 
     // Check if the token was issued for this server (if configured)
-    if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
-    }
+    assertExpectedResource(authInfo, expectedResource);
 
     // RFC 9449 §7.2 ("Compatibility with the Bearer Authentication Scheme"): a DPoP-bound token
     // (cnf.jkt set) MUST NOT be honored under the plain Bearer scheme — accepting it here would

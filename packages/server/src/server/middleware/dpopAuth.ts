@@ -11,7 +11,8 @@ import type { AuthInfo } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 
 import { buildWwwAuthenticateHeader } from './authChallenge';
-import type { BearerAuthOptions } from './bearerAuth';
+import type { VerifyBearerTokenOptions } from './bearerAuth';
+import { assertExpectedResource } from './bearerAuth';
 import type { DpopNonceState } from './dpop';
 import { DPOP_SUPPORTED_ALGS, verifyDpopProof } from './dpop';
 
@@ -26,7 +27,7 @@ const ADVERTISED_ALGS = DPOP_SUPPORTED_ALGS.join(' ');
  * Options for {@linkcode verifyDpopToken}, {@linkcode dpopAuthChallengeResponse}, and
  * {@linkcode requireDpopAuth}.
  */
-export interface DpopAuthOptions extends BearerAuthOptions {
+export interface DpopAuthOptions extends VerifyBearerTokenOptions {
     /**
      * Acceptance window for the proof's `iat`, in seconds either side of the server's clock.
      * @default 300 (SEP-1932's recommended ±5 minutes)
@@ -74,14 +75,14 @@ export interface DpopRequest {
  * that the proof key's RFC 7638 thumbprint matches the verified token's `cnf.jkt` (RFC 9449 §4.3
  * step 12b — the actual sender-constraint check; everything upstream of it only confirms the
  * caller holds *some* valid token and *some* well-formed proof, not that they're bound together).
- * Finally enforces `requiredScopes` and token expiry exactly as `verifyBearerToken` does.
+ * Then enforces `expectedResource`, `requiredScopes`, and token expiry exactly as `verifyBearerToken` does.
  *
  * On any failure throws an {@linkcode OAuthError} — pass that to
  * {@linkcode dpopAuthChallengeResponse} for the matching HTTP answer, or use
  * {@linkcode requireDpopAuth} to get both steps as one call.
  */
 export async function verifyDpopToken(request: DpopRequest, options: DpopAuthOptions): Promise<AuthInfo> {
-    const { verifier, requiredScopes = [], iatSkewSeconds, nonce } = options;
+    const { verifier, requiredScopes = [], expectedResource, iatSkewSeconds, nonce } = options;
 
     if (!request.authorization) {
         throw new OAuthError(OAuthErrorCode.InvalidToken, 'Missing Authorization header');
@@ -92,6 +93,9 @@ export async function verifyDpopToken(request: DpopRequest, options: DpopAuthOpt
     }
 
     const authInfo = await verifier.verifyAccessToken(token);
+
+    // Same audience check as verifyBearerToken. A DPoP endpoint must not skip it.
+    assertExpectedResource(authInfo, expectedResource);
 
     const { jkt } = await verifyDpopProof({
         proof: request.dpop,
@@ -193,8 +197,8 @@ export function dpopAuthChallengeResponse(
 export function requireDpopAuth(options: DpopAuthOptions): (request: Request) => Promise<AuthInfo | Response> {
     // Destructure at creation so a plain-JS caller passing undefined or malformed options crashes
     // at startup, not on the first request.
-    const { verifier, requiredScopes = [], resourceMetadataUrl, iatSkewSeconds, nonce } = options;
-    const resolved = { verifier, requiredScopes, resourceMetadataUrl, iatSkewSeconds, nonce };
+    const { verifier, requiredScopes = [], resourceMetadataUrl, expectedResource, iatSkewSeconds, nonce } = options;
+    const resolved = { verifier, requiredScopes, resourceMetadataUrl, expectedResource, iatSkewSeconds, nonce };
     return async request => {
         // Outside the try: a wrong-framework misuse (no web-standard Request) should throw
         // loudly, not surface as a 500 challenge.
