@@ -76,7 +76,10 @@ describe.each(['2025-11-25', '2026-07-28'])('raw request params on %s', revision
     });
 
     it('preserves siblings after stdio transport metadata normalization', async () => {
-        const server = new Server({ name: 'raw-params-stdio-test', version: '1' }, { includeRawRequestParams: true });
+        const server = new Server(
+            { name: 'raw-params-stdio-test', version: '1' },
+            { capabilities: { tools: {} }, includeRawRequestParams: true }
+        );
         servers.push(server);
         setNegotiatedProtocolVersion(server, revision);
         const handler = vi.fn((request, ctx) => {
