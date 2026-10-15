@@ -1488,7 +1488,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                         reason: String(reason)
                                     }
                                 }),
-                                { relatedRequestId, resumptionToken, onresumptiontoken }
+                                { relatedRequestId }
                             )
                             .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
                     }
