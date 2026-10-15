@@ -234,29 +234,64 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     return { type: 'object', ...result };
 }
 
-/**
- * A typeless JSON Schema root is "provably object-shaped" when either it carries object keywords
- * directly (`properties`/`patternProperties`/`additionalProperties`/`required`), or it is a
- * composition (`oneOf`/`anyOf`/`allOf`) whose every member is itself `type:'object'` or recursively
- * provably object-shaped (e.g. a nested `discriminatedUnion`). `$ref` is not followed. Used to
- * decide whether stamping `type:'object'` is safe (redundant-but-valid) versus self-contradictory.
- */
-function isProvablyObjectShapedRoot(schema: Record<string, unknown>): boolean {
-    if ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema) {
-        return true;
-    }
-    for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
-        const members = schema[key];
-        if (Array.isArray(members) && members.length > 0) {
-            return members.every(
-                m =>
-                    m !== null &&
-                    typeof m === 'object' &&
-                    ((m as Record<string, unknown>).type === 'object' || isProvablyObjectShapedRoot(m as Record<string, unknown>))
-            );
+// Inline object keywords retain legacy behavior; referenced schemas must constrain their values to objects.
+function isProvablyObjectShapedRoot(root: Record<string, unknown>): boolean {
+    const completedReferences = new Map<object, boolean>();
+    const ancestors = new Set<object>();
+
+    function classify(schema: Record<string, unknown>, requireObjectType = false): boolean {
+        if (schema.type !== undefined) return schema.type === 'object';
+        if (ancestors.has(schema) || (schema !== root && schema.$id !== undefined)) return false;
+        if (requireObjectType) {
+            const completed = completedReferences.get(schema);
+            if (completed !== undefined) return completed;
         }
+        ancestors.add(schema);
+        let objectShaped = false;
+        if (schema.$ref !== undefined) {
+            const target = resolveLocalSchemaReference(root, schema.$ref);
+            objectShaped = target !== undefined && classify(target, true);
+        } else if (
+            !requireObjectType &&
+            ('properties' in schema || 'patternProperties' in schema || 'additionalProperties' in schema || 'required' in schema)
+        ) {
+            objectShaped = true;
+        } else {
+            for (const key of ['oneOf', 'anyOf', 'allOf'] as const) {
+                const members = schema[key];
+                if (Array.isArray(members) && members.length > 0) {
+                    objectShaped = members.every(
+                        m => m !== null && typeof m === 'object' && classify(m as Record<string, unknown>, requireObjectType)
+                    );
+                    break;
+                }
+            }
+        }
+        ancestors.delete(schema);
+        if (requireObjectType) completedReferences.set(schema, objectShaped);
+        return objectShaped;
     }
-    return false;
+
+    return classify(root);
+}
+
+function resolveLocalSchemaReference(root: Record<string, unknown>, ref: unknown): Record<string, unknown> | undefined {
+    if (typeof ref !== 'string' || !ref.startsWith('#/')) return undefined;
+    let pointer: string;
+    try {
+        pointer = decodeURIComponent(ref.slice(2));
+    } catch {
+        return undefined;
+    }
+    let target: unknown = root;
+    for (const token of pointer.split('/')) {
+        if (target === null || typeof target !== 'object' || /~(?:[^01]|$)/.test(token)) return undefined;
+        if (target !== root && '$id' in target) return undefined;
+        const key = token.replaceAll('~1', '/').replaceAll('~0', '~');
+        if (!Object.hasOwn(target, key)) return undefined;
+        target = (target as Record<string, unknown>)[key];
+    }
+    return target !== null && typeof target === 'object' && !Array.isArray(target) ? (target as Record<string, unknown>) : undefined;
 }
 
 // Validation
