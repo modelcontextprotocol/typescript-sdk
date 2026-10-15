@@ -71,7 +71,9 @@ export type ProgressCallback = (progress: Progress) => void;
  */
 export type ProtocolOptions = {
     /**
-     * Expose original inbound request params as `ctx.mcpReq.rawParams`.
+     * Expose post-transport-parse params as `ctx.mcpReq.rawParams` before handler parsing.
+     * Preserves unknown siblings at the tools/call params level; nested metadata
+     * may already have been normalized by transport schemas.
      * This does not change request validation or the parsed handler argument.
      * Raw params are untrusted and include protocol metadata and retry fields;
      * validate application extensions explicitly rather than merging them into
@@ -352,7 +354,8 @@ export type BaseContext = {
      */
     mcpReq: {
         /**
-         * Original inbound params, before wire-field lifting and schema parsing.
+         * Post-transport-parse params, before wire-field lifting and handler parsing.
+         * Unknown tools/call siblings are preserved; nested metadata may be normalized.
          * Present only with `includeRawRequestParams` enabled and params supplied.
          * Values are unvalidated; use the parsed request and existing context
          * accessors for known fields, metadata, and verified request state.

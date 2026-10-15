@@ -1,3 +1,5 @@
+import { PassThrough } from 'node:stream';
+
 import type { JSONRPCMessage, JSONRPCRequest, ServerContext } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
@@ -9,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import { Server } from '../../src/server/server';
+import { StdioServerTransport } from '../../src/server/stdio';
 
 const servers: Server[] = [];
 afterEach(async () => {
@@ -55,7 +58,7 @@ describe.each(['2025-11-25', '2026-07-28'])('raw request params on %s', revision
         expect(handler).toHaveBeenCalledTimes(1);
     });
 
-    it('exposes exact original params separately from the validated request', async () => {
+    it('preserves unknown siblings separately from the validated request', async () => {
         let observed: unknown;
         const handler = vi.fn((request, ctx) => {
             observed = ctx.mcpReq.rawParams;
@@ -69,6 +72,46 @@ describe.each(['2025-11-25', '2026-07-28'])('raw request params on %s', revision
         );
         expect(response).toHaveProperty('result');
         expect(observed).toEqual(wireParams);
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it('preserves siblings after stdio transport metadata normalization', async () => {
+        const server = new Server({ name: 'raw-params-stdio-test', version: '1' }, { includeRawRequestParams: true });
+        servers.push(server);
+        setNegotiatedProtocolVersion(server, revision);
+        const handler = vi.fn((request, ctx) => {
+            expect(request.params).not.toHaveProperty('resource_type');
+            expect(request.params).not.toHaveProperty('record_id');
+            expect(ctx.mcpReq.rawParams).toEqual({
+                name: 'echo',
+                resource_type: 'people',
+                record_id: 'synthetic-record',
+                _meta: { ...envelope, 'io.modelcontextprotocol/related-task': { taskId: 't' } }
+            });
+            return { content: [] };
+        });
+        server.setRequestHandler('tools/call', handler);
+        const input = new PassThrough();
+        const output = new PassThrough();
+        const response = new Promise<unknown>((resolve, reject) => {
+            output.once('data', chunk => resolve(JSON.parse(chunk.toString())));
+            server.onerror = reject;
+        });
+        await server.connect(new StdioServerTransport(input, output));
+        input.write(
+            JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'echo',
+                    resource_type: 'people',
+                    record_id: 'synthetic-record',
+                    _meta: { ...envelope, 'io.modelcontextprotocol/related-task': { taskId: 't', extension: 'sentinel' } }
+                }
+            }) + '\n'
+        );
+        expect(await response).toHaveProperty('result');
         expect(handler).toHaveBeenCalledTimes(1);
     });
 
