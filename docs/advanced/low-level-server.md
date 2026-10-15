@@ -145,6 +145,22 @@ mcp.server.setRequestHandler('resources/subscribe', async request => {
 
 `registerTool` still answers `tools/list` and `tools/call`; `resources/subscribe` reaches the handler you wrote. On the 2026-07-28 revision resource subscriptions arrive on a `subscriptions/listen` stream the serving entries answer for you — see [Protocol versions](../protocol-versions.md).
 
+## Inspect original request params
+
+For compatibility with an existing non-standard caller, set
+`includeRawRequestParams: true` in the `Server` options to expose the original
+inbound params as `ctx.mcpReq.rawParams`. The option defaults to `false` and works
+on both supported wire eras. `setRequestHandler` still validates the request and
+passes the parsed request as its first argument; unknown params members remain
+stripped from that argument.
+
+Raw params are untrusted and include `_meta`, `inputResponses`, and `requestState`
+exactly as received. Validate only the application extension fields you intend to
+consume. Use the parsed request for known fields and the existing context accessors
+for protocol metadata and verified state. Never merge raw params over the parsed
+request: if a future protocol revision assigns an extension's name, that revision's
+schema governs the field. `_meta` remains the standard place for extensions.
+
 ## Decide which layer to build on
 
 Default to `McpServer`. `registerTool`, `registerResource`, and `registerPrompt` cover everything this page rebuilt — schema derivation, argument validation, typed handler arguments — plus the bookkeeping it skipped: `listChanged` notifications, [completions](../servers/completion.md), and the list/read/get dispatch for every registry.

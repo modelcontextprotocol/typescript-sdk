@@ -71,6 +71,16 @@ export type ProgressCallback = (progress: Progress) => void;
  */
 export type ProtocolOptions = {
     /**
+     * Expose original inbound request params as `ctx.mcpReq.rawParams`.
+     * This does not change request validation or the parsed handler argument.
+     * Raw params are untrusted and include protocol metadata and retry fields;
+     * validate application extensions explicitly rather than merging them into
+     * the parsed request. Known fields always remain governed by the era schema.
+     * @default false
+     */
+    includeRawRequestParams?: boolean;
+
+    /**
      * Protocol versions supported. The legacy `initialize` handshake offers and
      * falls back to the first 2025-era entry in the list (the client sends it,
      * the server counter-offers it); 2026-era entries are only ever selected via
@@ -341,6 +351,14 @@ export type BaseContext = {
      * Information about the MCP request being handled.
      */
     mcpReq: {
+        /**
+         * Original inbound params, before wire-field lifting and schema parsing.
+         * Present only with `includeRawRequestParams` enabled and params supplied.
+         * Values are unvalidated; use the parsed request and existing context
+         * accessors for known fields, metadata, and verified request state.
+         */
+        rawParams?: Readonly<Record<string, unknown>>;
+
         /**
          * The JSON-RPC ID of the request being handled.
          */
@@ -1070,6 +1088,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             mcpReq: {
                 id: request.id,
                 method: request.method,
+                ...(this._options?.includeRawRequestParams && rawRequest.params !== undefined && { rawParams: rawRequest.params }),
                 _meta: request.params?._meta,
                 ...(lifted.envelope !== undefined && { envelope: lifted.envelope }),
                 ...(partitionedInputResponses !== undefined && { inputResponses: partitionedInputResponses.accepted }),
