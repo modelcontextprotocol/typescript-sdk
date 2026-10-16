@@ -51,6 +51,8 @@ export type ProbeOutcome =
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text and `statusText` the HTTP reason phrase, when available. */
     | { kind: 'http-error'; status: number; body?: string; statusText?: string }
     | { kind: 'network-error'; error: unknown }
+    /** The probe was answered 2xx without a usable reply (body is not JSON, or an unaccepted media type); `error` is the transport's failure. */
+    | { kind: 'unusable-reply'; error: unknown }
     /** The transport's auth flow challenged or failed during the probe send — an error stamped at a transport auth seam, or an `UnauthorizedError` (the foreign-transport contract). `error` propagates unchanged. */
     | { kind: 'auth-required'; error: Error }
     /** The transport reported close while the probe awaited its reply. */
@@ -138,6 +140,18 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
         }
         case 'network-error': {
             return classifyNetworkError(outcome.error, context);
+        }
+        case 'unusable-reply': {
+            // An unreadable 2xx is not era evidence: reject and say what was answered, never fall back.
+            return {
+                kind: 'error',
+                error: new SdkError(
+                    SdkErrorCode.EraNegotiationFailed,
+                    `Version negotiation probe failed: the server answered with an unusable reply (${describeError(outcome.error)})`,
+                    { cause: outcome.error },
+                    { cause: outcome.error }
+                )
+            };
         }
         case 'auth-required': {
             // Not era evidence: propagate the auth challenge unchanged so the

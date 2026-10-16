@@ -118,6 +118,33 @@ describe('requireBearerAuth middleware', () => {
         expect(next).not.toHaveBeenCalled();
     });
 
+    it('passes expectedResource through to the token check', async () => {
+        const expectedResource = new URL('https://api.example.com/mcp');
+        const authInfo = { token: 'valid', clientId: 'client-123', scopes: [], expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+        const middleware = requireBearerAuth({ verifier: mockVerifier, expectedResource });
+
+        const sameResource: AuthInfo = { ...authInfo, resource: new URL('https://api.example.com/mcp/') };
+        mockVerifyAccessToken.mockResolvedValue(sameResource);
+        const accepted = createMockReqResNext('Bearer valid');
+        await middleware(accepted.req, accepted.res, accepted.next);
+        expect(accepted.req.auth).toEqual(sameResource);
+        expect(accepted.next).toHaveBeenCalled();
+
+        for (const reported of [{ ...authInfo, resource: new URL('https://other.example.com/mcp') }, authInfo] satisfies AuthInfo[]) {
+            mockVerifyAccessToken.mockResolvedValue(reported);
+            const { req, res, next } = createMockReqResNext('Bearer valid');
+            await middleware(req, res, next);
+            expect(res.status).toHaveBeenCalledWith(401);
+            expect(res.set).toHaveBeenCalledWith(
+                'WWW-Authenticate',
+                'Bearer error="invalid_token", error_description="Token was not issued for this resource"'
+            );
+            expect(res.json).toHaveBeenCalledWith({ error: 'invalid_token', error_description: 'Token was not issued for this resource' });
+            expect(req.auth).toBeUndefined();
+            expect(next).not.toHaveBeenCalled();
+        }
+    });
+
     it('responds 500 when the verifier throws a non-OAuth error', async () => {
         mockVerifyAccessToken.mockRejectedValue(new Error('boom'));
 

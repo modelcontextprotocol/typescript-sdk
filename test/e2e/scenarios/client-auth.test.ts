@@ -32,6 +32,8 @@ import {
     RegistrationRejectedError,
     resolveClientMetadata,
     SdkError,
+    SdkErrorCode,
+    SdkHttpError,
     SSEClientTransport,
     SseError,
     startAuthorization,
@@ -1038,7 +1040,7 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
         return baseFetch(url, init);
     };
 
-    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET });
+    const provider = new ClientCredentialsProvider({ clientId: CLIENT_ID, clientSecret: CLIENT_SECRET, expectedIssuer: ISSUER });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1276,7 +1278,12 @@ verifies('client-auth:private-key-jwt', async (_args: TestArgs) => {
     const privateKeyPem = keyPair.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
     const publicKeyPem = keyPair.publicKey.export({ type: 'spki', format: 'pem' }).toString();
 
-    const provider = new PrivateKeyJwtProvider({ clientId: CLIENT_ID, privateKey: privateKeyPem, algorithm: 'RS256' });
+    const provider = new PrivateKeyJwtProvider({
+        clientId: CLIENT_ID,
+        privateKey: privateKeyPem,
+        algorithm: 'RS256',
+        expectedIssuer: ISSUER
+    });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
@@ -1722,7 +1729,8 @@ verifies('client-auth:private-key-jwt:static-assertion', async (_args: TestArgs)
 
     const provider = new StaticPrivateKeyJwtProvider({
         clientId: CLIENT_ID,
-        jwtBearerAssertion: preBuiltJwt
+        jwtBearerAssertion: preBuiltJwt,
+        expectedIssuer: ISSUER
     });
 
     const client = new Client({ name: 'c', version: '0' });
@@ -2215,7 +2223,7 @@ verifies(
         const STALE = 'stale-bearer-token';
         const ROTATED = 'rotated-but-still-rejected-token';
 
-        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must surface as UnauthorizedError.
+        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must reject with SdkHttpError (ClientHttpAuthentication).
         let currentToken = STALE;
         let unauthorizedCalls = 0;
         const provider: AuthProvider = {
@@ -2238,7 +2246,9 @@ verifies(
         const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
 
         try {
-            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            const connectPromise = client.connect(transport);
+            await expect(connectPromise).rejects.toBeInstanceOf(SdkHttpError);
+            await expect(connectPromise).rejects.toMatchObject({ code: SdkErrorCode.ClientHttpAuthentication, status: 401 });
 
             // onUnauthorized ran once and the transport retried exactly once before giving up.
             expect(unauthorizedCalls).toBe(1);
@@ -2247,7 +2257,7 @@ verifies(
             await client.close();
         }
     },
-    { title: 'second 401 after retry surfaces as UnauthorizedError' }
+    { title: 'second 401 after retry rejects with SdkHttpError' }
 );
 
 verifies('client-auth:authprovider:oauth-provider-adapted', async (_args: TestArgs) => {

@@ -16,23 +16,30 @@ Deno.test({
     sanitizeOps: false,
     sanitizeResources: false,
     async fn() {
-        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        // A stateless transport serves one request: connect a new pair for each.
+        const connectPair = async (): Promise<WebStandardStreamableHTTPServerTransport> => {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
 
-        mcpServer.registerTool(
-            'greet',
-            {
-                description: 'Greet someone',
-                inputSchema: z.object({ name: z.string() })
-            },
-            async ({ name }) => ({
-                content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
-            })
-        );
+            mcpServer.registerTool(
+                'greet',
+                {
+                    description: 'Greet someone',
+                    inputSchema: z.object({ name: z.string() })
+                },
+                async ({ name }) => ({
+                    content: [{ type: 'text' as const, text: `Hello, ${name}!` }]
+                })
+            );
 
-        const transport = new WebStandardStreamableHTTPServerTransport();
-        await mcpServer.connect(transport);
+            const transport = new WebStandardStreamableHTTPServerTransport();
+            await mcpServer.connect(transport);
+            return transport;
+        };
 
-        const httpServer = Deno.serve({ port: 0 }, req => transport.handleRequest(req));
+        const httpServer = Deno.serve({ port: 0 }, async req => {
+            const transport = await connectPair();
+            return transport.handleRequest(req);
+        });
         const port = httpServer.addr.port;
 
         try {
@@ -46,7 +53,6 @@ Deno.test({
 
             await client.close();
         } finally {
-            await transport.close();
             await httpServer.shutdown();
         }
     }

@@ -59,6 +59,20 @@ describe('@modelcontextprotocol/hono origin validation', () => {
         expect(noOrigin.status).toBe(200);
     });
 
+    test('createMcpHonoApp admits a browser-extension origin once its scheme is listed in allowedOrigins', async () => {
+        const headers = { Host: 'localhost:3000', Origin: 'moz-extension://0a1b2c3d-0000-4000-8000-000000000000' };
+
+        const byDefault = createMcpHonoApp();
+        byDefault.get('/health', c => c.text('ok'));
+        const rejected1 = await byDefault.request('http://localhost/health', { headers });
+        expect(rejected1.status).toBe(403);
+
+        const withScheme = createMcpHonoApp({ allowedOrigins: ['localhost', 'moz-extension://*'] });
+        withScheme.get('/health', c => c.text('ok'));
+        const admitted2 = await withScheme.request('http://localhost/health', { headers });
+        expect(admitted2.status).toBe(200);
+    });
+
     test('createMcpHonoApp uses allowedOrigins when provided', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
         const app = createMcpHonoApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'], allowedOrigins: ['myapp.local'] });

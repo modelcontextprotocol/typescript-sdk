@@ -47,10 +47,14 @@ declare const app: { post(path: string, handler: (req: IncomingMessage & { body?
 /**
  * Example: Using with a pre-parsed request body (e.g. Express).
  */
-function NodeStreamableHTTPServerTransport_express(transport: NodeStreamableHTTPServerTransport) {
+function NodeStreamableHTTPServerTransport_express() {
     //#region NodeStreamableHTTPServerTransport_express
-    app.post('/mcp', (req, res) => {
-        transport.handleRequest(req, res, req.body);
+    app.post('/mcp', async (req, res) => {
+        // Stateless example: create a server and a transport per request.
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+        const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
     });
     //#endregion NodeStreamableHTTPServerTransport_express
 }
