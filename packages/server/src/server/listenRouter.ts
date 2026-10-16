@@ -45,6 +45,22 @@ export interface ListenRouterOptions {
     bus: ServerEventBus;
     /** Reject a new listen with `-32603` when this many subscriptions are already open (default 1024). */
     maxSubscriptions?: number;
+    /**
+     * Reject a new listen with `-32603` when this many subscriptions are already
+     * open under the same resolved session key. The caller (the HTTP entry) is
+     * responsible for resolving the session key through a trusted path and
+     * passing it to {@linkcode serve}; this router does not read HTTP headers.
+     *
+     * Fail-closed: when `maxSubscriptionsPerSession` is set and the caller
+     * passes an undefined `sessionId` for a given listen, the stream is
+     * refused with `-32603` rather than silently falling back to the
+     * handler-wide cap. A misconfigured deployment cannot accidentally
+     * appear to be enforcing per-session isolation that was never applied.
+     *
+     * No default: when omitted the per-session guard is off and only the
+     * handler-wide {@linkcode maxSubscriptions} cap applies.
+     */
+    maxSubscriptionsPerSession?: number;
     /** SSE comment-frame keepalive interval; `0` disables keepalive (default 15000). */
     keepAliveMs?: number;
     /** Out-of-band error reporting (never alters the response). */
@@ -108,7 +124,13 @@ export interface ListenRouter {
      * graceful-close result's `_meta` (the spec's `SubscriptionsListenResultMetaObject`
      * extends `ResultMetaObject`, so the serverInfo SHOULD applies there too).
      */
-    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities, serverInfo: Implementation): Response;
+    serve(
+        message: JSONRPCRequest,
+        signal: AbortSignal | undefined,
+        capabilities: ServerCapabilities,
+        serverInfo: Implementation,
+        sessionId?: string
+    ): Response;
     /**
      * Gracefully close every open subscription stream: emits the empty
      * `subscriptions/listen` JSON-RPC result (the spec's graceful-close
@@ -122,20 +144,50 @@ export interface ListenRouter {
 export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     const { bus, onerror } = options;
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
+    const maxSubscriptionsPerSession = options.maxSubscriptionsPerSession;
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_SSE_KEEP_ALIVE_MS;
 
     const open = new Set<(graceful: boolean) => void>();
+    // Per-session teardown handles, keyed on the transport-managed session id.
+    // Grown alongside `open` so the per-session cap can be enforced without a
+    // scan. A session's entry is removed when its last stream tears down.
+    const openPerSession = new Map<string, Set<(graceful: boolean) => void>>();
 
     function serve(
         message: JSONRPCRequest,
         signal: AbortSignal | undefined,
         capabilities: ServerCapabilities,
-        serverInfo: Implementation
+        serverInfo: Implementation,
+        sessionId?: string
     ): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
         if (open.size >= maxSubscriptions) {
             onerror?.(new Error(`subscriptions/listen refused: subscription limit reached (${maxSubscriptions})`));
             return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
+        }
+        if (maxSubscriptionsPerSession !== undefined) {
+            // Fail-closed: the per-session cap is only honest with a resolved
+            // key. The caller's resolver returned undefined for this listen,
+            // so there is no bucket to attribute it to. Reject rather than
+            // silently fall through to the handler-wide cap and misreport the
+            // guarantee.
+            if (sessionId === undefined) {
+                onerror?.(
+                    new Error(
+                        'subscriptions/listen refused: per-session cap configured but no trusted session key was resolved for this request'
+                    )
+                );
+                return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
+            }
+            const sessionOpen = openPerSession.get(sessionId);
+            if (sessionOpen !== undefined && sessionOpen.size >= maxSubscriptionsPerSession) {
+                onerror?.(
+                    new Error(
+                        `subscriptions/listen refused: per-session subscription limit reached (${maxSubscriptionsPerSession}, session ${sessionId})`
+                    )
+                );
+                return jsonRpcError(message.id, -32_603, 'Subscription limit reached');
+            }
         }
         const filter = parseListenFilter(message);
         if (filter === undefined) {
@@ -194,6 +246,13 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
             abortCleanup?.();
             open.delete(teardown);
+            if (sessionId !== undefined) {
+                const sessionOpen = openPerSession.get(sessionId);
+                if (sessionOpen !== undefined) {
+                    sessionOpen.delete(teardown);
+                    if (sessionOpen.size === 0) openPerSession.delete(sessionId);
+                }
+            }
             try {
                 controller.close();
             } catch {
@@ -229,6 +288,14 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 keepAliveTimer = armSseKeepAlive(keepAliveMs, () => writeFrame(': keepalive\n\n'));
 
                 open.add(teardown);
+                if (sessionId !== undefined) {
+                    let sessionOpen = openPerSession.get(sessionId);
+                    if (sessionOpen === undefined) {
+                        sessionOpen = new Set();
+                        openPerSession.set(sessionId, sessionOpen);
+                    }
+                    sessionOpen.add(teardown);
+                }
             },
             cancel() {
                 // The client closed the SSE stream — the spec's HTTP cancel
