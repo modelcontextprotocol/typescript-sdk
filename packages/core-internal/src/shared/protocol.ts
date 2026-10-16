@@ -347,6 +347,13 @@ export type BaseContext = {
         id: RequestId;
 
         /**
+         * The client request whose Streamable HTTP response stream carried
+         * this server-initiated request, when the transport supplied one.
+         * Standalone GET streams and non-HTTP transports leave this unset.
+         */
+        relatedRequestId?: RequestId;
+
+        /**
          * The method name of the request (e.g., 'tools/call', 'ping').
          */
         method: string;
@@ -1070,6 +1077,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             mcpReq: {
                 id: request.id,
                 method: request.method,
+                ...(extra?.relatedRequestId !== undefined && { relatedRequestId: extra.relatedRequestId }),
                 _meta: request.params?._meta,
                 ...(lifted.envelope !== undefined && { envelope: lifted.envelope }),
                 ...(partitionedInputResponses !== undefined && { inputResponses: partitionedInputResponses.accepted }),

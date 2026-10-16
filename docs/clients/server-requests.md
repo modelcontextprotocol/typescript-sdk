@@ -81,6 +81,22 @@ Sampling request: { type: 'text', text: 'Summarize this order: 1 Travel mug to L
 [ { type: 'text', text: 'host-model: One travel mug to Lisbon.' } ]
 ```
 
+## Associate a Streamable HTTP request with its parent
+
+When a server-initiated request arrives on a Streamable HTTP response stream, the handler context
+includes `ctx.mcpReq.relatedRequestId`: the JSON-RPC id of the client request whose stream carried
+it. Use it to associate an elicitation, sampling request, or roots request with the operation that
+started it. The field is absent for standalone GET messages and transports that do not provide a
+stream association.
+
+```ts
+client.setRequestHandler('elicitation/create', async (_request, ctx) => {
+    const parentRequestId = ctx.mcpReq.relatedRequestId;
+    console.log('Elicitation belongs to:', parentRequestId ?? 'no associated request');
+    return { action: 'accept' };
+});
+```
+
 ## Register each handler once
 
 Register each handler once, on the `Client` you construct. The same handler answers a request the server pushes to your client and a request the SDK fulfils for you inside a `callTool()` round — your code never sees the difference.
