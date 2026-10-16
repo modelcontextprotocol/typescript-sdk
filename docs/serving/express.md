@@ -42,7 +42,7 @@ Binding to all interfaces drops that default — name the hosts you serve instea
 const publicApp = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['api.example.com'] });
 ```
 
-`allowedHosts` and `allowedOrigins` take hostnames, port-agnostic. A request without an `Origin` header always passes, so MCP clients outside a browser are unaffected.
+`allowedHosts` and `allowedOrigins` take hostnames, port-agnostic. A request without an `Origin` header always passes, so MCP clients outside a browser are unaffected. Passing `allowedOrigins` replaces the default list, so start from `localhostAllowedOrigins()` (from `@modelcontextprotocol/server`) to keep it. A client that runs as a browser extension sends its extension ID as `Origin`: add that ID to admit one extension, or a lowercase scheme entry such as `'moz-extension://*'` to admit every extension of that browser, which Firefox needs because its IDs differ on every install. `http://*` and `https://*` are not honoured.
 
 ## Forward auth and the parsed body
 

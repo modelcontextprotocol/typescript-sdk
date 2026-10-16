@@ -15,6 +15,7 @@ import type {
 import {
     brandedHasInstance,
     checkResourceAllowed,
+    fetchWithinOrigin,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -25,7 +26,8 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl,
-    stampErrorBrands
+    stampErrorBrands,
+    withoutIssuer
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
@@ -85,7 +87,8 @@ export interface AuthProvider {
 
     /**
      * Called when the server responds with 401. If provided, the transport will
-     * await this, then retry the request once. If the retry also gets 401, or if
+     * await this, then retry the request once. If the retry also gets 401, the
+     * transport throws `SdkHttpError` (`SdkErrorCode.ClientHttpAuthentication`). If
      * this method is not provided, the transport throws {@linkcode UnauthorizedError}.
      *
      * Implementations should refresh tokens, re-authenticate, etc. — whatever is
@@ -129,12 +132,14 @@ export interface OAuthClientInformationContext {
  *   "binding on first use" claim would be false and would fire on every call.
  */
 export function discardIfIssuerMismatch<T extends { issuer?: string }>(
-    stored: T | undefined,
+    stored: T | null | undefined,
     issuer: string,
     opts?: { canPersistStamp?: boolean }
 ): T | undefined {
-    if (stored === undefined) return undefined;
-    if (stored.issuer === undefined) {
+    // Nothing stored (`null` from a `JSON.parse(storage.getItem(...))`-style getter included).
+    if (!stored) return undefined;
+    // A stamp that is not a string (raw storage) counts as no stamp.
+    if (typeof stored.issuer !== 'string') {
         if (opts?.canPersistStamp !== false) {
             console.warn(
                 `[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp (pre-upgrade storage or ` +
@@ -142,7 +147,7 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
                     `ensure your provider round-trips the issuer field.`
             );
         }
-        return stored;
+        return stored.issuer === undefined ? stored : { ...stored, issuer: undefined };
     }
     return issuersMatch(stored.issuer, issuer) ? stored : undefined;
 }
@@ -860,14 +865,26 @@ export function applyPublicAuth(clientId: string, params: URLSearchParams): void
     params.set('client_id', clientId);
 }
 
-/** Loopback hosts exempt from the in-transit `https:` requirement (RFC 8252 §7.3). */
+/**
+ * Loopback hosts exempt from the in-transit `https:` requirement (RFC 8252 §7.3).
+ * Includes bare `localhost` and any name ending in `.localhost` (RFC 6761 §6.3).
+ */
 function isLoopbackHost(hostname: string): boolean {
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+    return (
+        hostname === 'localhost' ||
+        hostname.endsWith('.localhost') ||
+        hostname === '127.0.0.1' ||
+        hostname === '[::1]' ||
+        hostname === '::1'
+    );
 }
 
 /**
- * SEP-2207: refuse to send credentials to a non-TLS, non-loopback token endpoint.
- * Throws {@linkcode InsecureTokenEndpointError}. Loopback hosts are exempt.
+ * Refuse to send credentials to a non-TLS token endpoint. The MCP authorization
+ * specification requires authorization server endpoints to use HTTPS. Loopback
+ * hosts are exempt here for local development.
+ *
+ * @throws {@linkcode InsecureTokenEndpointError} if the endpoint is insecure.
  */
 export function assertSecureTokenEndpoint(tokenEndpoint: string | URL): URL {
     const url = new URL(String(tokenEndpoint));
@@ -989,7 +1006,8 @@ export interface AuthOptions {
     /**
      * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization
      * server discovery. Disabling it is **security-weakening** and intended only
-     * for authorization servers known to publish a mismatched `issuer`.
+     * for authorization servers known to publish a mismatched `issuer`. The unchecked
+     * `issuer` is also what `expectedIssuer` and stored `issuer` stamps are compared with.
      *
      * @default false
      */
@@ -1656,8 +1674,9 @@ export async function discoverOAuthProtectedResourceMetadata(
  * error object alone, so the swallow-and-fallthrough heuristic is preserved there.
  */
 async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fetchFn: FetchLike = fetch): Promise<Response | undefined> {
+    const withinOrigin = fetchWithinOrigin(fetchFn);
     try {
-        return await fetchFn(url, { headers });
+        return await withinOrigin(url, { headers });
     } catch (error) {
         if (!(error instanceof TypeError) || !CORS_IS_POSSIBLE) {
             throw error;
@@ -1666,7 +1685,7 @@ async function fetchWithCorsRetry(url: URL, headers?: Record<string, string>, fe
             // Could be a CORS preflight rejection caused by our custom header. Retry as a simple
             // request: if that succeeds, we've sidestepped the preflight.
             try {
-                return await fetchFn(url, {});
+                return await withinOrigin(url, {});
             } catch (retryError) {
                 if (!(retryError instanceof TypeError)) {
                     throw retryError;
@@ -1712,7 +1731,7 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
     if (!response) return true; // CORS error — always try fallback
     if (pathname === '/') return false; // Already at root
-    return (response.status >= 400 && response.status < 500) || response.status === 502;
+    return (!response.ok && response.status < 500) || response.status === 502;
 }
 
 /**
@@ -1739,7 +1758,7 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (4xx, 502 or a redirect not followed) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
@@ -1917,8 +1936,8 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.text?.().catch(() => {});
-            if ((response.status >= 400 && response.status < 500) || response.status === 502) {
-                continue; // Try next URL for 4xx or 502 (Bad Gateway)
+            if (response.status < 500 || response.status === 502) {
+                continue; // Try next URL for 4xx, 502 (Bad Gateway) or a redirect that was not followed
             }
             throw new Error(
                 `HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`
@@ -2208,7 +2227,7 @@ export async function executeTokenRequest(
             // presented, and the token request is presenting credentials to *obtain* one.
             requestHeaders.set('DPoP', await dpop.buildProof({ htm: 'POST', htu: tokenUrl }));
         }
-        return (fetchFn ?? fetch)(tokenUrl, {
+        return fetchWithinOrigin(fetchFn ?? fetch)(tokenUrl, {
             method: 'POST',
             headers: requestHeaders,
             body: tokenRequestParams
@@ -2242,7 +2261,7 @@ export async function executeTokenRequest(
     const json: unknown = await response.json();
 
     try {
-        return OAuthTokensSchema.parse(json);
+        return OAuthTokensSchema.parse(withoutIssuer(json));
     } catch (parseError) {
         // Some OAuth servers (e.g., GitHub) return error responses with HTTP 200 status.
         // Check for error field only if token parsing failed.
@@ -2429,6 +2448,18 @@ export async function fetchToken(
         });
     }
 
+    // SEP-2352: nothing is sent to an authorization server other than the one the client information is stamped for.
+    const issuer = metadata?.issuer ?? String(authorizationServerUrl);
+    const readClientInformation = async () => {
+        const rawClientInfo = await provider.clientInformation({ issuer });
+        const checked = discardIfIssuerMismatch(rawClientInfo, issuer, { canPersistStamp: false });
+        if (rawClientInfo && checked === undefined) {
+            throw new AuthorizationServerMismatchError(String(rawClientInfo.issuer), issuer);
+        }
+        return checked;
+    };
+    let clientInformation = await readClientInformation();
+
     // Prefer scope from options, fallback to provider.clientMetadata.scope
     const effectiveScope = scope ?? provider.clientMetadata.scope;
 
@@ -2450,12 +2481,13 @@ export async function fetchToken(
         tokenRequestParams = prepareAuthorizationCodeRequest(authorizationCode, codeVerifier, provider.redirectUrl);
     }
 
-    const clientInformation = await provider.clientInformation({ issuer: metadata?.issuer ?? String(authorizationServerUrl) });
+    // A provider may fill in its client information while the request is prepared.
+    clientInformation ??= await readClientInformation();
 
     return executeTokenRequest(authorizationServerUrl, {
         metadata,
         tokenRequestParams,
-        clientInformation: clientInformation ?? undefined,
+        clientInformation,
         addClientAuthentication: provider.addClientAuthentication,
         resource,
         dpop: await provider.dpop?.(),
@@ -2472,10 +2504,17 @@ export async function fetchToken(
  * consistently across both DCR and the subsequent authorization request.
  *
  * @deprecated Dynamic Client Registration is deprecated as of protocol version
- * 2026-07-28 (SEP-2577) in favor of Client ID Metadata Documents (SEP-991).
- * Remains functional during the deprecation window (at least twelve months).
- * Prefer a CIMD URL `client_id` when the authorization server advertises
- * `client_id_metadata_document_supported`; the SDK already gates on this for you.
+ * 2026-07-28 in favor of Client ID Metadata Documents (SEP-991); the deprecation
+ * landed via spec PR
+ * {@link https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2858 | modelcontextprotocol#2858}
+ * (SEP-2577 is the separate roots/sampling/logging deprecation). Remains
+ * functional during the deprecation window — at least twelve months under the
+ * feature lifecycle policy (SEP-2596), so 2027-07-28 is the earliest possible
+ * removal date. Prefer a CIMD URL `client_id` when the authorization server
+ * advertises `client_id_metadata_document_supported`: the built-in `auth()` flow
+ * skips registration for you when that capability is advertised AND your
+ * provider supplies `clientMetadataUrl`, but `registerClient` itself does not
+ * gate — calling it directly always sends the registration request.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
@@ -2511,7 +2550,7 @@ export async function registerClient(
         ...(scope === undefined ? {} : { scope })
     };
 
-    const response = await (fetchFn ?? fetch)(registrationUrl, {
+    const response = await fetchWithinOrigin(fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
@@ -2523,5 +2562,5 @@ export async function registerClient(
         throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });
     }
 
-    return OAuthClientInformationFullSchema.parse(await response.json());
+    return OAuthClientInformationFullSchema.parse(withoutIssuer(await response.json()));
 }

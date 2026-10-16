@@ -431,7 +431,7 @@ describe('Zod v4', () => {
         let transport: WebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
 
-        beforeEach(async () => {
+        async function connectStatelessPair(): Promise<void> {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
             mcpServer.registerTool(
@@ -447,7 +447,9 @@ describe('Zod v4', () => {
             });
 
             await mcpServer.connect(transport);
-        });
+        }
+
+        beforeEach(connectStatelessPair);
 
         afterEach(async () => {
             await transport.close();
@@ -465,12 +467,23 @@ describe('Zod v4', () => {
             // Initialize
             const initRequest = createRequest('POST', TEST_MESSAGES.initialize);
             await transport.handleRequest(initRequest);
+            await transport.close();
 
-            // Subsequent request without session ID should work
+            // Subsequent request without session ID should work on its own transport
+            await connectStatelessPair();
             const request = createRequest('POST', TEST_MESSAGES.toolsList);
             const response = await transport.handleRequest(request);
 
             expect(response.status).toBe(200);
+        });
+
+        it('should reject a second request on the same transport', async () => {
+            const first = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(first.status).toBe(200);
+
+            await expect(transport.handleRequest(createRequest('POST', TEST_MESSAGES.toolsList))).rejects.toThrow(
+                'Stateless transport cannot be reused across requests. Create a new transport per request.'
+            );
         });
     });
 
@@ -1595,12 +1608,13 @@ describe('WebStandardStreamableHTTPServerTransport request body limits', () => {
     });
 
     it('maxRequestBodySize sets the bound on both read paths and is validated at construction', async () => {
-        const strict = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: 1024 });
-        const declared = await strict.handleRequest(streamedPost(1, { 'Content-Length': '1025' }).request);
+        const strict = (): WebStandardStreamableHTTPServerTransport =>
+            new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, maxRequestBodySize: 1024 });
+        const declared = await strict().handleRequest(streamedPost(1, { 'Content-Length': '1025' }).request);
         expect(declared.status).toBe(413);
         expectErrorResponse(await declared.json(), -32_000, /must not exceed 1024 bytes/);
         const streamed = streamedPost(2);
-        const overLimit = await strict.handleRequest(streamed.request);
+        const overLimit = await strict().handleRequest(streamed.request);
         expect(overLimit.status).toBe(413);
         expect(streamed.pulls()).toBe(1);
 
@@ -1627,8 +1641,10 @@ describe('WebStandardStreamableHTTPServerTransport request body limits', () => {
         const batch = Array.from({ length: 101 }, (_, i): JSONRPCMessage => ({ jsonrpc: '2.0', method: 'ping', id: i }));
         const onmessage = vi.fn();
         transport.onmessage = onmessage;
+        const second = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        second.onmessage = onmessage;
         const read = await transport.handleRequest(createRequest('POST', batch));
-        const preParsed = await transport.handleRequest(createRequest('POST', batch), { parsedBody: batch });
+        const preParsed = await second.handleRequest(createRequest('POST', batch), { parsedBody: batch });
         for (const response of [read, preParsed]) {
             expect(response.status).toBe(400);
             expectErrorResponse(await response.json(), -32_600, /Batch must not exceed 100 messages/);

@@ -256,12 +256,66 @@ describe('createMcpHandler — subscriptions/listen', () => {
                 _meta: {
                     'io.modelcontextprotocol/subscriptionId': 1,
                     // #3002: the close result carries the serving instance's
-                    // identity like every other result (SubscriptionsListenResultMeta
+                    // identity like every other result (SubscriptionsListenResultMetaObject
                     // extends ResultMetaObject).
                     'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
                 }
             }
         });
+    });
+
+    it('acks and closes when capabilities honor nothing, instead of holding the stream', async () => {
+        // A server declaring no listChanged and no resources.subscribe honors
+        // nothing, so the stream can never carry a notification: every
+        // listenFilterAccepts({}, event) is false. It should end, not idle.
+        const bareFactory = () => new McpServer({ name: 'listen-test-server', version: '1.0.0' }, { capabilities: {} });
+        const handler = createMcpHandler(bareFactory, { keepAliveMs: 0 });
+        const response = await handler.fetch(
+            listenRequest(7, { toolsListChanged: true, resourcesListChanged: true, resourceSubscriptions: ['file:///a'] })
+        );
+
+        // Reading the body to its end only resolves when the server ends the stream itself.
+        const body = await response.text();
+        const messages = body
+            .split('\n\n')
+            .filter(frame => frame.length > 0)
+            .map(frame => JSON.parse(frame.slice(frame.indexOf('data: ') + 'data: '.length)) as unknown);
+
+        expect(messages).toEqual([
+            {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: { notifications: {}, _meta: { [SUBSCRIPTION_ID_META_KEY]: 7 } }
+            },
+            {
+                jsonrpc: '2.0',
+                id: 7,
+                result: {
+                    resultType: 'complete',
+                    _meta: {
+                        [SUBSCRIPTION_ID_META_KEY]: 7,
+                        'io.modelcontextprotocol/serverInfo': { name: 'listen-test-server', version: '1.0.0' }
+                    }
+                }
+            }
+        ]);
+    });
+
+    it('still holds the stream when at least one type is honored', async () => {
+        // The narrowing must not close a stream that can still deliver: tools
+        // is honored here, resources is not.
+        const partialFactory = () =>
+            new McpServer({ name: 'listen-test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+        const handler = createMcpHandler(partialFactory, { keepAliveMs: 0 });
+        const response = await handler.fetch(listenRequest(8, { toolsListChanged: true, resourcesListChanged: true }));
+
+        const [ack] = await readMessages(response, 1);
+        expect(ack).toEqual({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { notifications: { toolsListChanged: true }, _meta: { [SUBSCRIPTION_ID_META_KEY]: 8 } }
+        });
+        await handler.close();
     });
 
     it('legacy-classified listen never reaches the entry listen router (no ack delivered)', async () => {

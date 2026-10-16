@@ -33,7 +33,8 @@ function ClientCredentialsProvider_basicUsage(serverUrl: URL) {
     //#region ClientCredentialsProvider_basicUsage
     const provider = new ClientCredentialsProvider({
         clientId: 'my-client',
-        clientSecret: 'my-secret'
+        clientSecret: 'my-secret',
+        expectedIssuer: 'https://auth.example.com'
     });
 
     const transport = new StreamableHTTPClientTransport(serverUrl, {
@@ -51,7 +52,8 @@ function PrivateKeyJwtProvider_basicUsage(pemEncodedPrivateKey: string, serverUr
     const provider = new PrivateKeyJwtProvider({
         clientId: 'my-client',
         privateKey: pemEncodedPrivateKey,
-        algorithm: 'RS256'
+        algorithm: 'RS256',
+        expectedIssuer: 'https://auth.example.com'
     });
 
     const transport = new StreamableHTTPClientTransport(serverUrl, {

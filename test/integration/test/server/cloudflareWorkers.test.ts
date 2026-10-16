@@ -36,7 +36,7 @@ const SERVER_VERSION_NONCE = randomUUID();
  */
 const WRANGLER_BIN = (() => {
     const pkgPath = createRequire(import.meta.url).resolve('wrangler/package.json');
-    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler;
+    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler!;
     return path.resolve(path.dirname(pkgPath), bin);
 })();
 
@@ -302,20 +302,27 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
+// A stateless transport serves one request: connect a new pair for each.
+async function connectPair() {
+    const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
-server.registerTool("greet", {
-    description: "Greet someone",
-    inputSchema: z.object({ name: z.string() })
-}, async ({ name }) => ({
-    content: [{ type: "text", text: "Hello, " + name + "!" }]
-}));
+    server.registerTool("greet", {
+        description: "Greet someone",
+        inputSchema: z.object({ name: z.string() })
+    }, async ({ name }) => ({
+        content: [{ type: "text", text: "Hello, " + name + "!" }]
+    }));
 
-const transport = new WebStandardStreamableHTTPServerTransport();
-await server.connect(transport);
+    const transport = new WebStandardStreamableHTTPServerTransport();
+    await server.connect(transport);
+    return transport;
+}
 
 export default {
-    fetch: (request) => transport.handleRequest(request)
+    fetch: async (request) => {
+        const transport = await connectPair();
+        return transport.handleRequest(request);
+    }
 };
 `;
             fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);

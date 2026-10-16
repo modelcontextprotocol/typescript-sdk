@@ -39,8 +39,7 @@ describe('server/discover round-trip against a modern server', () => {
         while (cleanups.length > 0) await cleanups.pop()!();
     });
 
-    async function startServer(options: { modernEraInstance: boolean }) {
-        const httpServer: HttpServer = createServer();
+    async function connectPair(options: { modernEraInstance: boolean }) {
         const mcpServer = new McpServer(
             { name: 'dual-era-server', version: '2.0.0' },
             {
@@ -59,13 +58,19 @@ describe('server/discover round-trip against a modern server', () => {
             // instance as serving the modern era so it can answer the probe.
             setNegotiatedProtocolVersion(mcpServer.server, MODERN);
         }
-        httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
-        const baseUrl = await listenOnRandomPort(httpServer);
-        cleanups.push(async () => {
-            await mcpServer.close().catch(() => {});
-            await serverTransport.close().catch(() => {});
-            httpServer.close();
+        return { mcpServer, serverTransport };
+    }
+
+    async function startServer(options: { modernEraInstance: boolean }) {
+        const httpServer: HttpServer = createServer();
+        // A stateless transport serves one request: connect a new pair for each.
+        httpServer.on('request', async (req, res) => {
+            const { mcpServer, serverTransport } = await connectPair(options);
+            res.on('close', () => void mcpServer.close());
+            await serverTransport.handleRequest(req, res);
         });
+        const baseUrl = await listenOnRandomPort(httpServer);
+        cleanups.push(() => void httpServer.close());
         return baseUrl;
     }
 
@@ -149,16 +154,15 @@ describe('server/discover round-trip against a modern server', () => {
         // round-trip over HTTP completes once every modern request carries the
         // per-request _meta envelope.)
         const httpServer: HttpServer = createServer();
-        const mcpServer = new McpServer({ name: 'legacy-only', version: '1.0.0' }, { capabilities: { tools: {} } });
-        const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        await mcpServer.connect(serverTransport);
-        httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
-        const baseUrl = await listenOnRandomPort(httpServer);
-        cleanups.push(async () => {
-            await mcpServer.close().catch(() => {});
-            await serverTransport.close().catch(() => {});
-            httpServer.close();
+        httpServer.on('request', async (req, res) => {
+            const mcpServer = new McpServer({ name: 'legacy-only', version: '1.0.0' }, { capabilities: { tools: {} } });
+            const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await mcpServer.connect(serverTransport);
+            res.on('close', () => void mcpServer.close());
+            await serverTransport.handleRequest(req, res);
         });
+        const baseUrl = await listenOnRandomPort(httpServer);
+        cleanups.push(() => void httpServer.close());
 
         const client = new Client({ name: 'legacy-client', version: '1.0.0' });
         await client.connect(new StreamableHTTPClientTransport(baseUrl));
