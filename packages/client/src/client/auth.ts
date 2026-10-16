@@ -836,6 +836,11 @@ export function applyClientAuthentication(
     }
 }
 
+/** `application/x-www-form-urlencoded` encoding of one value, per RFC 6749 Appendix B. */
+function formUrlEncode(value: string): string {
+    return new URLSearchParams({ v: value }).toString().slice('v='.length);
+}
+
 /**
  * Applies HTTP Basic authentication (RFC 6749 Section 2.3.1)
  */
@@ -844,7 +849,8 @@ export function applyBasicAuth(clientId: string, clientSecret: string | undefine
         throw new Error('client_secret_basic authentication requires a client_secret');
     }
 
-    const credentials = btoa(`${clientId}:${clientSecret}`);
+    // RFC 6749 §2.3.1: both halves are form-urlencoded before being joined with ":".
+    const credentials = btoa(`${formUrlEncode(clientId)}:${formUrlEncode(clientSecret)}`);
     headers.set('Authorization', `Basic ${credentials}`);
 }
 
