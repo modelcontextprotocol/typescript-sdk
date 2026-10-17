@@ -121,6 +121,15 @@ describe('SkillCatalog serving', () => {
         expect(warnings.filter(warning => warning.message.includes('changed since'))).toHaveLength(2);
     });
 
+    it('fails a read whose content changed at the same size, by its digest', async () => {
+        const { mcp, files, warnings } = await loaded();
+        files['git-workflow/references/REVIEW.md'] = '# Reviex\n';
+        expect(await errorOf(mcp, 'resources/read', { uri: 'skill://git-workflow/references/REVIEW.md' })).toMatchObject({
+            code: -32_603
+        });
+        expect(warnings).toContainEqual({ path: 'git-workflow/references/REVIEW.md', message: expect.stringContaining('changed since') });
+    });
+
     it('reads skill directories, with caching fields on 2026-07-28 only', async () => {
         const { mcp } = await loaded();
         const uri = 'skill://acme/billing/refunds';
@@ -173,11 +182,12 @@ describe('SkillCatalog.reload', () => {
     });
 
     it('notifies each connected server once, and only when the listing changes', async () => {
-        const { catalog, files } = await loaded();
+        const { catalog, files, mcp: disconnected } = await loaded();
         const mcp = newServer();
         catalog.attach(mcp);
         catalog.attach(mcp);
-        const notify = vi.spyOn(mcp, 'sendResourceListChanged');
+        const notify = vi.spyOn(mcp.server, 'sendResourceListChanged');
+        const skipped = vi.spyOn(disconnected.server, 'sendResourceListChanged');
         const [, serverSide] = InMemoryTransport.createLinkedPair();
         await mcp.connect(serverSide);
         files['git-workflow/references/REVIEW.md'] = '# Review v2\n';
@@ -186,6 +196,32 @@ describe('SkillCatalog.reload', () => {
         files['aaa/SKILL.md'] = NEW_SKILL;
         await catalog.reload();
         expect(notify).toHaveBeenCalledTimes(1);
+        expect(skipped).not.toHaveBeenCalled();
         await mcp.close();
+    });
+
+    it('reports a failed list_changed send as a warning, never an unhandled rejection', async () => {
+        const { catalog, files, warnings } = await loaded();
+        const mcp = newServer();
+        catalog.attach(mcp);
+        const [, serverSide] = InMemoryTransport.createLinkedPair();
+        await mcp.connect(serverSide);
+        vi.spyOn(serverSide, 'send').mockRejectedValue(new Error('transport down'));
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown): void => {
+            unhandled.push(reason);
+        };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            files['aaa/SKILL.md'] = NEW_SKILL;
+            await expect(catalog.reload()).resolves.toMatchObject({ added: ['skill://aaa/SKILL.md'] });
+            const sendFailed = { path: 'resources/list_changed', message: expect.stringContaining('transport down') };
+            await vi.waitFor(() => expect(warnings).toContainEqual(sendFailed));
+            await new Promise(resolve => setImmediate(resolve));
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+            await mcp.close();
+        }
     });
 });

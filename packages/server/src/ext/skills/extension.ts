@@ -317,12 +317,32 @@ export class SkillCatalog extends SkillsExtension {
         return diffSnapshots(previous, next);
     }
 
+    /**
+     * Sends `resources/list_changed` to every connected server. A send that
+     * fails (a transport that rejects, say) becomes a warning: it must never
+     * surface as an unhandled rejection, nor stop the other servers.
+     */
     #notify(): void {
         for (const reference of this.#servers) {
             const mcp = reference.deref();
-            // McpServer.sendResourceListChanged does nothing while disconnected.
-            if (mcp === undefined) this.#servers.delete(reference);
-            else mcp.sendResourceListChanged();
+            if (mcp === undefined) {
+                this.#servers.delete(reference);
+                continue;
+            }
+            if (!mcp.isConnected()) continue;
+            const sessionId = mcp.server.transport?.sessionId;
+            try {
+                // `Server.sendResourceListChanged` is async; `Promise.resolve` also covers a synchronous return.
+                Promise.resolve(mcp.server.sendResourceListChanged()).catch((error: unknown) => this.#notifyFailed(sessionId, error));
+            } catch (error) {
+                this.#notifyFailed(sessionId, error);
+            }
         }
+    }
+
+    #notifyFailed(sessionId: string | undefined, error: unknown): void {
+        const to = sessionId === undefined ? '' : ` to session ${sessionId}`;
+        const reason = error instanceof Error ? error.message : String(error);
+        this.#build.warn({ path: 'resources/list_changed', message: `could not be sent${to}: ${reason}` });
     }
 }
