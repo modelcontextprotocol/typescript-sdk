@@ -1126,22 +1126,29 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 // SEP-2243 (and the rest of the inbound validation ladder)
                 // emit ladder rejections as HTTP 400 carrying a JSON-RPC error
-                // response body. Surface those in-band so `Protocol._onresponse`
+                // response body, and an unimplemented method is answered
+                // HTTP 404 with a -32601 body (the 2026-07-28 Streamable HTTP
+                // MUST; the body is what tells it apart from a legacy 404).
+                // Surface those in-band so `Protocol._onresponse`
                 // converts them to a typed `ProtocolError` matched to the
                 // pending request id — instead of an opaque transport error.
-                // Any 400 whose body is not a well-formed JSON-RPC error
+                // Any 400/404 whose body is not a well-formed JSON-RPC error
                 // response (or whose id does not match an outstanding request)
                 // still falls through to the generic `SdkHttpError`.
                 //
                 // Modern-era only: gated on the outbound message carrying a
                 // 2026-07-28 envelope claim (the same gate the body-derived
                 // `mcp-method`/`mcp-name` headers use), so a legacy-era
-                // exchange keeps surfacing 400 as `SdkHttpError` exactly as
+                // exchange keeps surfacing 400/404 as `SdkHttpError` exactly as
                 // before — the changeset's "legacy-era paths are unchanged"
                 // claim stays true and existing
                 // `e instanceof SdkHttpError && e.status === 400` callers do
                 // not silently stop matching.
-                if (response.status === 400 && typeof text === 'string' && this._isModernEnvelopedRequest(message)) {
+                if (
+                    (response.status === 400 || response.status === 404) &&
+                    typeof text === 'string' &&
+                    this._isModernEnvelopedRequest(message)
+                ) {
                     try {
                         const parsed = JSONRPCMessageSchema.parse(JSON.parse(text));
                         const requests = (Array.isArray(message) ? message : [message]).filter(m => isJSONRPCRequest(m));

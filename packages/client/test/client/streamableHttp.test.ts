@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
-import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, PROTOCOL_VERSION_META_KEY, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
@@ -367,6 +367,34 @@ describe('StreamableHTTPClientTransport', () => {
             })
         );
         expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('delivers a 2026-07-28 HTTP 404 method-not-found JSON-RPC error in-band; legacy still throws SdkHttpError', async () => {
+        // 2026-07-28 Streamable HTTP: a server that does not implement the method MUST answer 404 with a
+        // -32601 JSON-RPC error, and that body is what tells it apart from a legacy server's 404.
+        const errorBody = { jsonrpc: '2.0', id: 1, error: { code: -32_601, message: 'Method not found' } };
+        const fetch = vi.fn(async () => Response.json(errorBody, { status: 404 }));
+        const tx = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { fetch });
+        const seen: JSONRPCMessage[] = [];
+        tx.onmessage = message => seen.push(message);
+        await tx.start();
+
+        const params = { uri: 'skill://notes' };
+        await expect(
+            tx.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'resources/directory/read',
+                params: { ...params, _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } }
+            })
+        ).resolves.toBeUndefined();
+        expect(seen).toEqual([errorBody]);
+
+        await expect(tx.send({ jsonrpc: '2.0', id: 1, method: 'resources/directory/read', params })).rejects.toMatchObject({
+            code: SdkErrorCode.ClientHttpNotImplemented,
+            status: 404
+        });
+        await tx.close();
     });
 
     it('should handle non-streaming JSON response', async () => {
