@@ -45,7 +45,10 @@ const REJECTED: readonly string[] = [
     'map: {k: [x:]}\n',
     'map: {[x]: y}\n',
     'map: {k: v, [x]: y}\n',
-    'map: {{x: 1}: y}\n'
+    'map: {{x: 1}: y}\n',
+    // yaml drops a byte order mark before the first content; the parser does not guess.
+    '\uFEFFname: x\n',
+    '# comment\n\uFEFFname: x\n'
 ];
 
 /** Invalid YAML: the yaml library rejects it, so the parser must too. */
@@ -77,6 +80,38 @@ const INVALID: readonly string[] = [
     'a: {x[: y}\n'
 ];
 
+/**
+ * Characters that JavaScript's `trim` strips (NEL aside, which it keeps) but that YAML 1.2 reads as content: its
+ * only white space is space and tab (`s-white`).
+ */
+const NON_YAML_SPACES: Readonly<Record<string, string>> = {
+    'U+00A0': '\u00A0',
+    'U+2003': '\u2003',
+    'U+3000': '\u3000',
+    'U+2028': '\u2028',
+    'U+2029': '\u2029',
+    'U+FEFF': '\uFEFF',
+    'U+000B': '\u000B',
+    'U+000C': '\u000C',
+    'U+0085': '\u0085'
+};
+
+/** Every place the parser skips white space, with `c` where a trim would wrongly drop it. */
+const SPACE_POSITIONS: ReadonlyArray<(c: string) => string> = [
+    c => `name: x\ndescription: a${c}\n`,
+    c => `name: x\ndescription: ${c}a\n`,
+    c => `name: x\ndescription: ${c}\n`,
+    c => `name${c}: x\n`,
+    c => `description: a${c}# not a comment\n`,
+    c => `description: a${c}b\n`,
+    c => `description: a${c}\n  continued\n`,
+    c => `description: a\n  ${c}\n`,
+    c => `description: |\n  a${c}\n`,
+    c => `tags: [a${c}, ${c}b]\n`,
+    c => `map: {k${c}: v${c}}\n`,
+    c => `tags:\n- ${c}a\nitems:\n- ${c}k: v\n`
+];
+
 const OPTIONS = { version: '1.2', schema: 'core', uniqueKeys: true, merge: false } as const;
 
 describe('frontmatter parser agrees with the yaml library (YAML 1.2 core schema)', () => {
@@ -90,6 +125,21 @@ describe('frontmatter parser agrees with the yaml library (YAML 1.2 core schema)
     });
 
     it.each(INVALID)('rejects %j like yaml', source => {
+        expect(() => YAML.parse(source, OPTIONS)).toThrow();
+        expect(() => parseFrontmatterYaml(source)).toThrow(FrontmatterError);
+    });
+});
+
+describe('Unicode white space other than space and tab is content, as in yaml', () => {
+    const cases = Object.entries(NON_YAML_SPACES).flatMap(([name, c]) => SPACE_POSITIONS.map(position => [name, position(c)] as const));
+
+    it.each(cases)('%s: reads %j exactly like yaml', (_name, source) => {
+        const expected = YAML.parse(source, OPTIONS) as unknown;
+        expect(parseFrontmatterYaml(source)).toEqual(expected);
+    });
+
+    it.each(Object.entries(NON_YAML_SPACES))('%s after a quoted value is rejected, like yaml', (_name, c) => {
+        const source = `description: "a"${c}\n`;
         expect(() => YAML.parse(source, OPTIONS)).toThrow();
         expect(() => parseFrontmatterYaml(source)).toThrow(FrontmatterError);
     });

@@ -92,6 +92,11 @@ class Parser {
     parseDocument(): Record<string, unknown> {
         const first = this.peek();
         if (first === undefined) return {};
+        // YAML drops a byte order mark before a document's first content; reading it as part of the first key
+        // would differ from every YAML parser, so fail closed (a BOM before the opening `---` is fine).
+        if (first.text.startsWith('\uFEFF')) {
+            throw new FrontmatterError('a byte order mark inside the frontmatter is not supported', first.no);
+        }
         if (isSequenceItem(first.text) || matchKey(first.text, first.no) === undefined) {
             throw new FrontmatterError('frontmatter must be a mapping of keys to values', first.no);
         }
@@ -128,7 +133,7 @@ class Parser {
             if (line.indent > indent) throw new FrontmatterError('unexpected indentation', line.no);
             if (!isSequenceItem(line.text)) break;
             const after = line.text.slice(1);
-            const rest = after.trimStart();
+            const rest = trimWhiteStart(after);
             const column = line.indent + 1 + (after.length - rest.length);
             if (rest !== '' && !rest.startsWith('#') && (isSequenceItem(rest) || matchKey(rest, line.no) !== undefined)) {
                 // `- key: value` or `- - item`: the item is a block node that starts at `column`.
@@ -254,7 +259,7 @@ function matchKey(text: string, no: number): KeyMatch | undefined {
     if (first === '"' || first === "'") {
         const { value, end } = readQuoted(text, 0, no);
         const after = text.slice(end);
-        if (after === ':' || /^:[\t ]/.test(after)) return { key: checkKey(value, no), rest: after.slice(1).trimStart() };
+        if (after === ':' || /^:[\t ]/.test(after)) return { key: checkKey(value, no), rest: trimWhiteStart(after.slice(1)) };
         return undefined;
     }
     if (first === '?') throw new FrontmatterError('complex keys ("?") are not supported', no);
@@ -266,9 +271,9 @@ function matchKey(text: string, no: number): KeyMatch | undefined {
         if (char === ':') {
             const next = text[index + 1];
             if (next === undefined || next === ' ' || next === '\t') {
-                const key = text.slice(0, index).trimEnd();
+                const key = trimWhiteEnd(text.slice(0, index));
                 if (key === '') return undefined;
-                return { key: resolveKey(key, no), rest: text.slice(index + 1).trimStart() };
+                return { key: resolveKey(key, no), rest: trimWhiteStart(text.slice(index + 1)) };
             }
         }
     }
@@ -293,12 +298,28 @@ const COMMENT = /[\t ]#/;
 
 function stripComment(text: string): string {
     const match = COMMENT.exec(text);
-    return (match === null ? text : text.slice(0, match.index)).trimEnd();
+    return trimWhiteEnd(match === null ? text : text.slice(0, match.index));
 }
 
 function expectOnlyComment(after: string, no: number): void {
-    if (after.trim() === '' || /^[\t ]+#/.test(after)) return;
+    if (trimWhiteStart(after) === '' || /^[\t ]+#/.test(after)) return;
     throw new FrontmatterError('unexpected text after the value', no);
+}
+
+// YAML white space is only space and tab (YAML 1.2 `s-white`). `String.prototype.trim` and friends also strip
+// U+00A0, U+3000, U+2028, U+FEFF and other Unicode spaces, which YAML keeps as content: using them here would read
+// `description: a<NBSP>` as "a" where every YAML 1.2 parser (and so every other SDK) reads "a<NBSP>".
+
+/** `text` without leading spaces and tabs. */
+function trimWhiteStart(text: string): string {
+    return text.slice(skipSpaces(text, 0));
+}
+
+/** `text` without trailing spaces and tabs. */
+function trimWhiteEnd(text: string): string {
+    let end = text.length;
+    while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end--;
+    return text.slice(0, end);
 }
 
 const NULL = /^(?:~|null|Null|NULL)$/;
@@ -448,7 +469,7 @@ function readFlowKey(text: string, start: number, no: number): { key: string; en
     if (char === '[' || char === '{') throw new FrontmatterError('complex keys (flow collections as keys) are not supported', no);
     assertFlowPlainStart(text, index, no);
     const end = scanFlowPlain(text, index);
-    const raw = text.slice(index, end).trim();
+    const raw = trimWhiteEnd(text.slice(index, end));
     const after = text[end + 1];
     if (raw === '' || text[end] !== ':' || (after !== ' ' && after !== '\t')) {
         throw new FrontmatterError('expected "key: value" in a flow mapping', no);
@@ -490,7 +511,7 @@ function readFlowValue(text: string, start: number, no: number, depth: number): 
     assertFlowPlainStart(text, index, no);
     const end = scanFlowPlain(text, index);
     if (text[end] === ':') throw new FrontmatterError('mappings inside flow collections are not supported; quote the value', no);
-    const raw = text.slice(index, end).trim();
+    const raw = trimWhiteEnd(text.slice(index, end));
     if (raw === '') throw new FrontmatterError('empty value in a flow collection', no);
     return { value: resolvePlain(raw, no), end };
 }
