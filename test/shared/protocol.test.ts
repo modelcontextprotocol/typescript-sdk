@@ -662,6 +662,33 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        // Same-tick coverage for every legal request id: the pending set is keyed
+        // by method alone, so a related notification that wrongly passes the
+        // debounce gate is coalesced away entirely. Awaiting between the two
+        // sends would flush the microtask and hide that, so they are fired in one
+        // tick. `0` and `''` are the ids a truthiness guard swallows.
+        test.each([0, 123, '', 'req-1'])('should NOT coalesce same-tick notifications related to requestId %j', async relatedRequestId => {
+            // ARRANGE
+            protocol = new (class extends Protocol<Request, Notification, Result> {
+                protected assertCapabilityForMethod(): void {}
+                protected assertNotificationCapability(): void {}
+                protected assertRequestHandlerCapability(): void {}
+                protected assertTaskCapability(): void {}
+                protected assertTaskHandlerCapability(): void {}
+            })({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT — two related notifications in the same tick, no await between
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            void protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId });
+            await flushMicrotasks();
+
+            // ASSERT — both go out, each still carrying its related request id
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenNthCalledWith(1, expect.any(Object), { relatedRequestId });
+            expect(sendSpy).toHaveBeenNthCalledWith(2, expect.any(Object), { relatedRequestId });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new (class extends Protocol<Request, Notification, Result> {
@@ -2079,54 +2106,59 @@ describe('Request Cancellation vs Task Cancellation', () => {
     });
 
     describe('notifications/cancelled behavior', () => {
-        test('should abort request handler when notifications/cancelled is received', async () => {
-            await protocol.connect(transport);
+        // Every legal JSON-RPC request id must cancel, including the ones a
+        // truthiness guard swallows: `0` (the first id every peer assigns,
+        // since the counter is zero-based) and the empty string.
+        test.each([0, 123, '', 'req-1'])(
+            'should abort request handler when notifications/cancelled carries requestId %j',
+            async requestId => {
+                await protocol.connect(transport);
 
-            // Set up a request handler that checks if it was aborted
-            let wasAborted = false;
-            const TestRequestSchema = z.object({
-                method: z.literal('test/longRunning'),
-                params: z.optional(z.record(z.unknown()))
-            });
-            protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
-                // Simulate a long-running operation
-                await new Promise(resolve => setTimeout(resolve, 100));
-                wasAborted = extra.signal.aborted;
-                return { _meta: {} } as Result;
-            });
-
-            // Simulate an incoming request
-            const requestId = 123;
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    id: requestId,
-                    method: 'test/longRunning',
-                    params: {}
+                // Set up a request handler that checks if it was aborted
+                let wasAborted = false;
+                const TestRequestSchema = z.object({
+                    method: z.literal('test/longRunning'),
+                    params: z.optional(z.record(z.unknown()))
                 });
-            }
-
-            // Wait a bit for the handler to start
-            await new Promise(resolve => setTimeout(resolve, 10));
-
-            // Send cancellation notification
-            if (transport.onmessage) {
-                transport.onmessage({
-                    jsonrpc: '2.0',
-                    method: 'notifications/cancelled',
-                    params: {
-                        requestId: requestId,
-                        reason: 'User cancelled'
-                    }
+                protocol.setRequestHandler(TestRequestSchema, async (_request, extra) => {
+                    // Simulate a long-running operation
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                    wasAborted = extra.signal.aborted;
+                    return { _meta: {} } as Result;
                 });
+
+                // Simulate an incoming request
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        id: requestId,
+                        method: 'test/longRunning',
+                        params: {}
+                    });
+                }
+
+                // Wait a bit for the handler to start
+                await new Promise(resolve => setTimeout(resolve, 10));
+
+                // Send cancellation notification
+                if (transport.onmessage) {
+                    transport.onmessage({
+                        jsonrpc: '2.0',
+                        method: 'notifications/cancelled',
+                        params: {
+                            requestId: requestId,
+                            reason: 'User cancelled'
+                        }
+                    });
+                }
+
+                // Wait for the handler to complete
+                await new Promise(resolve => setTimeout(resolve, 150));
+
+                // Verify the request was aborted
+                expect(wasAborted).toBe(true);
             }
-
-            // Wait for the handler to complete
-            await new Promise(resolve => setTimeout(resolve, 150));
-
-            // Verify the request was aborted
-            expect(wasAborted).toBe(true);
-        });
+        );
 
         test('should NOT automatically cancel associated tasks when notifications/cancelled is received', async () => {
             await protocol.connect(transport);
