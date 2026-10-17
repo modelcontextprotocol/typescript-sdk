@@ -7,7 +7,7 @@ shape: how-to
 `SkillsClient` lists a server's skills and reads their files, checking each file against what the server published.
 
 ```ts source="../../examples/guides/clients/skills.examples.ts#SkillsClient_list"
-import { SkillsClient, SkillVerificationError } from '@modelcontextprotocol/client/ext/skills';
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills';
 
 const skills = new SkillsClient(client);
 const { skills: entries } = await skills.list();
@@ -22,6 +22,17 @@ git-workflow: Branching and review conventions.
 ```
 
 Listing reads no skill file: each **entry** carries the skill's frontmatter and its file list with digests, enough to decide which skill to load.
+
+## Handle refused entries
+
+Log the entries `list()` refused.
+
+```ts source="../../examples/guides/clients/skills.examples.ts#list_invalid"
+const { invalid } = await skills.list();
+for (const refused of invalid) console.error(`skills: refused entry #${refused.index} ${refused.uri ?? ''}: ${refused.reason}`);
+```
+
+`list()` also returns `invalid`: the entries that fail validation, and every copy of a repeated URI, each with `index`, `uri` and `reason`. Against this server it is empty, so the loop prints nothing. Pass `{ strict: true }` to `new SkillsClient` to make `list()` throw an `SdkError` instead.
 
 ## Load a skill
 
@@ -62,13 +73,15 @@ console.log(review.text);
 
 ```
 
-A relative path resolves against the skill's folder, as a link in `SKILL.md` does, and `read` ignores a fragment. It matches the path to the entry's file list however either side percent-encodes the name, so `references/Q&A.md` works. `bytes` always holds the file's bytes; `text` is set when the server sent the file as text.
+A relative path resolves against the skill's folder, as a link in `SKILL.md` does, and `read` ignores a fragment. It matches the path to the entry's file list however either side percent-encodes the name, so `references/Q&A.md` works. `bytes` always holds the file's bytes; `text` holds the file's text when the server sent it as text, and always for the skill's own `SKILL.md`.
 
 ## Handle verification failures
 
 Catch `SkillVerificationError`.
 
 ```ts source="../../examples/guides/clients/skills.examples.ts#SkillVerificationError"
+import { SkillVerificationError } from '@modelcontextprotocol/client/ext/skills';
+
 try {
     await skills.read(git, 'references/MISSING.md');
 } catch (error) {
@@ -123,12 +136,13 @@ An entry whose `resources` is `"dynamic"` has no file list. `read` then skips th
 :::
 
 ::: warning Host responsibilities
-Accept skills up to `SKILL_LIMITS` (512 files, 16 MiB), get approval before you load a skill from a server, and record which server each skill came from. Read a skill's files when you load it, never while listing.
+Accept skills up to `SKILL_LIMITS` (512 files, 16 MiB) and explain why you decline one, get approval before you load a skill from a server, and record which server each skill came from. Read a skill's files when you load it, never while listing.
 :::
 
 ## Recap
 
 - `new SkillsClient(client)` wraps a connected client; `list()` returns entries without reading files.
+- `list()` returns refused entries in `invalid`; `strict: true` makes it throw instead.
 - `read(entry)` verifies `SKILL.md` (size, digest, frontmatter) and returns its frontmatter and body.
 - `read(entry, path)` resolves a path against the skill's folder and verifies that file.
 - A failed check throws `SkillVerificationError` with a `reason`.

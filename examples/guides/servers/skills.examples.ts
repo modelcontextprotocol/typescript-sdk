@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 process.chdir(path.dirname(fileURLToPath(import.meta.url)));
 
 //#region loadSkills_basic
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 
 const skills = await loadSkills('./skills');
@@ -31,6 +31,8 @@ console.log(skills.entries.map(skill => skill.uri).join('\n'));
 //#endregion entries
 
 //#region attach_perRequest
+import { createMcpHandler } from '@modelcontextprotocol/server';
+
 const handler = createMcpHandler(() => {
     const mcp = new McpServer({ name: 'team-skills', version: '1.0.0' });
     skills.attach(mcp);
@@ -44,8 +46,7 @@ console.log(changes);
 //#endregion reload
 
 //#region memorySkillFiles
-import type { SkillFiles, SkillSource } from '@modelcontextprotocol/server/ext/skills';
-import { memorySkillFiles, skillEntry, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
+import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 
 const RELEASE_NOTES_MD = '---\nname: release-notes\ndescription: Write release notes from merged pull requests.\n---\n# Release notes\n';
 
@@ -53,6 +54,8 @@ const inline = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKIL
 //#endregion memorySkillFiles
 
 //#region skillFiles_custom
+import type { SkillFiles } from '@modelcontextprotocol/server/ext/skills';
+
 // Two operations over '/'-separated paths, '' being the root: here, a key-value store of objects.
 function bucketSkillFiles(bucket: ReadonlyMap<string, Uint8Array>): SkillFiles {
     return {
@@ -80,6 +83,9 @@ const fromBucket = await SkillsExtension.load(
 //#endregion skillFiles_custom
 
 //#region skillSource
+import type { SkillSource } from '@modelcontextprotocol/server/ext/skills';
+import { skillEntry } from '@modelcontextprotocol/server/ext/skills';
+
 const ON_CALL_MD = '---\nname: on-call\ndescription: Handle a page while on call.\n---\n# On call\n';
 const onCall = await skillEntry('on-call', { 'SKILL.md': ON_CALL_MD });
 
@@ -98,7 +104,11 @@ const checked = await loadSkills('./skills', {
 //#endregion onWarning
 
 // Claims the page makes, checked on every run.
-if (skills.entries.length !== 2 || checked.entries.length !== 2) throw new Error('skills.md: expected two skills');
+const QUOTED_URIS = ['skill://acme/billing/refunds/SKILL.md', 'skill://git-workflow/SKILL.md'];
+if (JSON.stringify(skills.entries.map(skill => skill.uri)) !== JSON.stringify(QUOTED_URIS)) {
+    throw new Error('skills.md: the catalog must publish the quoted URIs, sorted');
+}
+if (checked.entries.length !== 2) throw new Error('skills.md: expected two skills');
 if (JSON.stringify(changes) !== JSON.stringify({ added: [], removed: [], changed: [] })) throw new Error('skills.md: reload claim failed');
 if (inline.entries[0]?.frontmatter.name !== 'release-notes' || fromBucket.entries[0]?.uri !== inline.entries[0]?.uri) {
     throw new Error('skills.md: in-code and adapter catalogs must match');

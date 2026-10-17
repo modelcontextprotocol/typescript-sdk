@@ -7,7 +7,7 @@ shape: how-to
 `loadSkills` reads a folder of skills once; `attach` serves it on a server.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#loadSkills_basic"
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 
 const skills = await loadSkills('./skills');
@@ -49,6 +49,8 @@ skill://git-workflow/SKILL.md
 Attach the same catalog to each server your handler creates.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#attach_perRequest"
+import { createMcpHandler } from '@modelcontextprotocol/server';
+
 const handler = createMcpHandler(() => {
     const mcp = new McpServer({ name: 'team-skills', version: '1.0.0' });
     skills.attach(mcp);
@@ -80,21 +82,22 @@ Until you call `reload()`, the server answers a read of a file edited on disk wi
 Pass the files to `memorySkillFiles` where there is no file system, such as Workers or tests.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#memorySkillFiles"
-import type { SkillFiles, SkillSource } from '@modelcontextprotocol/server/ext/skills';
-import { memorySkillFiles, skillEntry, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
+import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 
 const RELEASE_NOTES_MD = '---\nname: release-notes\ndescription: Write release notes from merged pull requests.\n---\n# Release notes\n';
 
 const inline = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKILL.md': RELEASE_NOTES_MD }));
 ```
 
-`memorySkillFiles` re-reads the object you pass whenever a walk starts (`list('')`), so `reload()` sees files you add or change later.
+`memorySkillFiles` re-reads the object you pass whenever the catalog rescans (at load and on `reload()`), so `reload()` sees files you add or change later.
 
 ## Serve skills from your own storage
 
 Implement `SkillFiles`, two functions over relative paths, to load from any store.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#skillFiles_custom"
+import type { SkillFiles } from '@modelcontextprotocol/server/ext/skills';
+
 // Two operations over '/'-separated paths, '' being the root: here, a key-value store of objects.
 function bucketSkillFiles(bucket: ReadonlyMap<string, Uint8Array>): SkillFiles {
     return {
@@ -128,6 +131,9 @@ The catalog logic (discovery, digests, rule checks, paging, verified reads) is t
 Build entries with `skillEntry` and serve them from a `SkillSource` when the catalog depends on the request.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#skillSource"
+import type { SkillSource } from '@modelcontextprotocol/server/ext/skills';
+import { skillEntry } from '@modelcontextprotocol/server/ext/skills';
+
 const ON_CALL_MD = '---\nname: on-call\ndescription: Handle a page while on call.\n---\n# On call\n';
 const onCall = await skillEntry('on-call', { 'SKILL.md': ON_CALL_MD });
 
@@ -151,9 +157,9 @@ const checked = await loadSkills('./skills', {
 });
 ```
 
-`loadSkills` skips, with a warning, any skill that breaks the rules, such as a `name` that differs from its folder or a symlinked file; the other skills still serve. Skills over 512 files or 16 MiB still publish, with a warning; `limits` changes those thresholds.
+`loadSkills` skips, with a warning, any skill that breaks the rules, such as a `name` that differs from its folder or a symlinked file; the other skills still serve. Skills over 512 files or 16 MiB still publish, with a warning; `limits` changes those thresholds. The same options take `prefix` (`'acme'` serves every skill under `skill://acme/…`) and `pageSize` (entries per `skills/list` and directory page, default 100).
 
-Set `strict: true` to make `loadSkills` throw a `SkillCatalogError` listing every problem instead. Under `strict: true`, any symlink or other special file anywhere in the folder fails the load, even one outside every skill.
+Set `strict: true` to make `loadSkills` throw a `SkillCatalogError` listing every problem instead. Under `strict: true`, a symlink or other special file anywhere in the folder fails the load, even one outside every skill; hidden entries (names starting with `.`) are the exception, since the scan skips them entirely.
 
 ::: warning
 Do not register your own resources under `skill://`. A resource you register at a skill file's URI takes precedence over that file, and clients then fail to verify it.
