@@ -1,4 +1,4 @@
-import type { DirectoryResource, Skill, SkillCacheScope } from '@modelcontextprotocol/core/ext/skills';
+import type { DirectoryResource, Skill, SkillCacheScope, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
 import {
     ReadResourceDirectoryResultSchema,
     RESOURCES_DIRECTORY_READ_METHOD,
@@ -7,16 +7,29 @@ import {
     SKILLS_LIST_METHOD,
     skillsCapabilityOf
 } from '@modelcontextprotocol/core/ext/skills';
-import { canonicalUri } from '@modelcontextprotocol/core-internal';
+import {
+    canonicalUri,
+    decodeBase64,
+    decodeUtf8Lossless,
+    encodeUtf8,
+    isWithin,
+    parseSkillMarkdown,
+    resolveSkillRef,
+    sha256Digest,
+    skillRootUri,
+    splitFrontmatter
+} from '@modelcontextprotocol/core-internal';
 import type { RequestOptions } from '@modelcontextprotocol/core-internal/public';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';
 
-import type { Client } from '../../client/client';
+import type { CacheableRequestOptions, Client } from '../../client/client';
 import { clientSettings } from './clientInternals';
 import type { InvalidSkillEntry } from './entries';
 import { checkEntry, partitionEntries } from './entries';
+import { SkillVerificationError } from './errors';
 import { GetSkillEnvelopeSchema, SkillsPageSchema } from './pageSchemas';
+import { frontmatterDifferences } from './verify';
 
 export interface SkillsClientOptions {
     /** Parses a `SKILL.md`'s frontmatter for verification instead of the built-in YAML parser. */
@@ -33,6 +46,32 @@ export interface SkillListing {
     nextCursor?: string;
     ttlMs?: number;
     cacheScope?: SkillCacheScope;
+}
+
+/** A skill file as read and checked by {@linkcode SkillsClient.read}. */
+export interface SkillFile {
+    uri: string;
+    mimeType?: string;
+    /** Exactly the bytes the entry's digest covers. */
+    bytes: Uint8Array;
+    /** When the server sent text (always, for the skill's own `SKILL.md`). */
+    text?: string;
+    /** Size and digest were checked. `false` only for `"dynamic"` skills. */
+    verified: boolean;
+    /** The skill's own `SKILL.md` only: its parsed frontmatter, equal to the entry's. */
+    frontmatter?: Record<string, unknown>;
+    /** The skill's own `SKILL.md` only: the markdown after the frontmatter. */
+    body?: string;
+}
+
+function decodeBlob(uri: string, blob: string): Uint8Array {
+    try {
+        return decodeBase64(blob);
+    } catch (error) {
+        throw new SdkError(SdkErrorCode.InvalidResult, `resources/read returned an invalid base64 blob for ${uri}`, undefined, {
+            cause: error
+        });
+    }
 }
 
 function unsupported(method: string): SdkError {
@@ -117,6 +156,96 @@ export class SkillsClient {
             throw new SdkError(SdkErrorCode.InvalidResult, `skills/get for ${uri} returned ${skill.uri}`);
         }
         return skill;
+    }
+
+    /**
+     * Reads one file of `skill` and verifies it. `ref` is a path relative to
+     * the skill's root (`references/FORMS.md`) or an absolute URI; the
+     * default is the skill's own `SKILL.md`. The file must be listed in the
+     * entry (checked before any request), and its size and digest must match;
+     * for the skill's own `SKILL.md` the frontmatter must also equal the
+     * entry's. A failed check on what may be a cached copy is fetched once
+     * more with `cacheMode: 'refresh'`. `"dynamic"` skills skip the listing,
+     * size and digest checks (`verified: false`) but not the frontmatter.
+     * Pass entries from {@linkcode SkillsClient.list} or {@linkcode SkillsClient.get}.
+     *
+     * @throws {SkillVerificationError} when a check fails.
+     */
+    async read(skill: Skill, ref?: string, options?: CacheableRequestOptions): Promise<SkillFile> {
+        if (!this.supported) throw unsupported('resources/read');
+        const root = skillRootUri(skill.uri);
+        if (root === undefined) throw new TypeError(`${skill.uri} is not a SKILL.md URI`);
+        const uri = resolveSkillRef(skill.uri, ref);
+        const canonical = canonicalUri(uri);
+        const listed =
+            skill.resources === 'dynamic' ? undefined : skill.resources.find(resource => canonicalUri(resource.uri) === canonical);
+        const inSkill = skill.resources === 'dynamic' ? canonical === canonicalUri(skill.uri) || isWithin(root, uri) : listed !== undefined;
+        if (!inSkill) throw new SkillVerificationError('unlisted', uri, `${uri} is not a file of the skill ${skill.uri}`);
+        const target = listed?.uri ?? uri;
+        try {
+            return await this.#readVerified(skill, target, listed, options);
+        } catch (error) {
+            const mayBeCached = options?.cacheMode === undefined || options.cacheMode === 'use';
+            if (!(error instanceof SkillVerificationError) || !mayBeCached) throw error;
+            // The failing copy may have come from the response cache; the spec requires fetching it again.
+            return this.#readVerified(skill, target, listed, { ...options, cacheMode: 'refresh' });
+        }
+    }
+
+    async #readVerified(
+        skill: Skill,
+        uri: string,
+        listed: SkillResourceEntry | undefined,
+        options: CacheableRequestOptions | undefined
+    ): Promise<SkillFile> {
+        const result = await this.#client.readResource({ uri }, options);
+        const content = result.contents.find(item => canonicalUri(item.uri) === canonicalUri(uri)) ?? result.contents[0];
+        if (content === undefined) throw new SdkError(SdkErrorCode.InvalidResult, `resources/read returned no contents for ${uri}`);
+        const bytes = 'text' in content ? encodeUtf8(content.text) : decodeBlob(uri, content.blob);
+        if (listed !== undefined) {
+            if (bytes.byteLength !== listed.size) {
+                throw new SkillVerificationError('size', uri, `${uri} is ${bytes.byteLength} bytes; the skill entry lists ${listed.size}`);
+            }
+            const digest = await sha256Digest(bytes);
+            if (digest !== listed.digest) {
+                throw new SkillVerificationError('digest', uri, `${uri} has digest ${digest}; the skill entry lists ${listed.digest}`);
+            }
+        }
+        const file: SkillFile = {
+            uri,
+            ...(content.mimeType !== undefined && { mimeType: content.mimeType }),
+            bytes,
+            ...('text' in content && { text: content.text }),
+            verified: listed !== undefined
+        };
+        if (canonicalUri(uri) !== canonicalUri(skill.uri)) return file;
+        const markdown = 'text' in content ? content.text : decodeUtf8Lossless(bytes);
+        if (markdown === undefined) throw new SkillVerificationError('frontmatter', uri, `${uri} is not valid UTF-8`);
+        const { frontmatter, body } = this.#parse(uri, markdown);
+        const differences = frontmatterDifferences(skill.frontmatter, frontmatter);
+        if (differences.length > 0) {
+            throw new SkillVerificationError(
+                'frontmatter',
+                uri,
+                `the frontmatter of ${uri} differs from the skill entry: ${differences.join('; ')}`,
+                differences
+            );
+        }
+        return { ...file, text: markdown, frontmatter, body };
+    }
+
+    #parse(uri: string, markdown: string): { frontmatter: Record<string, unknown>; body: string } {
+        try {
+            const parse = this.#options.parseFrontmatter;
+            return parse === undefined
+                ? parseSkillMarkdown(markdown)
+                : { frontmatter: parse(markdown), body: splitFrontmatter(markdown).body };
+        } catch (error) {
+            const reason = error instanceof Error ? error.message : String(error);
+            throw new SkillVerificationError('frontmatter', uri, `the frontmatter of ${uri} cannot be read: ${reason}`, [], {
+                cause: error
+            });
+        }
     }
 
     /** The direct children of a skill directory, every page walked. Needs `directoryRead`. */

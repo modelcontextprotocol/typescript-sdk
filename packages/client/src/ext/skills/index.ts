@@ -5,7 +5,9 @@
 // (modelcontextprotocol/ext-skills#71), typescript-sdk#2818 and #2972.
 
 export type { InvalidSkillEntry } from './entries';
-export type { SkillListing, SkillsClientOptions } from './skillsClient';
+export type { SkillVerificationReason } from './errors';
+export { SkillVerificationError } from './errors';
+export type { SkillFile, SkillListing, SkillsClientOptions } from './skillsClient';
 export { SkillsClient } from './skillsClient';
 export type {
     DirectoryResource,

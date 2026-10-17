@@ -79,7 +79,7 @@ export async function scriptedClient(
 export interface SkillsHandlerOptions {
     /** Entries per `skills/list` page. Default: all. */
     pageSize?: number;
-    /** `ttlMs` on `resources/read` results, so the client caches them. Default: none. */
+    /** `ttlMs` on `resources/read` results; above 0 the client caches them. Default: 0 (not cached). */
     readTtlMs?: number;
 }
 
@@ -114,7 +114,8 @@ export function skillsHandlers(
                 typeof content === 'string'
                     ? { uri, mimeType: 'text/markdown', text: content }
                     : { uri, mimeType: 'application/octet-stream', blob: Buffer.from(content).toString('base64') };
-            return { contents: [body], ...(options.readTtlMs !== undefined && { ttlMs: options.readTtlMs, cacheScope: 'private' }) };
+            // 2026-07-28 requires both caching fields on every cacheable result.
+            return { contents: [body], ttlMs: options.readTtlMs ?? 0, cacheScope: 'private' };
         }
     };
 }
