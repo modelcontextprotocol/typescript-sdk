@@ -161,19 +161,19 @@ On stdio, `serveStdio(factory)` from `@modelcontextprotocol/server/stdio` is the
 
 This table is the only copy of the era differences in these docs. `getProtocolEra()` on the client and the factory's `era` on the server tell you which column you are in.
 
-| Axis                                  | 2025 era (`'legacy'`, `2024-10-07` … `2025-11-25`)                       | 2026 era (`'modern'`, `2026-07-28`)                                |
-| ------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
-| Server HTTP entry                     | `*StreamableHTTPServerTransport`                                         | `createMcpHandler` (`legacy: 'stateless'` also serves 2025)        |
-| Server stdio entry                    | `server.connect(new StdioServerTransport())`                             | `serveStdio(factory)` (also serves 2025 unless `legacy: 'reject'`) |
-| Client connect                        | `initialize` handshake                                                   | `server/discover` probe (`versionNegotiation`)                     |
-| Client identity on the server         | `getClientCapabilities()` / `getClientVersion()` (initialize-scoped)     | `ctx.mcpReq.envelope` (per request)                                |
-| Server→client requests                | `ctx.mcpReq.elicitInput` / `requestSampling`, instance `createMessage()` | `return inputRequired(...)` from the handler                       |
-| Change notifications                  | unsolicited `list_changed` / `resources/updated`                         | `subscriptions/listen` stream                                      |
-| Client cancellation (Streamable HTTP) | POST `notifications/cancelled`                                           | close the request's SSE response stream                            |
-| `ctx.mcpReq.log()` level filter       | session-scoped `logging/setLevel`                                        | per-request `logLevel` `_meta` envelope key (absent = no logs)     |
-| HTTP `400` with a JSON-RPC error body | `SdkHttpError`                                                           | `ProtocolError`, delivered in-band                                 |
-| Era-mismatched spec method (outbound) | n/a                                                                      | `SdkError(MethodNotSupportedByProtocolVersion)`                    |
-| Liveness check                        | `client.ping()`                                                          | not defined — outbound call rejects per the era-mismatch row       |
+| Axis                                        | 2025 era (`'legacy'`, `2024-10-07` … `2025-11-25`)                       | 2026 era (`'modern'`, `2026-07-28`)                                |
+| ------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| Server HTTP entry                           | `*StreamableHTTPServerTransport`                                         | `createMcpHandler` (`legacy: 'stateless'` also serves 2025)        |
+| Server stdio entry                          | `server.connect(new StdioServerTransport())`                             | `serveStdio(factory)` (also serves 2025 unless `legacy: 'reject'`) |
+| Client connect                              | `initialize` handshake                                                   | `server/discover` probe (`versionNegotiation`)                     |
+| Client identity on the server               | `getClientCapabilities()` / `getClientVersion()` (initialize-scoped)     | `ctx.mcpReq.envelope` (per request)                                |
+| Server→client requests                      | `ctx.mcpReq.elicitInput` / `requestSampling`, instance `createMessage()` | `return inputRequired(...)` from the handler                       |
+| Change notifications                        | unsolicited `list_changed` / `resources/updated`                         | `subscriptions/listen` stream                                      |
+| Client cancellation (Streamable HTTP)       | POST `notifications/cancelled`                                           | close the request's SSE response stream                            |
+| `ctx.mcpReq.log()` level filter             | session-scoped `logging/setLevel`                                        | per-request `logLevel` `_meta` envelope key (absent = no logs)     |
+| HTTP `400`/`404` with a JSON-RPC error body | `SdkHttpError`                                                           | `ProtocolError`, delivered in-band                                 |
+| Era-mismatched spec method (outbound)       | n/a                                                                      | `SdkError(MethodNotSupportedByProtocolVersion)`                    |
+| Liveness check                              | `client.ping()`                                                          | not defined — outbound call rejects per the era-mismatch row       |
 
 ## Separate deprecation from era
 
