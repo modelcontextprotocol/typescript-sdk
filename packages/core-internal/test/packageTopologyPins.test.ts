@@ -43,8 +43,9 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
     },
     server: {
         name: '@modelcontextprotocol/server',
-        // './ext/skills' — the server side of the same extension.
-        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
+        // './ext/skills' — the server side of the same extension; './ext/skills/node'
+        // — its Node-only folder adapter (kept off './ext/skills' so that stays runtime-neutral).
+        exportKeys: ['.', './stdio', './ext/skills', './ext/skills/node', './validators/ajv', './validators/cf-worker', './_shims']
     },
     'server-legacy': {
         name: '@modelcontextprotocol/server-legacy',

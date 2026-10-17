@@ -100,3 +100,48 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
         }
     });
 });
+
+const NODE_BUILTIN_IMPORT = /\bfrom\s*["']node:|\brequire\(\s*["']node:|\bimport\(\s*["']node:/;
+
+/** An ESM entry and every chunk it imports, following `./` and `../` specifiers (nested entries import `../../chunk.mjs`). */
+function moduleGraphOf(entryPath: string): string[] {
+    const visited = new Set<string>();
+    const queue = [entryPath];
+    while (queue.length > 0) {
+        const file = queue.shift()!;
+        if (visited.has(file)) continue;
+        visited.add(file);
+        for (const m of readFileSync(file, 'utf8').matchAll(/from\s*["'](\.{1,2}\/[^"']+?\.mjs)["']/g)) {
+            queue.push(join(dirname(file), m[1]!));
+        }
+    }
+    return [...visited];
+}
+
+describe('@modelcontextprotocol/server/ext/skills is runtime-neutral', () => {
+    beforeAll(async () => {
+        await ensureBuilt(pkgDir);
+    }, 180_000);
+
+    test('ext/skills and every chunk it imports have no node: imports', () => {
+        for (const file of moduleGraphOf(join(distDir, 'ext/skills/index.mjs'))) {
+            expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
+                expect.objectContaining({ content: expect.stringMatching(NODE_BUILTIN_IMPORT) })
+            );
+        }
+    });
+
+    test('ext/skills/node exports the folder adapter and is where the node: imports live', () => {
+        const node = join(distDir, 'ext/skills/node.mjs');
+        expect(rootExportBlockOf(readFileSync(node, 'utf8'))).toMatch(
+            /\bloadSkills\b[\s\S]*\bnodeSkillFiles\b|\bnodeSkillFiles\b[\s\S]*\bloadSkills\b/
+        );
+        expect(moduleGraphOf(node).some(file => NODE_BUILTIN_IMPORT.test(readFileSync(file, 'utf8')))).toBe(true);
+    });
+
+    test('the root entry does not export the skills extension', () => {
+        expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
+            /\b(?:SkillsExtension|SkillCatalog|loadSkills|nodeSkillFiles)\b/
+        );
+    });
+});

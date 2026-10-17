@@ -50,6 +50,16 @@
                 "default": "./dist/ext/skills/index.cjs"
             }
         },
+        "./ext/skills/node": {
+            "import": {
+                "types": "./dist/ext/skills/node.d.mts",
+                "default": "./dist/ext/skills/node.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/skills/node.d.cts",
+                "default": "./dist/ext/skills/node.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -119,6 +129,9 @@
         "*": {
             "ext/skills": [
                 "dist/ext/skills/index.d.mts"
+            ],
+            "ext/skills/node": [
+                "dist/ext/skills/node.d.mts"
             ],
             "validators/ajv": [
                 "dist/validators/ajv.d.mts"

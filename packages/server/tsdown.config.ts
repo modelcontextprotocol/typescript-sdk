@@ -10,7 +10,8 @@ export default defineConfig({
         'src/shimsBrowser.ts',
         'src/validators/ajv.ts',
         'src/validators/cfWorker.ts',
-        'src/ext/skills/index.ts'
+        'src/ext/skills/index.ts',
+        'src/ext/skills/node.ts'
     ],
     format: ['esm', 'cjs'],
     fixedExtension: true,
