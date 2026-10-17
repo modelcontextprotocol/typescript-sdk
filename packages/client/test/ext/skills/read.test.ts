@@ -1,5 +1,6 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
-import { buildSkillEntry, encodeUtf8, joinUri, SdkErrorCode, sha256Digest } from '@modelcontextprotocol/core-internal';
+import { SdkErrorCode } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, encodeUtf8, joinUri, sha256Digest } from '@modelcontextprotocol/core-internal/ext/skills';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SkillsClientOptions } from '../../../src/ext/skills/index';

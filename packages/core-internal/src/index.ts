@@ -1,7 +1,11 @@
 export * from './auth/errors';
 export * from './errors/crossBundleBrand';
 export * from './errors/sdkErrors';
-export * from './ext/skills/index';
+// The Skills extension's internals (SEP-2640) are deliberately NOT on this barrel:
+// they live on the `./ext/skills` subpath, so only the client and server
+// `ext/skills` entries load the frontmatter parser and the
+// `@modelcontextprotocol/core/ext/skills` import (on this barrel they landed in
+// every package's root module graph).
 export * from './shared/auth';
 export * from './shared/authUtils';
 export * from './shared/clientCapabilityRequirements';

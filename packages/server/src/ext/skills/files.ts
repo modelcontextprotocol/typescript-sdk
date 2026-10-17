@@ -1,4 +1,4 @@
-import { encodeUtf8 } from '@modelcontextprotocol/core-internal';
+import { encodeUtf8 } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { SkillFileEntry, SkillFiles } from './types';
 

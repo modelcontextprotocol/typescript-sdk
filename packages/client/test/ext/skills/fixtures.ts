@@ -1,7 +1,7 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
 import { SKILLS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/skills';
 import type { ServerCapabilities } from '@modelcontextprotocol/core-internal';
-import { buildSkillEntry, encodeSegment, encodeUtf8 } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, encodeSegment, encodeUtf8 } from '@modelcontextprotocol/core-internal/ext/skills';
 
 export const CAPABILITIES: ServerCapabilities = { resources: {}, extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: true } } };
 

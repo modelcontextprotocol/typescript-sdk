@@ -72,10 +72,18 @@ console.log(changes);
 With nothing changed on disk, `reload()` reports no changes:
 
 ```text
-{ added: [], removed: [], changed: [] }
+{ added: [], removed: [], changed: [], listChanged: false }
 ```
 
-Until you call `reload()`, the server answers a read of a file edited on disk with an error instead of unverified content. `reload()` sends connected clients `notifications/resources/list_changed` when a skill appears, disappears, or changes its name or description. If the rescan fails, `reload()` rejects and the old catalog keeps serving.
+Until you call `reload()`, the server answers a read of a file edited on disk with an error instead of unverified content. If the rescan fails, `reload()` rejects and the old catalog keeps serving.
+
+`listChanged` is `true` when a skill appears, disappears, or changes its name or description. A server that stays connected (on stdio, or in a stateful 2025-11-25 HTTP session) then sends its clients `notifications/resources/list_changed` itself. A server that `createMcpHandler` builds lives for one request, so publish the change on the handler instead:
+
+```ts source="../../examples/guides/servers/skills.examples.ts#reload_notify"
+if (changes.listChanged) handler.notify.resourcesChanged();
+```
+
+Every open `subscriptions/listen` stream that opted in to resource list changes receives the notification.
 
 ## Serve skills defined in code
 
@@ -173,6 +181,6 @@ Skills work on both protocol versions; the `cacheHint` option applies on 2026-07
 
 - `loadSkills('./skills')` builds a catalog once; `attach(server)` serves it on any number of servers.
 - Each folder with a `SKILL.md` is a skill; other folders group skills in the URI.
-- `reload()` swaps in a rescanned catalog all at once and notifies connected clients.
+- `reload()` swaps in a rescanned catalog all at once; behind `createMcpHandler`, call `handler.notify.resourcesChanged()` when it reports `listChanged`.
 - `memorySkillFiles`, a `SkillFiles` adapter or a `SkillSource` serve skills without a folder.
 - `loadSkills` skips invalid skills with a warning; `strict: true` makes it throw instead.

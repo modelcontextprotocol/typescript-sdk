@@ -1,6 +1,6 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
 import { SkillSchema } from '@modelcontextprotocol/core/ext/skills';
-import { canonicalUri, validateSkillEntry } from '@modelcontextprotocol/core-internal';
+import { canonicalUri, validateSkillEntry } from '@modelcontextprotocol/core-internal/ext/skills';
 
 /** A `skills/list` entry the client refused, and why. `index` counts across every page walked. */
 export interface InvalidSkillEntry {

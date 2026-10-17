@@ -1,7 +1,7 @@
 import type { Skill, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
 import { DIRECTORY_MIME_TYPE } from '@modelcontextprotocol/core/ext/skills';
 import type { Resource } from '@modelcontextprotocol/core-internal';
-import { buildSkillEntry, compareUris, isRoundTripUri, joinUri, mimeTypeFor } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, compareUris, isRoundTripUri, joinUri, mimeTypeFor } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import { SkillCatalogError } from './errors';
 import type { SkillFileEntry, SkillFiles, SkillWarning } from './types';
@@ -213,8 +213,19 @@ async function buildOne(
     return { dir, skill, files: catalogFiles, manifestSize, inside };
 }
 
+/** Freezes `value` and every object and array inside it. */
+function deepFreeze<T>(value: T): T {
+    if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
+        Object.freeze(value);
+        for (const item of Object.values(value)) deepFreeze(item);
+    }
+    return value;
+}
+
 function assemble(built: readonly BuiltSkill[], tree: readonly TreeEntry[], uriOf: UriOf): CatalogSnapshot {
-    const ordered = built.map(item => item.skill).toSorted((a, b) => compareUris(a.uri, b.uri));
+    // Entries are served as they are (trusted, never re-validated) and handed to callers by `entries`: frozen, so an
+    // edit (say, of a description for display) throws instead of changing what clients receive.
+    const ordered = Object.freeze(built.map(item => deepFreeze(item.skill)).toSorted((a, b) => compareUris(a.uri, b.uri)));
     const files = new Map<string, CatalogFile>();
     const dirPaths = new Set<string>();
     for (const item of built) {

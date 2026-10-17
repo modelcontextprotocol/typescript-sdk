@@ -24,16 +24,9 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
     pdf: 'application/pdf'
 };
 
-const TEXTUAL = new Set(['application/json', 'application/yaml', 'application/x-sh', 'application/xml', 'image/svg+xml']);
-
 /** MIME type from the file extension; `application/octet-stream` when unknown. */
 export function mimeTypeFor(fileName: string): string {
     const dot = fileName.lastIndexOf('.');
     if (dot <= 0) return 'application/octet-stream';
     return BY_EXTENSION[fileName.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
-}
-
-/** True for types served as `text` when the bytes decode losslessly. */
-export function isTextualMimeType(mimeType: string): boolean {
-    return mimeType.startsWith('text/') || TEXTUAL.has(mimeType);
 }

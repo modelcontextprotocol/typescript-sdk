@@ -10,7 +10,7 @@ import path from 'node:path';
 
 import type { SkillCatalog } from './extension';
 import { SkillsExtension } from './extension';
-import { splitRelativePath } from './files';
+import { fsPathWithin } from './fsPath';
 import type { SkillCatalogOptions, SkillFileEntry, SkillFiles } from './types';
 
 function kindOf(entry: Dirent): SkillFileEntry['kind'] {
@@ -25,10 +25,12 @@ function kindOf(entry: Dirent): SkillFileEntry['kind'] {
  * contains one. `read` refuses anything that is not a regular file, and a
  * symlink as the final path component where the platform has `O_NOFOLLOW`;
  * symlinked folders earlier in a path passed to it directly are not checked.
+ * Both throw a `TypeError` for a path that could leave `root` (a `..`
+ * segment, also `..\` on Windows).
  */
 export function nodeSkillFiles(root: string): SkillFiles {
     const base = path.resolve(root);
-    const toFsPath = (relative: string): string => (relative === '' ? base : path.join(base, ...splitRelativePath(relative, 'path')));
+    const toFsPath = (relative: string): string => fsPathWithin(path, base, relative);
     return {
         async list(dir) {
             const entries = await readdir(toFsPath(dir), { withFileTypes: true });

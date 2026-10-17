@@ -4,7 +4,7 @@
  * (`createMcpHandler`, one server per request) and stdio (a child process), on
  * both protocol versions.
  */
-import { rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
@@ -13,7 +13,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import type { SkillCatalog } from '@modelcontextprotocol/server/ext/skills';
 import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { ESCALATION, GIT, PURCHASE_ORDER, REFUNDS, writeSkillTree } from './skillTree';
 
@@ -150,10 +150,50 @@ describe('one catalog behind per-request HTTP servers', () => {
         const before = await skills.get(GIT);
         await writeFile(path.join(editable, 'git-workflow', 'references', 'REVIEW.md'), '# Review v2\n');
         await expect(skills.read(before, 'references/REVIEW.md')).rejects.toMatchObject({ code: -32_603 });
-        expect(await own.reload()).toEqual({ added: [], removed: [], changed: [GIT] });
+        expect(await own.reload()).toEqual({ added: [], removed: [], changed: [GIT], listChanged: false });
         const after = await skills.get(GIT);
         expect(await skills.read(after, 'references/REVIEW.md')).toMatchObject({ text: '# Review v2\n', verified: true });
         await client.close();
+        await rm(editable, { recursive: true, force: true });
+    });
+
+    it('tells listen streams about a listing change through handler.notify, which reload() alone cannot reach', async () => {
+        const editable = await writeSkillTree();
+        const own = await loadSkills(editable, { onWarning: () => {} });
+        const handler = createMcpHandler(
+            () => {
+                const mcp = new McpServer({ name: 'skills-http', version: '1.0.0' });
+                own.attach(mcp);
+                return mcp;
+            },
+            { keepAliveMs: 0 }
+        );
+        const client = clientFor(MODERN);
+        await client.connect(
+            new StreamableHTTPClientTransport(new URL('http://localhost/mcp'), {
+                fetch: (url, init) => handler.fetch(new Request(url, init))
+            })
+        );
+        const seen: string[] = [];
+        client.setNotificationHandler('notifications/resources/list_changed', () => void seen.push('resources/list_changed'));
+        const subscription = await client.listen({ resourcesListChanged: true });
+        expect(subscription.honoredFilter).toEqual({ resourcesListChanged: true });
+
+        await mkdir(path.join(editable, 'aaa'));
+        await writeFile(path.join(editable, 'aaa', 'SKILL.md'), '---\nname: aaa\ndescription: Sorts first.\n---\n');
+        const changes = await own.reload();
+        expect(changes).toMatchObject({ added: ['skill://aaa/SKILL.md'], listChanged: true });
+        // Every server this handler built has served its one request and closed: nothing reaches the stream.
+        await new Promise(resolve => setTimeout(resolve, 30));
+        expect(seen).toEqual([]);
+
+        // What docs/servers/skills.md tells servers behind createMcpHandler to do.
+        if (changes.listChanged) handler.notify.resourcesChanged();
+        await vi.waitFor(() => expect(seen).toEqual(['resources/list_changed']));
+
+        await subscription.close();
+        await client.close();
+        await handler.close();
         await rm(editable, { recursive: true, force: true });
     });
 });

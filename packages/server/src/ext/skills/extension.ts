@@ -12,15 +12,12 @@ import {
 import type { CacheHint, ListResourcesResult, ReadResourceResult, ServerContext } from '@modelcontextprotocol/core-internal';
 import {
     assertValidCacheHint,
-    canonicalUri,
-    encodeBase64,
     isModernProtocolVersion,
-    joinUri,
     ProtocolError,
     ProtocolErrorCode,
-    ResourceNotFoundError,
-    skillEntryProblems
+    ResourceNotFoundError
 } from '@modelcontextprotocol/core-internal';
+import { canonicalUri, encodeBase64, joinUri, skillEntryProblems } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { McpServer } from '../../server/mcp';
 import { ResourceTemplate } from '../../server/mcp';
@@ -54,6 +51,20 @@ function toContents(uri: string, result: SkillReadResult): ReadResourceResult['c
     const mimeType = result.mimeType === undefined ? {} : { mimeType: result.mimeType };
     return 'text' in result ? { uri, ...mimeType, text: result.text } : { uri, ...mimeType, blob: encodeBase64(result.bytes) };
 }
+
+/** Servers any skills extension is attached to: one per server (SEP-3371 rejects a duplicate extension identifier). */
+const skillsServers = new WeakSet<McpServer>();
+
+/**
+ * What runs after `attach` registered everything, by extension (`SkillCatalog` tracks the servers it notifies).
+ * Package-internal and off the class surface: SEP-3371 registration (`extensions: [skills]`) will not go through
+ * `attach`, so a subclass must not be able to hook it.
+ */
+const afterAttach = new WeakMap<SkillsExtension, (mcp: McpServer) => void>();
+
+const ONE_PER_SERVER =
+    'another skills extension is already attached to this server; attach one per server ' +
+    '(to serve several folders or sources, combine them behind one SkillFiles adapter or SkillSource)';
 
 /**
  * The MCP Skills extension (SEP-2640) for one catalog of skills. One instance
@@ -94,17 +105,21 @@ export class SkillsExtension {
     }
 
     /**
-     * Serves these skills on `mcp`: declares the capability, registers the
-     * skill resource template and the skills methods. Must run before
-     * connecting. Calling it again for the same server does nothing.
+     * Serves these skills on `mcp`: registers the skill resource template and
+     * the skills methods, then declares the capability. Must run before
+     * connecting. Calling it again for the same server does nothing. One
+     * skills extension per server: attaching another one throws and leaves the
+     * server as it was.
      */
     attach(mcp: McpServer): void {
         if (this.#attached.has(mcp)) return;
         if (mcp.isConnected()) throw new Error('attach skills before connecting the server');
+        if (skillsServers.has(mcp)) throw new Error(ONE_PER_SERVER);
         const server = mcp.server;
         const directoryRead = this.#source.readDirectory !== undefined;
-        server.registerCapabilities({ extensions: { [SKILLS_EXTENSION_ID]: directoryRead ? { directoryRead: true } : {} } });
         const list = this.#source.listResources === undefined ? undefined : (ctx: ServerContext) => this.#listResources(ctx);
+        // All or nothing: `registerResource` rejects a taken template name before it changes anything, and nothing
+        // after it can throw. The capability is declared last, so a server never advertises skills it does not serve.
         mcp.registerResource(
             SKILLS_EXTENSION_ID,
             new ResourceTemplate(`${this.#baseRoot}{+path}`, { list }),
@@ -122,12 +137,11 @@ export class SkillsExtension {
                 this.#readDirectory(server, params.uri, params.cursor, ctx)
             );
         }
+        server.registerCapabilities({ extensions: { [SKILLS_EXTENSION_ID]: directoryRead ? { directoryRead: true } : {} } });
         this.#attached.add(mcp);
-        this.afterAttach(mcp);
+        skillsServers.add(mcp);
+        afterAttach.get(this)?.(mcp);
     }
-
-    /** Called once per server after {@linkcode SkillsExtension.attach} registered everything. */
-    protected afterAttach(_mcp: McpServer): void {}
 
     #cacheFields(server: Server): { ttlMs?: number; cacheScope?: 'public' | 'private' } {
         return isModernProtocolVersion(server.getNegotiatedProtocolVersion() ?? '') ? { ...this.#cache } : {};
@@ -231,7 +245,7 @@ function listingKey(snapshot: CatalogSnapshot): string {
     return JSON.stringify(snapshot.listed.map(resource => [resource.uri, resource.name, resource.description]));
 }
 
-function diffSnapshots(previous: CatalogSnapshot, next: CatalogSnapshot): SkillCatalogChanges {
+function diffSnapshots(previous: CatalogSnapshot, next: CatalogSnapshot): Omit<SkillCatalogChanges, 'listChanged'> {
     const same = (uri: string): boolean => JSON.stringify(previous.skills.get(uri)) === JSON.stringify(next.skills.get(uri));
     return {
         added: [...next.skills.keys()].filter(uri => !previous.skills.has(uri)),
@@ -256,6 +270,7 @@ export class SkillCatalog extends SkillsExtension {
         this.#state = init.state;
         this.#files = init.files;
         this.#build = init.build;
+        afterAttach.set(this, mcp => this.#track(mcp));
     }
 
     static override async load(files: SkillFiles, options: SkillCatalogOptions = {}): Promise<SkillCatalog> {
@@ -281,7 +296,7 @@ export class SkillCatalog extends SkillsExtension {
         });
     }
 
-    /** The skills this catalog serves, sorted by URI. */
+    /** The skills this catalog serves, sorted by URI. Frozen (deeply): they are exactly what clients receive. */
     get entries(): readonly Skill[] {
         return this.#state.current.ordered;
     }
@@ -289,9 +304,16 @@ export class SkillCatalog extends SkillsExtension {
     /**
      * Scans the storage again and swaps the new catalog in at once. All or
      * nothing: on failure the old catalog keeps serving. Overlapping calls run
-     * one after another. Sends `resources/list_changed` to connected servers
-     * when skills are added or removed, or a `SKILL.md`'s name or description
-     * changes.
+     * one after another.
+     *
+     * When skills are added or removed, or a `SKILL.md`'s name or description
+     * changes, the result has `listChanged: true` and `resources/list_changed`
+     * goes out through every attached server that is still connected (stdio,
+     * stateful 2025-11-25 HTTP sessions). Servers that `createMcpHandler` builds per
+     * request are closed by then, so publish the change on the handler:
+     * `if (changes.listChanged) handler.notify.resourcesChanged()`. Where the
+     * runtime has no `WeakRef` (Cloudflare Workers with a compatibility date
+     * before 2025-05-05), attached servers are not tracked and nothing is sent.
      */
     reload(): Promise<SkillCatalogChanges> {
         const run = this.#queue.then(() => this.#reloadNow());
@@ -302,7 +324,10 @@ export class SkillCatalog extends SkillsExtension {
         return run;
     }
 
-    protected override afterAttach(mcp: McpServer): void {
+    /** Remembers `mcp`, weakly, for `resources/list_changed` after a reload. */
+    #track(mcp: McpServer): void {
+        // Without WeakRef, holding servers strongly would keep every per-request server alive; track none instead.
+        if (typeof WeakRef !== 'function') return;
         if (this.#servers.size >= PRUNE_THRESHOLD) {
             for (const reference of this.#servers) if (reference.deref() === undefined) this.#servers.delete(reference);
         }
@@ -313,8 +338,9 @@ export class SkillCatalog extends SkillsExtension {
         const previous = this.#state.current;
         const next = await buildCatalogSnapshot(this.#files, this.#build);
         this.#state.current = next;
-        if (listingKey(previous) !== listingKey(next)) this.#notify();
-        return diffSnapshots(previous, next);
+        const listChanged = listingKey(previous) !== listingKey(next);
+        if (listChanged) this.#notify();
+        return { ...diffSnapshots(previous, next), listChanged };
     }
 
     /**

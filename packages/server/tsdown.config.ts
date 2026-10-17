@@ -31,6 +31,7 @@ export default defineConfig({
                 '@modelcontextprotocol/core/ext/skills': ['../core/src/ext/skills/index.ts'],
                 '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
                 '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core-internal/ext/skills': ['../core-internal/src/ext/skills/index.ts'],
                 '@modelcontextprotocol/core-internal/validators/ajv': ['../core-internal/src/validators/ajvProvider.ts'],
                 '@modelcontextprotocol/core-internal/validators/cfWorker': ['../core-internal/src/validators/cfWorkerProvider.ts']
             }

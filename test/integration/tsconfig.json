@@ -15,6 +15,9 @@
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
+            "@modelcontextprotocol/core-internal/ext/skills": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/validators/ajv": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/validators/ajvProvider.ts"
             ],

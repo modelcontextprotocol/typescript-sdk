@@ -1,5 +1,5 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
-import { buildSkillEntry, encodeUtf8, joinUri } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, encodeUtf8, joinUri } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import { SkillCatalogError } from './errors';
 import { splitRelativePath } from './files';

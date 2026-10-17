@@ -1,12 +1,5 @@
-import {
-    compareUris,
-    decodeBase64,
-    decodeUtf8Lossless,
-    encodeBase64,
-    encodeUtf8,
-    ProtocolError,
-    ProtocolErrorCode
-} from '@modelcontextprotocol/core-internal';
+import { ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
+import { compareUris, decodeBase64, decodeUtf8Lossless, encodeBase64, encodeUtf8 } from '@modelcontextprotocol/core-internal/ext/skills';
 
 const CURSOR_PREFIX = 'after:';
 

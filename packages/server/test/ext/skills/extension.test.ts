@@ -5,7 +5,9 @@ import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import type { SkillSource, SkillWarning } from '../../../src/ext/skills/index';
-import { SkillCatalogError, skillEntry, SkillsExtension } from '../../../src/ext/skills/index';
+import { memorySkillFiles, SkillCatalogError, skillEntry, SkillsExtension } from '../../../src/ext/skills/index';
+import { ResourceTemplate } from '../../../src/server/mcp';
+import { GIT, GIT_SKILL_MD } from './fixtures';
 import { errorOf, LEGACY, newServer, resultOf } from './harness';
 
 const digest = `sha256:${'a'.repeat(64)}`;
@@ -192,6 +194,54 @@ describe('attach', () => {
         extension.attach(second);
         expect(await resultOf(first, 'skills/get', { uri: gitWorkflow.uri })).toMatchObject({ skill: gitWorkflow });
         expect(await resultOf(second, 'skills/get', { uri: gitWorkflow.uri })).toMatchObject({ skill: gitWorkflow });
+        expect(first.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/skills': {} });
+    });
+
+    it('refuses a second skills extension on a server, leaving the first one serving with its capability unchanged', async () => {
+        const mcp = newServer();
+        const catalog = await SkillsExtension.load(memorySkillFiles({ 'git-workflow/SKILL.md': GIT_SKILL_MD }));
+        catalog.attach(mcp);
+        const declared = { 'io.modelcontextprotocol/skills': { directoryRead: true } };
+        expect(mcp.server.getCapabilities().extensions).toEqual(declared);
+        // A source without readDirectory would declare `{}`: the probe that used to overwrite `directoryRead`.
+        const second = new SkillsExtension({ source: sourceOf() });
+        expect(() => second.attach(mcp)).toThrow(/another skills extension is already attached/);
+        expect(() => second.attach(mcp)).toThrow(/another skills extension is already attached/);
+        expect(mcp.server.getCapabilities().extensions).toEqual(declared);
+        expect(await resultOf(mcp, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
+        expect(await resultOf(mcp, 'resources/directory/read', { uri: 'skill://git-workflow' })).toMatchObject({
+            resources: [{ name: 'SKILL.md' }]
+        });
+        // The refused extension still attaches to a server of its own.
+        const own = newServer();
+        second.attach(own);
+        expect(own.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/skills': {} });
+    });
+
+    it('declares nothing when the template name is already taken', () => {
+        const mcp = newServer();
+        mcp.registerResource(
+            'io.modelcontextprotocol/skills',
+            new ResourceTemplate('app://{+path}', { list: undefined }),
+            {},
+            async uri => ({
+                contents: [{ uri: uri.href, text: 'app' }]
+            })
+        );
+        expect(() => new SkillsExtension({ source: sourceOf() }).attach(mcp)).toThrow(/already registered/);
+        expect(mcp.server.getCapabilities().extensions?.['io.modelcontextprotocol/skills']).toBeUndefined();
+    });
+
+    it('has no attach hook a subclass can override', () => {
+        let calls = 0;
+        class Hooked extends SkillsExtension {
+            afterAttach(): void {
+                calls++;
+            }
+        }
+        new Hooked({ source: sourceOf() }).attach(newServer());
+        expect(calls).toBe(0);
+        expect('afterAttach' in SkillsExtension.prototype).toBe(false);
     });
 
     it('throws after the server connected', async () => {

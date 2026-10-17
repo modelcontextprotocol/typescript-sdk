@@ -17,6 +17,10 @@ const ROOT_VALIDATOR_EXPORTS = ['AjvJsonSchemaValidator', 'CfWorkerJsonSchemaVal
 // Static (`from "node:x"`), side-effect (`import "node:x"`, what rolldown keeps for an external whose bindings were
 // tree-shaken) and dynamic `node:` imports. Only `.mjs` files are scanned, so `require(` is not matched.
 const NODE_BUILTIN_IMPORT = /\b(?:from|import)\s*["']node:|\bimport\s*\(\s*["']node:/;
+// The skills extension's shared schemas: a static, side-effect or dynamic import of the external subpath.
+const CORE_SKILLS_IMPORT = /\b(?:from|import)\s*\(?\s*["']@modelcontextprotocol\/core\/ext\/skills["']/;
+// The skills extension's own code (core-internal's `ext/skills`): the frontmatter parser and the entry builder.
+const SKILLS_CODE = /\b(?:FrontmatterError|parseFrontmatterYaml|buildSkillEntry|skillEntryProblems)\b/;
 
 /**
  * An ESM entry and every chunk it imports, following relative `from` and side-effect `import` specifiers, both
@@ -31,6 +35,21 @@ function moduleGraphOf(entryPath: string): string[] {
         visited.add(file);
         for (const m of readFileSync(file, 'utf8').matchAll(/\b(?:from|import)\s*["'](\.{1,2}\/[^"']+?\.mjs)["']/g)) {
             queue.push(join(dirname(file), m[1]!));
+        }
+    }
+    return [...visited];
+}
+
+/** A declaration entry and every declaration chunk it imports (a `.d.mts` file names its siblings as `.mjs`). */
+function declarationGraphOf(entryPath: string): string[] {
+    const visited = new Set<string>();
+    const queue = [entryPath];
+    while (queue.length > 0) {
+        const file = queue.shift()!;
+        if (visited.has(file)) continue;
+        visited.add(file);
+        for (const m of readFileSync(file, 'utf8').matchAll(/\b(?:from|import)\s*["'](\.{1,2}\/[^"']+?)\.mjs["']/g)) {
+            queue.push(join(dirname(file), `${m[1]!}.d.mts`));
         }
     }
     return [...visited];
@@ -128,5 +147,31 @@ describe('@modelcontextprotocol/server root and ext/skills are runtime-neutral',
         expect(rootExportBlockOf(readFileSync(join(distDir, 'index.mjs'), 'utf8'))).not.toMatch(
             /\b(?:SkillsExtension|SkillCatalog|loadSkills|nodeSkillFiles)\b/
         );
+    });
+
+    test('dist/index.mjs and every chunk it imports carry no skills code and no @modelcontextprotocol/core/ext/skills import', () => {
+        // Users who never import ext/skills must not load (or bundle) the frontmatter parser or the skills schemas.
+        for (const file of moduleGraphOf(join(distDir, 'index.mjs'))) {
+            const content = readFileSync(file, 'utf8');
+            expect({ file, content }).not.toEqual(expect.objectContaining({ content: expect.stringMatching(CORE_SKILLS_IMPORT) }));
+            expect({ file, content }).not.toEqual(expect.objectContaining({ content: expect.stringMatching(SKILLS_CODE) }));
+        }
+    });
+
+    test('the ext/skills entry graph is where the skills code and the core/ext/skills import live (guards the patterns)', () => {
+        const graph = moduleGraphOf(join(distDir, 'ext/skills/index.mjs')).map(file => readFileSync(file, 'utf8'));
+        expect(graph.some(content => CORE_SKILLS_IMPORT.test(content))).toBe(true);
+        expect(graph.some(content => SKILLS_CODE.test(content))).toBe(true);
+    });
+
+    test('the ext/skills declarations give subclasses no attach hook to override', () => {
+        // SEP-3371 registration (`extensions: [skills]`) will not go through attach(), so no hook may be public API.
+        const graph = declarationGraphOf(join(distDir, 'ext/skills/index.d.mts'));
+        expect(graph.some(file => /\bdeclare class SkillCatalog\b/.test(readFileSync(file, 'utf8')))).toBe(true);
+        for (const file of graph) {
+            expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
+                expect.objectContaining({ content: expect.stringMatching(/\bafterAttach\b/) })
+            );
+        }
     });
 });

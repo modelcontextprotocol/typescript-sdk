@@ -1,11 +1,5 @@
-import {
-    canonicalUri,
-    decodeUtf8Lossless,
-    ProtocolError,
-    ProtocolErrorCode,
-    ResourceNotFoundError,
-    sha256Digest
-} from '@modelcontextprotocol/core-internal';
+import { ProtocolError, ProtocolErrorCode, ResourceNotFoundError } from '@modelcontextprotocol/core-internal';
+import { canonicalUri, decodeUtf8Lossless, sha256Digest } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { CatalogSnapshot } from './catalogBuild';
 import { trustedSources } from './internal';

@@ -19,7 +19,7 @@ import {
     skillFileKey,
     skillRootUri,
     splitFrontmatter
-} from '@modelcontextprotocol/core-internal';
+} from '@modelcontextprotocol/core-internal/ext/skills';
 import type { RequestOptions } from '@modelcontextprotocol/core-internal/public';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';

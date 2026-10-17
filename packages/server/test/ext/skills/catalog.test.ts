@@ -162,6 +162,33 @@ describe('SkillCatalog serving', () => {
         for (const server of servers) catalog.attach(server);
         for (const server of servers) expect(await resultOf(server, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
     });
+
+    it('hands out frozen entries: an edit throws and never changes what is served', async () => {
+        const { catalog, mcp } = await loaded();
+        const refunds = catalog.entries.find(skill => skill.uri === REFUNDS)!;
+        expect(() => {
+            (refunds.frontmatter as Record<string, unknown>)['description'] = 'edited for display';
+        }).toThrow(TypeError);
+        expect(() => {
+            (refunds.resources as SkillResourceEntry[])[0]!.digest = `sha256:${'0'.repeat(64)}`;
+        }).toThrow(TypeError);
+        expect(() => (refunds.resources as SkillResourceEntry[]).pop()).toThrow(TypeError);
+        expect(() => (catalog.entries as Skill[]).pop()).toThrow(TypeError);
+        expect(await resultOf(mcp, 'skills/get', { uri: REFUNDS })).toMatchObject({
+            skill: { frontmatter: { description: 'Refund workflow.' } }
+        });
+        expect(catalog.entries).toHaveLength(3);
+    });
+
+    it('freezes nested frontmatter too', async () => {
+        const skillMd = '---\nname: owned\ndescription: d\nmetadata:\n  owner: billing\ntags: [a, b]\n---\n';
+        const catalog = await SkillsExtension.load(memorySkillFiles({ 'owned/SKILL.md': skillMd }));
+        const frontmatter = catalog.entries[0]!.frontmatter as unknown as { metadata: Record<string, string>; tags: string[] };
+        expect(() => {
+            frontmatter.metadata['owner'] = 'someone else';
+        }).toThrow(TypeError);
+        expect(() => frontmatter.tags.push('c')).toThrow(TypeError);
+    });
 });
 
 describe('SkillCatalog.reload', () => {
@@ -170,8 +197,40 @@ describe('SkillCatalog.reload', () => {
         delete files['git-workflow/SKILL.md'];
         delete files['git-workflow/references/REVIEW.md'];
         files['acme/billing/refunds/templates/Purchase Order.md'] = '# PO v2\n';
-        expect(await catalog.reload()).toEqual({ added: [], removed: [GIT], changed: [REFUNDS] });
+        expect(await catalog.reload()).toEqual({ added: [], removed: [GIT], changed: [REFUNDS], listChanged: true });
         expect(catalog.entries.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION]);
+    });
+
+    it('reports listChanged only when what clients list changes', async () => {
+        const { catalog, files } = await loaded();
+        expect(await catalog.reload()).toEqual({ added: [], removed: [], changed: [], listChanged: false });
+        files['git-workflow/references/REVIEW.md'] = '# Review v2\n';
+        expect(await catalog.reload()).toEqual({ added: [], removed: [], changed: [GIT], listChanged: false });
+        files['git-workflow/SKILL.md'] = GIT_SKILL_MD.replace('Branching and review conventions.', 'Branching, review and release.');
+        expect(await catalog.reload()).toEqual({ added: [], removed: [], changed: [GIT], listChanged: true });
+        files['aaa/SKILL.md'] = NEW_SKILL;
+        expect(await catalog.reload()).toMatchObject({ added: ['skill://aaa/SKILL.md'], listChanged: true });
+    });
+
+    it('attaches and reloads where the runtime has no WeakRef, tracking no servers (Workers before 2025-05-05)', async () => {
+        const { catalog, files } = await loaded();
+        const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'WeakRef')!;
+        Reflect.deleteProperty(globalThis, 'WeakRef');
+        try {
+            expect(typeof WeakRef).toBe('undefined');
+            const mcp = newServer();
+            expect(() => catalog.attach(mcp)).not.toThrow();
+            expect(await resultOf(mcp, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
+            const notify = vi.spyOn(mcp.server, 'sendResourceListChanged');
+            const [, serverSide] = InMemoryTransport.createLinkedPair();
+            await mcp.connect(serverSide);
+            files['aaa/SKILL.md'] = NEW_SKILL;
+            expect(await catalog.reload()).toMatchObject({ added: ['skill://aaa/SKILL.md'], listChanged: true });
+            expect(notify).not.toHaveBeenCalled();
+            await mcp.close();
+        } finally {
+            Object.defineProperty(globalThis, 'WeakRef', descriptor);
+        }
     });
 
     it('keeps serving the old catalog when a reload fails', async () => {
@@ -200,10 +259,10 @@ describe('SkillCatalog.reload', () => {
         const [, serverSide] = InMemoryTransport.createLinkedPair();
         await mcp.connect(serverSide);
         files['git-workflow/references/REVIEW.md'] = '# Review v2\n';
-        await catalog.reload();
+        expect(await catalog.reload()).toMatchObject({ listChanged: false });
         expect(notify).not.toHaveBeenCalled();
         files['aaa/SKILL.md'] = NEW_SKILL;
-        await catalog.reload();
+        expect(await catalog.reload()).toMatchObject({ listChanged: true });
         expect(notify).toHaveBeenCalledTimes(1);
         expect(skipped).not.toHaveBeenCalled();
         await mcp.close();

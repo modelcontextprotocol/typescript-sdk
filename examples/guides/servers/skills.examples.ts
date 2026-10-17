@@ -40,10 +40,18 @@ const handler = createMcpHandler(() => {
 });
 //#endregion attach_perRequest
 
+// What the handler publishes to `subscriptions/listen` streams, recorded for the checks at the end.
+const published: string[] = [];
+handler.bus.subscribe(event => published.push(event.kind));
+
 //#region reload
 const changes = await skills.reload();
 console.log(changes);
 //#endregion reload
+
+//#region reload_notify
+if (changes.listChanged) handler.notify.resourcesChanged();
+//#endregion reload_notify
 
 //#region memorySkillFiles
 import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
@@ -109,10 +117,22 @@ if (JSON.stringify(skills.entries.map(skill => skill.uri)) !== JSON.stringify(QU
     throw new Error('skills.md: the catalog must publish the quoted URIs, sorted');
 }
 if (checked.entries.length !== 2) throw new Error('skills.md: expected two skills');
-if (JSON.stringify(changes) !== JSON.stringify({ added: [], removed: [], changed: [] })) throw new Error('skills.md: reload claim failed');
+if (JSON.stringify(changes) !== JSON.stringify({ added: [], removed: [], changed: [], listChanged: false })) {
+    throw new Error('skills.md: reload claim failed');
+}
+// reload_notify: nothing changed, so nothing was published; a skill appearing is a listing change the handler publishes.
+if (published.length > 0) throw new Error('skills.md: an unchanged reload must not publish');
+const record: Record<string, string> = { 'release-notes/SKILL.md': RELEASE_NOTES_MD };
+const live = await SkillsExtension.load(memorySkillFiles(record));
+record['on-call/SKILL.md'] = ON_CALL_MD;
+const liveChanges = await live.reload();
+if (liveChanges.listChanged) handler.notify.resourcesChanged();
+if (!liveChanges.listChanged || JSON.stringify(published) !== JSON.stringify(['resources_list_changed'])) {
+    throw new Error('skills.md: a skill added must set listChanged, and handler.notify must publish resources/list_changed');
+}
 if (inline.entries[0]?.frontmatter.name !== 'release-notes' || fromBucket.entries[0]?.uri !== inline.entries[0]?.uri) {
     throw new Error('skills.md: in-code and adapter catalogs must match');
 }
 for (const extension of [inline, fromBucket, generated]) extension.attach(new McpServer({ name: 'docs-check', version: '1.0.0' }));
-void handler;
+await handler.close();
 await server.close();

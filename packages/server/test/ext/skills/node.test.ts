@@ -4,6 +4,7 @@ import path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { fsPathWithin } from '../../../src/ext/skills/fsPath';
 import type { SkillWarning } from '../../../src/ext/skills/index';
 import { memorySkillFiles, SkillCatalogError, SkillsExtension } from '../../../src/ext/skills/index';
 import { loadSkills, nodeSkillFiles } from '../../../src/ext/skills/node';
@@ -55,6 +56,36 @@ describe('nodeSkillFiles', () => {
     });
 });
 
+// The containment rule nodeSkillFiles applies, run with each platform's path rules so every OS tests both.
+describe('fsPathWithin', () => {
+    it('rejects a Windows ..\\ escape by Windows rules', () => {
+        const base = String.raw`C:\skills`;
+        // What the adapter used to do: `path.join` resolves the backslash `..` and leaves the root.
+        expect(path.win32.join(base, String.raw`..\secret`)).toBe(String.raw`C:\secret`);
+        for (const escape of [String.raw`..\secret`, String.raw`git-workflow\..\..\secret`, String.raw`git-workflow/..\..\secret`]) {
+            expect(() => fsPathWithin(path.win32, base, escape)).toThrow(TypeError);
+        }
+        expect(() => fsPathWithin(path.win32, base, String.raw`git-workflow\..\SKILL.md`)).toThrow(TypeError);
+        expect(() => fsPathWithin(path.win32, base, '../secret')).toThrow(TypeError);
+    });
+
+    it('keeps paths inside the root by Windows rules', () => {
+        const base = String.raw`C:\skills`;
+        expect(fsPathWithin(path.win32, base, '')).toBe(base);
+        expect(fsPathWithin(path.win32, base, 'git-workflow/references/REVIEW.md')).toBe(
+            String.raw`C:\skills\git-workflow\references\REVIEW.md`
+        );
+        expect(fsPathWithin(path.win32, base, '..notes/a.md')).toBe(String.raw`C:\skills\..notes\a.md`);
+    });
+
+    it('treats a backslash as part of a name by POSIX rules', () => {
+        expect(fsPathWithin(path.posix, '/skills', String.raw`..\secret`)).toBe(String.raw`/skills/..\secret`);
+        expect(fsPathWithin(path.posix, '/skills', 'git-workflow/SKILL.md')).toBe('/skills/git-workflow/SKILL.md');
+        expect(() => fsPathWithin(path.posix, '/skills', '../secret')).toThrow(TypeError);
+        expect(() => fsPathWithin(path.posix, '/skills', 'a/../../secret')).toThrow(TypeError);
+    });
+});
+
 describe('loadSkills', () => {
     it('builds the same entries as the in-memory adapter', async () => {
         const fromDisk = await loadSkills(root);
@@ -99,7 +130,7 @@ describe('loadSkills', () => {
         await writeFile(path.join(root, 'git-workflow', 'references', 'REVIEW.md'), '# Review v2\n');
         const uri = 'skill://git-workflow/references/REVIEW.md';
         expect(await errorOf(mcp, 'resources/read', { uri })).toMatchObject({ code: -32_603 });
-        expect(await catalog.reload()).toEqual({ added: [], removed: [], changed: [GIT] });
+        expect(await catalog.reload()).toEqual({ added: [], removed: [], changed: [GIT], listChanged: false });
         expect(await resultOf(mcp, 'resources/read', { uri })).toMatchObject({ contents: [{ uri, text: '# Review v2\n' }] });
     });
 });

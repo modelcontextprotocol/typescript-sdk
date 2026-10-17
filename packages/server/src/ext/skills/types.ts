@@ -69,4 +69,9 @@ export interface SkillCatalogChanges {
     added: string[];
     removed: string[];
     changed: string[];
+    /**
+     * Whether what clients list changed: a skill added or removed, or a `SKILL.md`'s name or description. When
+     * `true`, tell clients (`resources/list_changed`); behind `createMcpHandler`, call `handler.notify.resourcesChanged()`.
+     */
+    listChanged: boolean;
 }
