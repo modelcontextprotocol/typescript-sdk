@@ -4,6 +4,7 @@ import {
     ListSkillsRequestParamsSchema,
     ReadResourceDirectoryRequestParamsSchema,
     RESOURCES_DIRECTORY_READ_METHOD,
+    SKILL_LIMITS,
     SKILLS_EXTENSION_ID,
     SKILLS_GET_METHOD,
     SKILLS_LIST_METHOD
@@ -14,6 +15,7 @@ import {
     canonicalUri,
     encodeBase64,
     isModernProtocolVersion,
+    joinUri,
     ProtocolError,
     ProtocolErrorCode,
     ResourceNotFoundError,
@@ -23,9 +25,23 @@ import {
 import type { McpServer } from '../../server/mcp';
 import { ResourceTemplate } from '../../server/mcp';
 import type { Server } from '../../server/server';
+import type { CatalogBuildOptions, CatalogSnapshot } from './catalogBuild';
+import { buildCatalogSnapshot } from './catalogBuild';
+import type { CatalogState } from './catalogSource';
+import { catalogSource } from './catalogSource';
 import { defaultWarn } from './errors';
+import { splitRelativePath } from './files';
 import { trustedSources } from './internal';
-import type { SkillReadResult, SkillSource, SkillSourceOptions, SkillWarning } from './types';
+import { resolvePageSize } from './paging';
+import type {
+    SkillCatalogChanges,
+    SkillCatalogOptions,
+    SkillFiles,
+    SkillReadResult,
+    SkillSource,
+    SkillSourceOptions,
+    SkillWarning
+} from './types';
 
 const SCHEME_URI = /^[a-z][\d+.a-z-]*:\/\//i;
 
@@ -55,6 +71,14 @@ export class SkillsExtension {
     readonly #strict: boolean;
     readonly #warn: (warning: SkillWarning) => void;
     readonly #attached = new WeakSet<McpServer>();
+
+    /**
+     * Builds a catalog from storage through a {@linkcode SkillFiles} adapter
+     * (`memorySkillFiles`, `nodeSkillFiles`, or your own).
+     */
+    static load(files: SkillFiles, options?: SkillCatalogOptions): Promise<SkillCatalog> {
+        return SkillCatalog.load(files, options);
+    }
 
     constructor(options: SkillSourceOptions) {
         if (options.cacheHint !== undefined) assertValidCacheHint(options.cacheHint, 'skills cacheHint');
@@ -179,5 +203,126 @@ export class SkillsExtension {
                 });
         }
         return { resources: kept };
+    }
+}
+
+interface CatalogInit {
+    readonly state: CatalogState;
+    readonly files: SkillFiles;
+    readonly build: CatalogBuildOptions;
+    readonly sourceOptions: SkillSourceOptions;
+}
+
+/** At this many tracked servers, `attach` first drops references to servers that were garbage-collected. */
+const PRUNE_THRESHOLD = 1024;
+
+function resolveLimits(limits: SkillCatalogOptions['limits']): { files: number; bytes: number } {
+    const resolved = { files: limits?.files ?? SKILL_LIMITS.files, bytes: limits?.bytes ?? SKILL_LIMITS.bytes };
+    for (const [name, value] of Object.entries(resolved)) {
+        if (value !== Number.POSITIVE_INFINITY && !(Number.isSafeInteger(value) && value > 0)) {
+            throw new RangeError(`limits.${name} must be a positive integer or Infinity (got ${value})`);
+        }
+    }
+    return resolved;
+}
+
+/** What `resources/list_changed` is about: which skills exist, and each one's name and description. */
+function listingKey(snapshot: CatalogSnapshot): string {
+    return JSON.stringify(snapshot.listed.map(resource => [resource.uri, resource.name, resource.description]));
+}
+
+function diffSnapshots(previous: CatalogSnapshot, next: CatalogSnapshot): SkillCatalogChanges {
+    const same = (uri: string): boolean => JSON.stringify(previous.skills.get(uri)) === JSON.stringify(next.skills.get(uri));
+    return {
+        added: [...next.skills.keys()].filter(uri => !previous.skills.has(uri)),
+        removed: [...previous.skills.keys()].filter(uri => !next.skills.has(uri)),
+        changed: [...next.skills.keys()].filter(uri => previous.skills.has(uri) && !same(uri))
+    };
+}
+
+/**
+ * A catalog the SDK built from storage. It holds metadata only: every file
+ * read goes through the adapter and is checked against the published entry.
+ */
+export class SkillCatalog extends SkillsExtension {
+    readonly #state: CatalogState;
+    readonly #files: SkillFiles;
+    readonly #build: CatalogBuildOptions;
+    readonly #servers = new Set<WeakRef<McpServer>>();
+    #queue: Promise<unknown> = Promise.resolve();
+
+    private constructor(init: CatalogInit) {
+        super(init.sourceOptions);
+        this.#state = init.state;
+        this.#files = init.files;
+        this.#build = init.build;
+    }
+
+    static override async load(files: SkillFiles, options: SkillCatalogOptions = {}): Promise<SkillCatalog> {
+        const pageSize = resolvePageSize(options.pageSize);
+        const build: CatalogBuildOptions = {
+            prefix: options.prefix === undefined ? [] : splitRelativePath(options.prefix, 'prefix'),
+            limits: resolveLimits(options.limits),
+            strict: options.strict ?? false,
+            warn: options.onWarning ?? defaultWarn
+        };
+        const state: CatalogState = { current: await buildCatalogSnapshot(files, build) };
+        return new SkillCatalog({
+            state,
+            files,
+            build,
+            sourceOptions: {
+                source: catalogSource(state, files, pageSize, build.warn),
+                baseUri: build.prefix.length === 0 ? 'skill://' : joinUri('skill://', build.prefix),
+                cacheHint: options.cacheHint,
+                strict: options.strict,
+                onWarning: build.warn
+            }
+        });
+    }
+
+    /** The skills this catalog serves, sorted by URI. */
+    get entries(): readonly Skill[] {
+        return this.#state.current.ordered;
+    }
+
+    /**
+     * Scans the storage again and swaps the new catalog in at once. All or
+     * nothing: on failure the old catalog keeps serving. Overlapping calls run
+     * one after another. Sends `resources/list_changed` to connected servers
+     * when skills are added or removed, or a `SKILL.md`'s name or description
+     * changes.
+     */
+    reload(): Promise<SkillCatalogChanges> {
+        const run = this.#queue.then(() => this.#reloadNow());
+        this.#queue = run.then(
+            () => {},
+            () => {}
+        );
+        return run;
+    }
+
+    protected override afterAttach(mcp: McpServer): void {
+        if (this.#servers.size >= PRUNE_THRESHOLD) {
+            for (const reference of this.#servers) if (reference.deref() === undefined) this.#servers.delete(reference);
+        }
+        this.#servers.add(new WeakRef(mcp));
+    }
+
+    async #reloadNow(): Promise<SkillCatalogChanges> {
+        const previous = this.#state.current;
+        const next = await buildCatalogSnapshot(this.#files, this.#build);
+        this.#state.current = next;
+        if (listingKey(previous) !== listingKey(next)) this.#notify();
+        return diffSnapshots(previous, next);
+    }
+
+    #notify(): void {
+        for (const reference of this.#servers) {
+            const mcp = reference.deref();
+            // McpServer.sendResourceListChanged does nothing while disconnected.
+            if (mcp === undefined) this.#servers.delete(reference);
+            else mcp.sendResourceListChanged();
+        }
     }
 }

@@ -5,9 +5,20 @@
 // (modelcontextprotocol/ext-skills#71), typescript-sdk#2818 and #2972.
 
 export { SkillCatalogError } from './errors';
-export { SkillsExtension } from './extension';
+export { SkillCatalog, SkillsExtension } from './extension';
+export { memorySkillFiles } from './files';
 export { skillEntry } from './skillEntry';
-export type { SkillReadResult, SkillsOptions, SkillSource, SkillSourceOptions, SkillWarning } from './types';
+export type {
+    SkillCatalogChanges,
+    SkillCatalogOptions,
+    SkillFileEntry,
+    SkillFiles,
+    SkillReadResult,
+    SkillsOptions,
+    SkillSource,
+    SkillSourceOptions,
+    SkillWarning
+} from './types';
 export type {
     DirectoryResource,
     GetSkillResult,
