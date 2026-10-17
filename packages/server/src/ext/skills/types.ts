@@ -42,3 +42,31 @@ export interface SkillSourceOptions extends SkillsOptions {
     /** Every URI the source serves starts with this. Default `skill://`. */
     baseUri?: string;
 }
+
+/** One child of a directory. `unsupported` marks symlinks and other special files; the catalog skips the skill that contains one. */
+export interface SkillFileEntry {
+    name: string;
+    kind: 'file' | 'directory' | 'unsupported';
+}
+
+/** Storage adapter for catalogs: two operations over relative, `/`-separated paths (`''` is the root). */
+export interface SkillFiles {
+    list(dir: string): Promise<SkillFileEntry[]>;
+    read(path: string): Promise<Uint8Array>;
+}
+
+export interface SkillCatalogOptions extends SkillsOptions {
+    /** Organisational prefix: `'acme'` serves `skill://acme/<skill>/…`. */
+    prefix?: string;
+    /** Entries per `skills/list` and directory page: a positive integer or `Infinity`. Default 100. */
+    pageSize?: number;
+    /** Publication limits per skill. Default `SKILL_LIMITS` (512 files, 16 MiB). Beyond them: a warning, or an error under `strict`. */
+    limits?: { files?: number; bytes?: number };
+}
+
+/** What a `reload()` changed, as `SKILL.md` URIs. */
+export interface SkillCatalogChanges {
+    added: string[];
+    removed: string[];
+    changed: string[];
+}
