@@ -1,6 +1,19 @@
-/** Percent-encodes one path segment; the result is stable under `new URL()`. */
+/**
+ * Every character a segment cannot carry as it is: WHATWG URL's path percent-encode set (controls, space,
+ * `"#<>?^\`{}`, DEL and non-ASCII) plus `%`, `/` and `\`, which would start an escape or split the segment.
+ */
+const ENCODED_IN_SEGMENT = /[^\w!$&'()*+,.:;=@[\]|~-]/gu;
+
+/**
+ * Percent-encodes one path segment the way WHATWG URL serialises it, so `new URL(name, root)` on a host yields the
+ * published URI: sub-delimiters such as `&`, `+`, `@` and `[` stay as they are, and `%`, `/`, `?`, `#` and `\` are
+ * always encoded. The dots of a `.` or `..` segment are encoded too; WHATWG URL still reads `%2E` as a dot, so such
+ * a URI fails {@linkcode isRoundTripUri} and {@linkcode isWithin} instead of naming the parent. Throws `URIError` on
+ * a lone surrogate.
+ */
 export function encodeSegment(segment: string): string {
-    return encodeURIComponent(segment);
+    if (segment === '.' || segment === '..') return segment.replaceAll('.', '%2E');
+    return segment.replaceAll(ENCODED_IN_SEGMENT, char => encodeURIComponent(char));
 }
 
 /** `base` + `/`-joined encoded segments. `base` is `scheme://` or a URI without a trailing slash. */
@@ -67,6 +80,30 @@ export function isWithin(rootUri: string, uri: string): boolean {
             const decoded = safeDecode(segment);
             return decoded !== '' && decoded !== '.' && decoded !== '..' && !decoded.includes('/') && !decoded.includes('\0');
         });
+}
+
+/**
+ * The one spelling every way of writing a file's URI below `rootUri` shares: canonical, without its fragment, and
+ * each segment below the root decoded and re-encoded with {@linkcode encodeSegment}. `Q&A.md`, `Q%26A.md` and
+ * `%51&A.md` key alike, as do `%c3%a9` and `%C3%A9`. A URI outside the root, or with a query, keys as its canonical
+ * form without the fragment; `undefined` if it does not parse.
+ */
+export function skillFileKey(rootUri: string, uri: string): string | undefined {
+    let url: URL;
+    try {
+        url = new URL(uri);
+    } catch {
+        return undefined;
+    }
+    url.hash = '';
+    const canonical = url.href;
+    // A canonical path never holds a raw `?`, so one here starts a query, even an empty one.
+    if (canonical.includes('?') || !canonical.startsWith(`${rootUri}/`)) return canonical;
+    const below = canonical
+        .slice(rootUri.length + 1)
+        .split('/')
+        .map(segment => encodeSegment(safeDecode(segment)));
+    return `${rootUri}/${below.join('/')}`;
 }
 
 /** Resolves `ref` (default `SKILL.md`) against the skill's root, as a browser resolves a link. */

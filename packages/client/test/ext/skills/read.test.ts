@@ -1,5 +1,5 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
-import { encodeUtf8, SdkErrorCode, sha256Digest } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, encodeUtf8, SdkErrorCode, sha256Digest } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SkillsClientOptions } from '../../../src/ext/skills/index';
@@ -22,6 +22,17 @@ async function connected({ files = PDF_FILES, options = {}, readTtlMs }: Setup =
     const served = filesOf(PDF_ROOT, files);
     const { client, calls } = await scriptedClient(CAPABILITIES, skillsHandlers([skill], served, { readTtlMs }));
     return { skill, served, calls, skills: new SkillsClient(client, options) };
+}
+
+/** A server that publishes exactly these URIs, however it spells them, with these contents. */
+async function publishedAs(contents: ReadonlyMap<string, string>) {
+    const { skill, problems } = await buildSkillEntry(
+        MANIFEST,
+        [...contents].map(([uri, text]) => ({ uri, bytes: encodeUtf8(text) }))
+    );
+    if (skill === undefined || problems.length > 0) throw new Error(problems.join('; '));
+    const { client, calls } = await scriptedClient(CAPABILITIES, skillsHandlers([skill], contents));
+    return { skill, calls, skills: new SkillsClient(client) };
 }
 
 const reads = (calls: Call[]): unknown[] => calls.filter(call => call.method === 'resources/read').map(call => call.params['uri']);
@@ -52,6 +63,82 @@ describe('SkillsClient.read', () => {
         const published = uriOf(PDF_ROOT, 'templates/Purchase Order.md');
         expect(published).toBe('skill://pdf-processing/templates/Purchase%20Order.md');
         expect(await skills.read(skill, 'templates/Purchase Order.md')).toMatchObject({ uri: published, text: '# PO\n', verified: true });
+    });
+
+    it('resolves non-ASCII file names to the URI the server published', async () => {
+        const { skills, skill } = await connected({ files: { ...PDF_FILES, 'references/résumé.md': '# CV\n' } });
+        const published = uriOf(PDF_ROOT, 'references/résumé.md');
+        expect(published).toBe('skill://pdf-processing/references/r%C3%A9sum%C3%A9.md');
+        for (const ref of ['references/résumé.md', 'references/r%c3%a9sum%c3%a9.md']) {
+            expect(await skills.read(skill, ref)).toMatchObject({ uri: published, text: '# CV\n', verified: true });
+        }
+    });
+
+    it('matches reserved characters in a name however the ref spells them', async () => {
+        const { skills, skill, calls } = await connected({ files: { ...PDF_FILES, 'references/Q&A.md': '# Q&A\n' } });
+        const published = uriOf(PDF_ROOT, 'references/Q&A.md');
+        expect(published).toBe('skill://pdf-processing/references/Q&A.md');
+        for (const ref of ['references/Q&A.md', 'references/Q%26A.md']) {
+            expect(await skills.read(skill, ref)).toMatchObject({ uri: published, text: '# Q&A\n', verified: true });
+        }
+        expect(reads(calls)).toEqual([published, published]);
+    });
+
+    it('verifies a file a server published with more encoding than ours, requesting its spelling', async () => {
+        const overEncoded = `${PDF_ROOT}/references/Q%26A.md`;
+        const { skills, skill, calls } = await publishedAs(
+            new Map([
+                [MANIFEST, PDF_SKILL_MD],
+                [overEncoded, '# Q&A\n']
+            ])
+        );
+        for (const ref of ['references/Q&A.md', 'references/Q%26A.md']) {
+            expect(await skills.read(skill, ref)).toMatchObject({ uri: overEncoded, text: '# Q&A\n', verified: true });
+        }
+        expect(reads(calls)).toEqual([overEncoded, overEncoded]);
+    });
+
+    it('prefers the exact spelling when an entry lists two spellings of one file', async () => {
+        const plain = `${PDF_ROOT}/references/Q&A.md`;
+        const encoded = `${PDF_ROOT}/references/Q%26A.md`;
+        const { skills, skill } = await publishedAs(
+            new Map([
+                [MANIFEST, PDF_SKILL_MD],
+                [plain, '# plain\n'],
+                [encoded, '# encoded\n']
+            ])
+        );
+        for (const ref of ['references/Q&A.md', 'references/Q&A.md#part']) {
+            expect(await skills.read(skill, ref)).toMatchObject({ uri: plain, text: '# plain\n' });
+        }
+        expect(await skills.read(skill, 'references/Q%26A.md')).toMatchObject({ uri: encoded, text: '# encoded\n' });
+    });
+
+    it("checks SKILL.md's frontmatter however the ref spells it", async () => {
+        const alias = `${PDF_ROOT}/%53KILL.md`;
+        const { skills, skill } = await publishedAs(
+            new Map([
+                [MANIFEST, PDF_SKILL_MD],
+                [alias, PDF_SKILL_MD.replace('Extract text and fill forms in PDF files.', 'Something else.')]
+            ])
+        );
+        await expect(skills.read(skill, '%53KILL.md')).rejects.toMatchObject({ reason: 'frontmatter', uri: alias });
+    });
+
+    it('drops a fragment from the ref', async () => {
+        const { skills, skill, calls } = await connected();
+        expect(await skills.read(skill, 'references/FORMS.md#fields')).toMatchObject({ uri: FORMS, verified: true });
+        const dynamic: Skill = { ...skill, resources: 'dynamic' };
+        expect(await skills.read(dynamic, 'references/FORMS.md#fields')).toMatchObject({ uri: FORMS, verified: false });
+        expect(reads(calls)).toEqual([FORMS, FORMS]);
+    });
+
+    it('refuses a ref that is not a URI reference, before any request', async () => {
+        const { skills, skill, calls } = await connected();
+        const error = await skills.read(skill, 'http://[').catch((error: unknown) => error);
+        expect(error).toBeInstanceOf(SkillVerificationError);
+        expect(error).toMatchObject({ reason: 'unlisted', uri: 'http://[' });
+        expect(reads(calls)).toEqual([]);
     });
 
     it('refuses unlisted files before sending any request', async () => {

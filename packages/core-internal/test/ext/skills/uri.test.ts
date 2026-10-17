@@ -3,11 +3,13 @@ import { describe, expect, it } from 'vitest';
 import {
     canonicalUri,
     compareUris,
+    encodeSegment,
     isRoundTripUri,
     isWithin,
     joinUri,
     lastSegmentOf,
     resolveSkillRef,
+    skillFileKey,
     skillRootUri
 } from '../../../src/ext/skills/uri';
 
@@ -17,6 +19,50 @@ describe('uri helpers', () => {
         expect(uri).toBe('skill://acme/refunds/templates/Purchase%20Order.md');
         expect(isRoundTripUri(uri)).toBe(true);
         expect(joinUri('github://owner/repo/skills/', ['x', 'SKILL.md'])).toBe('github://owner/repo/skills/x/SKILL.md');
+    });
+
+    it.each(['Q&A.md', 'c++.md', '[draft].md', 'me@home.md', 'a,b;c=d$e|f!(g)*~h.md', 'Purchase Order.md', 'Remboursé.md', 'x^y{z}.md'])(
+        'publishes %s exactly as new URL() resolves the plain name against the root',
+        name => {
+            const published = joinUri('skill://acme/refunds', [name]);
+            expect(published).toBe(new URL(name, 'skill://acme/refunds/').href);
+            expect(isRoundTripUri(published)).toBe(true);
+        }
+    );
+
+    it('always encodes the characters that would change what a segment means', () => {
+        expect(encodeSegment('100%.md')).toBe('100%25.md');
+        expect(encodeSegment(String.raw`a/b?c#d\e`)).toBe('a%2Fb%3Fc%23d%5Ce');
+        expect(encodeSegment('a:b.md')).toBe('a:b.md');
+        expect(encodeSegment('Remboursé.md')).toBe('Rembours%C3%A9.md');
+    });
+
+    it('encodes the dots of a "." or ".." segment, which WHATWG URL still reads as a dot segment', () => {
+        expect(encodeSegment('.')).toBe('%2E');
+        expect(encodeSegment('..')).toBe('%2E%2E');
+        expect(encodeSegment('...')).toBe('...');
+        expect(isRoundTripUri(joinUri('skill://acme/refunds', ['..', 'x.md']))).toBe(false);
+        expect(isWithin('skill://acme/refunds', joinUri('skill://acme/refunds', ['..', 'x.md']))).toBe(false);
+    });
+
+    it('throws URIError for a lone surrogate', () => {
+        expect(() => encodeSegment('x\uD800.md')).toThrow(URIError);
+        expect(() => joinUri('skill://acme', ['empty\uDC00'])).toThrow(URIError);
+    });
+
+    it('keys every spelling of one file below the root alike', () => {
+        const root = 'skill://acme/refunds';
+        for (const uri of ['skill://acme/refunds/Q&A.md', 'skill://acme/refunds/Q%26A.md', 'skill://acme/refunds/%51&A.md#part']) {
+            expect(skillFileKey(root, uri)).toBe('skill://acme/refunds/Q&A.md');
+        }
+        expect(skillFileKey(root, 'skill://acme/refunds/r%c3%a9sum%C3%A9.md')).toBe('skill://acme/refunds/r%C3%A9sum%C3%A9.md');
+        expect(skillFileKey(root, 'skill://acme/refunds/100%.md')).toBe('skill://acme/refunds/100%25.md');
+        expect(skillFileKey(root, 'skill://acme/refunds/100%25.md')).toBe('skill://acme/refunds/100%25.md');
+        expect(skillFileKey(root, 'skill://acme/refunds/x%2Fy.md')).toBe('skill://acme/refunds/x%2Fy.md');
+        expect(skillFileKey(root, 'skill://acme/refunds/x.md?v=1')).toBe('skill://acme/refunds/x.md?v=1');
+        expect(skillFileKey(root, 'skill://acme/refunds/x.md?')).toBe('skill://acme/refunds/x.md?');
+        expect(skillFileKey(root, 'skill://acme/other/x.md#f')).toBe('skill://acme/other/x.md');
+        expect(skillFileKey(root, 'not a uri')).toBeUndefined();
     });
 
     it('finds the skill root and its last segment', () => {

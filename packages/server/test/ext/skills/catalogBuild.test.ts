@@ -102,6 +102,20 @@ describe('buildCatalogSnapshot', () => {
         ]);
     });
 
+    it('publishes reserved characters in names as a host resolves the plain name', async () => {
+        const names = ['Q&A.md', 'c++.md', '[draft].md', 'me@home.md'];
+        const files = {
+            ...fixtureFiles(),
+            ...Object.fromEntries([...names, '100%.md'].map(name => [`git-workflow/references/${name}`, '# x\n']))
+        };
+        const snapshot = await buildCatalogSnapshot(memorySkillFiles(files), optionsWith().options);
+        const resources = snapshot.skills.get(GIT)?.resources;
+        const uris = resources === undefined || resources === 'dynamic' ? [] : resources.map(resource => resource.uri);
+        for (const name of names) expect(uris).toContain(new URL(`references/${name}`, 'skill://git-workflow/').href);
+        // `%` is always encoded: a raw one would read as the start of an escape.
+        expect(uris).toContain('skill://git-workflow/references/100%25.md');
+    });
+
     it('puts a prefix in front of every URI', async () => {
         const snapshot = await buildCatalogSnapshot(memorySkillFiles(fixtureFiles()), optionsWith({ prefix: ['shop'] }).options);
         expect(snapshot.ordered.every(skill => skill.uri.startsWith('skill://shop/'))).toBe(true);

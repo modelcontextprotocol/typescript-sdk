@@ -15,5 +15,6 @@ export {
     joinUri,
     lastSegmentOf,
     resolveSkillRef,
+    skillFileKey,
     skillRootUri
 } from './uri';

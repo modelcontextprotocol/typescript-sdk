@@ -16,6 +16,7 @@ import {
     parseSkillMarkdown,
     resolveSkillRef,
     sha256Digest,
+    skillFileKey,
     skillRootUri,
     splitFrontmatter
 } from '@modelcontextprotocol/core-internal';
@@ -50,6 +51,7 @@ export interface SkillListing {
 
 /** A skill file as read and checked by {@linkcode SkillsClient.read}. */
 export interface SkillFile {
+    /** The URI requested: the entry's spelling of the file. */
     uri: string;
     mimeType?: string;
     /** Exactly the bytes the entry's digest covers. */
@@ -72,6 +74,46 @@ function decodeBlob(uri: string, blob: string): Uint8Array {
             cause: error
         });
     }
+}
+
+/** What `read` requests and checks: the entry's spelling of the file, its listing, and whether it is the skill's own `SKILL.md`. */
+interface ReadTarget {
+    uri: string;
+    /** `undefined` for `"dynamic"` skills. */
+    listed: SkillResourceEntry | undefined;
+    manifest: boolean;
+}
+
+/**
+ * Resolves `ref` against the skill root, drops its fragment, and finds the file in the entry: by its exact spelling
+ * first, then by {@linkcode skillFileKey}, since servers percent-encode names differently (`Q&A.md`, `Q%26A.md`).
+ * Throws `unlisted` for a ref that does not parse or names no file of the skill.
+ */
+function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
+    const root = skillRootUri(skill.uri);
+    if (root === undefined) throw new TypeError(`${skill.uri} is not a SKILL.md URI`);
+    let uri: string;
+    try {
+        uri = resolveSkillRef(skill.uri, ref);
+    } catch (error) {
+        const given = ref ?? '';
+        throw new SkillVerificationError('unlisted', given, `${given} is not a URI reference`, [], { cause: error });
+    }
+    const key = skillFileKey(root, uri) ?? uri;
+    const manifest = key === skillFileKey(root, skill.uri);
+    const notInSkill = () => new SkillVerificationError('unlisted', uri, `${uri} is not a file of the skill ${skill.uri}`);
+    if (skill.resources === 'dynamic') {
+        if (!manifest && !isWithin(root, key)) throw notInSkill();
+        return { uri: key, listed: undefined, manifest };
+    }
+    const { resources } = skill;
+    const hash = uri.indexOf('#');
+    const exact = hash === -1 ? uri : uri.slice(0, hash);
+    const listed =
+        resources.find(resource => canonicalUri(resource.uri) === exact) ??
+        resources.find(resource => skillFileKey(root, resource.uri) === key);
+    if (listed === undefined) throw notInSkill();
+    return { uri: listed.uri, listed, manifest };
 }
 
 function unsupported(method: string): SdkError {
@@ -161,8 +203,10 @@ export class SkillsClient {
     /**
      * Reads one file of `skill` and verifies it. `ref` is a path relative to
      * the skill's root (`references/FORMS.md`) or an absolute URI; the
-     * default is the skill's own `SKILL.md`. The file must be listed in the
-     * entry (checked before any request), and its size and digest must match;
+     * default is the skill's own `SKILL.md`; a fragment is ignored. The file
+     * must be listed in the entry (checked before any request, however either
+     * side percent-encodes the name) and is requested by the entry's URI; its
+     * size and digest must match;
      * for the skill's own `SKILL.md` the frontmatter must also equal the
      * entry's. A failed check on what may be a cached copy is fetched once
      * more with `cacheMode: 'refresh'`. `"dynamic"` skills skip the listing,
@@ -173,31 +217,19 @@ export class SkillsClient {
      */
     async read(skill: Skill, ref?: string, options?: CacheableRequestOptions): Promise<SkillFile> {
         if (!this.supported) throw unsupported('resources/read');
-        const root = skillRootUri(skill.uri);
-        if (root === undefined) throw new TypeError(`${skill.uri} is not a SKILL.md URI`);
-        const uri = resolveSkillRef(skill.uri, ref);
-        const canonical = canonicalUri(uri);
-        const listed =
-            skill.resources === 'dynamic' ? undefined : skill.resources.find(resource => canonicalUri(resource.uri) === canonical);
-        const inSkill = skill.resources === 'dynamic' ? canonical === canonicalUri(skill.uri) || isWithin(root, uri) : listed !== undefined;
-        if (!inSkill) throw new SkillVerificationError('unlisted', uri, `${uri} is not a file of the skill ${skill.uri}`);
-        const target = listed?.uri ?? uri;
+        const target = resolveTarget(skill, ref);
         try {
-            return await this.#readVerified(skill, target, listed, options);
+            return await this.#readVerified(skill, target, options);
         } catch (error) {
             const mayBeCached = options?.cacheMode === undefined || options.cacheMode === 'use';
             if (!(error instanceof SkillVerificationError) || !mayBeCached) throw error;
             // The failing copy may have come from the response cache; the spec requires fetching it again.
-            return this.#readVerified(skill, target, listed, { ...options, cacheMode: 'refresh' });
+            return this.#readVerified(skill, target, { ...options, cacheMode: 'refresh' });
         }
     }
 
-    async #readVerified(
-        skill: Skill,
-        uri: string,
-        listed: SkillResourceEntry | undefined,
-        options: CacheableRequestOptions | undefined
-    ): Promise<SkillFile> {
+    async #readVerified(skill: Skill, target: ReadTarget, options: CacheableRequestOptions | undefined): Promise<SkillFile> {
+        const { uri, listed } = target;
         const result = await this.#client.readResource({ uri }, options);
         const content = result.contents.find(item => canonicalUri(item.uri) === canonicalUri(uri)) ?? result.contents[0];
         if (content === undefined) throw new SdkError(SdkErrorCode.InvalidResult, `resources/read returned no contents for ${uri}`);
@@ -218,7 +250,7 @@ export class SkillsClient {
             ...('text' in content && { text: content.text }),
             verified: listed !== undefined
         };
-        if (canonicalUri(uri) !== canonicalUri(skill.uri)) return file;
+        if (!target.manifest) return file;
         const markdown = 'text' in content ? content.text : decodeUtf8Lossless(bytes);
         if (markdown === undefined) throw new SkillVerificationError('frontmatter', uri, `${uri} is not valid UTF-8`);
         const { frontmatter, body } = this.#parse(uri, markdown);
