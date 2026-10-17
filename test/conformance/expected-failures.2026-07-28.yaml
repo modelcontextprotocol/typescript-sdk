@@ -17,9 +17,14 @@
 # same change.
 #
 # alpha.11 -> alpha.12 reconciliation: the new SEP-2640 skills scenarios are
-# extension scenarios, which --spec-version never selects, so these legs do not
-# run them (forced to 2026-07-28 with --force, all seven pass). Both sections
-# stay empty.
+# extension scenarios, and --spec-version drops extension scenarios from a
+# suite, so the two legs that read this file never run them. Their 2026-07-28
+# coverage comes from elsewhere. The server runner already runs extension
+# scenarios at 2026-07-28 by default, in `test:conformance:server:extensions`
+# (expected-failures.yaml). The client runner defaults them to 2025-11-25, so
+# `test:conformance:client:skills:2026` runs each one with
+# `--scenario <s> --spec-version 2026-07-28 --force` (no baseline). Both
+# sections stay empty.
 #
 # alpha.10 -> alpha.11 reconciliation: `json-schema-2020-12-preservation`
 # (client leg; everythingClient negotiates via server/discover like tools_call)

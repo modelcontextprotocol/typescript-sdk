@@ -14,6 +14,16 @@
 # `-no-prefetch` (driven through SkillsClient by everythingClient.ts). No other
 # scenario changed outcome.
 #
+# Extension scenarios sit outside the spec timeline, so each runner picks their
+# protocol version: without --spec-version the server runner runs them at
+# 2026-07-28 and the client runner at 2025-11-25. The `--suite all` legs that
+# read this file therefore cover SEP-2640 server@2026-07-28 and
+# client@2025-11-25. The other version on each side runs in
+# `test:conformance:server:skills:2025` and `test:conformance:client:skills:2026`
+# (one `--scenario <s> --spec-version <v> --force` run per scenario, no
+# baseline, so any failure fails the step): --spec-version drops extension
+# scenarios from a suite, and --force only applies to --scenario.
+#
 # alpha.10 -> alpha.11 reconciliation: the referee added two scenarios, both
 # passing, so neither is baselined — `json-schema-2020-12-preservation`
 # (client; SEP-1613/SEP-2106 keyword round-trip, driven by everythingClient.ts)
