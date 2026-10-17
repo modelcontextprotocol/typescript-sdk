@@ -41,6 +41,8 @@ interface BuiltSkill {
     readonly skill: Skill;
     readonly files: readonly CatalogFile[];
     readonly manifestSize: number;
+    /** Every entry below the skill's folder, nested skills' included, in tree order. */
+    readonly inside: readonly TreeEntry[];
 }
 
 type UriOf = (path: string) => string;
@@ -59,12 +61,11 @@ const NOT_FOLLOWED = 'symlinks and other special files are not followed; copy th
 /** Any non-directory named exactly `SKILL.md` marks a skill, so a symlinked one is reported rather than ignored. */
 const isManifest = (entry: TreeEntry): boolean => entry.kind !== 'directory' && basename(entry.path) === 'SKILL.md';
 
-/** True when some folder above `path` is one of `dirs`. */
-function isBelowAny(dirs: ReadonlySet<string>, path: string): boolean {
-    for (let dir = dirname(path); dir !== ''; dir = dirname(dir)) {
-        if (dirs.has(dir)) return true;
-    }
-    return false;
+/** Appends `value` to the list kept under `key`. */
+function append<K, V>(lists: Map<K, V[]>, key: K, value: V): void {
+    const list = lists.get(key);
+    if (list === undefined) lists.set(key, [value]);
+    else list.push(value);
 }
 
 /** The URI of `path`, or `undefined` when a name in it has no URI form (a lone surrogate, or no round trip). */
@@ -125,11 +126,19 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
         }
     }
 
+    // One pass over each entry's folders collects every skill's entries (nested skills' included), in tree order.
     // A special file inside a skill is reported when that skill is built; one outside every skill (a symlinked
     // skill folder, say) is reported here. A root SKILL.md is reported in the loop below.
     const skillDirs = new Set(tree.filter(entry => isManifest(entry)).map(entry => dirname(entry.path)));
+    const insideOf = new Map<string, TreeEntry[]>();
     for (const entry of tree) {
-        if (entry.kind === 'unsupported' && !isManifest(entry) && !isBelowAny(skillDirs, entry.path)) {
+        let inSkill = false;
+        for (let dir = dirname(entry.path); dir !== ''; dir = dirname(dir)) {
+            if (!skillDirs.has(dir)) continue;
+            inSkill = true;
+            append(insideOf, dir, entry);
+        }
+        if (!inSkill && entry.kind === 'unsupported' && !isManifest(entry)) {
             report({ path: entry.path, message: `${NOT_FOLLOWED} (skipped)` });
         }
     }
@@ -145,7 +154,7 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
             });
             continue;
         }
-        const skill = await buildOne(files, tree, dir, uriOf, options, report);
+        const skill = await buildOne(files, insideOf.get(dir) ?? [], dir, uriOf, options, report);
         if (skill !== undefined) built.push(skill);
     }
     if (problems.length > 0) throw new SkillCatalogError(problems);
@@ -155,13 +164,12 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
 
 async function buildOne(
     files: SkillFiles,
-    tree: readonly TreeEntry[],
+    inside: readonly TreeEntry[],
     dir: string,
     uriOf: UriOf,
     options: CatalogBuildOptions,
     report: (warning: SkillWarning) => void
 ): Promise<BuiltSkill | undefined> {
-    const inside = tree.filter(entry => entry.path.startsWith(`${dir}/`));
     const unsupported = inside.find(entry => entry.kind === 'unsupported');
     if (unsupported !== undefined) {
         report({ path: unsupported.path, message: `${NOT_FOLLOWED} (skill skipped)` });
@@ -202,7 +210,7 @@ async function buildOne(
         mimeType: mimeTypeFor(basename(input.path))
     }));
     const manifestSize = inputs.find(input => input.uri === manifestUri)?.bytes.byteLength ?? 0;
-    return { dir, skill, files: catalogFiles, manifestSize };
+    return { dir, skill, files: catalogFiles, manifestSize, inside };
 }
 
 function assemble(built: readonly BuiltSkill[], tree: readonly TreeEntry[], uriOf: UriOf): CatalogSnapshot {
@@ -212,15 +220,16 @@ function assemble(built: readonly BuiltSkill[], tree: readonly TreeEntry[], uriO
     for (const item of built) {
         for (const file of item.files) files.set(file.uri, file);
         dirPaths.add(item.dir);
-        for (const entry of tree) {
-            if (entry.kind === 'directory' && entry.path.startsWith(`${item.dir}/`)) dirPaths.add(entry.path);
+        for (const entry of item.inside) {
+            if (entry.kind === 'directory') dirPaths.add(entry.path);
         }
     }
+    const childrenOf = new Map<string, TreeEntry[]>();
+    for (const entry of tree) append(childrenOf, dirname(entry.path), entry);
     const dirs = new Map<string, Resource[]>();
     for (const dirPath of dirPaths) {
         const children: Resource[] = [];
-        for (const entry of tree) {
-            if (dirname(entry.path) !== dirPath) continue;
+        for (const entry of childrenOf.get(dirPath) ?? []) {
             if (entry.kind === 'directory') {
                 children.push({ uri: uriOf(entry.path), name: basename(entry.path), mimeType: DIRECTORY_MIME_TYPE });
                 continue;

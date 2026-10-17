@@ -217,7 +217,7 @@ describe('buildCatalogSnapshot', () => {
 });
 
 describe('memorySkillFiles', () => {
-    it('reads the record on every call and rejects unknown paths', async () => {
+    it('reads the record when first used and rejects unknown paths', async () => {
         const record: Record<string, string> = { 'a/SKILL.md': 'x' };
         const files = memorySkillFiles(record);
         record['a/extra.md'] = 'y';
@@ -227,17 +227,30 @@ describe('memorySkillFiles', () => {
         await expect(files.read('a/missing.md')).rejects.toThrow();
     });
 
-    it('sees additions, removals and new content after earlier calls', async () => {
+    it('re-reads the record when a walk starts, and serves changed content at once', async () => {
         const record: Record<string, string> = { 'a/SKILL.md': 'x' };
         const files = memorySkillFiles(record);
-        expect(names(await files.list('a'))).toEqual(['SKILL.md']);
-        // Same number of keys as before, different keys.
+        expect(names(await files.list(''))).toEqual(['a']);
         record['a/b/c.md'] = 'c';
         delete record['a/SKILL.md'];
+        expect(names(await files.list(''))).toEqual(['a']);
         expect(names(await files.list('a'))).toEqual(['b']);
         await expect(files.read('a/SKILL.md')).rejects.toThrow();
         record['a/b/c.md'] = 'changed';
         expect(text(await files.read('a/b/c.md'))).toBe('changed');
+    });
+
+    it('shows edits made between two catalog builds', async () => {
+        const record = fixtureFiles();
+        const files = memorySkillFiles(record);
+        const before = await buildCatalogSnapshot(files, optionsWith().options);
+        expect(before.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
+        delete record['git-workflow/SKILL.md'];
+        record['deploy/SKILL.md'] = '---\nname: deploy\ndescription: Deploy a release.\n---\n';
+        record['acme/billing/refunds/SKILL.md'] = '---\nname: refunds\ndescription: Refund workflow, revised.\n---\n';
+        const after = await buildCatalogSnapshot(files, optionsWith().options);
+        expect(after.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, 'skill://deploy/SKILL.md']);
+        expect(after.skills.get(REFUNDS)?.frontmatter.description).toBe('Refund workflow, revised.');
     });
 
     it('finds files stored under keys that are not normalised', async () => {
@@ -247,18 +260,22 @@ describe('memorySkillFiles', () => {
         expect(text(await files.read('a/b/c.md'))).toBe('c');
     });
 
-    it('loads a catalog of a few thousand files quickly', async () => {
-        const record: Record<string, string> = {};
-        for (let index = 0; index < 600; index++) {
-            const name = `skill-${index}`;
-            record[`${name}/SKILL.md`] = `---\nname: ${name}\ndescription: d\n---\n`;
-            for (const file of ['a.md', 'b.md', 'c.md', 'd.md']) record[`${name}/${file}`] = file;
-        }
-        const started = performance.now();
-        const snapshot = await buildCatalogSnapshot(memorySkillFiles(record), optionsWith().options);
-        const elapsed = performance.now() - started;
-        expect(snapshot.ordered).toHaveLength(600);
-        // A generous bound: about 0.2 s here, against about 4 s when every call re-normalised every key.
-        expect(elapsed).toBeLessThan(1500);
+    it('enumerates the record once per walk, however many directories and files the walk visits', async () => {
+        let enumerations = 0;
+        // A key that is not normalised is read through the index, not by re-reading the record.
+        const target = { ...fixtureFiles(), './git-workflow/references/STYLE.md': '# Style\n' };
+        const record = new Proxy(target, {
+            ownKeys(object) {
+                enumerations++;
+                return Reflect.ownKeys(object);
+            }
+        });
+        const files = memorySkillFiles(record);
+        const snapshot = await buildCatalogSnapshot(files, optionsWith().options);
+        expect(snapshot.files.has('skill://git-workflow/references/STYLE.md')).toBe(true);
+        expect(snapshot.dirs.size).toBeGreaterThan(3);
+        expect(enumerations).toBe(1);
+        await buildCatalogSnapshot(files, optionsWith().options);
+        expect(enumerations).toBe(2);
     });
 });

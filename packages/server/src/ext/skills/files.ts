@@ -40,31 +40,26 @@ function indexRecord(keys: readonly string[]): MemoryIndex {
 }
 
 /**
- * An in-memory adapter. The record is read on every call, so `reload()` sees later changes to it. Calls stay cheap
- * on large records: `read` looks the path up directly, and the index behind `list` is rebuilt only when the
- * record's keys change.
+ * An in-memory adapter. The record is re-read whenever a walk starts — `list('')` — so `reload()` sees later changes.
+ * Other calls use the index from that read (built on first use if no walk has started), so their cost does not grow
+ * with the record. File contents are always read live.
  */
 export function memorySkillFiles(files: Record<string, string | Uint8Array>): SkillFiles {
-    let indexedKeys: readonly string[] = [];
-    let index = indexRecord(indexedKeys);
-    const current = (): MemoryIndex => {
-        const keys = Object.keys(files);
-        if (keys.length !== indexedKeys.length || keys.some((key, position) => key !== indexedKeys[position])) {
-            index = indexRecord(keys);
-            indexedKeys = keys;
-        }
+    let index: MemoryIndex | undefined;
+    const reindex = (): MemoryIndex => {
+        index = indexRecord(Object.keys(files));
         return index;
     };
     return {
         async list(dir) {
-            const children = current().dirs.get(dir);
+            const children = (dir === '' ? reindex() : (index ?? reindex())).dirs.get(dir);
             if (children !== undefined) return Array.from(children.values(), entry => ({ ...entry }));
             if (dir === '') return [];
             throw new Error(`no such directory: ${dir}`);
         },
         async read(path) {
             // Keys written as `./a/b` or `a//b` are found through the index.
-            const key = Object.hasOwn(files, path) ? path : current().files.get(path);
+            const key = Object.hasOwn(files, path) ? path : (index ?? reindex()).files.get(path);
             const content = key === undefined ? undefined : files[key];
             if (content === undefined) throw new Error(`no such file: ${path}`);
             return typeof content === 'string' ? encodeUtf8(content) : content;
