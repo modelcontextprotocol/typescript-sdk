@@ -12,6 +12,9 @@
             ],
             "@modelcontextprotocol/core/internal": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/internal.ts"
+            ],
+            "@modelcontextprotocol/core/ext/skills": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
             ]
         }
     }
