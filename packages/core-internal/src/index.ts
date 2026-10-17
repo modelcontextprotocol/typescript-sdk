@@ -1,6 +1,7 @@
 export * from './auth/errors';
 export * from './errors/crossBundleBrand';
 export * from './errors/sdkErrors';
+export * from './ext/skills/index';
 export * from './shared/auth';
 export * from './shared/authUtils';
 export * from './shared/clientCapabilityRequirements';

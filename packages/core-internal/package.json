@@ -97,6 +97,7 @@
         "prettier": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "vitest": "catalog:devTools",
+        "yaml": "^2.8.3"
     }
 }
