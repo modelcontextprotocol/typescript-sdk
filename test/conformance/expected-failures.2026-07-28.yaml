@@ -12,9 +12,14 @@
 # 2025 legs.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.11). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.12). Newer conformance releases
 # are adopted by deliberately bumping the pin and reconciling this file in the
 # same change.
+#
+# alpha.11 -> alpha.12 reconciliation: the new SEP-2640 skills scenarios are
+# extension scenarios, which --spec-version never selects, so these legs do not
+# run them (forced to 2026-07-28 with --force, all seven pass). Both sections
+# stay empty.
 #
 # alpha.10 -> alpha.11 reconciliation: `json-schema-2020-12-preservation`
 # (client leg; everythingClient negotiates via server/discover like tools_call)
