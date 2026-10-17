@@ -20,9 +20,11 @@ function kindOf(entry: Dirent): SkillFileEntry['kind'] {
 }
 
 /**
- * A {@linkcode SkillFiles} adapter over a folder. Symlinks and other special
- * files are listed as `unsupported` (the catalog then skips the skill that
- * contains one) and are never read through.
+ * A {@linkcode SkillFiles} adapter over a folder. `list` reports symlinks and
+ * other special files as `unsupported`, so a catalog skips the skill that
+ * contains one. `read` refuses anything that is not a regular file, and a
+ * symlink as the final path component where the platform has `O_NOFOLLOW`;
+ * symlinked folders earlier in a path passed to it directly are not checked.
  */
 export function nodeSkillFiles(root: string): SkillFiles {
     const base = path.resolve(root);

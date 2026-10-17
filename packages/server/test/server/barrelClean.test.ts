@@ -14,20 +14,25 @@ const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\
 // Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
 const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
 const ROOT_VALIDATOR_EXPORTS = ['AjvJsonSchemaValidator', 'CfWorkerJsonSchemaValidator', 'CfWorkerSchemaDraft'];
+// Static (`from "node:x"`), side-effect (`import "node:x"`, what rolldown keeps for an external whose bindings were
+// tree-shaken) and dynamic `node:` imports. Only `.mjs` files are scanned, so `require(` is not matched.
+const NODE_BUILTIN_IMPORT = /\b(?:from|import)\s*["']node:|\bimport\s*\(\s*["']node:/;
 
-function chunkImportsOf(entryPath: string): string[] {
+/**
+ * An ESM entry and every chunk it imports, following relative `from` and side-effect `import` specifiers, both
+ * `./` and `../` (nested entries import `../../chunk.mjs`, and side-effect-only `import "../../chunk.mjs"`).
+ */
+function moduleGraphOf(entryPath: string): string[] {
     const visited = new Set<string>();
     const queue = [entryPath];
     while (queue.length > 0) {
         const file = queue.shift()!;
         if (visited.has(file)) continue;
         visited.add(file);
-        const src = readFileSync(file, 'utf8');
-        for (const m of src.matchAll(/from\s+["']\.\/(.+?\.mjs)["']/g)) {
+        for (const m of readFileSync(file, 'utf8').matchAll(/\b(?:from|import)\s*["'](\.{1,2}\/[^"']+?\.mjs)["']/g)) {
             queue.push(join(dirname(file), m[1]!));
         }
     }
-    visited.delete(entryPath);
     return [...visited];
 }
 
@@ -54,9 +59,8 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
     });
 
     test('chunks transitively imported by dist/index.mjs contain no process-stdio runtime imports', () => {
-        const entry = join(distDir, 'index.mjs');
-        for (const chunk of chunkImportsOf(entry)) {
-            expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
+        for (const file of moduleGraphOf(join(distDir, 'index.mjs'))) {
+            expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
                 expect.objectContaining({ content: expect.stringMatching(NODE_ONLY) })
             );
         }
@@ -69,11 +73,9 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
 
     test('runtime shims vendor default validator backends instead of requiring consumers to install them', () => {
         for (const shim of ['shimsNode.mjs', 'shimsWorkerd.mjs', 'shimsBrowser.mjs']) {
-            const entry = join(distDir, shim);
-            expect(readFileSync(entry, 'utf8')).not.toMatch(VALIDATOR_BACKEND_IMPORT);
-
-            for (const chunk of chunkImportsOf(entry)) {
-                expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
+            // The graph includes the shim entry itself.
+            for (const file of moduleGraphOf(join(distDir, shim))) {
+                expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
                     expect.objectContaining({ content: expect.stringMatching(VALIDATOR_BACKEND_IMPORT) })
                 );
             }
@@ -101,30 +103,13 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
     });
 });
 
-const NODE_BUILTIN_IMPORT = /\bfrom\s*["']node:|\brequire\(\s*["']node:|\bimport\(\s*["']node:/;
-
-/** An ESM entry and every chunk it imports, following `./` and `../` specifiers (nested entries import `../../chunk.mjs`). */
-function moduleGraphOf(entryPath: string): string[] {
-    const visited = new Set<string>();
-    const queue = [entryPath];
-    while (queue.length > 0) {
-        const file = queue.shift()!;
-        if (visited.has(file)) continue;
-        visited.add(file);
-        for (const m of readFileSync(file, 'utf8').matchAll(/from\s*["'](\.{1,2}\/[^"']+?\.mjs)["']/g)) {
-            queue.push(join(dirname(file), m[1]!));
-        }
-    }
-    return [...visited];
-}
-
-describe('@modelcontextprotocol/server/ext/skills is runtime-neutral', () => {
+describe('@modelcontextprotocol/server root and ext/skills are runtime-neutral', () => {
     beforeAll(async () => {
         await ensureBuilt(pkgDir);
     }, 180_000);
 
-    test('ext/skills and every chunk it imports have no node: imports', () => {
-        for (const file of moduleGraphOf(join(distDir, 'ext/skills/index.mjs'))) {
+    test.each(['index.mjs', 'ext/skills/index.mjs'])('%s and every chunk it imports have no node: imports', entry => {
+        for (const file of moduleGraphOf(join(distDir, entry))) {
             expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
                 expect.objectContaining({ content: expect.stringMatching(NODE_BUILTIN_IMPORT) })
             );

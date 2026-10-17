@@ -71,6 +71,23 @@ describe('loadSkills', () => {
         expect(warnings).toContainEqual({ path: 'git-workflow/linked.md', message: expect.stringMatching(/symlinks/) });
     });
 
+    it.skipIf(process.platform === 'win32')('skips a symlinked skill folder at the root, with a warning, and loads the rest', async () => {
+        const outside = await mkdtemp(path.join(tmpdir(), 'mcp-skills-linked-'));
+        try {
+            await writeFile(
+                path.join(outside, 'SKILL.md'),
+                '---\nname: linked-skill\ndescription: Lives outside the root.\n---\n# Linked\n'
+            );
+            await symlink(outside, path.join(root, 'linked-skill'), 'dir');
+            const warnings: SkillWarning[] = [];
+            const catalog = await loadSkills(root, { onWarning: warning => warnings.push(warning) });
+            expect(catalog.entries.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
+            expect(warnings).toContainEqual({ path: 'linked-skill', message: expect.stringMatching(/symlinks.*\(skipped\)/) });
+        } finally {
+            await rm(outside, { recursive: true, force: true });
+        }
+    });
+
     it('fails with SkillCatalogError when the folder does not exist', async () => {
         await expect(loadSkills(path.join(root, 'missing'))).rejects.toBeInstanceOf(SkillCatalogError);
     });
