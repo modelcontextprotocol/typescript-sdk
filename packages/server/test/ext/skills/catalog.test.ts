@@ -33,6 +33,15 @@ describe('SkillCatalog serving', () => {
         });
     });
 
+    it('serves files under a prefix that needs strict encoding in the authority', async () => {
+        const { catalog, mcp } = await loaded({ prefix: 'acme:prod' });
+        const git = 'skill://acme%3Aprod/git-workflow/SKILL.md';
+        expect(catalog.entries.map(skill => skill.uri)).toContain(git);
+        expect(catalog.entries).toHaveLength(3);
+        const review = new URL('references/REVIEW.md', git).href;
+        expect(await resultOf(mcp, 'resources/read', { uri: review })).toMatchObject({ contents: [{ uri: review, text: '# Review\n' }] });
+    });
+
     it('lists only SKILL.md resources in resources/list', async () => {
         const { mcp } = await loaded();
         expect(await resultOf(mcp, 'resources/list')).toMatchObject({

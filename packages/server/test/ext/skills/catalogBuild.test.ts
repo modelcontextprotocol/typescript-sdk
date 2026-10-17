@@ -121,6 +121,33 @@ describe('buildCatalogSnapshot', () => {
         expect(snapshot.ordered.every(skill => skill.uri.startsWith('skill://shop/'))).toBe(true);
     });
 
+    it('encodes a top-level folder strictly, since it is the URI authority', async () => {
+        const files = {
+            'me@home/refunds/SKILL.md': '---\nname: refunds\ndescription: d\n---\n',
+            'me@home/refunds/references/Q&A.md': '# Q&A\n',
+            '[draft]/notes/SKILL.md': '---\nname: notes\ndescription: d\n---\n'
+        };
+        const { options, warnings } = optionsWith();
+        const snapshot = await buildCatalogSnapshot(memorySkillFiles(files), options);
+        expect(warnings).toEqual([]);
+        const uris = snapshot.ordered.map(skill => skill.uri);
+        expect(uris).toEqual(['skill://%5Bdraft%5D/notes/SKILL.md', 'skill://me%40home/refunds/SKILL.md']);
+        for (const uri of uris) expect(new URL(uri).href).toBe(uri);
+        const refunds = snapshot.skills.get('skill://me%40home/refunds/SKILL.md')?.resources;
+        const listed = refunds === undefined || refunds === 'dynamic' ? [] : refunds.map(resource => resource.uri);
+        expect(listed).toContain(new URL('references/Q&A.md', 'skill://me%40home/refunds/SKILL.md').href);
+    });
+
+    it('encodes a prefix strictly, so acme:prod is not read as a host and port', async () => {
+        const { options, warnings } = optionsWith({ prefix: ['acme:prod'] });
+        const snapshot = await buildCatalogSnapshot(memorySkillFiles(fixtureFiles()), options);
+        expect(warnings).toEqual([]);
+        expect(snapshot.ordered).toHaveLength(3);
+        expect(snapshot.ordered.every(skill => skill.uri.startsWith('skill://acme%3Aprod/') && new URL(skill.uri).href === skill.uri)).toBe(
+            true
+        );
+    });
+
     it('skips invalid skills and warns about each one', async () => {
         const files = {
             ...fixtureFiles(),

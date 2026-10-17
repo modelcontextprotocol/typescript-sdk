@@ -51,7 +51,7 @@ export interface SkillListing {
 
 /** A skill file as read and checked by {@linkcode SkillsClient.read}. */
 export interface SkillFile {
-    /** The URI requested: the entry's spelling of the file. */
+    /** The URI requested: the entry's spelling of the file; for `"dynamic"` skills, the resolved ref in its normalised form. */
     uri: string;
     mimeType?: string;
     /** Exactly the bytes the entry's digest covers. */

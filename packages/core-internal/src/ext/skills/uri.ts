@@ -1,25 +1,38 @@
 /**
  * Every character a segment cannot carry as it is: WHATWG URL's path percent-encode set (controls, space,
- * `"#<>?^\`{}`, DEL and non-ASCII) plus `%`, `/` and `\`, which would start an escape or split the segment.
+ * `"#<>?^\`{}`, DEL and non-ASCII) plus `%`, `/` and `\`, which would start an escape or split the segment. `^` is
+ * encoded on every runtime although older URL parsers (Node 20 and 22) leave it raw, so the published form does not
+ * depend on the runtime; {@linkcode skillFileKey} keys both spellings alike.
  */
 const ENCODED_IN_SEGMENT = /[^\w!$&'()*+,.:;=@[\]|~-]/gu;
+
+/** `text` with every character in {@linkcode ENCODED_IN_SEGMENT} percent-encoded as UTF-8. */
+function encodePathText(text: string): string {
+    return text.replaceAll(ENCODED_IN_SEGMENT, char => encodeURIComponent(char));
+}
 
 /**
  * Percent-encodes one path segment the way WHATWG URL serialises it, so `new URL(name, root)` on a host yields the
  * published URI: sub-delimiters such as `&`, `+`, `@` and `[` stay as they are, and `%`, `/`, `?`, `#` and `\` are
- * always encoded. The dots of a `.` or `..` segment are encoded too; WHATWG URL still reads `%2E` as a dot, so such
- * a URI fails {@linkcode isRoundTripUri} and {@linkcode isWithin} instead of naming the parent. Throws `URIError` on
- * a lone surrogate.
+ * always encoded. The dots of a `.` or `..` segment are encoded too; WHATWG URL still reads `%2E` as a dot segment,
+ * so such a URI does not survive {@linkcode isRoundTripUri} (the catalog then skips the file) rather than naming
+ * the directory or its parent. Throws `URIError` on a lone surrogate.
  */
 export function encodeSegment(segment: string): string {
     if (segment === '.' || segment === '..') return segment.replaceAll('.', '%2E');
-    return segment.replaceAll(ENCODED_IN_SEGMENT, char => encodeURIComponent(char));
+    return encodePathText(segment);
 }
 
-/** `base` + `/`-joined encoded segments. `base` is `scheme://` or a URI without a trailing slash. */
+/**
+ * `base` + `/`-joined encoded segments. `base` is `scheme://` or a URI without a trailing slash. After `scheme://`
+ * the first segment is the authority, where `@`, `:`, `[`, `]` and `|` would read as userinfo, a port or an IP
+ * literal, so it is encoded strictly with `encodeURIComponent`; path segments follow {@linkcode encodeSegment}.
+ */
 export function joinUri(base: string, segments: readonly string[]): string {
-    const prefix = base.endsWith('://') ? base : `${base.replace(/\/+$/, '')}/`;
-    return prefix + segments.map(segment => encodeSegment(segment)).join('/');
+    if (!base.endsWith('://')) return `${base.replace(/\/+$/, '')}/${segments.map(segment => encodeSegment(segment)).join('/')}`;
+    const [authority, ...path] = segments;
+    if (authority === undefined) return base;
+    return [base + encodeURIComponent(authority), ...path.map(segment => encodeSegment(segment))].join('/');
 }
 
 /** WHATWG-serialised form of `uri`, or `undefined` if it does not parse. */
@@ -82,11 +95,58 @@ export function isWithin(rootUri: string, uri: string): boolean {
         });
 }
 
+function decodeOrUndefined(escapes: string): string | undefined {
+    try {
+        return decodeURIComponent(escapes);
+    } catch {
+        return undefined;
+    }
+}
+
+/** The length of the UTF-8 sequence a lead byte announces: 1 for ASCII, and for bytes that cannot lead one. */
+function utf8Width(lead: number): number {
+    if (lead >= 0xf0) return 4;
+    if (lead >= 0xe0) return 3;
+    if (lead >= 0xc0) return 2;
+    return 1;
+}
+
+/** A run of `%XX` escapes keyed: each valid UTF-8 sequence decoded and re-encoded; any other byte stays an escape, upper-cased. */
+function keyOfEscapes(run: string): string {
+    const upper = run.toUpperCase();
+    let key = '';
+    for (let at = 0; at < upper.length; ) {
+        const width = 3 * utf8Width(Number.parseInt(upper.slice(at + 1, at + 3), 16));
+        const decoded = decodeOrUndefined(upper.slice(at, at + width));
+        if (decoded === undefined) {
+            key += upper.slice(at, at + 3);
+            at += 3;
+        } else {
+            key += encodePathText(decoded);
+            at += width;
+        }
+    }
+    return key;
+}
+
+/** Runs of `%XX` escapes; splitting on this puts them at odd indexes. */
+const ESCAPE_RUN = /((?:%[\dA-Fa-f]{2})+)/;
+
+/** One segment keyed: escape runs normalised, every other character (a stray `%` too) encoded as {@linkcode encodeSegment} does. */
+function keyOfSegment(segment: string): string {
+    return segment
+        .split(ESCAPE_RUN)
+        .map((part, index) => (index % 2 === 0 ? encodePathText(part) : keyOfEscapes(part)))
+        .join('');
+}
+
 /**
  * The one spelling every way of writing a file's URI below `rootUri` shares: canonical, without its fragment, and
- * each segment below the root decoded and re-encoded with {@linkcode encodeSegment}. `Q&A.md`, `Q%26A.md` and
- * `%51&A.md` key alike, as do `%c3%a9` and `%C3%A9`. A URI outside the root, or with a query, keys as its canonical
- * form without the fragment; `undefined` if it does not parse.
+ * each segment below the root decoded and re-encoded as {@linkcode encodeSegment} does. Each UTF-8 sequence of
+ * escapes is decoded on its own, so a stray `%` (`100% off.md`) leaves the rest decodable, and an escape that is not
+ * valid UTF-8 stays one, upper-cased. `Q&A.md`, `Q%26A.md` and `%51&A.md` key alike, as do `%c3%a9` and `%C3%A9`,
+ * and `^` and `%5E`. A URI outside the root, or with a query, keys as its canonical form without the fragment;
+ * `undefined` if it does not parse.
  */
 export function skillFileKey(rootUri: string, uri: string): string | undefined {
     let url: URL;
@@ -102,7 +162,7 @@ export function skillFileKey(rootUri: string, uri: string): string | undefined {
     const below = canonical
         .slice(rootUri.length + 1)
         .split('/')
-        .map(segment => encodeSegment(safeDecode(segment)));
+        .map(segment => keyOfSegment(segment));
     return `${rootUri}/${below.join('/')}`;
 }
 

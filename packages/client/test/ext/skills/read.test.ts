@@ -1,5 +1,5 @@
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
-import { buildSkillEntry, encodeUtf8, SdkErrorCode, sha256Digest } from '@modelcontextprotocol/core-internal';
+import { buildSkillEntry, encodeUtf8, joinUri, SdkErrorCode, sha256Digest } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SkillsClientOptions } from '../../../src/ext/skills/index';
@@ -139,6 +139,26 @@ describe('SkillsClient.read', () => {
         expect(error).toBeInstanceOf(SkillVerificationError);
         expect(error).toMatchObject({ reason: 'unlisted', uri: 'http://[' });
         expect(reads(calls)).toEqual([]);
+    });
+
+    it('reads a name with a stray % by its plain name', async () => {
+        const { skills, skill } = await connected({ files: { ...PDF_FILES, 'references/100% off.md': '# Sale\n' } });
+        const published = uriOf(PDF_ROOT, 'references/100% off.md');
+        expect(published).toBe('skill://pdf-processing/references/100%25%20off.md');
+        expect(await skills.read(skill, 'references/100% off.md')).toMatchObject({ uri: published, text: '# Sale\n', verified: true });
+    });
+
+    it.each(['me@home', 'acme:prod', '[draft]'])('reads and matches files of a skill under the %s folder or prefix', async first => {
+        const root = joinUri('skill://', [first, 'pdf-processing']);
+        expect(root).toBe(`skill://${encodeURIComponent(first)}/pdf-processing`);
+        const files = { ...PDF_FILES, 'references/Q&A.md': '# Q&A\n' };
+        const skill = await entryFor(root, files);
+        const { client } = await scriptedClient(CAPABILITIES, skillsHandlers([skill], filesOf(root, files)));
+        const skills = new SkillsClient(client);
+        expect(await skills.read(skill)).toMatchObject({ uri: `${root}/SKILL.md`, verified: true });
+        for (const ref of ['references/Q&A.md', 'references/Q%26A.md', `${root}/references/Q&A.md`]) {
+            expect(await skills.read(skill, ref)).toMatchObject({ uri: `${root}/references/Q&A.md`, text: '# Q&A\n', verified: true });
+        }
     });
 
     it('refuses unlisted files before sending any request', async () => {

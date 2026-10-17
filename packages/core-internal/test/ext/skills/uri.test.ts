@@ -21,7 +21,7 @@ describe('uri helpers', () => {
         expect(joinUri('github://owner/repo/skills/', ['x', 'SKILL.md'])).toBe('github://owner/repo/skills/x/SKILL.md');
     });
 
-    it.each(['Q&A.md', 'c++.md', '[draft].md', 'me@home.md', 'a,b;c=d$e|f!(g)*~h.md', 'Purchase Order.md', 'Remboursé.md', 'x^y{z}.md'])(
+    it.each(['Q&A.md', 'c++.md', '[draft].md', 'me@home.md', 'a,b;c=d$e|f!(g)*~h.md', 'Purchase Order.md', 'Remboursé.md', 'x{y}z.md'])(
         'publishes %s exactly as new URL() resolves the plain name against the root',
         name => {
             const published = joinUri('skill://acme/refunds', [name]);
@@ -29,6 +29,31 @@ describe('uri helpers', () => {
             expect(isRoundTripUri(published)).toBe(true);
         }
     );
+
+    it('encodes ^ on every runtime, and keys a host that leaves it raw alike', () => {
+        const root = 'skill://acme/refunds';
+        const published = joinUri(root, ['x^y.md']);
+        expect(published).toBe('skill://acme/refunds/x%5Ey.md');
+        // Node 24 resolves `x^y.md` to `x%5Ey.md`; Node 20 and 22 leave the `^` raw.
+        for (const uri of [published, 'skill://acme/refunds/x^y.md', new URL('x^y.md', `${root}/`).href]) {
+            expect(skillFileKey(root, uri)).toBe(published);
+        }
+    });
+
+    it.each([
+        ['me@home', 'me%40home'],
+        ['acme:prod', 'acme%3Aprod'],
+        ['[draft]', '%5Bdraft%5D'],
+        ['a|b', 'a%7Cb']
+    ])('encodes a first segment %s strictly, since it is the authority of a skill:// URI', (first, authority) => {
+        const uri = joinUri('skill://', [first, 'refunds', 'SKILL.md']);
+        expect(uri).toBe(`skill://${authority}/refunds/SKILL.md`);
+        expect(isRoundTripUri(uri)).toBe(true);
+        expect(new URL(uri).host).toBe(authority);
+        expect(resolveSkillRef(uri, 'references/Q&A.md')).toBe(`skill://${authority}/refunds/references/Q&A.md`);
+        // Below the authority, path segments follow the path rules.
+        expect(joinUri(`skill://${authority}`, [first])).toBe(`skill://${authority}/${first}`);
+    });
 
     it('always encodes the characters that would change what a segment means', () => {
         expect(encodeSegment('100%.md')).toBe('100%25.md');
@@ -48,6 +73,7 @@ describe('uri helpers', () => {
     it('throws URIError for a lone surrogate', () => {
         expect(() => encodeSegment('x\uD800.md')).toThrow(URIError);
         expect(() => joinUri('skill://acme', ['empty\uDC00'])).toThrow(URIError);
+        expect(() => joinUri('skill://', ['x\uD800', 'SKILL.md'])).toThrow(URIError);
     });
 
     it('keys every spelling of one file below the root alike', () => {
@@ -63,6 +89,23 @@ describe('uri helpers', () => {
         expect(skillFileKey(root, 'skill://acme/refunds/x.md?')).toBe('skill://acme/refunds/x.md?');
         expect(skillFileKey(root, 'skill://acme/other/x.md#f')).toBe('skill://acme/other/x.md');
         expect(skillFileKey(root, 'not a uri')).toBeUndefined();
+    });
+
+    it.each(['100% off.md', '50% résumé.md', 'x%zz é.md', 'a % b.md'])(
+        'keys %s, a name with a stray %, as published whatever else needs encoding',
+        name => {
+            const root = 'skill://acme/refunds';
+            expect(skillFileKey(root, new URL(name, `${root}/`).href)).toBe(joinUri(root, [name]));
+            expect(skillFileKey(root, joinUri(root, [name]))).toBe(joinUri(root, [name]));
+        }
+    );
+
+    it('keeps an escape that is not valid UTF-8, in upper case, and decodes the valid ones around it', () => {
+        const root = 'skill://acme/refunds';
+        for (const uri of ['skill://acme/refunds/%ff%41.md', 'skill://acme/refunds/%FFA.md']) {
+            expect(skillFileKey(root, uri)).toBe('skill://acme/refunds/%FFA.md');
+        }
+        expect(skillFileKey(root, 'skill://acme/refunds/%c3%a9%C3.md')).toBe('skill://acme/refunds/%C3%A9%C3.md');
     });
 
     it('finds the skill root and its last segment', () => {
