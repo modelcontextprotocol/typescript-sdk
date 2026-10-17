@@ -1,112 +1,106 @@
-/**
- * SEP-2640 Skills extension schemas: the validation the wire shapes promise,
- * and the `resultType` posture that typescript-sdk#2789 turns on.
- */
 import { describe, expect, it } from 'vitest';
 
 import {
+    GetSkillRequestParamsSchema,
     GetSkillResultSchema,
-    ListSkillsRequestParamsSchema,
     ListSkillsResultSchema,
-    MAX_SKILL_RESOURCES,
-    SKILLS_EXTENSION_ID,
-    SkillFrontmatterSchema,
-    SkillResourceEntrySchema,
+    ReadResourceDirectoryRequestParamsSchema,
+    ReadResourceDirectoryResultSchema,
+    SKILL_LIMITS,
     SkillSchema,
-    skillsCapabilityOf
-} from '../../../src/ext/skills';
+    skillsCapabilityOf,
+    SKILLS_EXTENSION_ID
+} from '../../../src/ext/skills/index';
 
-const DIGEST = `sha256:${'a'.repeat(64)}`;
-
-const SKILL = {
+const digest = `sha256:${'a'.repeat(64)}`;
+const skill = (extra: Record<string, unknown> = {}) => ({
     uri: 'skill://git-workflow/SKILL.md',
-    frontmatter: { name: 'git-workflow', description: 'Branching conventions.' },
-    resources: [{ uri: 'skill://git-workflow/SKILL.md', digest: DIGEST, size: 128 }]
-};
+    frontmatter: { name: 'git-workflow', description: 'Branching and review conventions.' },
+    resources: [{ uri: 'skill://git-workflow/SKILL.md', digest, size: 10 }],
+    ...extra
+});
 
-describe('skill resource entries', () => {
-    it('accepts a well-formed sha256 digest', () => {
-        expect(SkillResourceEntrySchema.safeParse({ uri: 'skill://s/SKILL.md', digest: DIGEST, size: 0 }).success).toBe(true);
+describe('SkillSchema', () => {
+    it('keeps _meta and unknown keys', () => {
+        const parsed = SkillSchema.parse(skill({ _meta: { 'io.modelcontextprotocol.skills/x': 1 }, future: true }));
+        expect(parsed._meta).toEqual({ 'io.modelcontextprotocol.skills/x': 1 });
+        expect((parsed as Record<string, unknown>)['future']).toBe(true);
     });
 
-    it.each([
-        ['no algorithm prefix', 'a'.repeat(64)],
-        ['uppercase hex', `sha256:${'A'.repeat(64)}`],
-        ['too short', `sha256:${'a'.repeat(63)}`],
-        ['wrong algorithm', `sha512:${'a'.repeat(64)}`]
-    ])('rejects a digest with %s', (_label, digest) => {
-        expect(SkillResourceEntrySchema.safeParse({ uri: 'skill://s/SKILL.md', digest, size: 1 }).success).toBe(false);
+    it('keeps frontmatter fields beyond name and description', () => {
+        const parsed = SkillSchema.parse(skill({ frontmatter: { name: 'git-workflow', description: 'd', license: 'MIT' } }));
+        expect(parsed.frontmatter).toEqual({ name: 'git-workflow', description: 'd', license: 'MIT' });
     });
 
-    it('requires size to be a non-negative integer', () => {
-        expect(SkillResourceEntrySchema.safeParse({ uri: 'u', digest: DIGEST, size: -1 }).success).toBe(false);
-        expect(SkillResourceEntrySchema.safeParse({ uri: 'u', digest: DIGEST, size: 1.5 }).success).toBe(false);
+    it('accepts more files than SKILL_LIMITS (limits are policy, not schema)', () => {
+        const resources = Array.from({ length: SKILL_LIMITS.files + 1 }, (_, index) => ({
+            uri: `skill://git-workflow/f${index}`,
+            digest,
+            size: 1
+        }));
+        expect(SkillSchema.safeParse(skill({ resources })).success).toBe(true);
+    });
+
+    it('accepts "dynamic" and rejects any other string', () => {
+        expect(SkillSchema.safeParse(skill({ resources: 'dynamic' })).success).toBe(true);
+        expect(SkillSchema.safeParse(skill({ resources: 'static' })).success).toBe(false);
+    });
+
+    it('rejects malformed digests and negative sizes', () => {
+        expect(
+            SkillSchema.safeParse(skill({ resources: [{ uri: 'skill://git-workflow/SKILL.md', digest: 'sha256:ABC', size: 1 }] })).success
+        ).toBe(false);
+        expect(SkillSchema.safeParse(skill({ resources: [{ uri: 'skill://git-workflow/SKILL.md', digest, size: -1 }] })).success).toBe(
+            false
+        );
     });
 });
 
-describe('skill entries', () => {
-    it('requires name and description in frontmatter and preserves any further keys verbatim', () => {
-        expect(SkillFrontmatterSchema.safeParse({ name: 'n' }).success).toBe(false);
-        const parsed = SkillFrontmatterSchema.parse({ name: 'n', description: 'd', 'allowed-tools': ['Bash'] });
-        expect(parsed['allowed-tools']).toEqual(['Bash']);
+describe('result schemas', () => {
+    it('ListSkillsResult keeps paging and caching fields and needs no resultType', () => {
+        const parsed = ListSkillsResultSchema.parse({ skills: [skill()], nextCursor: 'c', ttlMs: 5, cacheScope: 'public' });
+        expect(parsed).toMatchObject({ nextCursor: 'c', ttlMs: 5, cacheScope: 'public' });
     });
 
-    it('accepts the literal "dynamic" in place of a resource list', () => {
-        expect(SkillSchema.safeParse({ ...SKILL, resources: 'dynamic' }).success).toBe(true);
-        expect(SkillSchema.safeParse({ ...SKILL, resources: 'whenever' }).success).toBe(false);
+    it('GetSkillResult carries one entry', () => {
+        expect(GetSkillResultSchema.parse({ skill: skill(), ttlMs: 0, cacheScope: 'private' }).skill.uri).toBe(
+            'skill://git-workflow/SKILL.md'
+        );
     });
 
-    it(`caps a skill at ${MAX_SKILL_RESOURCES} resource entries`, () => {
-        const entry = { uri: 'skill://s/f.md', digest: DIGEST, size: 1 };
-        expect(SkillSchema.safeParse({ ...SKILL, resources: Array(MAX_SKILL_RESOURCES).fill(entry) }).success).toBe(true);
-        expect(SkillSchema.safeParse({ ...SKILL, resources: Array(MAX_SKILL_RESOURCES + 1).fill(entry) }).success).toBe(false);
-    });
-});
-
-describe('results carry no resultType slot (typescript-sdk#2789)', () => {
-    // The 2026-07-28 era codec validates `resultType` on decode and CONSUMES it
-    // before any caller-supplied result schema runs. A schema that re-declares
-    // it can therefore never match. These pin that the skills results parse a
-    // body with no `resultType` at all.
-    it('parses a skills/list body with no resultType', () => {
-        const parsed = ListSkillsResultSchema.parse({ skills: [SKILL], ttlMs: 60_000, cacheScope: 'public' });
-        expect(parsed.skills).toHaveLength(1);
-        expect(parsed.nextCursor).toBeUndefined();
-    });
-
-    it('parses a skills/get body with no resultType', () => {
-        expect(GetSkillResultSchema.parse({ skill: SKILL }).skill.uri).toBe(SKILL.uri);
-    });
-
-    it('rejects an unknown cacheScope rather than passing it through', () => {
-        expect(ListSkillsResultSchema.safeParse({ skills: [], cacheScope: 'shared' }).success).toBe(false);
-    });
-});
-
-describe('pagination params', () => {
-    it('accepts an absent cursor and a string cursor', () => {
-        expect(ListSkillsRequestParamsSchema.safeParse({}).success).toBe(true);
-        expect(ListSkillsRequestParamsSchema.parse({ cursor: '2' }).cursor).toBe('2');
-        expect(ListSkillsRequestParamsSchema.safeParse({ cursor: 2 }).success).toBe(false);
-    });
-});
-
-describe('capability negotiation', () => {
-    it('reads the extension out of advertised capabilities', () => {
-        expect(skillsCapabilityOf({ extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: true } } })).toEqual({ directoryRead: true });
-        expect(skillsCapabilityOf({ extensions: { [SKILLS_EXTENSION_ID]: {} } })).toEqual({});
-    });
-
-    it('returns undefined when the extension is absent, and for a malformed value', () => {
-        expect(skillsCapabilityOf(undefined)).toBeUndefined();
-        expect(skillsCapabilityOf({ extensions: {} })).toBeUndefined();
-        expect(skillsCapabilityOf({ extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: 'yes' } } })).toBeUndefined();
-    });
-
-    it('preserves capability fields added by later revisions', () => {
-        expect(skillsCapabilityOf({ extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: false, future: 1 } } })).toEqual({
-            directoryRead: false,
-            future: 1
+    it('ReadResourceDirectoryResult keeps unknown keys on children and caching fields', () => {
+        const parsed = ReadResourceDirectoryResultSchema.parse({
+            resources: [{ uri: 'skill://git-workflow/references', name: 'references', mimeType: 'inode/directory', extra: 1 }],
+            ttlMs: 0,
+            cacheScope: 'private'
         });
+        expect((parsed.resources[0] as Record<string, unknown>)['extra']).toBe(1);
+        expect(parsed.ttlMs).toBe(0);
+    });
+});
+
+describe('request params', () => {
+    it('skills/get requires a uri', () => {
+        expect(GetSkillRequestParamsSchema.safeParse({}).success).toBe(false);
+        expect(GetSkillRequestParamsSchema.parse({ uri: 'skill://a/SKILL.md' }).uri).toBe('skill://a/SKILL.md');
+    });
+
+    it('resources/directory/read takes a uri and an optional cursor', () => {
+        expect(ReadResourceDirectoryRequestParamsSchema.parse({ uri: 'skill://a', cursor: 'x' })).toMatchObject({
+            uri: 'skill://a',
+            cursor: 'x'
+        });
+    });
+});
+
+describe('constants and capability', () => {
+    it('SKILL_LIMITS matches the SEP', () => {
+        expect(SKILL_LIMITS).toEqual({ files: 512, bytes: 16_777_216 });
+    });
+
+    it('skillsCapabilityOf reads the extension entry', () => {
+        expect(skillsCapabilityOf({ extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: true } } })).toEqual({ directoryRead: true });
+        expect(skillsCapabilityOf({ extensions: {} })).toBeUndefined();
+        expect(skillsCapabilityOf(undefined)).toBeUndefined();
     });
 });

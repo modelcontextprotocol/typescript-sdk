@@ -1,43 +1,38 @@
 /**
  * Wire constants for the MCP Skills extension (SEP-2640).
  *
- * Runtime-neutral: this module and its siblings import nothing beyond `zod/v4`
- * and the core schema modules, so the extension stays consumable from browser
- * and Cloudflare Workers bundles.
+ * Runtime-neutral: this module imports nothing.
  */
 
-/**
- * The reverse-DNS identifier under which a server advertises the Skills
- * extension in `ServerCapabilities.extensions`.
- */
+/** The identifier a server advertises in `ServerCapabilities.extensions`. */
 export const SKILLS_EXTENSION_ID = 'io.modelcontextprotocol/skills';
 
-/** Request method that enumerates the skills a server serves. */
+/** Enumerates the skills a server serves. */
 export const SKILLS_LIST_METHOD = 'skills/list';
 
-/** Request method that fetches a single skill entry by its `SKILL.md` URI. */
+/** Returns one skill's entry by its `SKILL.md` URI, listed or not. */
 export const SKILLS_GET_METHOD = 'skills/get';
 
-/** The canonical URI scheme for skills. Servers MAY serve skills under other schemes. */
+/** Lists the direct children of a directory resource (gated by `directoryRead`). */
+export const RESOURCES_DIRECTORY_READ_METHOD = 'resources/directory/read';
+
+/** The conventional URI scheme for skills. Servers MAY use other schemes. */
 export const SKILL_URI_SCHEME = 'skill:';
 
-/** The manifest filename that terminates every `SKILL.md` URI. */
+/** The manifest file that every skill entry's `uri` points at. */
 export const SKILL_MANIFEST_FILENAME = 'SKILL.md';
 
-/**
- * Maximum number of resource entries in a single skill (SEP-2640 normative
- * limit). Hosts MUST support up to this many; servers SHOULD NOT exceed it.
- */
-export const MAX_SKILL_RESOURCES = 512;
+/** The `mimeType` of a directory resource. */
+export const DIRECTORY_MIME_TYPE = 'inode/directory';
+
+/** Reverse-domain prefix for `_meta` keys this extension defines. */
+export const SKILLS_META_PREFIX = 'io.modelcontextprotocol.skills/';
 
 /**
- * Maximum total byte size of a single skill's files: 16 MiB (SEP-2640
- * normative limit). Checkable from a skill entry before any file is fetched.
+ * Per-skill interoperability limits. Hosts MUST accept skills up to these;
+ * servers SHOULD NOT publish skills over them.
  */
-export const MAX_SKILL_TOTAL_BYTES = 16_777_216;
+export const SKILL_LIMITS: Readonly<{ files: number; bytes: number }> = Object.freeze({ files: 512, bytes: 16_777_216 });
 
-/**
- * The digest format required on every skill resource entry: lowercase
- * `sha256:` followed by 64 hex characters.
- */
-export const SKILL_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+/** `sha256:` followed by 64 lowercase hexadecimal characters. */
+export const SKILL_DIGEST_PATTERN = /^sha256:[\da-f]{64}$/;
