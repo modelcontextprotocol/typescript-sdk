@@ -6,7 +6,7 @@ import type { CatalogBuildOptions } from '../../../src/ext/skills/catalogBuild';
 import { buildCatalogSnapshot } from '../../../src/ext/skills/catalogBuild';
 import { SkillCatalogError } from '../../../src/ext/skills/errors';
 import { memorySkillFiles } from '../../../src/ext/skills/files';
-import type { SkillFiles, SkillWarning } from '../../../src/ext/skills/types';
+import type { SkillFileEntry, SkillFiles, SkillWarning } from '../../../src/ext/skills/types';
 import { ESCALATION, fixtureFiles, GIT, LOGO, PNG, PURCHASE_ORDER, REFUNDS, REMBOURSE } from './fixtures';
 
 function optionsWith(overrides: Partial<CatalogBuildOptions> = {}) {
@@ -21,7 +21,36 @@ function optionsWith(overrides: Partial<CatalogBuildOptions> = {}) {
     return { warnings, options };
 }
 
+/** The problems a strict build fails with, sorted by path; `[]` when it succeeds. Any other error fails the test. */
+async function strictProblems(files: SkillFiles): Promise<SkillWarning[]> {
+    try {
+        await buildCatalogSnapshot(files, optionsWith({ strict: true }).options);
+        return [];
+    } catch (error) {
+        if (error instanceof SkillCatalogError) return error.problems.toSorted(byPath);
+        throw error;
+    }
+}
+
+/** `files` plus extra entries in some directories, the way a disk adapter reports symlinks and empty folders. */
+function withEntries(files: SkillFiles, extra: Record<string, SkillFileEntry[]>): SkillFiles {
+    return {
+        async list(dir) {
+            if (!Object.hasOwn(extra, dir)) return files.list(dir);
+            const existing = await files.list(dir).catch((): SkillFileEntry[] => []);
+            return [...existing, ...extra[dir]!];
+        },
+        read: path => files.read(path)
+    };
+}
+
+const byPath = (a: SkillWarning, b: SkillWarning): number => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+const names = (entries: readonly SkillFileEntry[]): string[] => entries.map(entry => entry.name).toSorted();
+const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
+
 const INVALID = '---\nname: other\ndescription: d\n---\n';
+const NOT_FOLLOWED = /symlinks and other special files are not followed; copy the file instead/;
+const UNREPRESENTABLE = /cannot be represented in a URI/;
 
 describe('buildCatalogSnapshot', () => {
     it('builds flat, URI-sorted entries; a nested skill is also a file of the enclosing skill', async () => {
@@ -107,6 +136,50 @@ describe('buildCatalogSnapshot', () => {
         expect(warnings).toContainEqual(expect.objectContaining({ path: 'git-workflow/run.sh' }));
     });
 
+    it('skips a skill whose SKILL.md is a symlink, or fails when strict', async () => {
+        const files = withEntries(memorySkillFiles({ ...fixtureFiles(), 'linked/README.md': '# Linked\n' }), {
+            linked: [{ name: 'SKILL.md', kind: 'unsupported' }]
+        });
+        const { options, warnings } = optionsWith();
+        const snapshot = await buildCatalogSnapshot(files, options);
+        expect(snapshot.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
+        const expected = [{ path: 'linked/SKILL.md', message: expect.stringMatching(NOT_FOLLOWED) }];
+        expect(warnings).toEqual(expected);
+        expect(await strictProblems(files)).toEqual(expected);
+    });
+
+    it('reports a symlink outside any skill, such as a linked skill folder, or fails when strict', async () => {
+        const files = withEntries(memorySkillFiles(fixtureFiles()), {
+            '': [{ name: 'shared-skill', kind: 'unsupported' }],
+            'acme/billing': [{ name: 'policy.md', kind: 'unsupported' }]
+        });
+        const { options, warnings } = optionsWith();
+        const snapshot = await buildCatalogSnapshot(files, options);
+        expect(snapshot.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
+        const expected = ['acme/billing/policy.md', 'shared-skill'].map(path => ({ path, message: expect.stringMatching(NOT_FOLLOWED) }));
+        expect(warnings.toSorted(byPath)).toEqual(expected);
+        expect(await strictProblems(files)).toEqual(expected);
+    });
+
+    it('skips a skill with a name that cannot be represented in a URI, such as a lone surrogate', async () => {
+        const memory = memorySkillFiles({
+            ...fixtureFiles(),
+            'bad/SKILL.md': '---\nname: bad\ndescription: d\n---\n',
+            'bad/x\uD800.md': 'x'
+        });
+        // An empty folder too: no file below it carries the name, yet the catalog lists the folder.
+        const files = withEntries(memory, { 'git-workflow': [{ name: 'empty\uDC00', kind: 'directory' }], 'git-workflow/empty\uDC00': [] });
+        const { options, warnings } = optionsWith();
+        const snapshot = await buildCatalogSnapshot(files, options);
+        expect(snapshot.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION]);
+        const expected = ['bad/x\uD800.md', 'git-workflow/empty\uDC00'].map(path => ({
+            path,
+            message: expect.stringMatching(UNREPRESENTABLE)
+        }));
+        expect(warnings.toSorted(byPath)).toEqual(expected);
+        expect(await strictProblems(files)).toEqual(expected);
+    });
+
     it('collects every problem into one SkillCatalogError when strict', async () => {
         const files = { ...fixtureFiles(), 'bad/SKILL.md': INVALID, 'SKILL.md': '---\nname: r\ndescription: d\n---\n' };
         const error = await buildCatalogSnapshot(memorySkillFiles(files), optionsWith({ strict: true }).options).catch(
@@ -152,5 +225,40 @@ describe('memorySkillFiles', () => {
         expect(entries.map(entry => entry.name).toSorted()).toEqual(['SKILL.md', 'extra.md']);
         await expect(files.list('missing')).rejects.toThrow();
         await expect(files.read('a/missing.md')).rejects.toThrow();
+    });
+
+    it('sees additions, removals and new content after earlier calls', async () => {
+        const record: Record<string, string> = { 'a/SKILL.md': 'x' };
+        const files = memorySkillFiles(record);
+        expect(names(await files.list('a'))).toEqual(['SKILL.md']);
+        // Same number of keys as before, different keys.
+        record['a/b/c.md'] = 'c';
+        delete record['a/SKILL.md'];
+        expect(names(await files.list('a'))).toEqual(['b']);
+        await expect(files.read('a/SKILL.md')).rejects.toThrow();
+        record['a/b/c.md'] = 'changed';
+        expect(text(await files.read('a/b/c.md'))).toBe('changed');
+    });
+
+    it('finds files stored under keys that are not normalised', async () => {
+        const files = memorySkillFiles({ './a/SKILL.md': 'x', 'a//b/c.md': 'c' });
+        expect(names(await files.list(''))).toEqual(['a']);
+        expect(names(await files.list('a'))).toEqual(['SKILL.md', 'b']);
+        expect(text(await files.read('a/b/c.md'))).toBe('c');
+    });
+
+    it('loads a catalog of a few thousand files quickly', async () => {
+        const record: Record<string, string> = {};
+        for (let index = 0; index < 600; index++) {
+            const name = `skill-${index}`;
+            record[`${name}/SKILL.md`] = `---\nname: ${name}\ndescription: d\n---\n`;
+            for (const file of ['a.md', 'b.md', 'c.md', 'd.md']) record[`${name}/${file}`] = file;
+        }
+        const started = performance.now();
+        const snapshot = await buildCatalogSnapshot(memorySkillFiles(record), optionsWith().options);
+        const elapsed = performance.now() - started;
+        expect(snapshot.ordered).toHaveLength(600);
+        // A generous bound: about 0.2 s here, against about 4 s when every call re-normalised every key.
+        expect(elapsed).toBeLessThan(1500);
     });
 });

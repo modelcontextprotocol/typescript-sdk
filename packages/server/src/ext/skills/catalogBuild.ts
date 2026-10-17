@@ -54,6 +54,31 @@ const dirname = (path: string): string => {
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
+const NOT_FOLLOWED = 'symlinks and other special files are not followed; copy the file instead';
+
+/** Any non-directory named exactly `SKILL.md` marks a skill, so a symlinked one is reported rather than ignored. */
+const isManifest = (entry: TreeEntry): boolean => entry.kind !== 'directory' && basename(entry.path) === 'SKILL.md';
+
+/** True when some folder above `path` is one of `dirs`. */
+function isBelowAny(dirs: ReadonlySet<string>, path: string): boolean {
+    for (let dir = dirname(path); dir !== ''; dir = dirname(dir)) {
+        if (dirs.has(dir)) return true;
+    }
+    return false;
+}
+
+/** The URI of `path`, or `undefined` when a name in it has no URI form (a lone surrogate, or no round trip). */
+function representableUri(uriOf: UriOf, path: string): string | undefined {
+    let uri: string;
+    try {
+        uri = uriOf(path);
+    } catch (error) {
+        if (error instanceof URIError) return undefined;
+        throw error;
+    }
+    return isRoundTripUri(uri) ? uri : undefined;
+}
+
 /** Every non-hidden entry below the root, depth first. Storage errors fail the build. */
 async function walk(files: SkillFiles): Promise<TreeEntry[]> {
     const tree: TreeEntry[] = [];
@@ -100,9 +125,18 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
         }
     }
 
+    // A special file inside a skill is reported when that skill is built; one outside every skill (a symlinked
+    // skill folder, say) is reported here. A root SKILL.md is reported in the loop below.
+    const skillDirs = new Set(tree.filter(entry => isManifest(entry)).map(entry => dirname(entry.path)));
+    for (const entry of tree) {
+        if (entry.kind === 'unsupported' && !isManifest(entry) && !isBelowAny(skillDirs, entry.path)) {
+            report({ path: entry.path, message: `${NOT_FOLLOWED} (skipped)` });
+        }
+    }
+
     const built: BuiltSkill[] = [];
     for (const entry of tree) {
-        if (entry.kind !== 'file' || basename(entry.path) !== 'SKILL.md') continue;
+        if (!isManifest(entry)) continue;
         const dir = dirname(entry.path);
         if (dir === '') {
             report({
@@ -130,21 +164,18 @@ async function buildOne(
     const inside = tree.filter(entry => entry.path.startsWith(`${dir}/`));
     const unsupported = inside.find(entry => entry.kind === 'unsupported');
     if (unsupported !== undefined) {
-        report({
-            path: unsupported.path,
-            message: 'symlinks and other special files are not followed; copy the file instead (skill skipped)'
-        });
+        report({ path: unsupported.path, message: `${NOT_FOLLOWED} (skill skipped)` });
         return undefined;
     }
     const inputs: Array<{ path: string; uri: string; bytes: Uint8Array }> = [];
     for (const entry of inside) {
-        if (entry.kind !== 'file') continue;
-        const uri = uriOf(entry.path);
-        if (!isRoundTripUri(uri)) {
+        // Folders too: an empty one's name appears only in its parent's directory listing.
+        const uri = representableUri(uriOf, entry.path);
+        if (uri === undefined) {
             report({ path: entry.path, message: 'this name cannot be represented in a URI (skill skipped)' });
             return undefined;
         }
-        inputs.push({ path: entry.path, uri, bytes: await readFile(files, entry.path) });
+        if (entry.kind === 'file') inputs.push({ path: entry.path, uri, bytes: await readFile(files, entry.path) });
     }
     const manifestUri = uriOf(`${dir}/SKILL.md`);
     const { skill, problems } = await buildSkillEntry(manifestUri, inputs);

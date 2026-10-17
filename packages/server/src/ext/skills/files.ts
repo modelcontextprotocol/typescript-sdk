@@ -11,27 +11,61 @@ export function splitRelativePath(path: string, label: string): string[] {
     return segments;
 }
 
-/** An in-memory adapter. The record is read on every call, so `reload()` sees later changes to it. */
+/** A memory record's directories and files, by normalised path. */
+interface MemoryIndex {
+    /** Children of every directory (`''` is the root), in record order. */
+    readonly dirs: ReadonlyMap<string, ReadonlyMap<string, SkillFileEntry>>;
+    /** The record key that holds each file. */
+    readonly files: ReadonlyMap<string, string>;
+}
+
+function indexRecord(keys: readonly string[]): MemoryIndex {
+    const dirs = new Map<string, Map<string, SkillFileEntry>>();
+    const files = new Map<string, string>();
+    for (const key of keys) {
+        const segments = splitRelativePath(key, 'file path');
+        let dir = '';
+        for (const [depth, name] of segments.entries()) {
+            let children = dirs.get(dir);
+            if (children === undefined) {
+                children = new Map();
+                dirs.set(dir, children);
+            }
+            children.set(name, { name, kind: depth < segments.length - 1 ? 'directory' : 'file' });
+            dir = dir === '' ? name : `${dir}/${name}`;
+        }
+        files.set(dir, key);
+    }
+    return { dirs, files };
+}
+
+/**
+ * An in-memory adapter. The record is read on every call, so `reload()` sees later changes to it. Calls stay cheap
+ * on large records: `read` looks the path up directly, and the index behind `list` is rebuilt only when the
+ * record's keys change.
+ */
 export function memorySkillFiles(files: Record<string, string | Uint8Array>): SkillFiles {
-    const current = (): Map<string, string | Uint8Array> => {
-        const entries = new Map<string, string | Uint8Array>();
-        for (const [path, content] of Object.entries(files)) entries.set(splitRelativePath(path, 'file path').join('/'), content);
-        return entries;
+    let indexedKeys: readonly string[] = [];
+    let index = indexRecord(indexedKeys);
+    const current = (): MemoryIndex => {
+        const keys = Object.keys(files);
+        if (keys.length !== indexedKeys.length || keys.some((key, position) => key !== indexedKeys[position])) {
+            index = indexRecord(keys);
+            indexedKeys = keys;
+        }
+        return index;
     };
     return {
         async list(dir) {
-            const prefix = dir === '' ? '' : `${dir}/`;
-            const children = new Map<string, SkillFileEntry>();
-            for (const path of current().keys()) {
-                if (!path.startsWith(prefix)) continue;
-                const [name, ...deeper] = path.slice(prefix.length).split('/');
-                if (name !== undefined) children.set(name, { name, kind: deeper.length > 0 ? 'directory' : 'file' });
-            }
-            if (dir !== '' && children.size === 0) throw new Error(`no such directory: ${dir}`);
-            return [...children.values()];
+            const children = current().dirs.get(dir);
+            if (children !== undefined) return Array.from(children.values(), entry => ({ ...entry }));
+            if (dir === '') return [];
+            throw new Error(`no such directory: ${dir}`);
         },
         async read(path) {
-            const content = current().get(path);
+            // Keys written as `./a/b` or `a//b` are found through the index.
+            const key = Object.hasOwn(files, path) ? path : current().files.get(path);
+            const content = key === undefined ? undefined : files[key];
             if (content === undefined) throw new Error(`no such file: ${path}`);
             return typeof content === 'string' ? encodeUtf8(content) : content;
         }
