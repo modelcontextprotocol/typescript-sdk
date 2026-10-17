@@ -413,12 +413,12 @@ function readFlow(text: string, start: number, no: number, depth: number): { val
     if (text[index] === close) return { value: open === '[' ? list : map, end: index + 1 };
     for (;;) {
         if (open === '[') {
-            const item = readFlowValue(text, index, no, depth, ',]');
+            const item = readFlowValue(text, index, no, depth);
             list.push(item.value);
             index = skipSpaces(text, item.end);
         } else {
             const key = readFlowKey(text, index, no);
-            const item = readFlowValue(text, key.end + 1, no, depth, ',}');
+            const item = readFlowValue(text, key.end + 1, no, depth);
             if (Object.hasOwn(map, key.key)) throw new FrontmatterError(`duplicate key "${key.key}"`, no);
             map[key.key] = item.value;
             index = skipSpaces(text, item.end);
@@ -438,49 +438,58 @@ function readFlow(text: string, start: number, no: number, depth: number): { val
 function readFlowKey(text: string, start: number, no: number): { key: string; end: number } {
     const index = skipSpaces(text, start);
     const char = text[index];
+    if (char === undefined) throw new FrontmatterError(UNCLOSED_FLOW, no);
     if (char === '"' || char === "'") {
         const quoted = readQuoted(text, index, no);
         const colon = skipSpaces(text, quoted.end);
         if (text[colon] !== ':') throw new FrontmatterError('expected ": " after a key in a flow mapping', no);
         return { key: checkKey(quoted.value, no), end: colon };
     }
-    let end = index;
-    while (end < text.length && !':,}'.includes(text[end]!)) end++;
+    if (char === '[' || char === '{') throw new FrontmatterError('complex keys (flow collections as keys) are not supported', no);
+    assertFlowPlainStart(text, index, no);
+    const end = scanFlowPlain(text, index);
     const raw = text.slice(index, end).trim();
     const after = text[end + 1];
     if (raw === '' || text[end] !== ':' || (after !== ' ' && after !== '\t')) {
         throw new FrontmatterError('expected "key: value" in a flow mapping', no);
     }
-    assertFlowPlainStart(text, index, no);
     return { key: resolveKey(raw, no), end };
 }
+
+/** Whitespace and the flow indicators: after `-`, `?` or `:`, any of these makes it an indicator in a flow collection. */
+const FLOW_SEPARATORS = ' \t,[]{}';
 
 /** Rejects a plain flow key or value whose first character YAML reads as an indicator. */
 function assertFlowPlainStart(text: string, index: number, no: number): void {
     const char = text[index]!;
     if ('&*!'.includes(char)) throw new FrontmatterError('anchors, aliases and tags are not supported', no);
-    if ('|>%@`#'.includes(char) || ('-?:'.includes(char) && ' \t,[]{}'.includes(text[index + 1] ?? ' '))) {
+    if ('|>%@`#'.includes(char) || ('-?:'.includes(char) && FLOW_SEPARATORS.includes(text[index + 1] ?? ' '))) {
         throw new FrontmatterError(`"${char}" cannot start a plain value in a flow collection; quote it`, no);
     }
 }
 
-function readFlowValue(text: string, start: number, no: number, depth: number, terminators: string): { value: unknown; end: number } {
+/** Returns where a plain flow scalar starting at `index` ends: at a flow indicator, a comment, or a `:` indicator. */
+function scanFlowPlain(text: string, index: number): number {
+    let end = index;
+    while (end < text.length) {
+        const char = text[end]!;
+        if (',[]{}'.includes(char)) break;
+        if (char === '#' && (text[end - 1] === ' ' || text[end - 1] === '\t')) break;
+        if (char === ':' && FLOW_SEPARATORS.includes(text[end + 1] ?? ' ')) break;
+        end++;
+    }
+    return end;
+}
+
+function readFlowValue(text: string, start: number, no: number, depth: number): { value: unknown; end: number } {
     const index = skipSpaces(text, start);
     const char = text[index];
     if (char === undefined) throw new FrontmatterError(UNCLOSED_FLOW, no);
     if (char === '[' || char === '{') return readFlow(text, index, no, depth + 1);
     if (char === '"' || char === "'") return readQuoted(text, index, no);
     assertFlowPlainStart(text, index, no);
-    let end = index;
-    while (end < text.length && !terminators.includes(text[end]!)) {
-        const current = text[end];
-        const previous = text[end - 1];
-        if (current === '#' && (previous === ' ' || previous === '\t')) break;
-        if (current === ':' && (text[end + 1] === undefined || text[end + 1] === ' ' || text[end + 1] === '\t')) {
-            throw new FrontmatterError('mappings inside flow sequences are not supported', no);
-        }
-        end++;
-    }
+    const end = scanFlowPlain(text, index);
+    if (text[end] === ':') throw new FrontmatterError('mappings inside flow collections are not supported; quote the value', no);
     const raw = text.slice(index, end).trim();
     if (raw === '') throw new FrontmatterError('empty value in a flow collection', no);
     return { value: resolvePlain(raw, no), end };

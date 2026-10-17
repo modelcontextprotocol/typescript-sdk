@@ -21,7 +21,8 @@ const ACCEPTED: readonly string[] = [
     'name: x\ndescription: d\nempty:\nquoted-empty: ""\nunicode: "日本語 ✓"\n',
     'name: x\ndescription: d\nnested:\n  level1:\n    level2:\n      - deep\n',
     'name: x\ndescription: d\ntags:\n-\ta\n-\tb\n',
-    'name: x\ndescription: d\nflow: [-a, ?b, :c]\nmap: {-k: v, ?k: w}\n'
+    'name: x\ndescription: d\nflow: [-a, ?b, :c]\nmap: {-k: v, ?k: w}\n',
+    'name: x\ndescription: d\nflow: [http://x.test/a, b:c, a#b]\nmap: {a:b: c, :k: v, http://x.test: 1, u: http://x.test, k#: v#}\n'
 ];
 
 /** Valid YAML the parser deliberately rejects (it must fail closed, never misread). */
@@ -35,7 +36,16 @@ const REJECTED: readonly string[] = [
     'flow: [:]\n',
     'map: {? k: v}\n',
     'map: {!t k: v}\n',
-    'map: {&a k: v}\n'
+    'map: {&a k: v}\n',
+    'flow: [x:]\n',
+    'flow: [x:, y]\n',
+    'flow: [x, y:]\n',
+    'flow: [x::]\n',
+    'flow: [x:y:]\n',
+    'map: {k: [x:]}\n',
+    'map: {[x]: y}\n',
+    'map: {k: v, [x]: y}\n',
+    'map: {{x: 1}: y}\n'
 ];
 
 /** Invalid YAML: the yaml library rejects it, so the parser must too. */
@@ -54,7 +64,17 @@ const INVALID: readonly string[] = [
     'a: {|k: v}\n',
     'a: x #c\n  y\n',
     'a: |\n   \n  x\n',
-    'a: "\\U00110000"\n'
+    'a: "\\U00110000"\n',
+    'a: [x{y]\n',
+    'a: [x}y]\n',
+    'a: {k: x]y}\n',
+    'a: {k: x[y}\n',
+    'a: {k: x{y}\n',
+    'a: {k: v:}\n',
+    'a: {k: v:, j: w}\n',
+    'a: {x #y: z}\n',
+    'a: {x]: y}\n',
+    'a: {x[: y}\n'
 ];
 
 const OPTIONS = { version: '1.2', schema: 'core', uniqueKeys: true, merge: false } as const;
