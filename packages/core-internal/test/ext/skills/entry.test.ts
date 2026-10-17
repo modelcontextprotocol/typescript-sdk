@@ -26,6 +26,11 @@ describe('validateSkillEntry', () => {
     it.each([
         ['a URI not ending in /SKILL.md', entry({ uri: 'skill://acme/refunds/README.md' }), /must be a URI ending in \/SKILL\.md/],
         [
+            'an empty segment before SKILL.md',
+            entry({ uri: 'skill://acme//SKILL.md', frontmatter: { name: 'acme', description: 'd' }, resources: 'dynamic' }),
+            /must be a URI ending in \/SKILL\.md/
+        ],
+        [
             'a name that does not match its folder',
             entry({ frontmatter: { name: 'refund', description: 'd' } }),
             /must match the last path segment/
@@ -55,6 +60,16 @@ describe('validateSkillEntry', () => {
             /outside the skill/
         ],
         [
+            'a file whose segment decodes to a traversal',
+            entry({
+                resources: [
+                    { uri: 'skill://acme/refunds/SKILL.md', digest, size: 1 },
+                    { uri: 'skill://acme/refunds/x%2F..%2F..%2Fother%2Fx.md', digest, size: 1 }
+                ]
+            }),
+            /outside the skill/
+        ],
+        [
             'a duplicate file',
             entry({
                 resources: [
@@ -75,12 +90,13 @@ describe('validateSkillEntry', () => {
 });
 
 describe('buildSkillEntry', () => {
-    it('builds a valid entry with digests computed from the bytes', async () => {
-        const manifest = encodeUtf8('﻿---\r\nname: refunds\r\ndescription: Refund workflow.\r\n---\r\nBody\r\n');
+    it('builds a valid entry with digests computed from the bytes, sorted by URI', async () => {
+        const manifest = encodeUtf8('\uFEFF---\r\nname: refunds\r\ndescription: Refund workflow.\r\n---\r\nBody\r\n');
         const policy = encodeUtf8('# Policy\n');
+        // Reverse code-unit order on purpose, so the output order proves the sort.
         const { skill, problems } = await buildSkillEntry('skill://acme/refunds/SKILL.md', [
-            { uri: 'skill://acme/refunds/SKILL.md', bytes: manifest },
-            { uri: 'skill://acme/refunds/references/policy.md', bytes: policy }
+            { uri: 'skill://acme/refunds/references/policy.md', bytes: policy },
+            { uri: 'skill://acme/refunds/SKILL.md', bytes: manifest }
         ]);
         expect(problems).toEqual([]);
         expect(skill?.frontmatter).toEqual({ name: 'refunds', description: 'Refund workflow.' });

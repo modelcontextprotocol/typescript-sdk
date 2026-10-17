@@ -25,12 +25,16 @@ export function isRoundTripUri(uri: string): boolean {
 
 const MANIFEST_SUFFIX = '/SKILL.md';
 
-/** The skill's root directory URI (no trailing slash), or `undefined` if `skillMdUri` is not a `…/SKILL.md` URI. */
+/**
+ * The skill's root directory URI (no trailing slash), or `undefined` if `skillMdUri` is not a `…/SKILL.md` URI
+ * directly inside a named directory.
+ */
 export function skillRootUri(skillMdUri: string): string | undefined {
     const canonical = canonicalUri(skillMdUri);
     if (canonical === undefined || !canonical.endsWith(MANIFEST_SUFFIX)) return undefined;
     const root = canonical.slice(0, -MANIFEST_SUFFIX.length);
-    return root.endsWith('://') ? undefined : root;
+    // `scheme:/` or `scheme://` (no directory) and `…//SKILL.md` (an empty last segment) name no directory.
+    return root.endsWith('/') ? undefined : root;
 }
 
 function safeDecode(segment: string): string {
@@ -48,7 +52,11 @@ export function lastSegmentOf(rootUri: string): string {
     return safeDecode(path === '' || path === '/' ? url.host : path.slice(path.lastIndexOf('/') + 1));
 }
 
-/** True when `uri`, once normalised, is strictly inside `rootUri` with no empty, `.` or `..` segments. */
+/**
+ * True when `uri`, once normalised, is strictly inside `rootUri` and every segment below it decodes to a plain
+ * name: not empty, `.` or `..`, and free of `/` and NUL. An encoded `%2F` would otherwise carry traversal inside
+ * one segment. A backslash is allowed: it is legal in POSIX names and {@linkcode joinUri} encodes it as `%5C`.
+ */
 export function isWithin(rootUri: string, uri: string): boolean {
     const canonical = canonicalUri(uri);
     if (canonical === undefined || !canonical.startsWith(`${rootUri}/`)) return false;
@@ -57,7 +65,7 @@ export function isWithin(rootUri: string, uri: string): boolean {
         .split('/')
         .every(segment => {
             const decoded = safeDecode(segment);
-            return decoded !== '' && decoded !== '.' && decoded !== '..';
+            return decoded !== '' && decoded !== '.' && decoded !== '..' && !decoded.includes('/') && !decoded.includes('\0');
         });
 }
 

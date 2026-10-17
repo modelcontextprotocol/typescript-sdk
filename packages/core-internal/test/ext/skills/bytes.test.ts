@@ -12,7 +12,7 @@ describe('bytes', () => {
 
     it('decodes UTF-8 losslessly, keeping a BOM, and rejects invalid UTF-8', () => {
         const withBom = Uint8Array.from([0xef, 0xbb, 0xbf, 0x61]);
-        expect(decodeUtf8Lossless(withBom)).toBe('﻿a');
+        expect(decodeUtf8Lossless(withBom)).toBe('\uFEFFa');
         expect(encodeUtf8(decodeUtf8Lossless(withBom)!)).toEqual(withBom);
         expect(decodeUtf8Lossless(Uint8Array.from([0xff, 0xfe]))).toBeUndefined();
     });

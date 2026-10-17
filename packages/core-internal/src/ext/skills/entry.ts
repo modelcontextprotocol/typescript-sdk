@@ -18,7 +18,7 @@ const isStringMap = (value: unknown): boolean =>
 export function validateSkillEntry(skill: Skill): string[] {
     const problems: string[] = [];
     const root = skillRootUri(skill.uri);
-    if (root === undefined) return [`uri "${skill.uri}" must be a URI ending in /SKILL.md`];
+    if (root === undefined) return [`uri "${skill.uri}" must be a URI ending in /SKILL.md inside a named directory`];
     const frontmatter = skill.frontmatter as Record<string, unknown>;
     const { name, description } = skill.frontmatter;
     if (name.length === 0 || name.length > 64 || !SKILL_NAME_PATTERN.test(name)) {
