@@ -141,11 +141,15 @@ describe('SkillsClient.read', () => {
         expect(reads(calls)).toEqual([]);
     });
 
-    it('reads a name with a stray % by its plain name', async () => {
-        const { skills, skill } = await connected({ files: { ...PDF_FILES, 'references/100% off.md': '# Sale\n' } });
-        const published = uriOf(PDF_ROOT, 'references/100% off.md');
-        expect(published).toBe('skill://pdf-processing/references/100%25%20off.md');
-        expect(await skills.read(skill, 'references/100% off.md')).toMatchObject({ uri: published, text: '# Sale\n', verified: true });
+    it.each([
+        ['100% off.md', '100%25%20off.md'],
+        ['10%Dec.md', '10%25Dec.md'],
+        ['%Café.md', '%25Caf%C3%A9.md']
+    ])('reads %s, a name with a stray %, by its plain name', async (name, encoded) => {
+        const { skills, skill } = await connected({ files: { ...PDF_FILES, [`references/${name}`]: '# Sale\n' } });
+        const published = uriOf(PDF_ROOT, `references/${name}`);
+        expect(published).toBe(`skill://pdf-processing/references/${encoded}`);
+        expect(await skills.read(skill, `references/${name}`)).toMatchObject({ uri: published, text: '# Sale\n', verified: true });
     });
 
     it.each(['me@home', 'acme:prod', '[draft]'])('reads and matches files of a skill under the %s folder or prefix', async first => {

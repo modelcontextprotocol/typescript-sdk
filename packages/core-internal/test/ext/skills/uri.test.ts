@@ -91,21 +91,45 @@ describe('uri helpers', () => {
         expect(skillFileKey(root, 'not a uri')).toBeUndefined();
     });
 
-    it.each(['100% off.md', '50% résumé.md', 'x%zz é.md', 'a % b.md'])(
-        'keys %s, a name with a stray %, as published whatever else needs encoding',
-        name => {
-            const root = 'skill://acme/refunds';
-            expect(skillFileKey(root, new URL(name, `${root}/`).href)).toBe(joinUri(root, [name]));
-            expect(skillFileKey(root, joinUri(root, [name]))).toBe(joinUri(root, [name]));
-        }
-    );
-
-    it('keeps an escape that is not valid UTF-8, in upper case, and decodes the valid ones around it', () => {
+    it.each([
+        '100% off.md',
+        '50% résumé.md',
+        'x%zz é.md',
+        'a % b.md',
+        '10%Dec.md',
+        '50%Fee.md',
+        '100%Beef.md',
+        '2%Ad.md',
+        '50%ff.md',
+        '100%Cake.md',
+        '20%E2 x.md',
+        '%Café.md'
+    ])('keys %s, a name with a stray %, as published whatever follows it', name => {
         const root = 'skill://acme/refunds';
-        for (const uri of ['skill://acme/refunds/%ff%41.md', 'skill://acme/refunds/%FFA.md']) {
-            expect(skillFileKey(root, uri)).toBe('skill://acme/refunds/%FFA.md');
-        }
-        expect(skillFileKey(root, 'skill://acme/refunds/%c3%a9%C3.md')).toBe('skill://acme/refunds/%C3%A9%C3.md');
+        expect(skillFileKey(root, new URL(name, `${root}/`).href)).toBe(joinUri(root, [name]));
+        expect(skillFileKey(root, joinUri(root, [name]))).toBe(joinUri(root, [name]));
+    });
+
+    it.each(['10%Dec.md', '%FF', 'a%2Fb', 'é%', '😀%41', '%41.md'])('keys the published URI of %s as itself', name => {
+        const root = 'skill://acme/refunds';
+        const published = joinUri(root, [name]);
+        expect(skillFileKey(root, published)).toBe(published);
+    });
+
+    it('keys an escape that does not start valid UTF-8 as a literal %, as encodeSegment publishes it', () => {
+        const root = 'skill://acme/refunds';
+        const key = (segment: string): string | undefined => skillFileKey(root, `${root}/${segment}`);
+        expect(key('%ff%41.md')).toBe(`${root}/%25ffA.md`);
+        expect(key('%c3%a9%C3.md')).toBe(`${root}/%C3%A9%25C3.md`);
+        // Overlong, surrogate, out-of-range and truncated sequences are not UTF-8: each of their `%` is literal.
+        expect(key('%C0%80')).toBe(`${root}/%25C0%2580`);
+        expect(key('%ED%A0%80')).toBe(`${root}/%25ED%25A0%2580`);
+        expect(key('%F4%90%80%80')).toBe(`${root}/%25F4%2590%2580%2580`);
+        expect(key('%e2%82')).toBe(`${root}/%25e2%2582`);
+        expect(key('%f0%9f%98%80')).toBe(`${root}/%F0%9F%98%80`);
+        // Decoding never carries a slash out of its segment.
+        expect(key('%2E%2E%2F')).toBe(`${root}/..%2F`);
+        expect(isWithin(root, `${root}/..%2F`)).toBe(false);
     });
 
     it('finds the skill root and its last segment', () => {

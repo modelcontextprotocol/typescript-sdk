@@ -111,15 +111,18 @@ function utf8Width(lead: number): number {
     return 1;
 }
 
-/** A run of `%XX` escapes keyed: each valid UTF-8 sequence decoded and re-encoded; any other byte stays an escape, upper-cased. */
+/**
+ * A run of `%XX` escapes keyed: each valid UTF-8 sequence decoded and re-encoded. A `%XX` that starts none is a
+ * literal `%` before two characters, keyed `%25XX` with their case kept, exactly as {@linkcode encodeSegment}
+ * publishes such a name (`10%Dec.md` is `10%25Dec.md`).
+ */
 function keyOfEscapes(run: string): string {
-    const upper = run.toUpperCase();
     let key = '';
-    for (let at = 0; at < upper.length; ) {
-        const width = 3 * utf8Width(Number.parseInt(upper.slice(at + 1, at + 3), 16));
-        const decoded = decodeOrUndefined(upper.slice(at, at + width));
+    for (let at = 0; at < run.length; ) {
+        const width = 3 * utf8Width(Number.parseInt(run.slice(at + 1, at + 3), 16));
+        const decoded = decodeOrUndefined(run.slice(at, at + width));
         if (decoded === undefined) {
-            key += upper.slice(at, at + 3);
+            key += `%25${run.slice(at + 1, at + 3)}`;
             at += 3;
         } else {
             key += encodePathText(decoded);
@@ -143,10 +146,10 @@ function keyOfSegment(segment: string): string {
 /**
  * The one spelling every way of writing a file's URI below `rootUri` shares: canonical, without its fragment, and
  * each segment below the root decoded and re-encoded as {@linkcode encodeSegment} does. Each UTF-8 sequence of
- * escapes is decoded on its own, so a stray `%` (`100% off.md`) leaves the rest decodable, and an escape that is not
- * valid UTF-8 stays one, upper-cased. `Q&A.md`, `Q%26A.md` and `%51&A.md` key alike, as do `%c3%a9` and `%C3%A9`,
- * and `^` and `%5E`. A URI outside the root, or with a query, keys as its canonical form without the fragment;
- * `undefined` if it does not parse.
+ * escapes is decoded on its own, and a `%` that starts none is literal (keyed `%25`), so a stray `%` in a plain name
+ * (`100% off.md`, `10%Dec.md`) keys as published. `Q&A.md`, `Q%26A.md` and `%51&A.md` key alike, as do `%c3%a9`
+ * and `%C3%A9`, and `^` and `%5E`; `%ff` and `%FF` do not, being literal text. A URI outside the root, or with a
+ * query, keys as its canonical form without the fragment; `undefined` if it does not parse.
  */
 export function skillFileKey(rootUri: string, uri: string): string | undefined {
     let url: URL;
