@@ -1810,7 +1810,14 @@ export class Client extends Protocol<ClientContext> {
             // abort.
             if (options?.signal?.aborted) {
                 const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
+                throw reason instanceof SdkError
+                    ? reason
+                    : new SdkError(
+                          SdkErrorCode.RequestAborted,
+                          reason === undefined ? 'Request was aborted' : String(reason),
+                          undefined,
+                          reason === undefined ? undefined : { cause: reason }
+                      );
             }
             return hit.value as R;
         }
@@ -1970,7 +1977,14 @@ export class Client extends Protocol<ClientContext> {
         // SdkError — preserved verbatim).
         if (options?.signal?.aborted) {
             const reason = options.signal.reason;
-            throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
+            throw reason instanceof SdkError
+                ? reason
+                : new SdkError(
+                      SdkErrorCode.RequestAborted,
+                      reason === undefined ? 'Request was aborted' : String(reason),
+                      undefined,
+                      reason === undefined ? undefined : { cause: reason }
+                  );
         }
 
         const requestAbort = new AbortController();

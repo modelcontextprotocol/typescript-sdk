@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
 import type { BaseContext } from '../../src/shared/protocol';
 import { Protocol } from '../../src/shared/protocol';
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
 import { InMemoryTransport } from '../../src/util/inMemory';
 
 class TestProtocolImpl extends Protocol<BaseContext> {
@@ -50,19 +50,38 @@ describe('request() abort-reason passthrough', () => {
         await expect(protocol.request({ method: 'ping' }, { signal: controller.signal })).rejects.toBe(reason);
     });
 
-    it('wraps a non-SdkError abort reason in SdkError(RequestAborted)', async () => {
+    it('wraps a non-SdkError abort reason in SdkError(RequestAborted) and preserves cause', async () => {
         const protocol = await connectedProtocol();
         const controller = new AbortController();
-        controller.abort(new Error('plain'));
+        const root = new Error('plain');
+        controller.abort(root);
 
         const rejection = await protocol.request({ method: 'ping' }, { signal: controller.signal }).then(
             () => {
                 throw new Error('request unexpectedly resolved');
             },
-            (e: unknown) => e
+            (error: unknown) => error
         );
         expect(rejection).toBeInstanceOf(SdkError);
         expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+        expect((rejection as SdkError).cause).toBe(root);
+    });
+
+    it('handles default controller.abort() DOMException reason', async () => {
+        const protocol = await connectedProtocol();
+        const controller = new AbortController();
+        controller.abort();
+
+        const rejection = await protocol.request({ method: 'ping' }, { signal: controller.signal }).then(
+            () => {
+                throw new Error('request unexpectedly resolved');
+            },
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+        expect((rejection as SdkError).message).toContain('This operation was aborted');
+        expect((rejection as SdkError).cause).toBe(controller.signal.reason);
     });
 
     it('distinguishes an in-flight abort (RequestAborted) from a real timeout (RequestTimeout)', async () => {
@@ -78,7 +97,7 @@ describe('request() abort-reason passthrough', () => {
             () => {
                 throw new Error('request unexpectedly resolved');
             },
-            (e: unknown) => e
+            (error: unknown) => error
         );
         expect(rejection).toBeInstanceOf(SdkError);
         expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestAborted);
@@ -92,7 +111,7 @@ describe('request() abort-reason passthrough', () => {
             () => {
                 throw new Error('request unexpectedly resolved');
             },
-            (e: unknown) => e
+            (error: unknown) => error
         );
         expect(rejection).toBeInstanceOf(SdkError);
         expect((rejection as SdkError).code).toBe(SdkErrorCode.RequestTimeout);

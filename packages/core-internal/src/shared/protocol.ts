@@ -1419,7 +1419,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // a different rejection type depending on where the abort lands.
             if (options?.signal?.aborted) {
                 const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
+                throw reason instanceof SdkError
+                    ? reason
+                    : new SdkError(
+                          SdkErrorCode.RequestAborted,
+                          reason === undefined ? 'Request was aborted' : String(reason),
+                          undefined,
+                          reason === undefined ? undefined : { cause: reason }
+                      );
             }
 
             // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
@@ -1507,7 +1514,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // `SdkError(RequestTimeout, ...)`, so `reason instanceof
                 // SdkError` is already true on that path and this branch is
                 // abort-only in practice.
-                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
+                const error =
+                    reason instanceof SdkError
+                        ? reason
+                        : new SdkError(
+                              SdkErrorCode.RequestAborted,
+                              reason === undefined ? 'Request was aborted' : String(reason),
+                              undefined,
+                              reason === undefined ? undefined : { cause: reason }
+                          );
                 reject(error);
             };
 
