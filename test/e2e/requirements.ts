@@ -1080,12 +1080,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#tool-use-and-result-balance',
         behavior:
             'In a sampling/createMessage request, every assistant tool_use block in messages MUST be matched by a tool_result with the same toolUseId in the immediately-following user message; an unmatched tool_use is rejected with -32602 Invalid params.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: 'changed in v2: mismatched toolUseId pairs are now rejected, but an assistant tool_use in the final message with no following user message is still accepted.'
-            }
-        ]
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:tools:server-gated-by-capability': {
         transports: STATEFUL_TRANSPORTS,

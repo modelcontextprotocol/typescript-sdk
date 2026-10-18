@@ -407,6 +407,23 @@ verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => 
 
     expect(trailing.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
     expect(received).toHaveLength(1);
+
+    const interrupted = await client.callTool({
+        name: 'sampling-passthrough',
+        arguments: {
+            messages: [
+                { role: 'user', content: { type: 'text', text: 'hi' } },
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'd', name: 'weather', input: {} }] },
+                { role: 'user', content: { type: 'text', text: 'continue without a tool result' } },
+                { role: 'assistant', content: { type: 'text', text: 'finished' } }
+            ],
+            tools,
+            maxTokens: 10
+        }
+    });
+
+    expect(interrupted.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
+    expect(received).toHaveLength(1);
 });
 
 verifies('sampling:tools:server-gated-by-capability', async ({ transport }: TestArgs) => {
