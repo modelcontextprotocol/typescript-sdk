@@ -76,17 +76,22 @@ function decodeBlob(uri: string, blob: string): Uint8Array {
     }
 }
 
-/** What `read` requests and checks: the entry's spelling of the file, its listing, and whether it is the skill's own `SKILL.md`. */
+/** What `read` requests and checks: the file's URI and key, its listing, and whether it is the skill's own `SKILL.md`. */
 interface ReadTarget {
+    /** The entry's spelling of a listed file; for a `"dynamic"` skill, the URI the ref resolves to. */
     uri: string;
+    root: string;
+    /** The file's {@linkcode skillFileKey}: listings and returned contents are matched by it. */
+    key: string;
     /** `undefined` for `"dynamic"` skills. */
     listed: SkillResourceEntry | undefined;
     manifest: boolean;
 }
 
 /**
- * Resolves `ref` against the skill root, drops its fragment, and finds the file in the entry by
- * {@linkcode skillFileKey}, since servers percent-encode names differently (`Q&A.md`, `Q%26A.md`).
+ * Resolves `ref` against the skill root and drops its fragment. A listed file is found in the entry by
+ * {@linkcode skillFileKey}, since servers percent-encode names differently (`Q&A.md`, `Q%26A.md`); a
+ * `"dynamic"` skill's file is requested at the resolved URI, as nothing published another spelling.
  * Throws `unlisted` for a ref that does not parse or names no file of the skill.
  */
 function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
@@ -94,7 +99,9 @@ function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
     if (root === undefined) throw new TypeError(`${skill.uri} is not a SKILL.md URI`);
     let uri: string;
     try {
-        uri = resolveSkillRef(skill.uri, ref);
+        const resolved = new URL(resolveSkillRef(skill.uri, ref));
+        resolved.hash = '';
+        uri = resolved.href;
     } catch (error) {
         const given = ref ?? '';
         throw new SkillVerificationError('unlisted', given, `${given} is not a URI reference`, [], { cause: error });
@@ -104,11 +111,11 @@ function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
     const notInSkill = () => new SkillVerificationError('unlisted', uri, `${uri} is not a file of the skill ${skill.uri}`);
     if (skill.resources === 'dynamic') {
         if (!manifest && !isWithin(root, key)) throw notInSkill();
-        return { uri: key, listed: undefined, manifest };
+        return { uri, root, key, listed: undefined, manifest };
     }
     const listed = skill.resources.find(resource => skillFileKey(root, resource.uri) === key);
     if (listed === undefined) throw notInSkill();
-    return { uri: listed.uri, listed, manifest };
+    return { uri: listed.uri, root, key, listed, manifest };
 }
 
 function unsupported(method: string): SdkError {
@@ -227,9 +234,8 @@ export class SkillsClient {
     }
 
     async #verify(skill: Skill, target: ReadTarget, result: ReadResourceResult): Promise<SkillFile> {
-        const { uri, listed } = target;
-        const requested = canonicalUri(uri) ?? uri;
-        const content = result.contents.find(item => (canonicalUri(item.uri) ?? item.uri) === requested);
+        const { uri, root, key, listed } = target;
+        const content = result.contents.find(item => (skillFileKey(root, item.uri) ?? item.uri) === key);
         if (content === undefined) throw new SdkError(SdkErrorCode.InvalidResult, `resources/read returned no contents for ${uri}`);
         const bytes = 'text' in content ? encodeUtf8(content.text) : decodeBlob(uri, content.blob);
         if (listed !== undefined) {

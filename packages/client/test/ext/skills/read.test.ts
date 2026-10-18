@@ -99,6 +99,32 @@ describe('SkillsClient.read', () => {
         expect(reads(calls)).toEqual([overEncoded, overEncoded]);
     });
 
+    it('requests a dynamic skill file at the URI its ref resolves to', async () => {
+        const overEncoded = `${PDF_ROOT}/references/Q%26A.md`;
+        const { skill, calls, skills } = await publishedAs(
+            new Map([
+                [MANIFEST, PDF_SKILL_MD],
+                [overEncoded, '# Q&A\n']
+            ])
+        );
+        const dynamic: Skill = { ...skill, resources: 'dynamic' };
+        expect(await skills.read(dynamic, 'references/Q%26A.md')).toMatchObject({ uri: overEncoded, text: '# Q&A\n', verified: false });
+        expect(reads(calls)).toEqual([overEncoded]);
+    });
+
+    it('accepts contents that spell the requested file differently', async () => {
+        const skill = await entryFor(PDF_ROOT, { ...PDF_FILES, 'references/Q&A.md': '# Q&A\n' });
+        const echoed = `${PDF_ROOT}/references/Q%26A.md`;
+        const { client } = await scriptedClient(CAPABILITIES, {
+            ...skillsHandlers([skill], new Map()),
+            'resources/read': () => ({ contents: [{ uri: echoed, text: '# Q&A\n' }], ttlMs: 0, cacheScope: 'private' })
+        });
+        const skills = new SkillsClient(client);
+        for (const target of [skill, { ...skill, resources: 'dynamic' } satisfies Skill]) {
+            expect(await skills.read(target, 'references/Q&A.md')).toMatchObject({ text: '# Q&A\n' });
+        }
+    });
+
     it('refuses an invalid entry before any request: a file listed in two spellings, or outside the skill', async () => {
         const { skills, skill, calls } = await connected({ files: { ...PDF_FILES, 'references/Q&A.md': '# Q&A\n' } });
         const listed = skill.resources as SkillResourceEntry[];
