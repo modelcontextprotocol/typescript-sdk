@@ -16,17 +16,8 @@ export const SKILLS_GET_METHOD = 'skills/get';
 /** Lists the direct children of a directory resource (gated by `directoryRead`). */
 export const RESOURCES_DIRECTORY_READ_METHOD = 'resources/directory/read';
 
-/** The conventional URI scheme for skills. Servers MAY use other schemes. */
-export const SKILL_URI_SCHEME = 'skill:';
-
-/** The manifest file that every skill entry's `uri` points at. */
-export const SKILL_MANIFEST_FILENAME = 'SKILL.md';
-
 /** The `mimeType` of a directory resource. */
 export const DIRECTORY_MIME_TYPE = 'inode/directory';
-
-/** Reverse-domain prefix for `_meta` keys this extension defines. */
-export const SKILLS_META_PREFIX = 'io.modelcontextprotocol.skills/';
 
 /**
  * Per-skill interoperability limits. Hosts MUST accept skills up to these;
