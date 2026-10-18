@@ -53,7 +53,8 @@ console.log(entries.map(entry => `${entry.frontmatter.name}: ${entry.frontmatter
 //#endregion SkillsClient_list
 
 //#region list_invalid
-const { invalid } = await skills.list();
+const tolerant = new SkillsClient(client, { skipInvalid: true });
+const { invalid } = await tolerant.list();
 for (const refused of invalid) console.error(`skills: refused entry #${refused.index} ${refused.uri ?? ''}: ${refused.reason}`);
 //#endregion list_invalid
 

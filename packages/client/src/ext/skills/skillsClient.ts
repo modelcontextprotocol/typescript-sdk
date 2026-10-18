@@ -35,11 +35,11 @@ import { frontmatterDifferences } from './verify';
 export interface SkillsClientOptions {
     /** Parses a `SKILL.md`'s frontmatter for verification instead of the built-in YAML parser. */
     parseFrontmatter?: (skillMd: string) => Record<string, unknown>;
-    /** Throw when `list()` meets an invalid entry instead of returning it in `invalid`. Default `false`. */
-    strict?: boolean;
+    /** Return invalid `skills/list` entries in `invalid` instead of throwing. Default `false`: `list()` throws on any. */
+    skipInvalid?: boolean;
 }
 
-/** What `list()` returns: the valid entries, the refused ones, and the first page's caching fields. */
+/** What `list()` returns: the valid entries, the refused ones (only with `skipInvalid`), and the first page's caching fields. */
 export interface SkillListing {
     skills: Skill[];
     invalid: InvalidSkillEntry[];
@@ -160,9 +160,10 @@ export class SkillsClient {
 
     /**
      * Lists the server's skills, walking every page unless given a cursor
-     * (bounded by the client's `listMaxPages`). Invalid entries, and every
-     * copy of a repeated URI, are returned in `invalid` (or thrown under
-     * `strict`). On a server without the extension: an empty listing.
+     * (bounded by the client's `listMaxPages`). Throws an `SdkError` naming
+     * every invalid entry, and every copy of a repeated URI; with
+     * `skipInvalid`, returns them in `invalid` instead. On a server without
+     * the extension: an empty listing.
      */
     async list(params: { cursor?: string } = {}, options?: RequestOptions): Promise<SkillListing> {
         if (!this.supported) {
@@ -173,7 +174,7 @@ export class SkillsClient {
         }
         const page = await this.#pages(SKILLS_LIST_METHOD, SkillsPageSchema, {}, params.cursor, options, result => result.skills);
         const { skills, invalid } = partitionEntries(page.skills);
-        if (invalid.length > 0 && this.#options.strict) {
+        if (invalid.length > 0 && !this.#options.skipInvalid) {
             const detail = invalid.map(entry => `#${entry.index} ${entry.uri ?? ''}: ${entry.reason}`).join('\n');
             throw new SdkError(SdkErrorCode.InvalidResult, `skills/list returned invalid entries:\n${detail}`, { invalid });
         }

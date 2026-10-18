@@ -25,14 +25,15 @@ Listing reads no skill file: each **entry** carries the skill's frontmatter and 
 
 ## Handle refused entries
 
-Log the entries `list()` refused.
+Create the client with `skipInvalid: true` to keep the valid skills and log the refused entries.
 
 ```ts source="../../examples/guides/clients/skills.examples.ts#list_invalid"
-const { invalid } = await skills.list();
+const tolerant = new SkillsClient(client, { skipInvalid: true });
+const { invalid } = await tolerant.list();
 for (const refused of invalid) console.error(`skills: refused entry #${refused.index} ${refused.uri ?? ''}: ${refused.reason}`);
 ```
 
-`list()` also returns `invalid`: the entries that fail validation, and every copy of a repeated URI, each with `index`, `uri` and `reason`. Against this server it is empty, so the loop prints nothing. Pass `{ strict: true }` to `new SkillsClient` to make `list()` throw an `SdkError` instead.
+By default `list()` throws an `SdkError` naming every entry that fails validation, and every copy of a repeated URI. With `skipInvalid: true` it returns the valid skills and puts those entries in `invalid`, each with `index`, `uri` when it has one, and `reason`. Against this server it is empty, so the loop prints nothing.
 
 ## Load a skill
 
@@ -142,7 +143,7 @@ Accept skills up to `SKILL_LIMITS` (512 files, 16 MiB) and explain why you decli
 ## Recap
 
 - `new SkillsClient(client)` wraps a connected client; `list()` returns entries without reading files.
-- `list()` returns refused entries in `invalid`; `strict: true` makes it throw instead.
+- `list()` throws on an invalid entry; `skipInvalid: true` keeps the valid skills and returns the refused ones in `invalid`.
 - `read(entry)` verifies `SKILL.md` (size, digest, frontmatter) and returns its frontmatter and body.
 - `read(entry, path)` resolves a path against the skill's folder and verifies that file.
 - A failed check throws `SkillVerificationError` with a `reason`.

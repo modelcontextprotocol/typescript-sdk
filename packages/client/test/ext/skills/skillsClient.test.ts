@@ -59,7 +59,7 @@ describe('SkillsClient.list', () => {
         expect(await new SkillsClient(client).list({ cursor: '1' })).toMatchObject({ skills: [entries[1]], nextCursor: '2' });
     });
 
-    it('moves invalid entries, and every copy of a repeated URI, into invalid', async () => {
+    it('with skipInvalid, moves invalid entries, and every copy of a repeated URI, into invalid', async () => {
         const [alpha, beta, gamma] = await threeSkills();
         const misnamed = { ...beta!, frontmatter: { ...beta!.frontmatter, name: 'other' } };
         const escaping = {
@@ -68,7 +68,7 @@ describe('SkillsClient.list', () => {
         };
         const handlers: Record<string, Handler> = { 'skills/list': () => ({ skills: [alpha, misnamed, escaping, { uri: 42 }, alpha] }) };
         const { client } = await scriptedClient(CAPABILITIES, handlers);
-        const { skills, invalid } = await new SkillsClient(client).list();
+        const { skills, invalid } = await new SkillsClient(client, { skipInvalid: true }).list();
         expect(skills).toEqual([]);
         expect(invalid).toEqual([
             { index: 0, uri: alpha!.uri, reason: expect.stringMatching(/more than once/) },
@@ -79,10 +79,15 @@ describe('SkillsClient.list', () => {
         ]);
     });
 
-    it('throws on any invalid entry when strict', async () => {
-        const [alpha] = await threeSkills();
-        const { client } = await scriptedClient(CAPABILITIES, { 'skills/list': () => ({ skills: [alpha, alpha] }) });
-        await expect(new SkillsClient(client, { strict: true }).list()).rejects.toMatchObject({ code: SdkErrorCode.InvalidResult });
+    it('throws on any invalid entry by default, naming every one', async () => {
+        const [alpha, beta] = await threeSkills();
+        const { client } = await scriptedClient(CAPABILITIES, { 'skills/list': () => ({ skills: [alpha, alpha, beta] }) });
+        await expect(new SkillsClient(client).list()).rejects.toMatchObject({
+            code: SdkErrorCode.InvalidResult,
+            data: {
+                invalid: [expect.objectContaining({ index: 0, uri: alpha!.uri }), expect.objectContaining({ index: 1, uri: alpha!.uri })]
+            }
+        });
     });
 
     it('throws on a malformed response', async () => {
@@ -113,7 +118,7 @@ describe('SkillsClient.list', () => {
             'skills/list': () => ({ skills: [wire] }),
             'skills/get': () => ({ skill: wire })
         });
-        const skills = new SkillsClient(client);
+        const skills = new SkillsClient(client, { skipInvalid: true });
         expect(await skills.list()).toEqual({
             skills: [],
             invalid: [{ index: 0, uri: alpha!.uri, reason: expect.stringContaining('__proto__') }]
