@@ -6,10 +6,21 @@ import { buildSkillEntry, encodeSegment, encodeUtf8 } from '@modelcontextprotoco
 export const CAPABILITIES: ServerCapabilities = { resources: {}, extensions: { [SKILLS_EXTENSION_ID]: { directoryRead: true } } };
 
 export const PDF_ROOT = 'skill://pdf-processing';
-export const PDF_SKILL_MD =
-    '---\nname: pdf-processing\ndescription: Extract text and fill forms in PDF files.\nmetadata:\n  author: acme\n  version: "1.0"\n---\n' +
-    '# PDF processing\n\nSee [the forms guide](references/FORMS.md).\n';
-export const FORMS_MD = '# Forms\n\nFill the fields in order.\n';
+export const PDF_SKILL_MD = `---
+name: pdf-processing
+description: Extract text and fill forms in PDF files.
+metadata:
+  author: acme
+  version: "1.0"
+---
+# PDF processing
+
+See [the forms guide](references/FORMS.md).
+`;
+export const FORMS_MD = `# Forms
+
+Fill the fields in order.
+`;
 export const PDF_FILES: Readonly<Record<string, string | Uint8Array>> = {
     'SKILL.md': PDF_SKILL_MD,
     'references/FORMS.md': FORMS_MD,

@@ -180,7 +180,14 @@ describe('one catalog behind per-request HTTP servers', () => {
         expect(subscription.honoredFilter).toEqual({ resourcesListChanged: true });
 
         await mkdir(path.join(editable, 'aaa'));
-        await writeFile(path.join(editable, 'aaa', 'SKILL.md'), '---\nname: aaa\ndescription: Sorts first.\n---\n');
+        await writeFile(
+            path.join(editable, 'aaa', 'SKILL.md'),
+            `---
+name: aaa
+description: Sorts first.
+---
+`
+        );
         const changes = await own.reload();
         expect(changes).toMatchObject({ added: ['skill://aaa/SKILL.md'], listChanged: true });
         // Every server this handler built has served its one request and closed: nothing reaches the stream.

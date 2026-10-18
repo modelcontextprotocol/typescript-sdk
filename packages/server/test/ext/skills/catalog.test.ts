@@ -21,7 +21,11 @@ async function loaded(options: SkillCatalogOptions = {}) {
 const skillUris = (result: Record<string, unknown>): string[] => (result['skills'] as Skill[]).map(skill => skill.uri);
 const firstContent = (result: Record<string, unknown>): Record<string, unknown> | undefined =>
     (result['contents'] as Array<Record<string, unknown>>)[0];
-const NEW_SKILL = '---\nname: aaa\ndescription: Sorts first.\n---\n';
+const NEW_SKILL = `---
+name: aaa
+description: Sorts first.
+---
+`;
 
 describe('SkillCatalog serving', () => {
     it('loads every skill sorted by URI and declares directoryRead with the skill:// template', async () => {
@@ -198,7 +202,14 @@ describe('SkillCatalog serving', () => {
     });
 
     it('freezes nested frontmatter too', async () => {
-        const skillMd = '---\nname: owned\ndescription: d\nmetadata:\n  owner: billing\ntags: [a, b]\n---\n';
+        const skillMd = `---
+name: owned
+description: d
+metadata:
+  owner: billing
+tags: [a, b]
+---
+`;
         const catalog = await SkillsExtension.load(memorySkillFiles({ 'owned/SKILL.md': skillMd }));
         const frontmatter = catalog.entries[0]!.frontmatter as unknown as { metadata: Record<string, string>; tags: string[] };
         expect(() => {
@@ -252,7 +263,11 @@ describe('SkillCatalog.reload', () => {
 
     it('keeps serving the old catalog when a reload fails', async () => {
         const { catalog, files, mcp } = await loaded({ strict: true });
-        files['git-workflow/SKILL.md'] = '---\nname: renamed\ndescription: d\n---\n';
+        files['git-workflow/SKILL.md'] = `---
+name: renamed
+description: d
+---
+`;
         await expect(catalog.reload()).rejects.toBeInstanceOf(SkillCatalogError);
         expect(catalog.entries.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
         expect(await resultOf(mcp, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });

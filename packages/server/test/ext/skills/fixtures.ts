@@ -1,8 +1,19 @@
-export const GIT_SKILL_MD =
-    '---\nname: git-workflow\ndescription: Branching and review conventions.\n---\n# Git workflow\n\nSee references/REVIEW.md.\n';
+export const GIT_SKILL_MD = `---
+name: git-workflow
+description: Branching and review conventions.
+---
+# Git workflow
+
+See references/REVIEW.md.
+`;
 /** Windows-authored: UTF-8 BOM and CRLF line endings. */
 export const REFUNDS_SKILL_MD = '﻿---\r\nname: refunds\r\ndescription: Refund workflow.\r\n---\r\n# Refunds\r\n';
-export const ESCALATION_SKILL_MD = '---\nname: escalation\ndescription: Escalate a refund.\n---\n# Escalation\n';
+export const ESCALATION_SKILL_MD = `---
+name: escalation
+description: Escalate a refund.
+---
+# Escalation
+`;
 export const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
 
 export const GIT = 'skill://git-workflow/SKILL.md';

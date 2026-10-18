@@ -11,13 +11,27 @@ const PNG = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
  * no formatter or git line-ending rule can touch the bytes.
  */
 export const SKILL_TREE: Readonly<Record<string, string | Uint8Array>> = {
-    'git-workflow/SKILL.md':
-        '---\nname: git-workflow\ndescription: Branching and review conventions.\n---\n# Git workflow\n\nRead references/REVIEW.md before opening a PR.\n',
-    'git-workflow/references/REVIEW.md': '# Review\n\n- tests pass\n',
+    'git-workflow/SKILL.md': `---
+name: git-workflow
+description: Branching and review conventions.
+---
+# Git workflow
+
+Read references/REVIEW.md before opening a PR.
+`,
+    'git-workflow/references/REVIEW.md': `# Review
+
+- tests pass
+`,
     'acme/billing/refunds/SKILL.md': '﻿---\r\nname: refunds\r\ndescription: Refund workflow.\r\n---\r\n# Refunds\r\n',
     'acme/billing/refunds/templates/Purchase Order.md': '# PO\n',
     'acme/billing/refunds/assets/logo.png': PNG,
-    'acme/billing/refunds/escalation/SKILL.md': '---\nname: escalation\ndescription: Escalate a refund.\n---\n# Escalation\n'
+    'acme/billing/refunds/escalation/SKILL.md': `---
+name: escalation
+description: Escalate a refund.
+---
+# Escalation
+`
 };
 
 export const GIT = 'skill://git-workflow/SKILL.md';

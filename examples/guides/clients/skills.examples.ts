@@ -16,10 +16,24 @@ import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/
 
 const catalog = await SkillsExtension.load(
     memorySkillFiles({
-        'git-workflow/SKILL.md':
-            '---\nname: git-workflow\ndescription: Branching and review conventions.\n---\n# Git workflow\n\nGo through references/REVIEW.md.\n',
-        'git-workflow/references/REVIEW.md': '# Review checklist\n\n- Tests pass.\n',
-        'acme/billing/refunds/SKILL.md': '---\nname: refunds\ndescription: Process customer refunds.\n---\n# Refunds\n',
+        'git-workflow/SKILL.md': `---
+name: git-workflow
+description: Branching and review conventions.
+---
+# Git workflow
+
+Go through references/REVIEW.md.
+`,
+        'git-workflow/references/REVIEW.md': `# Review checklist
+
+- Tests pass.
+`,
+        'acme/billing/refunds/SKILL.md': `---
+name: refunds
+description: Process customer refunds.
+---
+# Refunds
+`,
         'acme/billing/refunds/templates/refund-email.md': 'Your refund is on its way.\n'
     })
 );

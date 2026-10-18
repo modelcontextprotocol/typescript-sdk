@@ -257,7 +257,14 @@ describe('SkillsClient.read', () => {
 
     it("treats a nested skill's SKILL.md as an ordinary file of the enclosing skill", async () => {
         const { skills, skill } = await connected({
-            files: { ...PDF_FILES, 'forms/SKILL.md': '---\nname: forms\ndescription: Nested.\n---\n' }
+            files: {
+                ...PDF_FILES,
+                'forms/SKILL.md': `---
+name: forms
+description: Nested.
+---
+`
+            }
         });
         const file = await skills.read(skill, 'forms/SKILL.md');
         expect(file).toMatchObject({ verified: true });

@@ -48,7 +48,11 @@ const byPath = (a: SkillWarning, b: SkillWarning): number => (a.path < b.path ? 
 const names = (entries: readonly SkillFileEntry[]): string[] => entries.map(entry => entry.name).toSorted();
 const text = (bytes: Uint8Array): string => new TextDecoder().decode(bytes);
 
-const INVALID = '---\nname: other\ndescription: d\n---\n';
+const INVALID = `---
+name: other
+description: d
+---
+`;
 const NOT_FOLLOWED = /symlinks and other special files are not followed; copy the file instead/;
 const UNREPRESENTABLE = /cannot be represented in a URI/;
 
@@ -123,9 +127,17 @@ describe('buildCatalogSnapshot', () => {
 
     it('encodes a top-level folder strictly, since it is the URI authority', async () => {
         const files = {
-            'me@home/refunds/SKILL.md': '---\nname: refunds\ndescription: d\n---\n',
+            'me@home/refunds/SKILL.md': `---
+name: refunds
+description: d
+---
+`,
             'me@home/refunds/references/Q&A.md': '# Q&A\n',
-            '[draft]/notes/SKILL.md': '---\nname: notes\ndescription: d\n---\n'
+            '[draft]/notes/SKILL.md': `---
+name: notes
+description: d
+---
+`
         };
         const { options, warnings } = optionsWith();
         const snapshot = await buildCatalogSnapshot(memorySkillFiles(files), options);
@@ -152,8 +164,16 @@ describe('buildCatalogSnapshot', () => {
         const files = {
             ...fixtureFiles(),
             'bad/SKILL.md': INVALID,
-            'broken/SKILL.md': '---\nname: &a broken\ndescription: d\n---\n',
-            'SKILL.md': '---\nname: root\ndescription: d\n---\n',
+            'broken/SKILL.md': `---
+name: &a broken
+description: d
+---
+`,
+            'SKILL.md': `---
+name: root
+description: d
+---
+`,
             'notes/skill.md': '# not a skill'
         };
         const { options, warnings } = optionsWith();
@@ -205,7 +225,11 @@ describe('buildCatalogSnapshot', () => {
     it('skips a skill with a name that cannot be represented in a URI, such as a lone surrogate', async () => {
         const memory = memorySkillFiles({
             ...fixtureFiles(),
-            'bad/SKILL.md': '---\nname: bad\ndescription: d\n---\n',
+            'bad/SKILL.md': `---
+name: bad
+description: d
+---
+`,
             'bad/x\uD800.md': 'x'
         });
         // An empty folder too: no file below it carries the name, yet the catalog lists the folder.
@@ -222,7 +246,15 @@ describe('buildCatalogSnapshot', () => {
     });
 
     it('collects every problem into one SkillCatalogError when strict', async () => {
-        const files = { ...fixtureFiles(), 'bad/SKILL.md': INVALID, 'SKILL.md': '---\nname: r\ndescription: d\n---\n' };
+        const files = {
+            ...fixtureFiles(),
+            'bad/SKILL.md': INVALID,
+            'SKILL.md': `---
+name: r
+description: d
+---
+`
+        };
         const error = await buildCatalogSnapshot(memorySkillFiles(files), optionsWith({ strict: true }).options).catch(
             (error: unknown) => error
         );
@@ -306,8 +338,16 @@ describe('memorySkillFiles', () => {
         const before = await buildCatalogSnapshot(files, optionsWith().options);
         expect(before.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, GIT]);
         delete record['git-workflow/SKILL.md'];
-        record['deploy/SKILL.md'] = '---\nname: deploy\ndescription: Deploy a release.\n---\n';
-        record['acme/billing/refunds/SKILL.md'] = '---\nname: refunds\ndescription: Refund workflow, revised.\n---\n';
+        record['deploy/SKILL.md'] = `---
+name: deploy
+description: Deploy a release.
+---
+`;
+        record['acme/billing/refunds/SKILL.md'] = `---
+name: refunds
+description: Refund workflow, revised.
+---
+`;
         const after = await buildCatalogSnapshot(files, optionsWith().options);
         expect(after.ordered.map(skill => skill.uri)).toEqual([REFUNDS, ESCALATION, 'skill://deploy/SKILL.md']);
         expect(after.skills.get(REFUNDS)?.frontmatter.description).toBe('Refund workflow, revised.');

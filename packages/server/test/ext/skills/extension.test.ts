@@ -305,7 +305,12 @@ describe('attach', () => {
 
 describe('skillEntry', () => {
     it('builds a valid entry from files with real digests', async () => {
-        const skillMd = '---\nname: refunds\ndescription: Refund workflow.\n---\n# Refunds\n';
+        const skillMd = `---
+name: refunds
+description: Refund workflow.
+---
+# Refunds
+`;
         const skill = await skillEntry('acme/refunds', { 'SKILL.md': skillMd, 'references/policy.md': '# Policy\n' });
         expect(skill.uri).toBe('skill://acme/refunds/SKILL.md');
         expect(skill.resources).toContainEqual({
@@ -316,9 +321,15 @@ describe('skillEntry', () => {
     });
 
     it('throws SkillCatalogError for an invalid skill and TypeError for an escaping path', async () => {
-        await expect(skillEntry('acme/refunds', { 'SKILL.md': '---\nname: other\ndescription: d\n---\n' })).rejects.toBeInstanceOf(
-            SkillCatalogError
-        );
+        await expect(
+            skillEntry('acme/refunds', {
+                'SKILL.md': `---
+name: other
+description: d
+---
+`
+            })
+        ).rejects.toBeInstanceOf(SkillCatalogError);
         await expect(skillEntry('acme/../x', { 'SKILL.md': '' })).rejects.toBeInstanceOf(TypeError);
     });
 });

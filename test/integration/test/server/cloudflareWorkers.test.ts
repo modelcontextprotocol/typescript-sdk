@@ -29,7 +29,12 @@ const SHUTDOWN_GRACE_MS = 5000;
 const SERVER_VERSION_NONCE = randomUUID();
 
 /** The skill the worker serves on `/skills`, from memory (Workers have no file system). */
-const RELEASE_NOTES_MD = '---\nname: release-notes\ndescription: Write release notes from merged pull requests.\n---\n# Release notes\n';
+const RELEASE_NOTES_MD = `---
+name: release-notes
+description: Write release notes from merged pull requests.
+---
+# Release notes
+`;
 
 /**
  * The workspace's own wrangler installation (pinned by pnpm-lock). Running it directly —

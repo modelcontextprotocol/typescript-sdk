@@ -92,7 +92,12 @@ Pass the files to `memorySkillFiles` where there is no file system, such as Work
 ```ts source="../../examples/guides/servers/skills.examples.ts#memorySkillFiles"
 import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 
-const RELEASE_NOTES_MD = '---\nname: release-notes\ndescription: Write release notes from merged pull requests.\n---\n# Release notes\n';
+const RELEASE_NOTES_MD = `---
+name: release-notes
+description: Write release notes from merged pull requests.
+---
+# Release notes
+`;
 
 const inline = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKILL.md': RELEASE_NOTES_MD }));
 ```
@@ -142,7 +147,12 @@ Build entries with `skillEntry` and serve them from a `SkillSource` when the cat
 import type { SkillSource } from '@modelcontextprotocol/server/ext/skills';
 import { skillEntry } from '@modelcontextprotocol/server/ext/skills';
 
-const ON_CALL_MD = '---\nname: on-call\ndescription: Handle a page while on call.\n---\n# On call\n';
+const ON_CALL_MD = `---
+name: on-call
+description: Handle a page while on call.
+---
+# On call
+`;
 const onCall = await skillEntry('on-call', { 'SKILL.md': ON_CALL_MD });
 
 const source: SkillSource = {

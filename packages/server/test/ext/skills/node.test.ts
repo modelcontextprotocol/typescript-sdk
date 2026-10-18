@@ -107,7 +107,12 @@ describe('loadSkills', () => {
         try {
             await writeFile(
                 path.join(outside, 'SKILL.md'),
-                '---\nname: linked-skill\ndescription: Lives outside the root.\n---\n# Linked\n'
+                `---
+name: linked-skill
+description: Lives outside the root.
+---
+# Linked
+`
             );
             await symlink(outside, path.join(root, 'linked-skill'), 'dir');
             const warnings: SkillWarning[] = [];

@@ -17,9 +17,19 @@ const EXTENSION = 'io.modelcontextprotocol/skills';
 const SERVER_INFO = 'io.modelcontextprotocol/serverInfo';
 const Loose = z.looseObject({});
 
-const GIT_SKILL_MD = '---\nname: git-workflow\ndescription: Branching and review conventions.\n---\n# Git workflow\n';
+const GIT_SKILL_MD = `---
+name: git-workflow
+description: Branching and review conventions.
+---
+# Git workflow
+`;
 const REVIEW_MD = '# Review\n';
-const NOTES_MD = '---\nname: notes\ndescription: Team notes.\n---\n# Notes\n';
+const NOTES_MD = `---
+name: notes
+description: Team notes.
+---
+# Notes
+`;
 const GIT = 'skill://git-workflow/SKILL.md';
 const REVIEW = 'skill://git-workflow/references/REVIEW.md';
 
