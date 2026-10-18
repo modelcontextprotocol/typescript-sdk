@@ -56,7 +56,7 @@ true {
 
 `read(entry)` checks the size and SHA-256 digest against the entry, then compares the frontmatter field by field. `manifest.body` holds the instructions to give the model.
 
-The comparison parses the frontmatter with YAML 1.2 core-schema typing, so `yes` is the string `"yes"`, not `true`. If a server builds its entries with a parser that types values differently, pass a matching parser as `parseFrontmatter` to `new SkillsClient`.
+The comparison parses the frontmatter with YAML 1.2 core-schema typing, so `yes` is the string `"yes"`, not `true`. If a server builds its entries with a parser that types values differently, pass a matching YAML parser as `parseFrontmatter` to `new SkillsClient`; it receives the YAML between the `---` lines.
 
 ## Read the files a skill references
 

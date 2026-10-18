@@ -33,8 +33,11 @@ import { GetSkillEnvelopeSchema, SkillsPageSchema } from './pageSchemas';
 import { frontmatterDifferences } from './verify';
 
 export interface SkillsClientOptions {
-    /** Parses a `SKILL.md`'s frontmatter for verification instead of the built-in parser (YAML 1.2 core-schema typing). */
-    parseFrontmatter?: (skillMd: string) => Record<string, unknown>;
+    /**
+     * Parses the YAML between a `SKILL.md`'s `---` lines (BOM and CRLF removed) for verification, instead of the
+     * built-in parser (YAML 1.2 core-schema typing).
+     */
+    parseFrontmatter?: (yaml: string) => Record<string, unknown>;
     /** Return invalid `skills/list` entries in `invalid` instead of throwing. Default `false`: `list()` throws on any. */
     skipInvalid?: boolean;
 }
@@ -274,9 +277,9 @@ export class SkillsClient {
     #parse(uri: string, markdown: string): { frontmatter: Record<string, unknown>; body: string } {
         try {
             const parse = this.#options.parseFrontmatter;
-            return parse === undefined
-                ? parseSkillMarkdown(markdown)
-                : { frontmatter: parse(markdown), body: splitFrontmatter(markdown).body };
+            if (parse === undefined) return parseSkillMarkdown(markdown);
+            const { yaml, body } = splitFrontmatter(markdown);
+            return { frontmatter: parse(yaml), body };
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
             throw new SkillVerificationError('frontmatter', uri, `the frontmatter of ${uri} cannot be read: ${reason}`, [], {

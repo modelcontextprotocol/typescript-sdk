@@ -252,7 +252,7 @@ describe('SkillsClient.read', () => {
         await expect(new SkillsClient(client).read(skill)).rejects.toMatchObject({ reason: 'frontmatter' });
     });
 
-    it('uses parseFrontmatter when given', async () => {
+    it('passes parseFrontmatter only the YAML between the --- lines', async () => {
         const parseFrontmatter = vi.fn(() => ({
             name: 'pdf-processing',
             description: 'Extract text and fill forms in PDF files.',
@@ -260,7 +260,20 @@ describe('SkillsClient.read', () => {
         }));
         const { skills, skill } = await connected({ options: { parseFrontmatter } });
         expect(await skills.read(skill)).toMatchObject({ verified: true, body: expect.stringContaining('# PDF processing') });
-        expect(parseFrontmatter).toHaveBeenCalledWith(PDF_SKILL_MD);
+        expect(parseFrontmatter).toHaveBeenCalledWith(`name: pdf-processing
+description: Extract text and fill forms in PDF files.
+metadata:
+  author: acme
+  version: "1.0"
+`);
+    });
+
+    it('passes parseFrontmatter the YAML of a Windows-authored SKILL.md with the BOM and CRLF removed', async () => {
+        const windows = { 'SKILL.md': '﻿---\r\nname: pdf-processing\r\ndescription: Extract text.\r\n---\r\n# PDF\r\n' };
+        const parseFrontmatter = vi.fn(() => ({ name: 'pdf-processing', description: 'Extract text.' }));
+        const { skills, skill } = await connected({ files: windows, options: { parseFrontmatter } });
+        expect(await skills.read(skill)).toMatchObject({ verified: true });
+        expect(parseFrontmatter).toHaveBeenCalledWith('name: pdf-processing\ndescription: Extract text.\n');
     });
 
     it('verifies a Windows-authored SKILL.md (BOM and CRLF)', async () => {
