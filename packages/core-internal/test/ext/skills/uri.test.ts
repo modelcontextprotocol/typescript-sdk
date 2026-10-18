@@ -10,7 +10,8 @@ import {
     lastSegmentOf,
     resolveSkillRef,
     skillFileKey,
-    skillRootUri
+    skillRootUri,
+    trimTrailingSlashes
 } from '../../../src/ext/skills/uri';
 
 describe('uri helpers', () => {
@@ -19,6 +20,19 @@ describe('uri helpers', () => {
         expect(uri).toBe('skill://acme/refunds/templates/Purchase%20Order.md');
         expect(isRoundTripUri(uri)).toBe(true);
         expect(joinUri('github://owner/repo/skills/', ['x', 'SKILL.md'])).toBe('github://owner/repo/skills/x/SKILL.md');
+        expect(joinUri('github://owner/repo/skills///', ['x'])).toBe('github://owner/repo/skills/x');
+    });
+
+    it('trims only trailing slashes, in linear time on a long run of them', () => {
+        expect(trimTrailingSlashes('a/b//')).toBe('a/b');
+        expect(trimTrailingSlashes('a/b')).toBe('a/b');
+        expect(trimTrailingSlashes('///')).toBe('');
+        expect(trimTrailingSlashes('')).toBe('');
+        // CodeQL js/polynomial-redos: `/\/+$/` takes ~4 s on this input; the loop takes well under 1 ms.
+        const slashes = `x${'/'.repeat(100_000)}y`;
+        const startTime = Date.now();
+        expect(trimTrailingSlashes(slashes)).toBe(slashes);
+        expect(Date.now() - startTime).toBeLessThan(100);
     });
 
     it.each(['Q&A.md', 'c++.md', '[draft].md', 'me@home.md', 'a,b;c=d$e|f!(g)*~h.md', 'Purchase Order.md', 'Remboursé.md', 'x{y}z.md'])(

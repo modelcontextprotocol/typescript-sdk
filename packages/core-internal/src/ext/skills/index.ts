@@ -21,5 +21,6 @@ export {
     lastSegmentOf,
     resolveSkillRef,
     skillFileKey,
-    skillRootUri
+    skillRootUri,
+    trimTrailingSlashes
 } from './uri';

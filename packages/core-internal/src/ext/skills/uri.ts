@@ -11,9 +11,16 @@ export function encodeSegment(segment: string): string {
     return encodePathText(segment);
 }
 
+/** `text` without its trailing `/`s; a loop, since `/\/+$/` backtracks polynomially on a long run of `/`. */
+export function trimTrailingSlashes(text: string): string {
+    let end = text.length;
+    while (end > 0 && text.codePointAt(end - 1) === 0x2f) end--;
+    return text.slice(0, end);
+}
+
 /** `base` (`scheme://`, or a URI without a trailing slash) + `/`-joined encoded segments; an authority is encoded strictly. */
 export function joinUri(base: string, segments: readonly string[]): string {
-    if (!base.endsWith('://')) return `${base.replace(/\/+$/, '')}/${segments.map(segment => encodeSegment(segment)).join('/')}`;
+    if (!base.endsWith('://')) return `${trimTrailingSlashes(base)}/${segments.map(segment => encodeSegment(segment)).join('/')}`;
     const [authority, ...path] = segments;
     if (authority === undefined) return base;
     return [base + encodeURIComponent(authority), ...path.map(segment => encodeSegment(segment))].join('/');

@@ -17,7 +17,13 @@ import {
     ProtocolErrorCode,
     ResourceNotFoundError
 } from '@modelcontextprotocol/core-internal';
-import { canonicalUri, encodeBase64, joinUri, skillEntryProblems } from '@modelcontextprotocol/core-internal/ext/skills';
+import {
+    canonicalUri,
+    encodeBase64,
+    joinUri,
+    skillEntryProblems,
+    trimTrailingSlashes
+} from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { McpServer } from '../../server/mcp';
 import { ResourceTemplate } from '../../server/mcp';
@@ -93,7 +99,7 @@ export class SkillsExtension {
         // Canonical, like the request URIs that the template and the listResources filter are matched against.
         const canonical = SCHEME_URI.test(baseUri) ? canonicalUri(baseUri) : undefined;
         if (canonical === undefined) throw new TypeError(`baseUri must be a "scheme://…" URI (got ${JSON.stringify(baseUri)})`);
-        this.#baseRoot = canonical.endsWith('://') ? canonical : `${canonical.replace(/\/+$/, '')}/`;
+        this.#baseRoot = canonical.endsWith('://') ? canonical : `${trimTrailingSlashes(canonical)}/`;
         this.#source = options.source;
         this.#trusted = trustedSources.has(options.source);
         this.#cacheHint = options.cacheHint;
