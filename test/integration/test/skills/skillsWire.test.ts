@@ -144,7 +144,11 @@ describe.each([LEGACY, MODERN])('skills wire behaviour on %s', revision => {
         expect(client.getServerCapabilities()?.extensions).toEqual({ [EXTENSION]: {} });
         const { resources } = await raw(client, 'resources/list');
         expect(resources).toEqual([]);
-        await expect(raw(client, 'resources/directory/read', { uri: 'skill://notes' })).rejects.toMatchObject({ code: -32_601 });
+        const directoryRead = raw(client, 'resources/directory/read', { uri: 'skill://notes' });
+        // 2026-07-28 Streamable HTTP answers an unimplemented method with HTTP 404 and a -32601 body; the client transport surfaces a 404 as SdkHttpError.
+        await (revision === MODERN
+            ? expect(directoryRead).rejects.toMatchObject({ data: { status: 404, text: expect.stringContaining('-32601') } })
+            : expect(directoryRead).rejects.toMatchObject({ code: -32_601 }));
     });
 
     it('lists what listResources returns, and the host verifies source-built skills', async () => {
