@@ -2,7 +2,7 @@ import { encodeUtf8 } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { SkillFileEntry, SkillFiles } from './types';
 
-/** Splits a relative `/`-separated path, rejecting `..` and empty paths. */
+// Splits a relative `/`-separated path, rejecting `..` and empty paths.
 export function splitRelativePath(path: string, label: string): string[] {
     const segments = path.split('/').filter(segment => segment !== '' && segment !== '.');
     if (segments.length === 0 || segments.includes('..')) {
@@ -11,11 +11,11 @@ export function splitRelativePath(path: string, label: string): string[] {
     return segments;
 }
 
-/** A memory record's directories and files, by normalised path. */
+// A memory record's directories and files, by normalised path.
 interface MemoryIndex {
-    /** Children of every directory (`''` is the root), in record order. */
+    // Children of every directory (`''` is the root), in record order.
     readonly dirs: ReadonlyMap<string, ReadonlyMap<string, SkillFileEntry>>;
-    /** The record key that holds each file. */
+    // The record key that holds each file.
     readonly files: ReadonlyMap<string, string>;
 }
 

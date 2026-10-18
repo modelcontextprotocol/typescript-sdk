@@ -1,4 +1,4 @@
 import type { SkillSource } from './types';
 
-/** Sources whose entries the SDK built itself and so does not re-validate per request. Package-internal. */
+// Sources whose entries the SDK built itself, so they are not re-validated per request.
 export const trustedSources = new WeakSet<SkillSource>();

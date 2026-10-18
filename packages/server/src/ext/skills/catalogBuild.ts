@@ -1,12 +1,20 @@
-import type { Skill, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
+import type { Skill } from '@modelcontextprotocol/core/ext/skills';
 import { DIRECTORY_MIME_TYPE } from '@modelcontextprotocol/core/ext/skills';
 import type { Resource } from '@modelcontextprotocol/core-internal';
-import { buildSkillEntry, compareUris, isRoundTripUri, joinUri, mimeTypeFor } from '@modelcontextprotocol/core-internal/ext/skills';
+import type { SkillFileInput } from '@modelcontextprotocol/core-internal/ext/skills';
+import {
+    buildSkillEntry,
+    compareUris,
+    isRoundTripUri,
+    joinUri,
+    mimeTypeFor,
+    sha256Digest,
+    validateSkillEntry
+} from '@modelcontextprotocol/core-internal/ext/skills';
 
 import { SkillCatalogError } from './errors';
 import type { SkillFileEntry, SkillFiles, SkillWarning } from './types';
 
-/** One published file: where it is in storage and what the entry says about it. */
 export interface CatalogFile {
     readonly path: string;
     readonly uri: string;
@@ -15,7 +23,9 @@ export interface CatalogFile {
     readonly mimeType: string;
 }
 
-/** Everything a catalog serves, built once per load or reload. Metadata only, never file contents. */
+type Hashed = Pick<CatalogFile, 'digest' | 'size'>;
+
+// Everything a catalog serves, built once per load or reload: metadata only, never file contents.
 export interface CatalogSnapshot {
     readonly ordered: readonly Skill[];
     readonly skills: ReadonlyMap<string, Skill>;
@@ -41,7 +51,7 @@ interface BuiltSkill {
     readonly skill: Skill;
     readonly files: readonly CatalogFile[];
     readonly manifestSize: number;
-    /** Every entry below the skill's folder, nested skills' included, in tree order. */
+    // Every entry below the skill's folder, nested skills' included, in tree order.
     readonly inside: readonly TreeEntry[];
 }
 
@@ -58,17 +68,16 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 
 const NOT_FOLLOWED = 'symlinks and other special files are not followed; copy the file instead';
 
-/** Any non-directory named exactly `SKILL.md` marks a skill, so a symlinked one is reported rather than ignored. */
+// Any non-directory named exactly `SKILL.md` marks a skill, so a symlinked one is reported rather than ignored.
 const isManifest = (entry: TreeEntry): boolean => entry.kind !== 'directory' && basename(entry.path) === 'SKILL.md';
 
-/** Appends `value` to the list kept under `key`. */
 function append<K, V>(lists: Map<K, V[]>, key: K, value: V): void {
     const list = lists.get(key);
     if (list === undefined) lists.set(key, [value]);
     else list.push(value);
 }
 
-/** The URI of `path`, or `undefined` when a name in it has no URI form (a lone surrogate, or no round trip). */
+// `undefined` when a name in `path` has no URI form (a lone surrogate, or no round trip).
 function representableUri(uriOf: UriOf, path: string): string | undefined {
     let uri: string;
     try {
@@ -80,7 +89,7 @@ function representableUri(uriOf: UriOf, path: string): string | undefined {
     return isRoundTripUri(uri) ? uri : undefined;
 }
 
-/** Every non-hidden entry below the root, depth first. Storage errors fail the build. */
+// Every non-hidden entry below the root, depth first; storage errors fail the build.
 async function walk(files: SkillFiles): Promise<TreeEntry[]> {
     const tree: TreeEntry[] = [];
     const visit = async (dir: string): Promise<void> => {
@@ -109,7 +118,6 @@ async function readFile(files: SkillFiles, path: string): Promise<Uint8Array> {
     }
 }
 
-/** Walks the storage, builds and checks every skill, and assembles what the catalog serves. */
 export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBuildOptions): Promise<CatalogSnapshot> {
     const tree = await walk(files);
     const problems: SkillWarning[] = [];
@@ -126,9 +134,7 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
         }
     }
 
-    // One pass over each entry's folders collects every skill's entries (nested skills' included), in tree order.
-    // A special file inside a skill is reported when that skill is built; one outside every skill (a symlinked
-    // skill folder, say) is reported here. A root SKILL.md is reported in the loop below.
+    // Collect each skill's entries, nested skills' included; a special file outside every skill is reported here.
     const skillDirs = new Set(tree.filter(entry => isManifest(entry)).map(entry => dirname(entry.path)));
     const insideOf = new Map<string, TreeEntry[]>();
     for (const entry of tree) {
@@ -144,8 +150,10 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
     }
 
     const built: BuiltSkill[] = [];
-    for (const entry of tree) {
-        if (!isManifest(entry)) continue;
+    const hashed = new Map<string, Hashed>();
+    // Deepest first, so each file is read and hashed once: by the innermost skill that holds it.
+    const manifests = tree.filter(entry => isManifest(entry)).toSorted((a, b) => b.path.split('/').length - a.path.split('/').length);
+    for (const entry of manifests) {
         const dir = dirname(entry.path);
         if (dir === '') {
             report({
@@ -154,7 +162,7 @@ export async function buildCatalogSnapshot(files: SkillFiles, options: CatalogBu
             });
             continue;
         }
-        const skill = await buildOne(files, insideOf.get(dir) ?? [], dir, uriOf, options, report);
+        const skill = await buildOne(files, insideOf.get(dir) ?? [], dir, uriOf, options, report, hashed);
         if (skill !== undefined) built.push(skill);
     }
     if (problems.length > 0) throw new SkillCatalogError(problems);
@@ -168,14 +176,17 @@ async function buildOne(
     dir: string,
     uriOf: UriOf,
     options: CatalogBuildOptions,
-    report: (warning: SkillWarning) => void
+    report: (warning: SkillWarning) => void,
+    hashed: Map<string, Hashed>
 ): Promise<BuiltSkill | undefined> {
     const unsupported = inside.find(entry => entry.kind === 'unsupported');
     if (unsupported !== undefined) {
         report({ path: unsupported.path, message: `${NOT_FOLLOWED} (skill skipped)` });
         return undefined;
     }
-    const inputs: Array<{ path: string; uri: string; bytes: Uint8Array }> = [];
+    const manifestPath = `${dir}/SKILL.md`;
+    const manifest: SkillFileInput[] = [];
+    const catalogFiles: CatalogFile[] = [];
     for (const entry of inside) {
         // Folders too: an empty one's name appears only in its parent's directory listing.
         const uri = representableUri(uriOf, entry.path);
@@ -183,37 +194,41 @@ async function buildOne(
             report({ path: entry.path, message: 'this name cannot be represented in a URI (skill skipped)' });
             return undefined;
         }
-        if (entry.kind === 'file') inputs.push({ path: entry.path, uri, bytes: await readFile(files, entry.path) });
+        if (entry.kind !== 'file') continue;
+        const own = entry.path === manifestPath;
+        let file = own ? undefined : hashed.get(entry.path);
+        if (file === undefined) {
+            const bytes = await readFile(files, entry.path);
+            if (own) manifest.push({ uri, bytes });
+            file = { digest: await sha256Digest(bytes), size: bytes.byteLength };
+            hashed.set(entry.path, file);
+        }
+        catalogFiles.push({ path: entry.path, uri, ...file, mimeType: mimeTypeFor(basename(entry.path)) });
     }
-    const manifestUri = uriOf(`${dir}/SKILL.md`);
-    const { skill, problems } = await buildSkillEntry(manifestUri, inputs);
+    // Parse SKILL.md on its own, then validate the entry that lists every file's digest.
+    const parsed = await buildSkillEntry(uriOf(manifestPath), manifest);
+    const resources = catalogFiles.map(({ uri, digest, size }) => ({ uri, digest, size })).toSorted((a, b) => compareUris(a.uri, b.uri));
+    const skill = parsed.skill === undefined ? undefined : { ...parsed.skill, resources };
+    const problems = skill === undefined ? parsed.problems : validateSkillEntry(skill);
     if (skill === undefined || problems.length > 0) {
-        for (const message of problems) report({ path: `${dir}/SKILL.md`, message: `${message} (skill skipped)` });
+        for (const message of problems) report({ path: manifestPath, message: `${message} (skill skipped)` });
         return undefined;
     }
     let totalBytes = 0;
-    for (const input of inputs) totalBytes += input.bytes.byteLength;
-    if (inputs.length > options.limits.files || totalBytes > options.limits.bytes) {
+    for (const file of catalogFiles) totalBytes += file.size;
+    if (catalogFiles.length > options.limits.files || totalBytes > options.limits.bytes) {
+        const remedy = options.strict ? 'Raise limits to allow it' : 'Set strict: true to fail instead, or raise limits';
         report({
             path: dir,
             message:
-                `${inputs.length} files / ${totalBytes} bytes exceeds the limit of ${options.limits.files} files / ` +
-                `${options.limits.bytes} bytes; some hosts may decline it. Set strict: true to fail instead, or raise limits`
+                `${catalogFiles.length} files / ${totalBytes} bytes exceeds the limit of ${options.limits.files} files / ` +
+                `${options.limits.bytes} bytes; some hosts may decline it. ${remedy}`
         });
     }
-    const digests = new Map((skill.resources as SkillResourceEntry[]).map(resource => [resource.uri, resource.digest]));
-    const catalogFiles = inputs.map(input => ({
-        path: input.path,
-        uri: input.uri,
-        size: input.bytes.byteLength,
-        digest: digests.get(input.uri)!,
-        mimeType: mimeTypeFor(basename(input.path))
-    }));
-    const manifestSize = inputs.find(input => input.uri === manifestUri)?.bytes.byteLength ?? 0;
+    const manifestSize = catalogFiles.find(file => file.path === manifestPath)?.size ?? 0;
     return { dir, skill, files: catalogFiles, manifestSize, inside };
 }
 
-/** Freezes `value` and every object and array inside it. */
 function deepFreeze<T>(value: T): T {
     if (typeof value === 'object' && value !== null && !Object.isFrozen(value)) {
         Object.freeze(value);
@@ -223,8 +238,7 @@ function deepFreeze<T>(value: T): T {
 }
 
 function assemble(built: readonly BuiltSkill[], tree: readonly TreeEntry[], uriOf: UriOf): CatalogSnapshot {
-    // Entries are served as they are (trusted, never re-validated) and handed to callers by `entries`: frozen, so an
-    // edit (say, of a description for display) throws instead of changing what clients receive.
+    // Frozen: entries are served unchecked and handed out by `entries`, so an edit must throw, not reach clients.
     const ordered = Object.freeze(built.map(item => deepFreeze(item.skill)).toSorted((a, b) => compareUris(a.uri, b.uri)));
     const files = new Map<string, CatalogFile>();
     const dirPaths = new Set<string>();

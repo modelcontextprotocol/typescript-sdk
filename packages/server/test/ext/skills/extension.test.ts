@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
+import { ListSkillsRequestParamsSchema, ReadResourceDirectoryRequestParamsSchema } from '@modelcontextprotocol/core/ext/skills';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
@@ -179,8 +180,29 @@ describe('baseUri', () => {
         expect(contents).toEqual([{ uri: github.uri, text: 'x' }]);
     });
 
-    it('rejects a baseUri without a scheme', () => {
+    it('matches requests however the baseUri spells its host and port', async () => {
+        const uri = 'https://example.com/skills/refunds/SKILL.md';
+        const listed = { uri, name: 'refunds' };
+        const { mcp, warnings } = attached({
+            baseUri: 'https://Example.com:443/skills/',
+            source: sourceOf({
+                read: async requested => (requested === uri ? { text: 'x' } : undefined),
+                listResources: async () => [listed]
+            })
+        });
+        expect(await resultOf(mcp, 'resources/templates/list')).toMatchObject({
+            resourceTemplates: [{ uriTemplate: 'https://example.com/skills/{+path}' }]
+        });
+        expect(await resultOf(mcp, 'resources/read', { uri: 'https://EXAMPLE.com:443/skills/refunds/SKILL.md' })).toMatchObject({
+            contents: [{ uri, text: 'x' }]
+        });
+        expect(await resultOf(mcp, 'resources/list')).toMatchObject({ resources: [listed] });
+        expect(warnings).toEqual([]);
+    });
+
+    it('rejects a baseUri without a scheme, or one that does not parse', () => {
         expect(() => new SkillsExtension({ source: sourceOf(), baseUri: 'skills' })).toThrow(TypeError);
+        expect(() => new SkillsExtension({ source: sourceOf(), baseUri: 'https://exa mple.com' })).toThrow(TypeError);
     });
 });
 
@@ -216,6 +238,30 @@ describe('attach', () => {
         const own = newServer();
         second.attach(own);
         expect(own.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/skills': {} });
+    });
+
+    it('refuses to replace a handler the server already has for a skills method, changing nothing', async () => {
+        const mcp = newServer();
+        mcp.server.setRequestHandler('skills/list', { params: ListSkillsRequestParamsSchema }, () => ({ skills: [] }));
+        const extension = new SkillsExtension({ source: sourceOf() });
+        expect(() => extension.attach(mcp)).toThrow('A request handler for skills/list already exists, which would be overridden');
+        expect(mcp.server.getCapabilities().extensions).toBeUndefined();
+        expect(await resultOf(mcp, 'skills/list')).toMatchObject({ skills: [] });
+        mcp.server.removeRequestHandler('skills/list');
+        extension.attach(mcp);
+        expect(await resultOf(mcp, 'skills/list')).toMatchObject({ skills: [gitWorkflow] });
+    });
+
+    it('refuses to replace a resources/directory/read handler when the source reads directories', () => {
+        const mcp = newServer();
+        mcp.server.setRequestHandler('resources/directory/read', { params: ReadResourceDirectoryRequestParamsSchema }, () => ({
+            resources: []
+        }));
+        const withDirectories = new SkillsExtension({ source: sourceOf({ readDirectory: async () => ({ resources: [] }) }) });
+        expect(() => withDirectories.attach(mcp)).toThrow(/resources\/directory\/read already exists/);
+        expect(mcp.server.getCapabilities().extensions).toBeUndefined();
+        new SkillsExtension({ source: sourceOf() }).attach(mcp);
+        expect(mcp.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/skills': {} });
     });
 
     it('declares nothing when the template name is already taken', () => {

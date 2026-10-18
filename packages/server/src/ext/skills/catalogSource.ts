@@ -6,14 +6,14 @@ import { trustedSources } from './internal';
 import { paginate } from './paging';
 import type { SkillFiles, SkillReadResult, SkillSource, SkillWarning } from './types';
 
-/** The catalog's current snapshot; `reload()` swaps `current` in one assignment. */
+// `reload()` swaps `current` in one assignment.
 export interface CatalogState {
     current: CatalogSnapshot;
 }
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
-/** Serves a catalog snapshot as a trusted {@linkcode SkillSource}: its entries were built and checked by the SDK. */
+// A trusted source: the SDK built and checked the snapshot's entries.
 export function catalogSource(
     state: CatalogState,
     files: SkillFiles,
@@ -45,7 +45,7 @@ export function catalogSource(
     return source;
 }
 
-/** Reads a published file through the adapter and serves it only if it still matches its entry. */
+// Reads a published file through the adapter and serves it only if it still matches its entry.
 async function readChecked(
     snapshot: CatalogSnapshot,
     files: SkillFiles,

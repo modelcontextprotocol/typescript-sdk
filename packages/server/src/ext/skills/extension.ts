@@ -52,14 +52,10 @@ function toContents(uri: string, result: SkillReadResult): ReadResourceResult['c
     return 'text' in result ? { uri, ...mimeType, text: result.text } : { uri, ...mimeType, blob: encodeBase64(result.bytes) };
 }
 
-/** Servers any skills extension is attached to: one per server (SEP-3371 rejects a duplicate extension identifier). */
+// Servers with a skills extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
 const skillsServers = new WeakSet<McpServer>();
 
-/**
- * What runs after `attach` registered everything, by extension (`SkillCatalog` tracks the servers it notifies).
- * Package-internal and off the class surface: SEP-3371 registration (`extensions: [skills]`) will not go through
- * `attach`, so a subclass must not be able to hook it.
- */
+// Runs after a successful `attach`, by extension (`SkillCatalog` tracks servers); off the class so no subclass hooks it.
 const afterAttach = new WeakMap<SkillsExtension, (mcp: McpServer) => void>();
 
 const ONE_PER_SERVER =
@@ -94,8 +90,10 @@ export class SkillsExtension {
     constructor(options: SkillSourceOptions) {
         if (options.cacheHint !== undefined) assertValidCacheHint(options.cacheHint, 'skills cacheHint');
         const baseUri = options.baseUri ?? 'skill://';
-        if (!SCHEME_URI.test(baseUri)) throw new TypeError(`baseUri must look like "scheme://…" (got ${JSON.stringify(baseUri)})`);
-        this.#baseRoot = baseUri.endsWith('://') ? baseUri : `${baseUri.replace(/\/+$/, '')}/`;
+        // Canonical, like the request URIs that the template and the listResources filter are matched against.
+        const canonical = SCHEME_URI.test(baseUri) ? canonicalUri(baseUri) : undefined;
+        if (canonical === undefined) throw new TypeError(`baseUri must be a "scheme://…" URI (got ${JSON.stringify(baseUri)})`);
+        this.#baseRoot = canonical.endsWith('://') ? canonical : `${canonical.replace(/\/+$/, '')}/`;
         this.#source = options.source;
         this.#trusted = trustedSources.has(options.source);
         this.#cacheHint = options.cacheHint;
@@ -109,7 +107,8 @@ export class SkillsExtension {
      * the skills methods, then declares the capability. Must run before
      * connecting. Calling it again for the same server does nothing. One
      * skills extension per server: attaching another one throws and leaves the
-     * server as it was.
+     * server as it was, as does attaching to a server that already handles one
+     * of the skills methods.
      */
     attach(mcp: McpServer): void {
         if (this.#attached.has(mcp)) return;
@@ -118,8 +117,10 @@ export class SkillsExtension {
         const server = mcp.server;
         const directoryRead = this.#source.readDirectory !== undefined;
         const list = this.#source.listResources === undefined ? undefined : (ctx: ServerContext) => this.#listResources(ctx);
-        // All or nothing: `registerResource` rejects a taken template name before it changes anything, and nothing
-        // after it can throw. The capability is declared last, so a server never advertises skills it does not serve.
+        server.assertCanSetRequestHandler(SKILLS_LIST_METHOD);
+        server.assertCanSetRequestHandler(SKILLS_GET_METHOD);
+        if (directoryRead) server.assertCanSetRequestHandler(RESOURCES_DIRECTORY_READ_METHOD);
+        // Check before changing anything; declare the capability last, so a server never advertises skills it does not serve.
         mcp.registerResource(
             SKILLS_EXTENSION_ID,
             new ResourceTemplate(`${this.#baseRoot}{+path}`, { list }),
@@ -227,7 +228,7 @@ interface CatalogInit {
     readonly sourceOptions: SkillSourceOptions;
 }
 
-/** At this many tracked servers, `attach` first drops references to servers that were garbage-collected. */
+// Fewest tracked servers at which `attach` drops references to collected ones; then again at twice the survivors.
 const PRUNE_THRESHOLD = 1024;
 
 function resolveLimits(limits: SkillCatalogOptions['limits']): { files: number; bytes: number } {
@@ -240,7 +241,7 @@ function resolveLimits(limits: SkillCatalogOptions['limits']): { files: number; 
     return resolved;
 }
 
-/** What `resources/list_changed` is about: which skills exist, and each one's name and description. */
+// What `resources/list_changed` is about: which skills exist, and each one's name and description.
 function listingKey(snapshot: CatalogSnapshot): string {
     return JSON.stringify(snapshot.listed.map(resource => [resource.uri, resource.name, resource.description]));
 }
@@ -263,6 +264,7 @@ export class SkillCatalog extends SkillsExtension {
     readonly #files: SkillFiles;
     readonly #build: CatalogBuildOptions;
     readonly #servers = new Set<WeakRef<McpServer>>();
+    #pruneAt = PRUNE_THRESHOLD;
     #queue: Promise<unknown> = Promise.resolve();
 
     private constructor(init: CatalogInit) {
@@ -324,12 +326,12 @@ export class SkillCatalog extends SkillsExtension {
         return run;
     }
 
-    /** Remembers `mcp`, weakly, for `resources/list_changed` after a reload. */
     #track(mcp: McpServer): void {
         // Without WeakRef, holding servers strongly would keep every per-request server alive; track none instead.
         if (typeof WeakRef !== 'function') return;
-        if (this.#servers.size >= PRUNE_THRESHOLD) {
+        if (this.#servers.size >= this.#pruneAt) {
             for (const reference of this.#servers) if (reference.deref() === undefined) this.#servers.delete(reference);
+            this.#pruneAt = Math.max(PRUNE_THRESHOLD, 2 * this.#servers.size);
         }
         this.#servers.add(new WeakRef(mcp));
     }
@@ -343,11 +345,7 @@ export class SkillCatalog extends SkillsExtension {
         return { ...diffSnapshots(previous, next), listChanged };
     }
 
-    /**
-     * Sends `resources/list_changed` to every connected server. A send that
-     * fails (a transport that rejects, say) becomes a warning: it must never
-     * surface as an unhandled rejection, nor stop the other servers.
-     */
+    // A send that fails becomes a warning: never an unhandled rejection, and never a reason to skip the other servers.
     #notify(): void {
         for (const reference of this.#servers) {
             const mcp = reference.deref();

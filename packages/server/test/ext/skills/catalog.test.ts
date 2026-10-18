@@ -163,6 +163,23 @@ describe('SkillCatalog serving', () => {
         for (const server of servers) expect(await resultOf(server, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
     });
 
+    it('keeps attach cheap while many attached servers are still alive', async () => {
+        const { catalog } = await loaded();
+        const servers = Array.from({ length: 1100 }, () => newServer());
+        const deref = WeakRef.prototype.deref;
+        let derefs = 0;
+        WeakRef.prototype.deref = function (this: WeakRef<WeakKey>) {
+            derefs++;
+            return deref.call(this);
+        };
+        try {
+            for (const server of servers) catalog.attach(server);
+        } finally {
+            WeakRef.prototype.deref = deref;
+        }
+        expect(derefs).toBeLessThan(2 * servers.length);
+    });
+
     it('hands out frozen entries: an edit throws and never changes what is served', async () => {
         const { catalog, mcp } = await loaded();
         const refunds = catalog.entries.find(skill => skill.uri === REFUNDS)!;

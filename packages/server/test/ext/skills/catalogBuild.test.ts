@@ -22,9 +22,9 @@ function optionsWith(overrides: Partial<CatalogBuildOptions> = {}) {
 }
 
 /** The problems a strict build fails with, sorted by path; `[]` when it succeeds. Any other error fails the test. */
-async function strictProblems(files: SkillFiles): Promise<SkillWarning[]> {
+async function strictProblems(files: SkillFiles, overrides: Partial<CatalogBuildOptions> = {}): Promise<SkillWarning[]> {
     try {
-        await buildCatalogSnapshot(files, optionsWith({ strict: true }).options);
+        await buildCatalogSnapshot(files, optionsWith({ ...overrides, strict: true }).options);
         return [];
     } catch (error) {
         if (error instanceof SkillCatalogError) return error.problems.toSorted(byPath);
@@ -235,10 +235,29 @@ describe('buildCatalogSnapshot', () => {
         const lenient = optionsWith({ limits });
         const snapshot = await buildCatalogSnapshot(memorySkillFiles(fixtureFiles()), lenient.options);
         expect(snapshot.skills.has(REFUNDS)).toBe(true);
-        expect(lenient.warnings).toContainEqual({ path: 'acme/billing/refunds', message: expect.stringMatching(/exceeds the limit/) });
-        await expect(
-            buildCatalogSnapshot(memorySkillFiles(fixtureFiles()), optionsWith({ limits, strict: true }).options)
-        ).rejects.toBeInstanceOf(SkillCatalogError);
+        expect(lenient.warnings).toContainEqual({
+            path: 'acme/billing/refunds',
+            message: expect.stringMatching(/exceeds the limit.*Set strict: true to fail instead/)
+        });
+        expect(await strictProblems(memorySkillFiles(fixtureFiles()), { limits })).toContainEqual({
+            path: 'acme/billing/refunds',
+            message: expect.not.stringMatching(/strict/)
+        });
+    });
+
+    it('reads each file once per build, however deeply skills nest', async () => {
+        const memory = memorySkillFiles(fixtureFiles());
+        const reads = new Map<string, number>();
+        const files: SkillFiles = {
+            list: dir => memory.list(dir),
+            read: path => {
+                reads.set(path, (reads.get(path) ?? 0) + 1);
+                return memory.read(path);
+            }
+        };
+        const snapshot = await buildCatalogSnapshot(files, optionsWith().options);
+        expect([...reads.keys()].toSorted()).toEqual([...snapshot.files.values()].map(file => file.path).toSorted());
+        expect(new Set(reads.values())).toEqual(new Set([1]));
     });
 
     it('always fails on storage errors', async () => {

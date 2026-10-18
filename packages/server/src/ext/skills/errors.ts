@@ -41,7 +41,7 @@ export class SkillCatalogError extends Error {
     }
 }
 
-/** Default warning sink: stderr, so it never corrupts a stdio transport. */
+// Stderr, so a warning never corrupts a stdio transport.
 export function defaultWarn(warning: SkillWarning): void {
     // eslint-disable-next-line no-console -- the documented default sink for skills warnings
     console.warn(`[mcp-sdk] skills: ${warning.path}: ${warning.message}`);

@@ -3,7 +3,7 @@ import { compareUris, decodeBase64, decodeUtf8Lossless, encodeBase64, encodeUtf8
 
 const CURSOR_PREFIX = 'after:';
 
-/** An opaque, URL-safe cursor meaning "after this URI". */
+// An opaque, URL-safe cursor meaning "after this URI".
 export function encodeCursor(uri: string): string {
     return encodeBase64(encodeUtf8(CURSOR_PREFIX + uri))
         .replaceAll('+', '-')
@@ -11,7 +11,7 @@ export function encodeCursor(uri: string): string {
         .replace(/=+$/, '');
 }
 
-/** The URI a cursor points after, or `undefined` when it is not one of ours. */
+// The URI a cursor points after, or `undefined` when it is not one of ours.
 export function decodeCursor(cursor: string): string | undefined {
     try {
         const base64 = cursor.replaceAll('-', '+').replaceAll('_', '/');
@@ -22,7 +22,7 @@ export function decodeCursor(cursor: string): string | undefined {
     }
 }
 
-/** One page of URI-sorted `items` after `cursor`. Entries added or removed elsewhere never shift the boundary. */
+// One page of URI-sorted `items` after `cursor`; entries added or removed elsewhere never shift the boundary.
 export function paginate<T>(
     items: readonly T[],
     cursor: string | undefined,
@@ -42,7 +42,6 @@ export function paginate<T>(
     return end < items.length && last !== undefined ? { items: page, nextCursor: encodeCursor(key(last)) } : { items: page };
 }
 
-/** The `pageSize` default (100) and its validation: a positive safe integer or `Infinity`. */
 export function resolvePageSize(pageSize: number | undefined): number {
     if (pageSize === undefined) return 100;
     if (pageSize === Number.POSITIVE_INFINITY || (Number.isSafeInteger(pageSize) && pageSize > 0)) return pageSize;
