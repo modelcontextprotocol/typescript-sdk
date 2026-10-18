@@ -158,6 +158,7 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 | `NotInitialized`                      | Protocol is not initialized                                                |
 | `CapabilityNotSupported`              | Required capability is not supported                                       |
 | `RequestTimeout`                      | Request timed out waiting for response                                     |
+| `RequestAborted`                      | The request's `AbortSignal` fired before a response arrived                |
 | `ConnectionClosed`                    | Connection was closed                                                      |
 | `SendFailed`                          | Failed to send message                                                     |
 | `InvalidResult`                       | Response result failed local schema validation                             |

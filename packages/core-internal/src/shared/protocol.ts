@@ -1412,14 +1412,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
 
             // An already-aborted caller signal must surface the same way an
-            // in-flight abort does (`SdkError(RequestTimeout, reason)` via
+            // in-flight abort does (`SdkError(RequestAborted, reason)` via
             // `cancel()` below). Bare `throwIfAborted()` would propagate the
             // raw `signal.reason` instead, so callers that introduce an async
             // hop before `request()` (e.g. a cache freshness check) would see
             // a different rejection type depending on where the abort lands.
             if (options?.signal?.aborted) {
                 const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
             }
 
             // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
@@ -1501,8 +1501,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     requestAbort.abort();
                 }
 
-                // Wrap the reason in an SdkError if it isn't already
-                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                // Wrap the reason in an SdkError if it isn't already. The only
+                // caller that reaches this fallback is `onAbort` below —
+                // `timeoutHandler` always passes a pre-wrapped
+                // `SdkError(RequestTimeout, ...)`, so `reason instanceof
+                // SdkError` is already true on that path and this branch is
+                // abort-only in practice.
+                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestAborted, String(reason));
                 reject(error);
             };
 
