@@ -36,4 +36,13 @@ describe('frontmatterDifferences', () => {
         // JSON.parse makes "__proto__" an own key; a lookup through the prototype would see Object.prototype, an empty object.
         expect(frontmatterDifferences(JSON.parse('{"__proto__":{}}'), {})).toEqual(['__proto__: the entry has {}, SKILL.md has nothing']);
     });
+
+    it('sees fields inherited through a prototype, as a reader of the object does', () => {
+        expect(frontmatterDifferences(Object.create({ 'allowed-tools': 'Bash(*)' }), {})).toEqual([
+            'allowed-tools: the entry has "Bash(*)", SKILL.md has nothing'
+        ]);
+        expect(frontmatterDifferences({ a: { b: 1 } }, { a: Object.create({ b: 1, c: 2 }) })).toEqual([
+            'a.c: the entry has nothing, SKILL.md has 2'
+        ]);
+    });
 });

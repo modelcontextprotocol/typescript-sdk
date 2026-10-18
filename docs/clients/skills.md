@@ -96,7 +96,7 @@ The entry does not list `references/MISSING.md`, so `read` refuses it before sen
 unlisted skill://git-workflow/references/MISSING.md
 ```
 
-`reason` is `unlisted`, `size`, `digest` or `frontmatter`; a path that does not parse is `unlisted` too. When a size, digest or frontmatter check fails, `read` fetches the file once more with `cacheMode: 'refresh'` and throws only if the fresh copy fails as well. On any reason, do not use the file; for `SKILL.md`, do not load the skill.
+`reason` is `unlisted`, `size`, `digest` or `frontmatter`; a path that does not parse is `unlisted` too. When a size, digest or frontmatter check fails on a copy the client served from its response cache, `read` fetches the file once more with `cacheMode: 'refresh'` and throws only if the fresh copy fails as well; a copy that came from the server fails at once. On any reason, do not use the file; for `SKILL.md`, do not load the skill.
 
 ## Browse a skill folder
 

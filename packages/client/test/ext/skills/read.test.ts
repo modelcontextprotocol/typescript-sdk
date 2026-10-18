@@ -1,4 +1,4 @@
-import type { Skill } from '@modelcontextprotocol/core/ext/skills';
+import type { Skill, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
 import { SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { buildSkillEntry, encodeUtf8, joinUri, sha256Digest } from '@modelcontextprotocol/core-internal/ext/skills';
 import { describe, expect, it, vi } from 'vitest';
@@ -99,31 +99,29 @@ describe('SkillsClient.read', () => {
         expect(reads(calls)).toEqual([overEncoded, overEncoded]);
     });
 
-    it('prefers the exact spelling when an entry lists two spellings of one file', async () => {
-        const plain = `${PDF_ROOT}/references/Q&A.md`;
-        const encoded = `${PDF_ROOT}/references/Q%26A.md`;
-        const { skills, skill } = await publishedAs(
-            new Map([
-                [MANIFEST, PDF_SKILL_MD],
-                [plain, '# plain\n'],
-                [encoded, '# encoded\n']
-            ])
-        );
-        for (const ref of ['references/Q&A.md', 'references/Q&A.md#part']) {
-            expect(await skills.read(skill, ref)).toMatchObject({ uri: plain, text: '# plain\n' });
+    it('refuses an invalid entry before any request: a file listed in two spellings, or outside the skill', async () => {
+        const { skills, skill, calls } = await connected({ files: { ...PDF_FILES, 'references/Q&A.md': '# Q&A\n' } });
+        const listed = skill.resources as SkillResourceEntry[];
+        const qa = listed.find(resource => resource.uri.endsWith('/Q&A.md'))!;
+        const twice: Skill = { ...skill, resources: [...listed, { ...qa, uri: `${PDF_ROOT}/references/Q%26A.md` }] };
+        const outside: Skill = { ...skill, resources: [...listed, { ...qa, uri: 'skill://other-skill/Q&A.md' }] };
+        for (const [entry, ref, reason] of [
+            [twice, 'references/Q&A.md', /more than once/],
+            [outside, 'skill://other-skill/Q&A.md', /outside the skill directory/]
+        ] as const) {
+            const error = await skills.read(entry, ref).catch((error: unknown) => error);
+            expect(error).toBeInstanceOf(TypeError);
+            expect(error).toMatchObject({ message: expect.stringMatching(reason) });
         }
-        expect(await skills.read(skill, 'references/Q%26A.md')).toMatchObject({ uri: encoded, text: '# encoded\n' });
+        expect(reads(calls)).toEqual([]);
     });
 
     it("checks SKILL.md's frontmatter however the ref spells it", async () => {
-        const alias = `${PDF_ROOT}/%53KILL.md`;
-        const { skills, skill } = await publishedAs(
-            new Map([
-                [MANIFEST, PDF_SKILL_MD],
-                [alias, PDF_SKILL_MD.replace('Extract text and fill forms in PDF files.', 'Something else.')]
-            ])
-        );
-        await expect(skills.read(skill, '%53KILL.md')).rejects.toMatchObject({ reason: 'frontmatter', uri: alias });
+        const { skills, skill, calls } = await connected();
+        expect(await skills.read(skill, '%53KILL.md')).toMatchObject({ uri: MANIFEST, frontmatter: { name: 'pdf-processing' } });
+        const tampered: Skill = { ...skill, frontmatter: { ...skill.frontmatter, description: 'Something else.' } };
+        await expect(skills.read(tampered, '%53KILL.md')).rejects.toMatchObject({ reason: 'frontmatter', uri: MANIFEST });
+        expect(reads(calls)).toEqual([MANIFEST, MANIFEST]);
     });
 
     it('drops a fragment from the ref', async () => {
@@ -197,6 +195,25 @@ describe('SkillsClient.read', () => {
         });
     });
 
+    it('sees fields either side inherits through a prototype', async () => {
+        const inheriting = (fields: object, inherited: object) => Object.assign(Object.create(inherited) as object, fields);
+        const { skills, skill } = await connected();
+        const entry: Skill = {
+            ...skill,
+            frontmatter: inheriting(skill.frontmatter, { 'allowed-tools': 'Bash(*)' }) as Skill['frontmatter']
+        };
+        await expect(skills.read(entry)).rejects.toMatchObject({
+            reason: 'frontmatter',
+            differences: ['allowed-tools: the entry has "Bash(*)", SKILL.md has nothing']
+        });
+        const parseFrontmatter = () => inheriting(skill.frontmatter, { 'allowed-tools': 'Bash(*)' }) as Record<string, unknown>;
+        const parsing = await connected({ options: { parseFrontmatter } });
+        await expect(parsing.skills.read(parsing.skill)).rejects.toMatchObject({
+            reason: 'frontmatter',
+            differences: ['allowed-tools: the entry has nothing, SKILL.md has "Bash(*)"']
+        });
+    });
+
     it('fails closed on YAML outside the supported subset', async () => {
         const markdown = '---\nname: &n pdf-processing\ndescription: d\n---\n';
         const bytes = encodeUtf8(markdown);
@@ -266,13 +283,37 @@ describe('SkillsClient.read', () => {
         expect(reads(calls)).toEqual([FORMS, FORMS]);
     });
 
-    it('gives up after that one extra fetch, and makes none under cacheMode bypass', async () => {
-        const { skills, skill, served, calls } = await connected();
-        served.set(FORMS, FORMS_MD.toUpperCase());
-        await expect(skills.read(skill, 'references/FORMS.md')).rejects.toMatchObject({ reason: 'digest' });
+    it('gives up when the fresh copy fails as well', async () => {
+        const { skills, skill, served, calls } = await connected({ readTtlMs: 60_000 });
+        await skills.read(skill, 'references/FORMS.md');
+        served.set(FORMS, '# Forms v2\n');
+        const other = await entryFor(PDF_ROOT, { ...PDF_FILES, 'references/FORMS.md': '# Forms v3\n' });
+        await expect(skills.read(other, 'references/FORMS.md')).rejects.toMatchObject({ reason: 'digest' });
         expect(reads(calls)).toEqual([FORMS, FORMS]);
-        await expect(skills.read(skill, 'references/FORMS.md', { cacheMode: 'bypass' })).rejects.toMatchObject({ reason: 'digest' });
-        expect(reads(calls)).toHaveLength(3);
+    });
+
+    it('fetches no second copy when the failing one came from the server', async () => {
+        const { skills, skill, served, calls } = await connected({ readTtlMs: 60_000 });
+        served.set(FORMS, FORMS_MD.toUpperCase());
+        for (const cacheMode of [undefined, 'refresh', 'bypass'] as const) {
+            await expect(skills.read(skill, 'references/FORMS.md', { cacheMode })).rejects.toMatchObject({ reason: 'digest' });
+        }
+        expect(reads(calls)).toEqual([FORMS, FORMS, FORMS]);
+    });
+
+    it('refuses contents for a URI other than the one requested', async () => {
+        const skill = await entryFor(PDF_ROOT, PDF_FILES);
+        const other = { uri: `${PDF_ROOT}/references/OTHER.md`, mimeType: 'text/markdown', text: FORMS_MD };
+        const { client } = await scriptedClient(CAPABILITIES, {
+            ...skillsHandlers([skill], filesOf(PDF_ROOT, PDF_FILES)),
+            'resources/read': () => ({ contents: [other], ttlMs: 0, cacheScope: 'private' })
+        });
+        const skills = new SkillsClient(client);
+        for (const target of [skill, { ...skill, resources: 'dynamic' } satisfies Skill]) {
+            const error = await skills.read(target, 'references/FORMS.md').catch((error: unknown) => error);
+            expect(error).not.toBeInstanceOf(SkillVerificationError);
+            expect(error).toMatchObject({ code: SdkErrorCode.InvalidResult, message: expect.stringContaining(FORMS) });
+        }
     });
 
     it('throws CapabilityNotSupported on a server without the extension', async () => {

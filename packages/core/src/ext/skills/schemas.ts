@@ -19,10 +19,13 @@ export const SkillResourceEntrySchema = z.looseObject({
     size: z.number().int().nonnegative()
 });
 
-export const SkillFrontmatterSchema = z.looseObject({
-    name: z.string(),
-    description: z.string()
-});
+export const SkillFrontmatterSchema = z
+    .looseObject({
+        name: z.string(),
+        description: z.string()
+    })
+    // Zod copies an own `__proto__` field by assignment, which makes it the prototype: fields no key listing shows.
+    .refine(frontmatter => Object.getPrototypeOf(frontmatter) === Object.prototype, 'frontmatter must not have a "__proto__" field');
 
 export const SkillResourcesSchema = z.union([z.array(SkillResourceEntrySchema), z.literal('dynamic')]);
 

@@ -7,9 +7,9 @@ import {
     ReadResourceDirectoryRequestParamsSchema,
     ReadResourceDirectoryResultSchema,
     SKILL_LIMITS,
-    SkillSchema,
+    SKILLS_EXTENSION_ID,
     skillsCapabilityOf,
-    SKILLS_EXTENSION_ID
+    SkillSchema
 } from '../../../src/ext/skills/index';
 
 const digest = `sha256:${'a'.repeat(64)}`;
@@ -30,6 +30,17 @@ describe('SkillSchema', () => {
     it('keeps frontmatter fields beyond name and description', () => {
         const parsed = SkillSchema.parse(skill({ frontmatter: { name: 'git-workflow', description: 'd', license: 'MIT' } }));
         expect(parsed.frontmatter).toEqual({ name: 'git-workflow', description: 'd', license: 'MIT' });
+    });
+
+    it('rejects a frontmatter "__proto__" field, which would otherwise become the prototype', () => {
+        for (const value of ['{"allowed-tools":"Bash(*)"}', 'null']) {
+            const frontmatter: unknown = JSON.parse(`{"name":"git-workflow","description":"d","__proto__":${value}}`);
+            const result = SkillSchema.safeParse(skill({ frontmatter }));
+            expect(result.success).toBe(false);
+            expect(result.error?.issues).toEqual([
+                expect.objectContaining({ path: ['frontmatter'], message: expect.stringContaining('__proto__') })
+            ]);
+        }
     });
 
     it('accepts more files than SKILL_LIMITS (limits are policy, not schema)', () => {

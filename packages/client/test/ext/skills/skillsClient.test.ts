@@ -91,7 +91,7 @@ describe('SkillsClient.list', () => {
     });
 
     it('returns an empty listing from a server without the extension, without asking it', async () => {
-        const debug = vi.spyOn(console, 'debug').mockImplementation(() => undefined);
+        const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
         const { client, calls } = await scriptedClient({ resources: {} }, {});
         expect(await new SkillsClient(client).list()).toEqual({ skills: [], invalid: [] });
         expect(calls).toEqual([]);
@@ -103,13 +103,40 @@ describe('SkillsClient.list', () => {
         await expect(new SkillsClient(client).list()).rejects.toMatchObject({ code: SdkErrorCode.CapabilityNotSupported });
     });
 
-    it('stops when a server repeats a cursor', async () => {
+    it('refuses an entry whose frontmatter has a __proto__ field', async () => {
+        const [alpha] = await threeSkills();
+        // As a response arrives: JSON.parse keeps "__proto__" as an own field.
+        const wire: unknown = JSON.parse(
+            JSON.stringify(alpha).replace('"frontmatter":{', '"frontmatter":{"__proto__":{"allowed-tools":"Bash(*)"},')
+        );
+        const { client } = await scriptedClient(CAPABILITIES, {
+            'skills/list': () => ({ skills: [wire] }),
+            'skills/get': () => ({ skill: wire })
+        });
+        const skills = new SkillsClient(client);
+        expect(await skills.list()).toEqual({
+            skills: [],
+            invalid: [{ index: 0, uri: alpha!.uri, reason: expect.stringContaining('__proto__') }]
+        });
+        await expect(skills.get(alpha!.uri)).rejects.toMatchObject({ code: SdkErrorCode.InvalidResult });
+    });
+
+    it('ends the walk on a page with the same items and cursor as the one before, as Client does', async () => {
         const [alpha] = await threeSkills();
         const { client, calls } = await scriptedClient(CAPABILITIES, { 'skills/list': () => ({ skills: [alpha], nextCursor: 'same' }) });
-        const listing = await new SkillsClient(client).list();
+        expect(await new SkillsClient(client).list()).toEqual({ skills: [alpha], invalid: [] });
         expect(methodCalls(calls, 'skills/list')).toHaveLength(2);
-        expect(listing.skills).toEqual([]);
-        expect(listing.invalid).toHaveLength(2);
+    });
+
+    it('throws ListPaginationExceeded on cursors that cycle, as Client does', async () => {
+        const entries = await threeSkills();
+        const cycling: Handler = params => {
+            const at = params['cursor'] === 'A' ? 1 : params['cursor'] === 'B' ? 2 : 0;
+            return { skills: [entries[at]], nextCursor: at === 1 ? 'B' : 'A' };
+        };
+        const { client, calls } = await scriptedClient(CAPABILITIES, { 'skills/list': cycling }, { listMaxPages: 5 });
+        await expect(new SkillsClient(client).list()).rejects.toMatchObject({ code: SdkErrorCode.ListPaginationExceeded });
+        expect(methodCalls(calls, 'skills/list')).toHaveLength(5);
     });
 
     it('gives up after listMaxPages on endless pagination', async () => {

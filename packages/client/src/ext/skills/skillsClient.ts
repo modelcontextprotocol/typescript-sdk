@@ -20,12 +20,12 @@ import {
     skillRootUri,
     splitFrontmatter
 } from '@modelcontextprotocol/core-internal/ext/skills';
-import type { RequestOptions } from '@modelcontextprotocol/core-internal/public';
+import type { ReadResourceResult, RequestOptions } from '@modelcontextprotocol/core-internal/public';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal/public';
 import type * as z from 'zod/v4';
 
 import type { CacheableRequestOptions, Client } from '../../client/client';
-import { clientSettings } from './clientInternals';
+import { clientInternals } from '../../client/client';
 import type { InvalidSkillEntry } from './entries';
 import { checkEntry, partitionEntries } from './entries';
 import { SkillVerificationError } from './errors';
@@ -85,8 +85,8 @@ interface ReadTarget {
 }
 
 /**
- * Resolves `ref` against the skill root, drops its fragment, and finds the file in the entry: by its exact spelling
- * first, then by {@linkcode skillFileKey}, since servers percent-encode names differently (`Q&A.md`, `Q%26A.md`).
+ * Resolves `ref` against the skill root, drops its fragment, and finds the file in the entry by
+ * {@linkcode skillFileKey}, since servers percent-encode names differently (`Q&A.md`, `Q%26A.md`).
  * Throws `unlisted` for a ref that does not parse or names no file of the skill.
  */
 function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
@@ -106,12 +106,7 @@ function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
         if (!manifest && !isWithin(root, key)) throw notInSkill();
         return { uri: key, listed: undefined, manifest };
     }
-    const { resources } = skill;
-    const hash = uri.indexOf('#');
-    const exact = hash === -1 ? uri : uri.slice(0, hash);
-    const listed =
-        resources.find(resource => canonicalUri(resource.uri) === exact) ??
-        resources.find(resource => skillFileKey(root, resource.uri) === key);
+    const listed = skill.resources.find(resource => skillFileKey(root, resource.uri) === key);
     if (listed === undefined) throw notInSkill();
     return { uri: listed.uri, listed, manifest };
 }
@@ -148,7 +143,7 @@ export class SkillsClient {
     get supported(): boolean {
         const capabilities = this.#client.getServerCapabilities();
         if (skillsCapabilityOf(capabilities) === undefined) return false;
-        return !clientSettings(this.#client).enforceStrictCapabilities || capabilities?.resources !== undefined;
+        return !clientInternals.enforceStrictCapabilities(this.#client) || capabilities?.resources !== undefined;
     }
 
     /** The server serves `resources/directory/read`. */
@@ -164,25 +159,23 @@ export class SkillsClient {
      */
     async list(params: { cursor?: string } = {}, options?: RequestOptions): Promise<SkillListing> {
         if (!this.supported) {
-            if (clientSettings(this.#client).enforceStrictCapabilities) throw unsupported(SKILLS_LIST_METHOD);
+            if (clientInternals.enforceStrictCapabilities(this.#client)) throw unsupported(SKILLS_LIST_METHOD);
             // eslint-disable-next-line no-console
             console.debug(`SkillsClient.list() called but the server does not declare ${SKILLS_EXTENSION_ID} - returning an empty list`);
             return { skills: [], invalid: [] };
         }
-        const pages = await this.#pages(SKILLS_LIST_METHOD, SkillsPageSchema, {}, params.cursor, options);
-        const { skills, invalid } = partitionEntries(pages.flatMap(page => page.skills));
+        const page = await this.#pages(SKILLS_LIST_METHOD, SkillsPageSchema, {}, params.cursor, options, result => result.skills);
+        const { skills, invalid } = partitionEntries(page.skills);
         if (invalid.length > 0 && this.#options.strict) {
             const detail = invalid.map(entry => `#${entry.index} ${entry.uri ?? ''}: ${entry.reason}`).join('\n');
             throw new SdkError(SdkErrorCode.InvalidResult, `skills/list returned invalid entries:\n${detail}`, { invalid });
         }
-        const first = pages[0]!;
-        const last = pages.at(-1)!;
         return {
             skills,
             invalid,
-            ...(params.cursor !== undefined && last.nextCursor !== undefined && { nextCursor: last.nextCursor }),
-            ...(first.ttlMs !== undefined && { ttlMs: first.ttlMs }),
-            ...(first.cacheScope !== undefined && { cacheScope: first.cacheScope })
+            ...(params.cursor !== undefined && page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
+            ...(page.ttlMs !== undefined && { ttlMs: page.ttlMs }),
+            ...(page.cacheScope !== undefined && { cacheScope: page.cacheScope })
         };
     }
 
@@ -208,30 +201,35 @@ export class SkillsClient {
      * side percent-encodes the name) and is requested by the entry's URI; its
      * size and digest must match;
      * for the skill's own `SKILL.md` the frontmatter must also equal the
-     * entry's. A failed check on what may be a cached copy is fetched once
-     * more with `cacheMode: 'refresh'`. `"dynamic"` skills skip the listing,
-     * size and digest checks (`verified: false`) but not the frontmatter.
-     * Pass entries from {@linkcode SkillsClient.list} or {@linkcode SkillsClient.get}.
+     * entry's. A copy from the client's response cache that fails a check is
+     * fetched once more with `cacheMode: 'refresh'`. `"dynamic"` skills skip
+     * the listing, size and digest checks (`verified: false`) but not the
+     * frontmatter. Pass entries from {@linkcode SkillsClient.list} or
+     * {@linkcode SkillsClient.get}; an invalid entry throws a `TypeError`
+     * before any request.
      *
      * @throws {SkillVerificationError} when a check fails.
      */
     async read(skill: Skill, ref?: string, options?: CacheableRequestOptions): Promise<SkillFile> {
         if (!this.supported) throw unsupported('resources/read');
+        const { problems } = checkEntry(skill);
+        if (problems.length > 0) throw new TypeError(`${skill.uri} is not a valid skill entry: ${problems.join('; ')}`);
         const target = resolveTarget(skill, ref);
+        const params = { uri: target.uri };
+        const { result, cached } = await clientInternals.readResource(this.#client, params, options);
         try {
-            return await this.#readVerified(skill, target, options);
+            return await this.#verify(skill, target, result);
         } catch (error) {
-            const mayBeCached = options?.cacheMode === undefined || options.cacheMode === 'use';
-            if (!(error instanceof SkillVerificationError) || !mayBeCached) throw error;
-            // The failing copy may have come from the response cache; the spec requires fetching it again.
-            return this.#readVerified(skill, target, { ...options, cacheMode: 'refresh' });
+            if (!(error instanceof SkillVerificationError) || !cached) throw error;
+            // A cached copy that fails verification must be fetched again (SEP-2640).
+            return this.#verify(skill, target, await this.#client.readResource(params, { ...options, cacheMode: 'refresh' }));
         }
     }
 
-    async #readVerified(skill: Skill, target: ReadTarget, options: CacheableRequestOptions | undefined): Promise<SkillFile> {
+    async #verify(skill: Skill, target: ReadTarget, result: ReadResourceResult): Promise<SkillFile> {
         const { uri, listed } = target;
-        const result = await this.#client.readResource({ uri }, options);
-        const content = result.contents.find(item => canonicalUri(item.uri) === canonicalUri(uri)) ?? result.contents[0];
+        const requested = canonicalUri(uri) ?? uri;
+        const content = result.contents.find(item => (canonicalUri(item.uri) ?? item.uri) === requested);
         if (content === undefined) throw new SdkError(SdkErrorCode.InvalidResult, `resources/read returned no contents for ${uri}`);
         const bytes = 'text' in content ? encodeUtf8(content.text) : decodeBlob(uri, content.blob);
         if (listed !== undefined) {
@@ -288,38 +286,28 @@ export class SkillsClient {
                 `Server does not declare directoryRead for ${SKILLS_EXTENSION_ID} (required for ${RESOURCES_DIRECTORY_READ_METHOD})`
             );
         }
-        const pages = await this.#pages(RESOURCES_DIRECTORY_READ_METHOD, ReadResourceDirectoryResultSchema, { uri }, undefined, options);
-        return pages.flatMap(page => page.resources);
+        const page = await this.#pages(
+            RESOURCES_DIRECTORY_READ_METHOD,
+            ReadResourceDirectoryResultSchema,
+            { uri },
+            undefined,
+            options,
+            result => result.resources
+        );
+        return page.resources;
     }
 
-    /** One page (with `cursor`) or every page: stops at a repeated cursor, throws past `listMaxPages`. */
-    async #pages<T extends { nextCursor?: string }>(
+    /** One page (with `cursor`), or every page in one, walked as Client walks its own list verbs. */
+    #pages<T extends { nextCursor?: string }>(
         method: string,
         schema: z.ZodType<T>,
         params: Record<string, unknown>,
         cursor: string | undefined,
-        options: RequestOptions | undefined
-    ): Promise<T[]> {
+        options: RequestOptions | undefined,
+        items: (page: T) => unknown[]
+    ): Promise<T> {
         const fetchPage = (at: string | undefined): Promise<T> =>
             this.#client.request({ method, params: at === undefined ? params : { ...params, cursor: at } }, schema, options);
-        if (cursor !== undefined) return [await fetchPage(cursor)];
-        const { listMaxPages } = clientSettings(this.#client);
-        const pages = [await fetchPage(undefined)];
-        const seen = new Set<string>();
-        let next = pages[0]!.nextCursor;
-        while (next !== undefined && !seen.has(next)) {
-            if (listMaxPages !== 0 && pages.length >= listMaxPages) {
-                throw new SdkError(
-                    SdkErrorCode.ListPaginationExceeded,
-                    `${method}: exceeded listMaxPages (${listMaxPages}); server pagination did not terminate`,
-                    { method, listMaxPages }
-                );
-            }
-            seen.add(next);
-            const page = await fetchPage(next);
-            pages.push(page);
-            next = page.nextCursor;
-        }
-        return pages;
+        return cursor === undefined ? clientInternals.walkPages(this.#client, method, fetchPage, items) : fetchPage(cursor);
     }
 }

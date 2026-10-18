@@ -5,8 +5,12 @@ const show = (value: unknown): string => (value === undefined ? 'nothing' : JSON
 
 const fieldOf = (path: string, key: string): string => (path === '' ? key : `${path}.${key}`);
 
-/** `object[key]` when `key` is its own: a missing `constructor` or `__proto__` must read as nothing, not Object.prototype's. */
-const ownValue = (object: Record<string, unknown>, key: string): unknown => (Object.hasOwn(object, key) ? object[key] : undefined);
+/** Every field a reader of `object` sees, inherited ones included; Object.prototype's (`constructor`, `__proto__`) are not enumerable. */
+function fieldsOf(object: Record<string, unknown>): Map<string, unknown> {
+    const fields = new Map<string, unknown>();
+    for (const key in object) fields.set(key, object[key]);
+    return fields;
+}
 
 /**
  * Field-level differences between a skill entry's frontmatter and the
@@ -20,8 +24,9 @@ export function frontmatterDifferences(entry: unknown, parsed: unknown, path = '
         return entry.flatMap((item, index) => frontmatterDifferences(item, parsed[index], `${path}[${index}]`));
     }
     if (isPlainObject(entry) && isPlainObject(parsed)) {
-        const keys = [...new Set([...Object.keys(entry), ...Object.keys(parsed)])].toSorted();
-        return keys.flatMap(key => frontmatterDifferences(ownValue(entry, key), ownValue(parsed, key), fieldOf(path, key)));
+        const [fromEntry, fromParsed] = [fieldsOf(entry), fieldsOf(parsed)];
+        const keys = [...new Set([...fromEntry.keys(), ...fromParsed.keys()])].toSorted();
+        return keys.flatMap(key => frontmatterDifferences(fromEntry.get(key), fromParsed.get(key), fieldOf(path, key)));
     }
     return entry === parsed ? [] : [`${label}: the entry has ${show(entry)}, SKILL.md has ${show(parsed)}`];
 }
