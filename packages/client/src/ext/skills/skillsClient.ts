@@ -33,7 +33,7 @@ import { GetSkillEnvelopeSchema, SkillsPageSchema } from './pageSchemas';
 import { frontmatterDifferences } from './verify';
 
 export interface SkillsClientOptions {
-    /** Parses a `SKILL.md`'s frontmatter for verification instead of the built-in YAML parser. */
+    /** Parses a `SKILL.md`'s frontmatter for verification instead of the built-in parser (YAML 1.2 core-schema typing). */
     parseFrontmatter?: (skillMd: string) => Record<string, unknown>;
     /** Return invalid `skills/list` entries in `invalid` instead of throwing. Default `false`: `list()` throws on any. */
     skipInvalid?: boolean;
