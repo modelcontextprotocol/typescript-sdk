@@ -324,4 +324,37 @@ description: d
             await mcp.close();
         }
     });
+
+    it('keeps a throwing onWarning from escaping a failed send or skipping the other servers', async () => {
+        const sink = vi.fn(() => {
+            throw new Error('sink failed');
+        });
+        const { catalog, files } = await loaded({ onWarning: sink });
+        const servers = [newServer(), newServer(), newServer()];
+        for (const server of servers) {
+            catalog.attach(server);
+            await server.connect(InMemoryTransport.createLinkedPair()[1]);
+        }
+        const [throwsSync, rejects, healthy] = servers.map(server => vi.spyOn(server.server, 'sendResourceListChanged'));
+        throwsSync!.mockImplementation(() => {
+            throw new Error('send threw');
+        });
+        rejects!.mockRejectedValue(new Error('transport down'));
+        const unhandled: unknown[] = [];
+        const onUnhandled = (reason: unknown): void => {
+            unhandled.push(reason);
+        };
+        process.on('unhandledRejection', onUnhandled);
+        try {
+            files['aaa/SKILL.md'] = NEW_SKILL;
+            await expect(catalog.reload()).resolves.toMatchObject({ listChanged: true });
+            expect(healthy).toHaveBeenCalledTimes(1);
+            await vi.waitFor(() => expect(sink).toHaveBeenCalledTimes(2));
+            await new Promise(resolve => setImmediate(resolve));
+            expect(unhandled).toEqual([]);
+        } finally {
+            process.off('unhandledRejection', onUnhandled);
+            for (const server of servers) await server.close();
+        }
+    });
 });
