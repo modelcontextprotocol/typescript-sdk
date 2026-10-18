@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { decodeBase64, decodeUtf8Lossless, encodeBase64, encodeUtf8, sha256Digest } from '../../../src/ext/skills/bytes';
 
@@ -20,5 +20,24 @@ describe('bytes', () => {
     it('computes sha256 digests identical to node:crypto', async () => {
         const bytes = encodeUtf8('hello skills');
         expect(await sha256Digest(bytes)).toBe(`sha256:${createHash('sha256').update(bytes).digest('hex')}`);
+    });
+
+    it('hashes only the bytes of a view, and a view over a SharedArrayBuffer', async () => {
+        const expected = `sha256:${createHash('sha256').update('hello skills').digest('hex')}`;
+        expect(await sha256Digest(encodeUtf8('xxhello skillsyy').subarray(2, -2))).toBe(expected);
+        const shared = new Uint8Array(new SharedArrayBuffer(12));
+        shared.set(encodeUtf8('hello skills'));
+        expect(await sha256Digest(shared)).toBe(expected);
+    });
+
+    it('hashes an ArrayBuffer-backed input without copying it', async () => {
+        const digest = vi.spyOn(globalThis.crypto.subtle, 'digest');
+        try {
+            const bytes = encodeUtf8('hello skills');
+            await sha256Digest(bytes);
+            expect((digest.mock.calls[0]![1] as ArrayBufferView).buffer).toBe(bytes.buffer);
+        } finally {
+            digest.mockRestore();
+        }
     });
 });

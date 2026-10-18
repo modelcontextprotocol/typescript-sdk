@@ -78,9 +78,40 @@ describe('validateSkillEntry', () => {
                 ]
             }),
             /more than once/
+        ],
+        [
+            'a file listed again under another percent-encoding',
+            entry({
+                resources: [
+                    { uri: 'skill://acme/refunds/SKILL.md', digest, size: 1 },
+                    { uri: 'skill://acme/refunds/Q&A.md', digest, size: 1 },
+                    { uri: 'skill://acme/refunds/Q%26A.md', digest, size: 1 }
+                ]
+            }),
+            /"skill:\/\/acme\/refunds\/Q%26A\.md" is listed more than once/
         ]
     ])('reports %s', (_label, skill, problem) => {
         expect(validateSkillEntry(skill).join('\n')).toMatch(problem);
+    });
+
+    it.each(['policy.md#part', 'policy.md#', 'policy.md?v=1', 'policy.md?'])('reports a file URI with a query or fragment (%s)', suffix => {
+        const skill = entry({
+            resources: [
+                { uri: 'skill://acme/refunds/SKILL.md', digest, size: 1 },
+                { uri: `skill://acme/refunds/references/${suffix}`, digest, size: 1 }
+            ]
+        });
+        expect(validateSkillEntry(skill)).toEqual([
+            `resource "skill://acme/refunds/references/${suffix}" must not have a query or fragment`
+        ]);
+    });
+
+    it('counts the length limits in characters, not UTF-16 code units', () => {
+        const problems = (fields: Record<string, string>) =>
+            validateSkillEntry(entry({ frontmatter: { name: 'refunds', description: 'd', ...fields } })).join('\n');
+        expect(problems({ description: '😀'.repeat(1024), compatibility: '😀'.repeat(500) })).toBe('');
+        expect(problems({ description: '😀'.repeat(1025) })).toMatch(/description/);
+        expect(problems({ compatibility: '😀'.repeat(501) })).toMatch(/compatibility/);
     });
 
     it('skillEntryProblems also catches schema violations', () => {

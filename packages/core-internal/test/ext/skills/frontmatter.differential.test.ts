@@ -22,7 +22,19 @@ const ACCEPTED: readonly string[] = [
     'name: x\ndescription: d\nnested:\n  level1:\n    level2:\n      - deep\n',
     'name: x\ndescription: d\ntags:\n-\ta\n-\tb\n',
     'name: x\ndescription: d\nflow: [-a, ?b, :c]\nmap: {-k: v, ?k: w}\n',
-    'name: x\ndescription: d\nflow: [http://x.test/a, b:c, a#b]\nmap: {a:b: c, :k: v, http://x.test: 1, u: http://x.test, k#: v#}\n'
+    'name: x\ndescription: d\nflow: [http://x.test/a, b:c, a#b]\nmap: {a:b: c, :k: v, http://x.test: 1, u: http://x.test, k#: v#}\n',
+    // A tab after a block scalar's content indentation is content.
+    'name: x\ndescription: |\n  foo\n  \tbar\n',
+    'name: x\ndescription: |\n  \tfoo\n  bar\n',
+    'name: x\ndescription: |\n \tfoo\n',
+    'name: x\ndescription: |\n  \t\n  foo\n',
+    'name: x\ndescription: |-\n  foo\n  \t\n',
+    'name: x\ndescription: |\n  foo\n  \t# not a comment\n',
+    'name: x\ndescription: >\n  a\n  b\n  \tc\n  d\n  e\n',
+    'name: x\ndescription: >\n  a\n   b\n  \tc\n  d\n',
+    'name: x\ndescription: >\n  foo\n\n  \tbar\n\n  baz\n',
+    'name: x\nmetadata:\n  note: |\n    foo\n    \tbar\n  next: "1"\n',
+    'name: x\ntags:\n- |\n  foo\n  \tbar\n- x\n'
 ];
 
 /** Valid YAML the parser deliberately rejects (it must fail closed, never misread). */
@@ -48,7 +60,12 @@ const REJECTED: readonly string[] = [
     'map: {{x: 1}: y}\n',
     // yaml drops a byte order mark before the first content; the parser does not guess.
     '\uFEFFname: x\n',
-    '# comment\n\uFEFFname: x\n'
+    '# comment\n\uFEFFname: x\n',
+    // yaml reads `__proto__` as an own key; the parser rejects it wherever a key can be written.
+    '"__proto__": x\n',
+    "m:\n  '__proto__': x\n",
+    'm: {__proto__: x}\n',
+    'm: {"__proto__": x}\n'
 ];
 
 /** Invalid YAML: the yaml library rejects it, so the parser must too. */
@@ -77,7 +94,16 @@ const INVALID: readonly string[] = [
     'a: {k: v:, j: w}\n',
     'a: {x #y: z}\n',
     'a: {x]: y}\n',
-    'a: {x[: y}\n'
+    'a: {x[: y}\n',
+    // A tab inside a block scalar's indentation, blank and comment lines included.
+    'a: |\n\tfoo\n',
+    'a: |\n\t\n  foo\n',
+    'a: |\n  foo\n \tbar\n',
+    'a: |\n  foo\n\t\n  bar\n',
+    'a: |\n    foo\n  \t\n',
+    'a: |\n  foo\n\t\nb: 1\n',
+    'a: |\n  foo\n\t# c\nb: 1\n',
+    'k:\n  a: |\n    foo\n  \tbar\n'
 ];
 
 /**

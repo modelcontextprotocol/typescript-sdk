@@ -59,29 +59,23 @@ export function parseFrontmatterYaml(yaml: string, firstLine = 1): Record<string
 
 interface Line {
     readonly no: number;
-    /** Number of leading spaces. */
+    // Leading spaces only: a tab ends the indentation.
     readonly indent: number;
-    /** The line after its indentation. */
+    // The line after its leading spaces and tabs.
     readonly text: string;
-    /** The whole line. */
     readonly raw: string;
 }
 
 function toLines(yaml: string, firstLine: number): Line[] {
     const raws = yaml.split('\n');
     if (raws.at(-1) === '') raws.pop();
-    return raws.map((raw, index) => {
-        const leading = /^[\t ]*/.exec(raw)?.[0] ?? '';
-        const text = raw.slice(leading.length);
-        const no = firstLine + index;
-        if (leading.includes('\t') && text !== '' && !text.startsWith('#')) {
-            throw new FrontmatterError('tabs cannot be used for indentation', no);
-        }
-        return { no, indent: leading.length, text, raw };
-    });
+    return raws.map((raw, index) => ({ no: firstLine + index, indent: /^ */.exec(raw)?.[0].length ?? 0, text: trimWhiteStart(raw), raw }));
 }
 
+const TAB_INDENT = 'tabs cannot be used for indentation';
+
 const isSkippable = (line: Line): boolean => line.text === '' || line.text.startsWith('#');
+const isTabIndented = (line: Line): boolean => line.raw[line.indent] === '\t';
 const isSequenceItem = (text: string): boolean => /^-(?:[\t ]|$)/.test(text);
 
 class Parser {
@@ -92,8 +86,7 @@ class Parser {
     parseDocument(): Record<string, unknown> {
         const first = this.peek();
         if (first === undefined) return {};
-        // YAML drops a byte order mark before a document's first content; reading it as part of the first key
-        // would differ from every YAML parser, so fail closed (a BOM before the opening `---` is fine).
+        // YAML drops a BOM before the first content, so reading it into the first key would differ: fail closed.
         if (first.text.startsWith('\uFEFF')) {
             throw new FrontmatterError('a byte order mark inside the frontmatter is not supported', first.no);
         }
@@ -108,7 +101,9 @@ class Parser {
 
     private peek(): Line | undefined {
         while (this.index < this.lines.length && isSkippable(this.lines[this.index]!)) this.index++;
-        return this.lines[this.index];
+        const line = this.lines[this.index];
+        if (line !== undefined && isTabIndented(line)) throw new FrontmatterError(TAB_INDENT, line.no);
+        return line;
     }
 
     private parseMapping(indent: number, depth: number): Record<string, unknown> {
@@ -137,7 +132,7 @@ class Parser {
             const column = line.indent + 1 + (after.length - rest.length);
             if (rest !== '' && !rest.startsWith('#') && (isSequenceItem(rest) || matchKey(rest, line.no) !== undefined)) {
                 // `- key: value` or `- - item`: the item is a block node that starts at `column`.
-                if (/^ *\t/.test(after)) throw new FrontmatterError('tabs cannot be used for indentation', line.no);
+                if (/^ *\t/.test(after)) throw new FrontmatterError(TAB_INDENT, line.no);
                 this.lines[this.index] = { ...line, indent: column, text: rest };
                 items.push(isSequenceItem(rest) ? this.parseSequence(column, depth + 1) : this.parseMapping(column, depth + 1));
                 continue;
@@ -198,6 +193,7 @@ class Parser {
                 continue;
             }
             if (next.indent <= parentIndent || next.text.startsWith('#')) break;
+            if (isTabIndented(next)) throw new FrontmatterError(TAB_INDENT, next.no);
             if (commented) throw new FrontmatterError('a comment ends a plain value; quote a value that continues past it', next.no);
             const part = stripComment(next.text);
             assertPlain(part, next.no);
@@ -224,21 +220,23 @@ class Parser {
         let leadingWidth = 0;
         while (this.index < this.lines.length) {
             const next = this.lines[this.index]!;
-            if (next.text === '') {
-                if (contentIndent === -1) leadingWidth = Math.max(leadingWidth, next.raw.length);
-                contents.push(contentIndent === -1 ? '' : next.raw.slice(contentIndent));
-                this.index++;
-                continue;
-            }
-            if (contentIndent === -1) {
-                if (next.indent <= parentIndent) break;
+            const spacesOnly = next.indent === next.raw.length;
+            if (contentIndent === -1 && !spacesOnly && next.indent > parentIndent) {
                 contentIndent = next.indent;
                 if (leadingWidth > contentIndent) {
                     throw new FrontmatterError('a leading blank line is indented more than the block scalar content', next.no);
                 }
             }
-            if (next.indent < contentIndent) break;
-            contents.push(next.raw.slice(contentIndent));
+            if (contentIndent !== -1 && next.indent >= contentIndent) {
+                contents.push(next.raw.slice(contentIndent));
+            } else if (spacesOnly) {
+                if (contentIndent === -1) leadingWidth = Math.max(leadingWidth, next.indent);
+                contents.push('');
+            } else if (isTabIndented(next)) {
+                throw new FrontmatterError(TAB_INDENT, next.no);
+            } else {
+                break;
+            }
             this.index++;
         }
         return foldBlock(contents, match[1] === '>', match[2] ?? '');
@@ -306,16 +304,11 @@ function expectOnlyComment(after: string, no: number): void {
     throw new FrontmatterError('unexpected text after the value', no);
 }
 
-// YAML white space is only space and tab (YAML 1.2 `s-white`). `String.prototype.trim` and friends also strip
-// U+00A0, U+3000, U+2028, U+FEFF and other Unicode spaces, which YAML keeps as content: using them here would read
-// `description: a<NBSP>` as "a" where every YAML 1.2 parser (and so every other SDK) reads "a<NBSP>".
-
-/** `text` without leading spaces and tabs. */
+// YAML white space is only space and tab; `String.prototype.trim` would also strip Unicode spaces YAML keeps.
 function trimWhiteStart(text: string): string {
     return text.slice(skipSpaces(text, 0));
 }
 
-/** `text` without trailing spaces and tabs. */
 function trimWhiteEnd(text: string): string {
     let end = text.length;
     while (end > 0 && (text[end - 1] === ' ' || text[end - 1] === '\t')) end--;
@@ -477,10 +470,9 @@ function readFlowKey(text: string, start: number, no: number): { key: string; en
     return { key: resolveKey(raw, no), end };
 }
 
-/** Whitespace and the flow indicators: after `-`, `?` or `:`, any of these makes it an indicator in a flow collection. */
+// After `-`, `?` or `:`, any of these makes it an indicator in a flow collection.
 const FLOW_SEPARATORS = ' \t,[]{}';
 
-/** Rejects a plain flow key or value whose first character YAML reads as an indicator. */
 function assertFlowPlainStart(text: string, index: number, no: number): void {
     const char = text[index]!;
     if ('&*!'.includes(char)) throw new FrontmatterError('anchors, aliases and tags are not supported', no);
@@ -489,7 +481,7 @@ function assertFlowPlainStart(text: string, index: number, no: number): void {
     }
 }
 
-/** Returns where a plain flow scalar starting at `index` ends: at a flow indicator, a comment, or a `:` indicator. */
+// The end of a plain flow scalar: a flow indicator, a comment or a `:` indicator.
 function scanFlowPlain(text: string, index: number): number {
     let end = index;
     while (end < text.length) {
@@ -516,7 +508,7 @@ function readFlowValue(text: string, start: number, no: number, depth: number): 
     return { value: resolvePlain(raw, no), end };
 }
 
-/** Joins block scalar lines the way YAML does (algorithm as in js-yaml's readBlockScalar). */
+// Joins block scalar lines as YAML does (the algorithm of js-yaml's readBlockScalar).
 function foldBlock(contents: readonly string[], folded: boolean, chomping: string): string {
     let result = '';
     let emptyLines = 0;

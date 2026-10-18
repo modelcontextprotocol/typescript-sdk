@@ -3,7 +3,7 @@ import { SkillSchema } from '@modelcontextprotocol/core/ext/skills';
 
 import { decodeUtf8Lossless, sha256Digest } from './bytes';
 import { FrontmatterError, parseSkillMarkdown } from './frontmatter';
-import { canonicalUri, compareUris, isWithin, lastSegmentOf, skillRootUri } from './uri';
+import { canonicalUri, compareUris, isWithin, lastSegmentOf, skillFileKey, skillRootUri } from './uri';
 
 /** Agent Skills name rule: lowercase letters, digits and single hyphens (length checked separately). */
 export const SKILL_NAME_PATTERN = /^[\da-z]+(?:-[\da-z]+)*$/;
@@ -13,6 +13,13 @@ const isStringMap = (value: unknown): boolean =>
     value !== null &&
     !Array.isArray(value) &&
     Object.values(value as Record<string, unknown>).every(item => typeof item === 'string');
+
+// Agent Skills length limits count characters (code points), not UTF-16 code units.
+function countCharacters(text: string): number {
+    let count = 0;
+    for (let index = 0; index < text.length; index += text.codePointAt(index)! > 0xff_ff ? 2 : 1) count++;
+    return count;
+}
 
 /** Structural rules of the stable spec and Agent Skills. Empty array = valid. */
 export function validateSkillEntry(skill: Skill): string[] {
@@ -26,9 +33,12 @@ export function validateSkillEntry(skill: Skill): string[] {
     } else if (lastSegmentOf(root) !== name) {
         problems.push(`frontmatter name "${name}" must match the last path segment "${lastSegmentOf(root)}"`);
     }
-    if (description.length === 0 || description.length > 1024) problems.push('frontmatter description must be 1-1024 characters');
+    if (description === '' || countCharacters(description) > 1024) problems.push('frontmatter description must be 1-1024 characters');
     const compatibility = frontmatter['compatibility'];
-    if (compatibility !== undefined && (typeof compatibility !== 'string' || compatibility.length === 0 || compatibility.length > 500)) {
+    if (
+        compatibility !== undefined &&
+        (typeof compatibility !== 'string' || compatibility === '' || countCharacters(compatibility) > 500)
+    ) {
         problems.push('frontmatter compatibility must be a string of 1-500 characters');
     }
     if (frontmatter['metadata'] !== undefined && !isStringMap(frontmatter['metadata'])) {
@@ -44,8 +54,14 @@ export function validateSkillEntry(skill: Skill): string[] {
                 problems.push(`resource "${resource.uri}" is not a valid URI`);
                 continue;
             }
-            if (seen.has(canonical)) problems.push(`resource "${resource.uri}" is listed more than once`);
-            seen.add(canonical);
+            // A canonical URI holds a raw `?` or `#` only as a query or fragment, even an empty one.
+            if (/[#?]/.test(canonical)) {
+                problems.push(`resource "${resource.uri}" must not have a query or fragment`);
+                continue;
+            }
+            const key = skillFileKey(root, canonical) ?? canonical;
+            if (seen.has(key)) problems.push(`resource "${resource.uri}" is listed more than once`);
+            seen.add(key);
             if (canonical === self) hasSelf = true;
             else if (!isWithin(root, resource.uri)) problems.push(`resource "${resource.uri}" is outside the skill directory ${root}`);
         }

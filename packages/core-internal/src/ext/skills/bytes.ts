@@ -34,7 +34,10 @@ export function decodeBase64(base64: string): Uint8Array {
 
 /** `sha256:` followed by the lowercase hex SHA-256 of `bytes` (WebCrypto, every runtime). */
 export async function sha256Digest(bytes: Uint8Array): Promise<string> {
-    const hash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', new Uint8Array(bytes)));
+    const { buffer, byteOffset, byteLength } = bytes;
+    // WebCrypto refuses views over a SharedArrayBuffer; only those are copied.
+    const view = buffer instanceof ArrayBuffer ? new Uint8Array(buffer, byteOffset, byteLength) : new Uint8Array(bytes);
+    const hash = new Uint8Array(await globalThis.crypto.subtle.digest('SHA-256', view));
     let hex = '';
     for (const byte of hash) hex += byte.toString(16).padStart(2, '0');
     return `sha256:${hex}`;
