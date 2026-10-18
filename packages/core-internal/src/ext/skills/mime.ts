@@ -28,5 +28,7 @@ const BY_EXTENSION: Readonly<Record<string, string>> = {
 export function mimeTypeFor(fileName: string): string {
     const dot = fileName.lastIndexOf('.');
     if (dot <= 0) return 'application/octet-stream';
-    return BY_EXTENSION[fileName.slice(dot + 1).toLowerCase()] ?? 'application/octet-stream';
+    const extension = fileName.slice(dot + 1).toLowerCase();
+    // Own keys only: an inherited name such as `__proto__` or `constructor` is not a MIME type.
+    return Object.hasOwn(BY_EXTENSION, extension) ? BY_EXTENSION[extension]! : 'application/octet-stream';
 }
