@@ -1570,7 +1570,7 @@ describe('createMessage validation', () => {
                 maxTokens: 100,
                 tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
             })
-        ).rejects.toThrow('The last message must contain only tool_result content if any is present');
+        ).rejects.toThrow('A user message containing tool_result blocks must contain only tool_result content');
     });
 
     test('should throw when tool_result has no matching tool_use in previous message', async () => {
@@ -1702,7 +1702,7 @@ describe('createMessage validation', () => {
                 maxTokens: 100,
                 tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
             })
-        ).rejects.toThrow('ids of tool_result blocks and tool_use blocks from previous message do not match');
+        ).rejects.toThrow('tool_use blocks must be followed by matching tool_result blocks in the next user message');
     });
 
     test('should throw when only some tool_results are provided for parallel tool_use', async () => {
