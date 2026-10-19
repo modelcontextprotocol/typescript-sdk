@@ -77,7 +77,7 @@ Only the result comes back:
 Log to `stderr` (stdio servers) or use OpenTelemetry instead. **MCP logging** is deprecated as of protocol version 2026-07-28 (SEP-2577) and stays functional through the deprecation window (at least twelve months) — see the [deprecated features registry](https://modelcontextprotocol.io/specification/2026-07-28/deprecated).
 :::
 
-Declare the `logging` capability when you construct the server.
+Declare the `logging` capability when you construct the server. Without it, `ctx.mcpReq.log()` and `server.sendLoggingMessage()` resolve successfully and send nothing, with no warning.
 
 ```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#logging_capability"
 const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { capabilities: { logging: {} } });
