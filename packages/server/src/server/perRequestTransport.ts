@@ -121,8 +121,8 @@ let readClassification: (transport: PerRequestHTTPServerTransport) => MessageCla
  * lifetime is one HTTP exchange. See the module documentation for the
  * response shapes it produces.
  *
- * Connecting a `Server` whose `supportedProtocolVersions` lists the
- * classified modern revision binds the instance to that revision.
+ * Connecting a `Server` binds the instance to the classified modern revision
+ * when its `supportedProtocolVersions` lists it and the SDK implements it.
  */
 export class PerRequestHTTPServerTransport implements Transport {
     static {

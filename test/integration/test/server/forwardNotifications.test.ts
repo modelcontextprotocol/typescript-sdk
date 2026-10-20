@@ -201,12 +201,32 @@ describe('public gateway serving APIs', () => {
         expect(server.getNegotiatedProtocolVersion()).toBe(revision);
         await server.close();
         expect(versionInOnclose).toBe(revision);
-        expect(server.getNegotiatedProtocolVersion()).toBeUndefined();
         server.onclose = undefined;
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         const client = new Client({ name: 'legacy-client', version: '1' });
         try {
             await server.connect(serverTransport);
+            await client.connect(clientTransport);
+            expect(server.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        } finally {
+            await client.close();
+            await server.close();
+        }
+    });
+
+    it('allows a legacy connection made from onclose of a transport-bound modern connection', async () => {
+        const server = new Server({ name: 'gateway', version: '1' }, { supportedProtocolVersions: [revision, '2025-11-25'] });
+        await server.connect(new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision } }));
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        let reconnected: Promise<void> | undefined;
+        server.onclose = () => {
+            server.onclose = undefined;
+            reconnected = server.connect(serverTransport);
+        };
+        await server.close();
+        await reconnected;
+        const client = new Client({ name: 'legacy-client', version: '1' });
+        try {
             await client.connect(clientTransport);
             expect(server.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         } finally {

@@ -361,6 +361,11 @@ export class Server extends Protocol<ServerContext> {
                 'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
             );
         }
+        // A new connection never inherits a binding taken from an earlier per-request transport.
+        if (this._boundFromTransport) {
+            this._boundFromTransport = false;
+            this._negotiatedProtocolVersion = undefined;
+        }
         // A per-request transport classified at a modern revision this instance lists and the SDK implements binds that revision.
         const revision = perRequestClassificationOf(transport)?.revision;
         if (
@@ -373,18 +378,6 @@ export class Server extends Protocol<ServerContext> {
             this._boundFromTransport = true;
         }
         await super.connect(transport);
-    }
-
-    protected override _onclose(): void {
-        try {
-            super._onclose();
-        } finally {
-            // Cleared after the close callbacks so they still see the served revision, unless one of them reconnected.
-            if (this._boundFromTransport && this.transport === undefined) {
-                this._boundFromTransport = false;
-                this._negotiatedProtocolVersion = undefined;
-            }
-        }
     }
 
     /**
