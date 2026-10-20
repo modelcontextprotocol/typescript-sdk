@@ -1,0 +1,31 @@
+examples/README.md
+  s_4822886279d293::t_b2cf98cce3416f 34-58
+examples/ext-tasks/README.md
+  s_4822886279d293::t_1a1ede23e73491 1-13
+examples/ext-tasks/client.ts
+  s_4822886279d293::t_e6cb278d1ea9d4 1-75
+examples/ext-tasks/package.json
+  s_4822886279d293::t_b75dac56169f3c 1-24
+examples/ext-tasks/server.ts
+  s_4822886279d293::t_d072975d8d4e45 1-107
+examples/tsconfig.json
+  s_4822886279d293::t_f2300f172082a1 37-42
+pnpm-lock.yaml
+  s_4822886279d293::t_42427ee2d290ac 597-621
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "659f5bc547d58ff3922acfcc4fc3bdf81a44d228",
+  "prompts": {},
+  "sessions": {
+    "s_4822886279d293": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15687-abd1-7441-bf74-32b94636c01a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
