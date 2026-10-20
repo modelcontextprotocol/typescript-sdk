@@ -43,6 +43,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
+import { conformanceSkills } from './skills';
+
 // Server state
 const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
@@ -166,6 +168,9 @@ function createMcpServer() {
             requestState: { verify: requestStateCodec.verify }
         }
     );
+
+    // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
+    conformanceSkills.attach(mcpServer);
 
     // Helper to send log messages using the underlying server
     function sendLog(

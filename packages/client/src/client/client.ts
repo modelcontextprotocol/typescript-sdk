@@ -435,6 +435,22 @@ const LIST_CHANGED_EVICTIONS: Readonly<Record<string, readonly string[]>> = {
 
 const DEFAULT_LIST_MAX_PAGES = 64;
 
+// Package-internal (not exported from the package): what the `ext/` clients share with Client. Set in Client's static block.
+export const clientInternals = {} as {
+    enforceStrictCapabilities(client: Client): boolean;
+    walkPages<R extends { nextCursor?: string }>(
+        client: Client,
+        method: string,
+        fetchPage: (cursor: string | undefined) => Promise<R>,
+        items: (page: R) => unknown[]
+    ): Promise<R>;
+    readResource(
+        client: Client,
+        params: ReadResourceRequest['params'],
+        options?: CacheableRequestOptions
+    ): Promise<{ result: ReadResourceResult; cached: boolean }>;
+};
+
 /**
  * A handle to an open `subscriptions/listen` stream (protocol revision
  * 2026-07-28). Change notifications delivered on the stream dispatch to the
@@ -571,6 +587,12 @@ export class Client extends Protocol<ClientContext> {
     private _autoOpenedSubscription?: McpSubscription;
     /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
     private _discoverResult?: DiscoverResult;
+
+    static {
+        clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
+        clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
+        clientInternals.readResource = (client, params, options) => client._readResource(params, options);
+    }
 
     /**
      * Clears every per-connection field in one place. Called at the start of
@@ -1725,26 +1747,11 @@ export class Client extends Protocol<ClientContext> {
         // when it observes the bump (the result still returns to the caller —
         // it just is not cached).
         const generation = this._cache.captureGeneration(method);
-        const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
-        let cursor = acc.nextCursor;
-        let previous = acc;
-        let pages = 1;
-        while (cursor !== undefined) {
-            if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
-                throw new SdkError(
-                    SdkErrorCode.ListPaginationExceeded,
-                    `${method}: exceeded listMaxPages (${this._listMaxPages}); server pagination did not terminate`,
-                    { method, listMaxPages: this._listMaxPages }
-                );
-            }
-            const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
-            // Same items and same cursor as the page before: the server made no progress.
-            if (page.nextCursor === cursor && JSON.stringify(items(page)) === JSON.stringify(items(previous))) break;
-            items(acc).push(...items(page));
-            previous = page;
-            cursor = page.nextCursor;
-            pages++;
-        }
+        const fetchPage = (cursor: string | undefined): Promise<R> => {
+            const params = cursor === undefined ? baseParams && { ...baseParams } : { ...baseParams, cursor };
+            return this.request({ method, ...(params && { params }) }, options) as Promise<R>;
+        };
+        const acc = await this._walkPages(method, fetchPage, items);
         // delete, not `= undefined`: the cache's JSON codec drops
         // explicit-undefined properties, so only absence keeps
         // `'nextCursor' in result` identical between wire and cache hit.
@@ -1758,6 +1765,35 @@ export class Client extends Protocol<ClientContext> {
         // Page-1 carries the result-level `ttlMs`/`cacheScope` (`acc` IS the
         // mutated page-1 object).
         await this._cache.write(method, acc, generation, this._freshness(acc));
+        return acc;
+    }
+
+    // Every page's items appended to page 1's: `listMaxPages` caps the walk, a page repeating the one before ends it.
+    private async _walkPages<R extends { nextCursor?: string }>(
+        method: string,
+        fetchPage: (cursor: string | undefined) => Promise<R>,
+        items: (result: R) => unknown[]
+    ): Promise<R> {
+        const acc = await fetchPage(undefined);
+        let cursor = acc.nextCursor;
+        let previous = acc;
+        let pages = 1;
+        while (cursor !== undefined) {
+            if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
+                throw new SdkError(
+                    SdkErrorCode.ListPaginationExceeded,
+                    `${method}: exceeded listMaxPages (${this._listMaxPages}); server pagination did not terminate`,
+                    { method, listMaxPages: this._listMaxPages }
+                );
+            }
+            const page = await fetchPage(cursor);
+            // Same items and same cursor as the page before: the server made no progress.
+            if (page.nextCursor === cursor && JSON.stringify(items(page)) === JSON.stringify(items(previous))) break;
+            items(acc).push(...items(page));
+            previous = page;
+            cursor = page.nextCursor;
+            pages++;
+        }
         return acc;
     }
 
@@ -1882,8 +1918,17 @@ export class Client extends Protocol<ClientContext> {
      * unbounded).
      */
     async readResource(params: ReadResourceRequest['params'], options?: CacheableRequestOptions): Promise<ReadResourceResult> {
+        const { result } = await this._readResource(params, options);
+        return result;
+    }
+
+    // `readResource`, and whether the result came from the response cache.
+    private async _readResource(
+        params: ReadResourceRequest['params'],
+        options: CacheableRequestOptions | undefined
+    ): Promise<{ result: ReadResourceResult; cached: boolean }> {
         const hit = await this._serveFromCache<ReadResourceResult>('resources/read', params.uri, options);
-        if (hit !== undefined) return hit;
+        if (hit !== undefined) return { result: hit, cached: true };
         // Capture the per-URI eviction generation BEFORE the request: a
         // `notifications/resources/updated` for this URI arriving while the
         // read is in flight bumps it (via `evictKey`), and the terminal
@@ -1908,7 +1953,7 @@ export class Client extends Protocol<ClientContext> {
                 await this._cache.evictKey('resources/read', params.uri);
             }
         }
-        return result;
+        return { result, cached: false };
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */

@@ -9,13 +9,21 @@
             "@modelcontextprotocol/core/internal": [
                 "./node_modules/@modelcontextprotocol/core-internal/node_modules/@modelcontextprotocol/core/src/internal.ts"
             ],
+            "@modelcontextprotocol/core/ext/skills": [
+                "./node_modules/@modelcontextprotocol/core-internal/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
+            ],
+            "@modelcontextprotocol/core-internal/ext/skills": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
+            "@modelcontextprotocol/client/ext/skills": ["./node_modules/@modelcontextprotocol/client/src/ext/skills/index.ts"],
+            "@modelcontextprotocol/server/ext/skills": ["./node_modules/@modelcontextprotocol/server/src/ext/skills/index.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
             "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
