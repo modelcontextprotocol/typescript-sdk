@@ -82,13 +82,13 @@ try {
 
 //#region readDirectory
 if (skills.directoryRead) {
-    const children = await skills.readDirectory('skill://acme/billing/refunds');
+    const { resources: children } = await skills.readDirectory('skill://acme/billing/refunds');
     console.log(children.map(child => `${child.name} ${child.mimeType}`).join('\n'));
 }
 //#endregion readDirectory
 
 //#region get
-const refunds = await skills.get('skill://acme/billing/refunds/SKILL.md');
+const { skill: refunds } = await skills.get('skill://acme/billing/refunds/SKILL.md');
 console.log(refunds.frontmatter.name);
 //#endregion get
 
@@ -122,7 +122,7 @@ claim(
     'an unlisted path must throw SkillVerificationError(unlisted) with the quoted URI'
 );
 claim(skills.directoryRead, 'the server must declare directoryRead');
-const refundsFolder = await skills.readDirectory('skill://acme/billing/refunds');
+const { resources: refundsFolder } = await skills.readDirectory('skill://acme/billing/refunds');
 claim(
     JSON.stringify(refundsFolder.map(child => `${child.name} ${child.mimeType}`)) ===
         JSON.stringify(['SKILL.md text/markdown', 'templates inode/directory']),

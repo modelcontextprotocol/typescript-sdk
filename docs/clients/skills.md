@@ -107,7 +107,7 @@ List a folder's direct children when the server declares `directoryRead`.
 
 ```ts source="../../examples/guides/clients/skills.examples.ts#readDirectory"
 if (skills.directoryRead) {
-    const children = await skills.readDirectory('skill://acme/billing/refunds');
+    const { resources: children } = await skills.readDirectory('skill://acme/billing/refunds');
     console.log(children.map(child => `${child.name} ${child.mimeType}`).join('\n'));
 }
 ```
@@ -124,7 +124,7 @@ templates inode/directory
 Fetch one entry, listed or not.
 
 ```ts source="../../examples/guides/clients/skills.examples.ts#get"
-const refunds = await skills.get('skill://acme/billing/refunds/SKILL.md');
+const { skill: refunds } = await skills.get('skill://acme/billing/refunds/SKILL.md');
 console.log(refunds.frontmatter.name);
 ```
 
@@ -133,6 +133,8 @@ It prints the skill's name from the entry's frontmatter:
 ```text
 refunds
 ```
+
+On 2026-07-28, `list()`, `get()` and `readDirectory()` also return the server's caching hints, `ttlMs` and `cacheScope`, and throw an `SdkError` when a response leaves either out.
 
 ::: info Dynamic skills
 An entry whose `resources` is `"dynamic"` has no file list. `read` then skips the size and digest checks and returns `verified: false`, but still compares the `SKILL.md` frontmatter.

@@ -1,12 +1,18 @@
-import type { DirectoryResource, Skill, SkillCacheScope, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
+import type {
+    GetSkillResult,
+    ReadResourceDirectoryResult,
+    Skill,
+    SkillCacheScope,
+    SkillResourceEntry
+} from '@modelcontextprotocol/core/ext/skills';
 import {
-    ReadResourceDirectoryResultSchema,
     RESOURCES_DIRECTORY_READ_METHOD,
     SKILLS_EXTENSION_ID,
     SKILLS_GET_METHOD,
     SKILLS_LIST_METHOD,
     skillsCapabilityOf
 } from '@modelcontextprotocol/core/ext/skills';
+import { isModernProtocolVersion } from '@modelcontextprotocol/core-internal';
 import {
     canonicalUri,
     decodeBase64,
@@ -29,7 +35,7 @@ import { clientInternals } from '../../client/client';
 import type { InvalidSkillEntry } from './entries';
 import { checkEntry, partitionEntries } from './entries';
 import { SkillVerificationError } from './errors';
-import { GetSkillEnvelopeSchema, SkillsPageSchema } from './pageSchemas';
+import { LEGACY_ENVELOPES, MODERN_ENVELOPES } from './pageSchemas';
 import { frontmatterDifferences } from './verify';
 
 export interface SkillsClientOptions {
@@ -121,6 +127,14 @@ function resolveTarget(skill: Skill, ref: string | undefined): ReadTarget {
     return { uri: listed.uri, root, key, listed, manifest };
 }
 
+/** A result's `ttlMs` and `cacheScope`, where it has them (always, on 2026-07-28). */
+function cacheFieldsOf(result: { ttlMs?: number; cacheScope?: SkillCacheScope }): { ttlMs?: number; cacheScope?: SkillCacheScope } {
+    return {
+        ...(result.ttlMs !== undefined && { ttlMs: result.ttlMs }),
+        ...(result.cacheScope !== undefined && { cacheScope: result.cacheScope })
+    };
+}
+
 function unsupported(method: string): SdkError {
     return new SdkError(
         SdkErrorCode.CapabilityNotSupported,
@@ -165,7 +179,8 @@ export class SkillsClient {
      * Lists the server's skills, walking every page unless given a cursor
      * (bounded by the client's `listMaxPages`). Throws an `SdkError` naming
      * every invalid entry, and every copy of a repeated URI; with
-     * `skipInvalid`, returns them in `invalid` instead. On a server without
+     * `skipInvalid`, returns them in `invalid` instead. A 2026-07-28 page
+     * without `ttlMs` and `cacheScope` throws either way. On a server without
      * the extension: an empty listing.
      */
     async list(params: { cursor?: string } = {}, options?: RequestOptions): Promise<SkillListing> {
@@ -175,7 +190,7 @@ export class SkillsClient {
             console.debug(`SkillsClient.list() called but the server does not declare ${SKILLS_EXTENSION_ID} - returning an empty list`);
             return { skills: [], invalid: [] };
         }
-        const page = await this.#pages(SKILLS_LIST_METHOD, SkillsPageSchema, {}, params.cursor, options, result => result.skills);
+        const page = await this.#pages(SKILLS_LIST_METHOD, this.#envelopes().list, {}, params.cursor, options, result => result.skills);
         const { skills, invalid } = partitionEntries(page.skills);
         if (invalid.length > 0 && !this.#options.skipInvalid) {
             const detail = invalid.map(entry => `#${entry.index} ${entry.uri ?? ''}: ${entry.reason}`).join('\n');
@@ -185,15 +200,17 @@ export class SkillsClient {
             skills,
             invalid,
             ...(params.cursor !== undefined && page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
-            ...(page.ttlMs !== undefined && { ttlMs: page.ttlMs }),
-            ...(page.cacheScope !== undefined && { cacheScope: page.cacheScope })
+            ...cacheFieldsOf(page)
         };
     }
 
-    /** One skill by its `SKILL.md` URI, listed or not. Throws if the server returns an invalid entry or another skill. */
-    async get(uri: string, options?: RequestOptions): Promise<Skill> {
+    /**
+     * One skill by its `SKILL.md` URI, listed or not, with the result's caching
+     * fields. Throws if the server returns an invalid entry or another skill.
+     */
+    async get(uri: string, options?: RequestOptions): Promise<GetSkillResult> {
         if (!this.supported) throw unsupported(SKILLS_GET_METHOD);
-        const result = await this.#client.request({ method: SKILLS_GET_METHOD, params: { uri } }, GetSkillEnvelopeSchema, options);
+        const result = await this.#client.request({ method: SKILLS_GET_METHOD, params: { uri } }, this.#envelopes().get, options);
         const { skill, problems } = checkEntry(result.skill);
         if (skill === undefined || problems.length > 0) {
             throw new SdkError(SdkErrorCode.InvalidResult, `skills/get returned an invalid entry for ${uri}: ${problems.join('; ')}`);
@@ -201,7 +218,7 @@ export class SkillsClient {
         if (canonicalUri(skill.uri) !== canonicalUri(uri)) {
             throw new SdkError(SdkErrorCode.InvalidResult, `skills/get for ${uri} returned ${skill.uri}`);
         }
-        return skill;
+        return { skill, ...cacheFieldsOf(result) };
     }
 
     /**
@@ -288,8 +305,8 @@ export class SkillsClient {
         }
     }
 
-    /** The direct children of a skill directory, every page walked. Needs `directoryRead`. */
-    async readDirectory(uri: string, options?: RequestOptions): Promise<DirectoryResource[]> {
+    /** The direct children of a skill directory, every page walked, with the first page's caching fields. Needs `directoryRead`. */
+    async readDirectory(uri: string, options?: RequestOptions): Promise<ReadResourceDirectoryResult> {
         if (!this.directoryRead) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,
@@ -298,13 +315,18 @@ export class SkillsClient {
         }
         const page = await this.#pages(
             RESOURCES_DIRECTORY_READ_METHOD,
-            ReadResourceDirectoryResultSchema,
+            this.#envelopes().directory,
             { uri },
             undefined,
             options,
             result => result.resources
         );
-        return page.resources;
+        return { resources: page.resources, ...cacheFieldsOf(page) };
+    }
+
+    /** The result envelopes for the negotiated version. */
+    #envelopes(): typeof LEGACY_ENVELOPES | typeof MODERN_ENVELOPES {
+        return isModernProtocolVersion(this.#client.getNegotiatedProtocolVersion() ?? '') ? MODERN_ENVELOPES : LEGACY_ENVELOPES;
     }
 
     /** One page (with `cursor`), or every page in one, walked as Client walks its own list verbs. */

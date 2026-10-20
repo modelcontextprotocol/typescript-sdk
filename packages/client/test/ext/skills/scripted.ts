@@ -6,6 +6,7 @@ import type { ClientOptions } from '../../../src/client/client';
 import { Client } from '../../../src/client/client';
 
 export const MODERN = '2026-07-28';
+export const LEGACY = '2025-11-25';
 
 export type Handler = (params: Record<string, unknown>) => Record<string, unknown> | Promise<Record<string, unknown>>;
 
@@ -25,25 +26,30 @@ export class RpcError extends Error {
 }
 
 /**
- * A client connected on 2026-07-28 to a scripted server: `server/discover`
- * declares `capabilities`, every other request goes to `handlers` and is
- * recorded in `calls`. Results carry `resultType: "complete"` as a conforming
- * server's do (the typescript-sdk#2789 regression).
+ * A client connected on `revision` (default 2026-07-28) to a scripted server:
+ * `server/discover` or `initialize` declares `capabilities`, every other
+ * request goes to `handlers` and is recorded in `calls`. On 2026-07-28 results
+ * carry `resultType: "complete"` as a conforming server's do (the
+ * typescript-sdk#2789 regression).
  */
 export async function scriptedClient(
     capabilities: ServerCapabilities,
     handlers: Record<string, Handler>,
-    options: ClientOptions = {}
+    options: ClientOptions = {},
+    revision: typeof MODERN | typeof LEGACY = MODERN
 ): Promise<{ client: Client; calls: Call[] }> {
     const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
     const calls: Call[] = [];
     const answer = async (request: JSONRPCRequest): Promise<Record<string, unknown>> => {
-        if (request.method === 'server/discover') {
+        if (revision === MODERN && request.method === 'server/discover') {
             return {
                 supportedVersions: [MODERN],
                 capabilities,
                 _meta: { 'io.modelcontextprotocol/serverInfo': { name: 'scripted', version: '1.0.0' } }
             };
+        }
+        if (revision === LEGACY && request.method === 'initialize') {
+            return { protocolVersion: LEGACY, capabilities, serverInfo: { name: 'scripted', version: '1.0.0' } };
         }
         const params = (request.params ?? {}) as Record<string, unknown>;
         calls.push({ method: request.method, params });
@@ -55,7 +61,12 @@ export async function scriptedClient(
         const request = message as JSONRPCRequest;
         if (request.id === undefined) return;
         void answer(request).then(
-            result => serverTx.send({ jsonrpc: '2.0', id: request.id, result: { resultType: 'complete', ...result } }),
+            result =>
+                serverTx.send({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: revision === MODERN ? { resultType: 'complete', ...result } : result
+                }),
             (error: unknown) =>
                 serverTx.send({
                     jsonrpc: '2.0',
@@ -70,7 +81,7 @@ export async function scriptedClient(
     await serverTx.start();
     const client = new Client(
         { name: 'skills-test-client', version: '1.0.0' },
-        { versionNegotiation: { mode: { pin: MODERN } }, ...options }
+        revision === MODERN ? { versionNegotiation: { mode: { pin: MODERN } }, ...options } : options
     );
     await client.connect(clientTx);
     return { client, calls };

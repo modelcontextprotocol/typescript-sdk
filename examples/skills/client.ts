@@ -42,7 +42,7 @@ check.deepEqual(
 );
 
 // 2. Load a skill: SKILL.md is checked for size, digest and frontmatter before you use it.
-const git = await skills.get('skill://examples/git-workflow/SKILL.md');
+const { skill: git } = await skills.get('skill://examples/git-workflow/SKILL.md');
 const manifest = await skills.read(git);
 check.equal(manifest.verified, true);
 check.equal(manifest.frontmatter?.['name'], 'git-workflow');
@@ -54,7 +54,7 @@ check.match(review.text ?? '', /# Review checklist/);
 
 // 4. Browse a skill folder (the server declares directoryRead).
 check.ok(skills.directoryRead);
-const children = await skills.readDirectory('skill://examples/acme/billing/refunds');
+const { resources: children } = await skills.readDirectory('skill://examples/acme/billing/refunds');
 check.deepEqual(
     children.map(child => child.name),
     ['SKILL.md', 'escalation', 'templates']

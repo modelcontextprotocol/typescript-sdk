@@ -99,28 +99,34 @@ describe.each([
     });
 
     it('keeps a Windows-authored SKILL.md byte for byte', async () => {
-        const refunds = await skills.get(REFUNDS);
+        const { skill: refunds } = await skills.get(REFUNDS);
         const manifest = await skills.read(refunds);
         expect(manifest.text?.startsWith('﻿---\r\n')).toBe(true);
         expect(manifest.frontmatter).toEqual({ name: 'refunds', description: 'Refund workflow.' });
     });
 
     it('gets a skill and reads files by relative path, including names with a space', async () => {
-        const git = await skills.get(GIT);
+        const { skill: git } = await skills.get(GIT);
         expect(await skills.read(git, 'references/REVIEW.md')).toMatchObject({ text: '# Review\n\n- tests pass\n', verified: true });
-        const refunds = await skills.get(REFUNDS);
+        const { skill: refunds } = await skills.get(REFUNDS);
         expect(await skills.read(refunds, 'templates/Purchase Order.md')).toMatchObject({ uri: PURCHASE_ORDER, verified: true });
     });
 
     it('reads a skill directory', async () => {
-        const children = await skills.readDirectory('skill://acme/billing/refunds');
+        const { resources: children } = await skills.readDirectory('skill://acme/billing/refunds');
         expect(children.map(child => child.name)).toEqual(['SKILL.md', 'assets', 'escalation', 'templates']);
     });
 
-    it('sends caching fields on 2026-07-28 only', async () => {
-        const listing = await skills.list();
-        if (revision === MODERN) expect(listing).toMatchObject({ ttlMs: 0, cacheScope: 'private' });
-        else expect(listing).not.toHaveProperty('ttlMs');
+    it('returns caching fields from list, get and readDirectory on 2026-07-28 only', async () => {
+        const results = [await skills.list(), await skills.get(GIT), await skills.readDirectory('skill://acme/billing/refunds')];
+        for (const result of results) {
+            if (revision === MODERN) {
+                expect(result).toMatchObject({ ttlMs: 0, cacheScope: 'private' });
+            } else {
+                expect(result).not.toHaveProperty('ttlMs');
+                expect(result).not.toHaveProperty('cacheScope');
+            }
+        }
     });
 
     it('lists only SKILL.md files in resources/list', async () => {
@@ -147,11 +153,11 @@ describe('one catalog behind per-request HTTP servers', () => {
         const own = await loadSkills(editable, { onWarning: () => {} });
         const client = await overHttp(own, MODERN);
         const skills = new SkillsClient(client);
-        const before = await skills.get(GIT);
+        const { skill: before } = await skills.get(GIT);
         await writeFile(path.join(editable, 'git-workflow', 'references', 'REVIEW.md'), '# Review v2\n');
         await expect(skills.read(before, 'references/REVIEW.md')).rejects.toMatchObject({ code: -32_603 });
         expect(await own.reload()).toEqual({ added: [], removed: [], changed: [GIT], listChanged: false });
-        const after = await skills.get(GIT);
+        const { skill: after } = await skills.get(GIT);
         expect(await skills.read(after, 'references/REVIEW.md')).toMatchObject({ text: '# Review v2\n', verified: true });
         await client.close();
         await rm(editable, { recursive: true, force: true });
