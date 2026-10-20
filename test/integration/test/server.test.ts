@@ -1540,6 +1540,48 @@ describe('createMessage validation', () => {
         ).rejects.toThrow('Client does not support sampling tools capability.');
     });
 
+    test('should throw when tool_use is in a user message', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        client.setRequestHandler('sampling/createMessage', async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'user', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } }],
+                maxTokens: 100
+            })
+        ).rejects.toThrow('tool_use blocks must be in an assistant message');
+    });
+
+    test('should throw when tool_result is in an assistant message', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+
+        client.setRequestHandler('sampling/createMessage', async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await expect(
+            server.createMessage({
+                messages: [{ role: 'assistant', content: { type: 'tool_result', toolUseId: 'call_1', content: [] } }],
+                maxTokens: 100
+            })
+        ).rejects.toThrow('tool_result blocks must be in a user message');
+    });
+
     test('should throw when tool_result is mixed with other content', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
