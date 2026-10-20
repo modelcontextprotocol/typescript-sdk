@@ -1,20 +1,20 @@
 import { createServer } from 'node:http';
 
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import type { ServerEvent } from '@modelcontextprotocol/server';
 import {
+    classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    PROTOCOL_VERSION_META_KEY,
-    SUBSCRIPTION_ID_META_KEY,
-    classifyInboundRequest,
     createMcpHandler,
     InMemoryServerEventBus,
+    McpServer,
     PerRequestHTTPServerTransport,
+    PROTOCOL_VERSION_META_KEY,
     Server,
-    McpServer
+    SUBSCRIPTION_ID_META_KEY
 } from '@modelcontextprotocol/server';
-import type { ServerEvent } from '@modelcontextprotocol/server';
-import { toNodeHandler } from '@modelcontextprotocol/node';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it } from 'vitest';
 
@@ -95,7 +95,8 @@ describe('public gateway serving APIs', () => {
                         .slice(6)
                 );
             };
-            expect((await next()).method).toBe('notifications/subscriptions/acknowledged');
+            const acknowledgement = await next();
+            expect(acknowledgement.method).toBe('notifications/subscriptions/acknowledged');
             const params = {
                 _meta: { fixture: 'kept', nested: { value: 7 }, [SUBSCRIPTION_ID_META_KEY]: 'upstream' },
                 extension: { changed: ['one', 'two'] },
@@ -170,7 +171,7 @@ describe('public gateway serving APIs', () => {
             const server = new Server({ name: 'legacy', version: '1' }, { supportedProtocolVersions: ['2025-11-25'] });
             const transport = new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision } });
             try {
-                await expect(server.connect(transport, { protocolVersion })).rejects.toMatchObject({ code: -32022 });
+                await expect(server.connect(transport, { protocolVersion })).rejects.toMatchObject({ code: -32_022 });
                 expect(server.transport).toBeUndefined();
                 expect(server.getNegotiatedProtocolVersion()).toBeUndefined();
             } finally {
