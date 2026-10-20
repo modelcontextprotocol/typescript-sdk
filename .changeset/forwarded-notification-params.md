@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/server': patch
+'@modelcontextprotocol/server': minor
 ---
 
-Preserve forwarded notification params, including custom metadata, on subscription bus events. Allow `Server.connect` and `McpServer.connect` to bind a supported modern protocol revision for custom per-request transports.
+`ServerEvent` takes optional `params`, which the `subscriptions/listen` router delivers with its own subscription ID, so a gateway can forward change notifications with their `_meta` and extension params. Connecting a `Server` or `McpServer` to a `PerRequestHTTPServerTransport` classified at a modern revision listed in `supportedProtocolVersions` now binds that revision, instead of answering `-32022`.

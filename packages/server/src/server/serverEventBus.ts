@@ -9,8 +9,8 @@ import type { JSONRPCNotification, ServerCapabilities, SubscriptionFilter } from
  * - `resources_list_changed` → `notifications/resources/list_changed`
  * - `resource_updated` → `notifications/resources/updated` (carries the URI)
  *
- * The bus carries the EVENT, not the wire shape — the entry's listen router
- * owns subscription-id stamping and per-stream filtering.
+ * The bus carries the event and any forwarded notification params — the
+ * entry's listen router owns subscription-id stamping and per-stream filtering.
  */
 export type ServerEvent = (
     | { kind: 'tools_list_changed' }

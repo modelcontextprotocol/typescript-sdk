@@ -155,7 +155,7 @@ describe('public gateway serving APIs', () => {
         });
         const transport = new PerRequestHTTPServerTransport({ classification: route.classification });
         try {
-            await server.connect(transport, { protocolVersion: revision });
+            await server.connect(transport);
             const response = await transport.handleMessage(route.message);
             expect(response.status).toBe(200);
             expect(called).toBe(true);
@@ -165,22 +165,26 @@ describe('public gateway serving APIs', () => {
         }
     });
 
-    it.each(['2025-11-25', '2030-01-01', revision])(
-        'rejects an unsupported explicit revision %s before connecting',
-        async protocolVersion => {
-            const server = new Server({ name: 'legacy', version: '1' }, { supportedProtocolVersions: ['2025-11-25'] });
-            const transport = new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision } });
-            try {
-                await expect(server.connect(transport, { protocolVersion })).rejects.toMatchObject({ code: -32_022 });
-                expect(server.transport).toBeUndefined();
-                expect(server.getNegotiatedProtocolVersion()).toBeUndefined();
-            } finally {
-                await server.close();
-            }
+    it.each(['2030-01-01', revision])('answers a %s classification the server does not list with -32022', async classified => {
+        const server = new Server(
+            { name: 'legacy', version: '1' },
+            { supportedProtocolVersions: ['2025-11-25'], capabilities: { tools: {} } }
+        );
+        server.setRequestHandler('tools/list', () => ({ tools: [] }));
+        server.onerror = () => {};
+        const transport = new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision: classified } });
+        try {
+            await server.connect(transport);
+            expect(server.getNegotiatedProtocolVersion()).toBeUndefined();
+            const response = await transport.handleMessage({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope } });
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({ id: 1, error: { code: -32_022, data: { requested: classified } } });
+        } finally {
+            await server.close();
         }
-    );
+    });
 
-    it('allows a legacy connection after closing an explicitly modern connection', async () => {
+    it('allows a legacy connection after closing a transport-bound modern connection', async () => {
         const server = new Server(
             { name: 'gateway', version: '1' },
             {
@@ -188,9 +192,16 @@ describe('public gateway serving APIs', () => {
             }
         );
         const modern = new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision } });
-        await server.connect(modern, { protocolVersion: revision });
+        let versionInOnclose: string | undefined;
+        server.onclose = () => {
+            versionInOnclose = server.getNegotiatedProtocolVersion();
+        };
+        await server.connect(modern);
         expect(server.getNegotiatedProtocolVersion()).toBe(revision);
         await server.close();
+        expect(versionInOnclose).toBe(revision);
+        expect(server.getNegotiatedProtocolVersion()).toBeUndefined();
+        server.onclose = undefined;
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         const client = new Client({ name: 'legacy-client', version: '1' });
         try {

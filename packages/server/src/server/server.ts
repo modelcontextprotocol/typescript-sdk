@@ -60,12 +60,12 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
-    UnsupportedProtocolVersionError,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+import { perRequestClassificationOf } from './perRequestTransport';
 
 /**
  * The request methods whose 2026-07-28 result vocabulary includes
@@ -73,12 +73,6 @@ import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimO
  * input-required result from any other handler is a server bug.
  */
 const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
-
-/** Options for connecting a server to a transport that serves an already-selected modern revision. */
-export type ServerConnectOptions = {
-    /** A supported modern revision selected by the serving entry; omit for a legacy initialize handshake. */
-    protocolVersion: string;
-};
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -297,7 +291,7 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
-    private _explicitProtocolVersion = false;
+    private _boundFromTransport = false;
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
@@ -358,31 +352,37 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    /** Attaches to the transport, optionally binding a selected modern revision before it starts. */
-    override async connect(transport: Transport, options?: ServerConnectOptions): Promise<void> {
+    /** Attaches to the given transport; rejects while this instance is connected to another one. */
+    override async connect(transport: Transport): Promise<void> {
         if (this.transport !== undefined) {
             throw new SdkError(
                 SdkErrorCode.AlreadyConnected,
                 'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
             );
         }
-        if (options !== undefined) {
-            const supported = modernProtocolVersions(this._supportedProtocolVersions);
-            if (!supported.includes(options.protocolVersion)) {
-                throw new UnsupportedProtocolVersionError({ supported, requested: options.protocolVersion });
-            }
-            this._negotiatedProtocolVersion = options.protocolVersion;
-            this._explicitProtocolVersion = true;
+        // A per-request transport classified at a modern revision this instance supports binds that revision.
+        const revision = perRequestClassificationOf(transport)?.revision;
+        if (
+            revision !== undefined &&
+            !this._servedModernEra() &&
+            modernProtocolVersions(this._supportedProtocolVersions).includes(revision)
+        ) {
+            this._negotiatedProtocolVersion = revision;
+            this._boundFromTransport = true;
         }
         await super.connect(transport);
     }
 
     protected override _onclose(): void {
-        if (this._explicitProtocolVersion) {
-            this._explicitProtocolVersion = false;
-            this._negotiatedProtocolVersion = undefined;
+        try {
+            super._onclose();
+        } finally {
+            // Cleared after the close callbacks so they still see the served revision, unless one of them reconnected.
+            if (this._boundFromTransport && this.transport === undefined) {
+                this._boundFromTransport = false;
+                this._negotiatedProtocolVersion = undefined;
+            }
         }
-        super._onclose();
     }
 
     /**
@@ -988,8 +988,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * declared capabilities, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -1001,8 +1001,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * name and version, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
