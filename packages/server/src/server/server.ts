@@ -60,6 +60,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
@@ -360,11 +361,12 @@ export class Server extends Protocol<ServerContext> {
                 'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
             );
         }
-        // A per-request transport classified at a modern revision this instance supports binds that revision.
+        // A per-request transport classified at a modern revision this instance lists and the SDK implements binds that revision.
         const revision = perRequestClassificationOf(transport)?.revision;
         if (
             revision !== undefined &&
             !this._servedModernEra() &&
+            SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(revision) &&
             modernProtocolVersions(this._supportedProtocolVersions).includes(revision)
         ) {
             this._negotiatedProtocolVersion = revision;

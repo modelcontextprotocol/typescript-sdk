@@ -165,11 +165,12 @@ describe('public gateway serving APIs', () => {
         }
     });
 
-    it.each(['2030-01-01', revision])('answers a %s classification the server does not list with -32022', async classified => {
-        const server = new Server(
-            { name: 'legacy', version: '1' },
-            { supportedProtocolVersions: ['2025-11-25'], capabilities: { tools: {} } }
-        );
+    it.each([
+        ['2030-01-01', ['2025-11-25']],
+        [revision, ['2025-11-25']],
+        ['2030-01-01', [revision, '2030-01-01']]
+    ])('answers a %s classification with -32022 when the server lists %j', async (classified, supportedProtocolVersions) => {
+        const server = new Server({ name: 'gateway', version: '1' }, { supportedProtocolVersions, capabilities: { tools: {} } });
         server.setRequestHandler('tools/list', () => ({ tools: [] }));
         server.onerror = () => {};
         const transport = new PerRequestHTTPServerTransport({ classification: { era: 'modern', revision: classified } });
