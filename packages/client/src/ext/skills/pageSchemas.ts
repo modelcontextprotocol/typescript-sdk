@@ -2,8 +2,8 @@ import { ReadResourceDirectoryResultSchema } from '@modelcontextprotocol/core/ex
 import * as z from 'zod/v4';
 
 const cacheFields = {
-    ttlMs: z.number().int().nonnegative().optional(),
-    cacheScope: z.enum(['public', 'private']).optional()
+    ttlMs: z.number().int().nonnegative(),
+    cacheScope: z.enum(['public', 'private'])
 };
 
 /**
@@ -22,14 +22,14 @@ const GetSkillEnvelopeSchema = z.looseObject({
     ...cacheFields
 });
 
-/** The 2025-11-25 result envelopes: the caching fields are optional. */
-export const LEGACY_ENVELOPES = { list: SkillsPageSchema, get: GetSkillEnvelopeSchema, directory: ReadResourceDirectoryResultSchema };
-
-const cacheable = { ttlMs: true, cacheScope: true } as const;
-
 /** The 2026-07-28 result envelopes: each result extends `CacheableResult`, so both caching fields are required. */
-export const MODERN_ENVELOPES = {
-    list: SkillsPageSchema.required(cacheable),
-    get: GetSkillEnvelopeSchema.required(cacheable),
-    directory: ReadResourceDirectoryResultSchema.required(cacheable)
+export const MODERN_ENVELOPES = { list: SkillsPageSchema, get: GetSkillEnvelopeSchema, directory: ReadResourceDirectoryResultSchema };
+
+const uncached = { ttlMs: true, cacheScope: true } as const;
+
+/** The 2025-11-25 result envelopes: the backport has no caching fields, so they are optional. */
+export const LEGACY_ENVELOPES = {
+    list: SkillsPageSchema.partial(uncached),
+    get: GetSkillEnvelopeSchema.partial(uncached),
+    directory: ReadResourceDirectoryResultSchema.partial(uncached)
 };

@@ -41,9 +41,10 @@ export const SkillSchema = z.looseObject({
 
 export const SkillCacheScopeSchema = z.enum(['public', 'private']);
 
+// Required, as the stable spec (2026-07-28) defines them; only SkillsClient reads the 2025-11-25 backport, which has none.
 const cacheFields = {
-    ttlMs: z.number().int().nonnegative().optional(),
-    cacheScope: SkillCacheScopeSchema.optional()
+    ttlMs: z.number().int().nonnegative(),
+    cacheScope: SkillCacheScopeSchema
 };
 
 export const ListSkillsResultSchema = z.looseObject({

@@ -88,6 +88,16 @@ describe('result schemas', () => {
         expect((parsed.resources[0] as Record<string, unknown>)['extra']).toBe(1);
         expect(parsed.ttlMs).toBe(0);
     });
+
+    it.each([
+        ['ListSkillsResult', ListSkillsResultSchema, { skills: [skill()] }],
+        ['GetSkillResult', GetSkillResultSchema, { skill: skill() }],
+        ['ReadResourceDirectoryResult', ReadResourceDirectoryResultSchema, { resources: [] }]
+    ] as const)('%s requires ttlMs and cacheScope, as the stable spec does', (_, schema, body) => {
+        expect(schema.safeParse({ ...body, cacheScope: 'private' }).success).toBe(false);
+        expect(schema.safeParse({ ...body, ttlMs: 0 }).success).toBe(false);
+        expect(schema.safeParse({ ...body, ttlMs: 0, cacheScope: 'private' }).success).toBe(true);
+    });
 });
 
 describe('request params', () => {

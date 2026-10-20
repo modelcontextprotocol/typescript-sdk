@@ -1,10 +1,4 @@
-import type {
-    GetSkillResult,
-    ReadResourceDirectoryResult,
-    Skill,
-    SkillCacheScope,
-    SkillResourceEntry
-} from '@modelcontextprotocol/core/ext/skills';
+import type { DirectoryResource, Skill, SkillCacheScope, SkillResourceEntry } from '@modelcontextprotocol/core/ext/skills';
 import {
     RESOURCES_DIRECTORY_READ_METHOD,
     SKILLS_EXTENSION_ID,
@@ -206,9 +200,10 @@ export class SkillsClient {
 
     /**
      * One skill by its `SKILL.md` URI, listed or not, with the result's caching
-     * fields. Throws if the server returns an invalid entry or another skill.
+     * fields on 2026-07-28. Throws if the server returns an invalid entry or
+     * another skill.
      */
-    async get(uri: string, options?: RequestOptions): Promise<GetSkillResult> {
+    async get(uri: string, options?: RequestOptions): Promise<{ skill: Skill; ttlMs?: number; cacheScope?: SkillCacheScope }> {
         if (!this.supported) throw unsupported(SKILLS_GET_METHOD);
         const result = await this.#client.request({ method: SKILLS_GET_METHOD, params: { uri } }, this.#envelopes().get, options);
         const { skill, problems } = checkEntry(result.skill);
@@ -305,8 +300,14 @@ export class SkillsClient {
         }
     }
 
-    /** The direct children of a skill directory, every page walked, with the first page's caching fields. Needs `directoryRead`. */
-    async readDirectory(uri: string, options?: RequestOptions): Promise<ReadResourceDirectoryResult> {
+    /**
+     * The direct children of a skill directory, every page walked, with the
+     * first page's caching fields on 2026-07-28. Needs `directoryRead`.
+     */
+    async readDirectory(
+        uri: string,
+        options?: RequestOptions
+    ): Promise<{ resources: DirectoryResource[]; ttlMs?: number; cacheScope?: SkillCacheScope }> {
         if (!this.directoryRead) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,
