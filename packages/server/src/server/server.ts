@@ -60,6 +60,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    UnsupportedProtocolVersionError,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
@@ -72,6 +73,12 @@ import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimO
  * input-required result from any other handler is a server bug.
  */
 const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
+
+/** Options for connecting a server to a transport that serves an already-selected modern revision. */
+export type ServerConnectOptions = {
+    /** A supported modern revision selected by the serving entry; omit for a legacy initialize handshake. */
+    protocolVersion: string;
+};
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -290,6 +297,7 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
+    private _explicitProtocolVersion = false;
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
@@ -340,9 +348,7 @@ export class Server extends Protocol<ServerContext> {
 
         // server/discover is installed only when the supported-versions list
         // carries a modern revision: a legacy-only server keeps answering -32601.
-        // A hand-constructed instance is never era-bound, so the handler stays
-        // unreachable behind the era gate until a serving entry (createMcpHandler,
-        // serveStdio) marks the instance as serving the 2026-07-28 era.
+        // The handler becomes reachable when a serving entry or connect() binds a modern revision.
         if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
             this.setRequestHandler('server/discover', () => this._ondiscover());
         }
@@ -352,15 +358,31 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    /** Attaches to the given transport; rejects while this instance is connected to another one. */
-    override async connect(transport: Transport): Promise<void> {
+    /** Attaches to the transport, optionally binding a selected modern revision before it starts. */
+    override async connect(transport: Transport, options?: ServerConnectOptions): Promise<void> {
         if (this.transport !== undefined) {
             throw new SdkError(
                 SdkErrorCode.AlreadyConnected,
                 'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
             );
         }
+        if (options !== undefined) {
+            const supported = modernProtocolVersions(this._supportedProtocolVersions);
+            if (!supported.includes(options.protocolVersion)) {
+                throw new UnsupportedProtocolVersionError({ supported, requested: options.protocolVersion });
+            }
+            this._negotiatedProtocolVersion = options.protocolVersion;
+            this._explicitProtocolVersion = true;
+        }
         await super.connect(transport);
+    }
+
+    protected override _onclose(): void {
+        if (this._explicitProtocolVersion) {
+            this._explicitProtocolVersion = false;
+            this._negotiatedProtocolVersion = undefined;
+        }
+        super._onclose();
     }
 
     /**

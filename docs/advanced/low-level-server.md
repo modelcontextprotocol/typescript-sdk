@@ -120,6 +120,8 @@ createMcpHandler(buildServer);
 
 Every serving recipe — [stdio](../serving/stdio.md), [HTTP](../serving/http.md) — applies to this server unchanged.
 
+For a custom HTTP entry built from `classifyInboundRequest` and `PerRequestHTTPServerTransport`, bind the selected modern revision with `await server.connect(transport, { protocolVersion: route.classification.revision })` before delivering the classified message. The revision must be a modern entry in the server's `supportedProtocolVersions`; an unsupported revision throws before the transport starts. Omitting the option keeps the legacy initialization flow. Use a fresh instance for each per-request exchange, as the built-in HTTP entry does.
+
 ## Reach the low level from `McpServer`
 
 Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, never per program. Declare the extra capability in the constructor, keep `registerTool` for the tools, and hand-register the one method `McpServer` has no API for.

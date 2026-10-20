@@ -49,7 +49,7 @@ import type * as z from 'zod/v4';
 import { getCompleter, isCompletable } from './completable';
 import type { ScopeChallengeHandler } from './scopeChallenge';
 import { supportsScopeChallengeResolver } from './scopeChallenge';
-import type { ServerOptions } from './server';
+import type { ServerConnectOptions, ServerOptions } from './server';
 import { Server } from './server';
 
 // Counts array elements and object members in `value`, stopping once the running total passes `max`.
@@ -181,11 +181,11 @@ export class McpServer {
      * await server.connect(transport);
      * ```
      */
-    async connect(transport: Transport): Promise<void> {
+    async connect(transport: Transport, options?: ServerConnectOptions): Promise<void> {
         if (supportsScopeChallengeResolver(transport)) {
             transport.setScopeChallengeResolver(context => this.resolveScopeChallenge(context));
         }
-        return await this.server.connect(transport);
+        return await this.server.connect(transport, options);
     }
 
     /**
