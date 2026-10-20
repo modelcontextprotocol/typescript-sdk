@@ -1,0 +1,69 @@
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_4822886279d293::t_6337a5e337ae8f 1-134
+packages/server/src/ext/tasks/store.ts
+  s_4822886279d293::t_9deda7d594ec79 1-54
+packages/server/test/ext/tasks/inMemoryStore.test.ts
+  s_4822886279d293::t_0bf17b31d453c9 1-82
+packages/core-internal/src/ext/tasks/schemas.ts
+  s_4822886279d293::t_f4395e9d1f669c 1-177
+packages/server/tsconfig.json
+  s_4822886279d293::t_fb41572d71a662 24-29
+packages/client/src/ext/tasks/index.ts
+  s_4822886279d293::t_9f2e3fc8b2eef3 1-62
+packages/server/test/ext/tasks/tasks.e2e.test.ts
+  s_4822886279d293::t_187f4ab3d5c160 1-196
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_4822886279d293::t_ee99c1eebcc289 42,48-57
+packages/client/tsconfig.json
+  s_4822886279d293::t_ef8d12b79cc770 24-25
+pnpm-lock.yaml
+  s_4822886279d293::t_b0c4267527e71c 1825-1827
+docs/servers/tasks.md
+  s_4822886279d293::t_27d9ff203ff964 1-78
+docs/.vitepress/nav.ts
+  s_4822886279d293::t_6320bd088d5f37 31,58
+packages/core-internal/src/ext/tasks/types.ts
+  s_4822886279d293::t_296829ede78635 1-220
+docs/clients/tasks.md
+  s_4822886279d293::t_66de4a1506ecb7 1-81
+packages/server/src/ext/tasks/index.ts
+  s_4822886279d293::t_ec01f9be04ef96 1-68
+packages/core-internal/package.json
+  s_4822886279d293::t_74cb5dfb8d6858 40-43
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_4822886279d293::t_72cbe1461308d7 1-254
+packages/server/src/ext/tasks/tasksExtension.ts
+  s_4822886279d293::t_17f156d00a4ac7 1-165
+packages/client/test/ext/tasks/tasksClientExtension.test.ts
+  s_4822886279d293::t_0ec28e7556e987 1-148
+packages/server/package.json
+  s_4822886279d293::t_752fa467174c6e 63-72,154-156,181,189-190
+packages/server/test/ext/tasks/withSkills.e2e.test.ts
+  s_4822886279d293::t_ef137dbc55c8e6 1-67
+.changeset/tasks-extension.md
+  s_4822886279d293::t_9247dbaf6f5f9f 1-13
+packages/client/package.json
+  s_4822886279d293::t_bb7cacfe0b78f4 53-62,141-143
+packages/server/tsdown.config.ts
+  s_4822886279d293::t_e6ba5310189b52 8,36
+packages/client/tsdown.config.ts
+  s_4822886279d293::t_ac2f024e7855af 8,35
+packages/core-internal/src/ext/tasks/index.ts
+  s_4822886279d293::t_fd6bce6487ed58 1-7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2b40606e7c5f9d3f2b9c3e8e5325fedeb0946cf0",
+  "prompts": {},
+  "sessions": {
+    "s_4822886279d293": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15687-abd1-7441-bf74-32b94636c01a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
