@@ -1,0 +1,146 @@
+packages/client/src/client/extension.ts
+  s_eb77895b097fc6::t_f1b1da6a87a902 31,33
+  s_eb77895b097fc6::t_5468ee774100c9 14-16,24,30,32,34-37,40-41,149
+packages/server/src/server/extension.ts
+  s_902f0d8aed10dd::t_bf207ed52782de 15-16,20-21,23-24,30-38,40-41,44,46,58,105,158
+  s_a5c48038294d8c::t_94e4ec467474fd 39
+  s_4822886279d293::t_e8dac2ae2a60e9 14,45,119,122-123,127-128,134
+packages/client/test/client/extensions.test.ts
+  s_a5c48038294d8c::t_8f23db98138e3e 69-74,177-188
+  s_a5c48038294d8c::t_217aaa8b587937 1-4,8-14,16-24,30-33,36-68,75-89,91,138-139,141,145,148,150-176,190-199
+  s_4822886279d293::t_4fc235ac8b6aac 142-144,146
+packages/client/src/client/client.ts
+  s_a5c48038294d8c::t_305f20319d5fa8 83,186,191-195,197,699
+packages/server/src/server/mcp.ts
+  s_a5c48038294d8c::t_17f4d85d92234b 340-345
+  s_4822886279d293::t_76d5dc61da5db0 51,171-172,189
+packages/server/test/server/extensions.test.ts
+  s_a5c48038294d8c::t_7e438a640a976e 1,6-10,12-19,22-23,25-28,30-55,75,78,91,103-104,113-114,118-120,124-134,136,164,165-166,179,181,183,184-189,191,195-197,201-203,205-211
+packages/core-internal/src/shared/protocol.ts
+  s_a5c48038294d8c::t_210169d1680ed6 582,1824,1835-1836,1839,1884-1890
+  s_a5c48038294d8c::t_e1ce587ff4f6ec 1811-1823,1828-1829,1897-1898,1901
+  s_eb77895b097fc6::t_9eb506992b64d4 1846,1883,1892-1896,1900,1903,1905
+  s_a5c48038294d8c::t_65a66fb6cca973 584-585,1037,1548-1562,1810,1830,1832,1834,1844-1845,1847-1854,1857-1882,1904
+  s_eb77895b097fc6::t_8cd8b20f94b7ef 1831,1833
+  s_a5c48038294d8c::t_c038e1fc864ff7 208-218,583,1837-1838,1840-1843,1891,1899,1902
+packages/core-internal/test/shared/requestMiddleware.test.ts
+  s_a5c48038294d8c::t_9f1b4c822dfced 2-91,124-151
+  s_a5c48038294d8c::t_77926d28406956 94,103-104,108-109,112-113,118,121
+  s_eb77895b097fc6::t_8b197a958232c7 1,93,153
+  s_a5c48038294d8c::t_643fc6f9b7fd73 92,95-102,105-107,110-111,114-117,119-120,122-123,152
+.changeset/server-extensions.md
+  s_a5c48038294d8c::t_4501c28510377e 1-2,4-6,10-11
+  s_a5c48038294d8c::t_f6af09540b3e1f 3
+  s_a5c48038294d8c::t_cf28e45e030aa9 8
+docs/advanced/extensions.md
+  s_a5c48038294d8c::t_e05fb4e7e6e91d 12,14,24,26-35,37,39,42-44,47-49,51-55,70-71,72-77,78-79,117
+  s_a5c48038294d8c::t_bbae1807042e27 82,84,94-95,102-107,111-116
+  s_eb77895b097fc6::t_bf003eaed3aeb3 1-4,6,81,83,91,122,124-128
+  s_eb77895b097fc6::t_0f6ca742e36bf8 7,9-10
+  s_4822886279d293::t_6cf54de71b9941 85,87,93,118,120
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_4822886279d293::t_6337a5e337ae8f 1-20,22-30,32-64,70-72,74-135
+packages/server/src/ext/tasks/store.ts
+  s_4822886279d293::t_9deda7d594ec79 1-54
+packages/server/test/ext/tasks/inMemoryStore.test.ts
+  s_4822886279d293::t_0bf17b31d453c9 1-82
+packages/core-internal/src/ext/tasks/schemas.ts
+  s_4822886279d293::t_f4395e9d1f669c 1-177
+packages/server/tsconfig.json
+  s_4822886279d293::t_fb41572d71a662 24-29
+packages/client/src/ext/tasks/index.ts
+  s_4822886279d293::t_9f2e3fc8b2eef3 1-62
+packages/server/test/ext/tasks/tasks.e2e.test.ts
+  s_4822886279d293::t_187f4ab3d5c160 1-196
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_4822886279d293::t_ee99c1eebcc289 42,48-57
+packages/client/tsconfig.json
+  s_4822886279d293::t_ef8d12b79cc770 24-25
+pnpm-lock.yaml
+  s_4822886279d293::t_b0c4267527e71c 1850-1852
+  s_4822886279d293::t_42427ee2d290ac 597-621
+docs/servers/tasks.md
+  s_4822886279d293::t_27d9ff203ff964 1-22,24-78
+docs/.vitepress/nav.ts
+  s_4822886279d293::t_6320bd088d5f37 31,58
+packages/core-internal/src/ext/tasks/types.ts
+  s_4822886279d293::t_296829ede78635 1-220
+docs/clients/tasks.md
+  s_4822886279d293::t_66de4a1506ecb7 1-81
+packages/server/src/ext/tasks/index.ts
+  s_4822886279d293::t_ec01f9be04ef96 1-68
+packages/core-internal/package.json
+  s_4822886279d293::t_74cb5dfb8d6858 40-43
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_4822886279d293::t_72cbe1461308d7 1-254
+packages/server/src/ext/tasks/tasksExtension.ts
+  s_4822886279d293::t_17f156d00a4ac7 1-37,39-124,132-135,151-158,161,163-167
+packages/client/test/ext/tasks/tasksClientExtension.test.ts
+  s_4822886279d293::t_0ec28e7556e987 1-83,85,87,89-148
+packages/server/package.json
+  s_4822886279d293::t_752fa467174c6e 63-72,154-156,181,189-190
+packages/server/test/ext/tasks/withSkills.e2e.test.ts
+  s_4822886279d293::t_ef137dbc55c8e6 1,6-67
+.changeset/tasks-extension.md
+  s_4822886279d293::t_9247dbaf6f5f9f 1-13
+packages/client/package.json
+  s_4822886279d293::t_bb7cacfe0b78f4 53-62,141-143
+packages/server/tsdown.config.ts
+  s_4822886279d293::t_e6ba5310189b52 8,36
+packages/client/tsdown.config.ts
+  s_4822886279d293::t_ac2f024e7855af 8,35
+packages/core-internal/src/ext/tasks/index.ts
+  s_4822886279d293::t_fd6bce6487ed58 1-7
+examples/README.md
+  s_4822886279d293::t_b2cf98cce3416f 34-58
+examples/ext-tasks/README.md
+  s_4822886279d293::t_1a1ede23e73491 1-13
+examples/ext-tasks/client.ts
+  s_4822886279d293::t_e6cb278d1ea9d4 1-75
+examples/ext-tasks/package.json
+  s_4822886279d293::t_b75dac56169f3c 1-24
+examples/ext-tasks/server.ts
+  s_4822886279d293::t_d072975d8d4e45 1-107
+examples/tsconfig.json
+  s_4822886279d293::t_f2300f172082a1 37-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f0dbc4e4ade6ee09f6d3e264d368529698b42879",
+  "prompts": {},
+  "sessions": {
+    "s_4822886279d293": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15687-abd1-7441-bf74-32b94636c01a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_902f0d8aed10dd": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b071c91a-4a12-4b69-b33c-ae6f25b8521d",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_a5c48038294d8c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3aa44e12-5523-4394-8a78-73cfdecfee46",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_eb77895b097fc6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f65c1e3-b88b-49de-8ccc-1c2a95c65fe7",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
