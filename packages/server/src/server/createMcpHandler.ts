@@ -297,6 +297,13 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
     return jsonRpcErrorResponse(500, -32_603, 'Internal server error', undefined, id);
 }
 
+/** Throws when the factory returned an instance that is still connected to another exchange. */
+function assertNotServing(server: Server): void {
+    if (server.transport !== undefined) {
+        throw new Error('The factory returned an instance that is still serving another request. Return a new instance for each request.');
+    }
+}
+
 /* ------------------------------------------------------------------------ *
  * The default legacy fallback
  * ------------------------------------------------------------------------ */
@@ -786,6 +793,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+        assertNotServing(server);
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /
         // per-stream filtering / subscription-id stamping / keepalive /
@@ -821,7 +829,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                if (scan.valid && scan.declarations.length > 0) {
+                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
                         void product.close().catch(reportError);
@@ -851,6 +860,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 return internalServerErrorResponse(route.message.id);
             }
         }
+
+        // Checked again after the awaits above, before anything is written to the instance.
+        assertNotServing(server);
 
         // Era-write at instance binding, then modern-only handler installation —
         // both before the instance is connected to the per-request transport.

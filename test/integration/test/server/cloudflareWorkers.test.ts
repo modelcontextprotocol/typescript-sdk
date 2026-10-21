@@ -15,6 +15,7 @@ import * as os from 'node:os';
 import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const READINESS_TIMEOUT_MS = 60_000;
@@ -27,6 +28,14 @@ const SHUTDOWN_GRACE_MS = 5000;
  */
 const SERVER_VERSION_NONCE = randomUUID();
 
+/** The skill the worker serves on `/skills`, from memory (Workers have no file system). */
+const RELEASE_NOTES_MD = `---
+name: release-notes
+description: Write release notes from merged pull requests.
+---
+# Release notes
+`;
+
 /**
  * The workspace's own wrangler installation (pinned by pnpm-lock). Running it directly —
  * instead of `npm install`-ing wrangler into the temp project and going through `npx` —
@@ -36,7 +45,7 @@ const SERVER_VERSION_NONCE = randomUUID();
  */
 const WRANGLER_BIN = (() => {
     const pkgPath = createRequire(import.meta.url).resolve('wrangler/package.json');
-    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler;
+    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler!;
     return path.resolve(path.dirname(pkgPath), bin);
 })();
 
@@ -297,25 +306,42 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             };
             fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
 
-            // Write server source
+            // Write server source. `/skills` also serves a skills catalog, loaded once at module scope
+            // and attached to each per-request server (the shape the server guide recommends for
+            // Workers); `/runtime` reports the globals the skills extension feature-detects.
             const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { memorySkillFiles, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 import { z } from 'zod';
 
-const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
+const skills = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKILL.md': ${JSON.stringify(RELEASE_NOTES_MD)} }));
 
-server.registerTool("greet", {
-    description: "Greet someone",
-    inputSchema: z.object({ name: z.string() })
-}, async ({ name }) => ({
-    content: [{ type: "text", text: "Hello, " + name + "!" }]
-}));
+// A stateless transport serves one request: connect a new pair for each.
+async function connectPair(withSkills) {
+    const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
-const transport = new WebStandardStreamableHTTPServerTransport();
-await server.connect(transport);
+    server.registerTool("greet", {
+        description: "Greet someone",
+        inputSchema: z.object({ name: z.string() })
+    }, async ({ name }) => ({
+        content: [{ type: "text", text: "Hello, " + name + "!" }]
+    }));
+    if (withSkills) skills.attach(server);
+
+    const transport = new WebStandardStreamableHTTPServerTransport();
+    await server.connect(transport);
+    return transport;
+}
 
 export default {
-    fetch: (request) => transport.handleRequest(request)
+    fetch: async (request) => {
+        const { pathname } = new URL(request.url);
+        if (pathname === '/runtime') {
+            return new Response(JSON.stringify({ weakRef: typeof WeakRef }), { headers: { 'content-type': 'application/json' } });
+        }
+        const transport = await connectPair(pathname === '/skills');
+        return transport.handleRequest(request);
+    }
 };
 `;
             fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
@@ -368,6 +394,26 @@ export default {
 
         const result = await client.callTool({ name: 'greet', arguments: { name: 'Workers' } });
         expect(result.content).toEqual([{ type: 'text', text: 'Hello, Workers!' }]);
+
+        await client.close();
+    }, 30_000);
+
+    it('serves a skills catalog attached per request, on a compatibility date without WeakRef', async () => {
+        // The premise: `enable_weak_ref` is on by default only from compatibility date 2025-05-05.
+        const response = await fetch(`http://127.0.0.1:${port}/runtime`);
+        expect(await response.json()).toEqual({ weakRef: 'undefined' });
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        await client.connect(new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/skills`)));
+        const skills = new SkillsClient(client);
+        expect(skills.supported).toBe(true);
+
+        const { skills: entries, invalid } = await skills.list();
+        expect(invalid).toEqual([]);
+        expect(entries.map(skill => skill.uri)).toEqual(['skill://release-notes/SKILL.md']);
+        const manifest = await skills.read(entries[0]!);
+        expect(manifest).toMatchObject({ verified: true, text: RELEASE_NOTES_MD });
+        expect(manifest.frontmatter).toEqual({ name: 'release-notes', description: 'Write release notes from merged pull requests.' });
 
         await client.close();
     }, 30_000);

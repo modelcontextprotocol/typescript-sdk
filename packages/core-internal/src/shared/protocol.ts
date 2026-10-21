@@ -50,7 +50,14 @@ import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
 import { bootstrapOutboundCodec } from '../wire/bootstrap';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec';
-import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec';
+import {
+    classifiedWireEra,
+    codecForVersion,
+    isExtensionReusedRequestMethod,
+    isSpecNotificationMethod,
+    isSpecRequestMethod,
+    MODERN_WIRE_REVISION
+} from '../wire/codec';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { Transport, TransportSendOptions } from './transport';
 
@@ -559,6 +566,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+    /** Methods registered with an explicit schema; the era gate in `_onrequest` reads it for the Tasks extension names. */
+    private _customSchemaRequestMethods = new Set<string>();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -1000,7 +1009,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // shadow a deleted spec method across eras). Methods outside the
         // spec universe are consumer-owned extension methods and stay
         // era-blind.
-        if (isSpecRequestMethod(request.method) && !codec.hasRequestMethod(request.method)) {
+        // Exception: the Tasks extension names (SEP-2663), when registered with an explicit schema.
+        if (
+            isSpecRequestMethod(request.method) &&
+            !codec.hasRequestMethod(request.method) &&
+            !(isExtensionReusedRequestMethod(request.method) && this._customSchemaRequestMethods.has(request.method))
+        ) {
             sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
             return;
         }
@@ -1270,10 +1284,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
         const codec = this._resolveOutboundCodec(request.method);
-        this._assertOutboundRequestInEra(codec, request.method);
         if (isStandardSchema(schemaOrOptions)) {
+            // Only the Tasks extension names skip the era gate here; every other spec method stays gated.
+            if (!isExtensionReusedRequestMethod(request.method)) this._assertOutboundRequestInEra(codec, request.method);
             return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
         }
+        this._assertOutboundRequestInEra(codec, request.method);
         const validate = codecResultValidator(codec, request.method);
         if (validate === undefined) {
             throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
@@ -1751,6 +1767,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setRequestHandler: handler is required');
         }
 
+        // The era gate reads how the handler was registered; a method-keyed re-registration ends the exemption.
+        if (typeof schemasOrHandler === 'function') {
+            this._customSchemaRequestMethods.delete(method);
+        } else {
+            this._customSchemaRequestMethods.add(method);
+        }
+
         this._requestHandlers.set(method, this._wrapHandler(method, stored));
     }
 
@@ -1787,6 +1810,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     removeRequestHandler(method: RequestMethod | string): void {
         this._requestHandlers.delete(method);
+        this._customSchemaRequestMethods.delete(method);
     }
 
     /**

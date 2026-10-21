@@ -8,7 +8,7 @@
  * same `HeaderMismatch` shape the inbound classifier emits for the
  * standard-header cross-checks. A `null`/absent body value passes regardless
  * of the header (the spec's "server MUST NOT expect" rows). The
- * registration-time declaration-validity check warns on invalid declarations.
+ * declaration-validity check warns on invalid declarations when tools are listed.
  */
 import {
     CLIENT_CAPABILITIES_META_KEY,
@@ -20,6 +20,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { invoke } from '../../src/server/invoke';
 import { McpServer } from '../../src/server/mcp';
 
 const MODERN = '2026-07-28';
@@ -32,6 +33,11 @@ const ENVELOPE = {
 const REGION_INPUT_SCHEMA = {
     type: 'object',
     properties: { region: { type: 'string', 'x-mcp-header': 'Region' }, query: { type: 'string' } }
+} as const;
+
+const SCORE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: { score: { type: 'number', 'x-mcp-header': 'Score' }, region: { type: 'string', 'x-mcp-header': 'Region' } }
 } as const;
 
 function makeFactory(): () => McpServer {
@@ -115,10 +121,30 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(response.status).toBe(400);
         expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
     });
+
+    it('a number-typed declaration does not switch the check off: its header and a valid sibling header are still compared', async () => {
+        const handler = createMcpHandler(() => {
+            const s = new McpServer({ name: 'param-server', version: '1.0.0' });
+            s.registerTool('route', { inputSchema: fromJsonSchema<{ score?: number; region?: string }>(SCORE_INPUT_SCHEMA) }, async () => ({
+                content: []
+            }));
+            return s;
+        });
+        const outcome = async (paramHeaders: Record<string, string>) => {
+            const response = await handler.fetch(call({ score: 1.5, region: 'us-west1' }, paramHeaders));
+            const body = (await response.json()) as { error?: { code: number; data?: { mismatch?: { header?: string } } } };
+            return [response.status, body.error?.code, body.error?.data?.mismatch?.header];
+        };
+        expect(await outcome({ 'Mcp-Param-Score': '1.5', 'Mcp-Param-Region': 'us-west1' })).toEqual([200, undefined, undefined]);
+        expect(await outcome({ 'Mcp-Param-Score': '1.5', 'Mcp-Param-Region': 'eu' })).toEqual([400, -32_020, 'Mcp-Param-Region']);
+        expect(await outcome({ 'Mcp-Param-Score': '9.9', 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
+        expect(await outcome({ 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
+        expect(await outcome({})).toEqual([400, -32_020, 'Mcp-Param-Score']);
+    });
 });
 
 describe('SEP-2243 registerTool declaration-validity check', () => {
-    it('warns on an invalid x-mcp-header declaration at registration time', () => {
+    it('warns on an invalid x-mcp-header declaration when tools are listed, not at registration', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const s = new McpServer({ name: 'warn-server', version: '1.0.0' });
         s.registerTool(
@@ -131,6 +157,8 @@ describe('SEP-2243 registerTool declaration-validity check', () => {
             },
             async () => ({ content: [] })
         );
+        expect(warn).not.toHaveBeenCalled();
+        await invoke(s, { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }, { classification: { era: 'legacy' } });
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("tool 'bad' carries an invalid x-mcp-header"));
         warn.mockRestore();
     });

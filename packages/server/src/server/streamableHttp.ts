@@ -235,6 +235,10 @@ export interface HandleRequestOptions {
  * @example Hono.js
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_hono"
  * app.all('/mcp', async c => {
+ *     // Stateless example: create a server and a transport per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
  *     return transport.handleRequest(c.req.raw);
  * });
  * ```
@@ -243,6 +247,10 @@ export interface HandleRequestOptions {
  * ```ts source="./streamableHttp.examples.ts#WebStandardStreamableHTTPServerTransport_workers"
  * const worker = {
  *     async fetch(request: Request): Promise<Response> {
+ *         // Stateless example: create a server and a transport per request.
+ *         const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *         const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *         await server.connect(transport);
  *         return transport.handleRequest(request);
  *     }
  * };
@@ -252,6 +260,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _hasHandledRequest: boolean = false;
     private _closed: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
@@ -414,6 +423,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         if (this._closed) {
             return this.createJsonErrorResponse(404, -32_001, 'Session not found');
         }
+
+        // A stateless transport (no sessionIdGenerator) serves exactly one request.
+        if (!this.sessionIdGenerator && this._hasHandledRequest) {
+            throw new Error('Stateless transport cannot be reused across requests. Create a new transport per request.');
+        }
+        this._hasHandledRequest = true;
 
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);

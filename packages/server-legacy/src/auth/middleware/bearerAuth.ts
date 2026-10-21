@@ -19,7 +19,27 @@ export type BearerAuthMiddlewareOptions = {
      * Optional resource metadata URL to include in WWW-Authenticate header.
      */
     resourceMetadataUrl?: string;
+
+    /**
+     * Optional resource the token must be issued for (its audience), usually the server's URL.
+     * When set, the verifier has to report this value in `AuthInfo.resource` (a fragment and one trailing slash
+     * are ignored); any other token is refused with `401 invalid_token`.
+     */
+    expectedResource?: URL;
 };
+
+// The serialized value without its fragment and without one trailing slash.
+function comparableResource(value: URL): string {
+    const text = String(value);
+    const hash = text.indexOf('#');
+    return (hash === -1 ? text : text.slice(0, hash)).replace(/\/$/, '');
+}
+
+// A reported resource matches when it serializes to the same string as the expected one, fragment and one trailing slash aside.
+function sameResource(reported: URL | undefined, expected: URL): boolean {
+    if (!reported) return false;
+    return comparableResource(reported) === comparableResource(expected);
+}
 
 declare module 'express-serve-static-core' {
     interface Request {
@@ -38,7 +58,12 @@ declare module 'express-serve-static-core' {
  * If resourceMetadataUrl is provided, it will be included in the WWW-Authenticate header
  * for 401 responses as per the OAuth 2.0 Protected Resource Metadata spec.
  */
-export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetadataUrl }: BearerAuthMiddlewareOptions): RequestHandler {
+export function requireBearerAuth({
+    verifier,
+    requiredScopes = [],
+    resourceMetadataUrl,
+    expectedResource
+}: BearerAuthMiddlewareOptions): RequestHandler {
     const buildWwwAuthHeader = (errorCode: string, message: string): string => {
         let header = `Bearer error="${errorCode}", error_description="${message}"`;
         if (requiredScopes.length > 0) {
@@ -63,6 +88,10 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
             }
 
             const authInfo = await verifier.verifyAccessToken(token);
+
+            if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
+                throw new InvalidTokenError('Token was not issued for this resource');
+            }
 
             if (requiredScopes.length > 0) {
                 const hasAllScopes = requiredScopes.every(scope => authInfo.scopes.includes(scope));

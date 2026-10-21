@@ -43,6 +43,8 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
+import { conformanceSkills } from './skills';
+
 // Server state
 const resourceSubscriptions = new Set<string>();
 const watchedResourceContent = 'Watched resource content';
@@ -167,6 +169,9 @@ function createMcpServer() {
         }
     );
 
+    // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
+    conformanceSkills.attach(mcpServer);
+
     // Helper to send log messages using the underlying server
     function sendLog(
         level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency',
@@ -200,7 +205,10 @@ function createMcpServer() {
             inputSchema: fromJsonSchema<{ region?: string; level?: number }>({
                 type: 'object',
                 properties: {
-                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' },
+                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' } as Record<
+                        string,
+                        unknown
+                    >,
                     level: { type: 'integer', description: 'non-mirrored argument' }
                 }
             })
