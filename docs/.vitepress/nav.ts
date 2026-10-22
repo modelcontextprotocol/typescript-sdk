@@ -21,6 +21,7 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
         items: [
             { text: 'Tools', link: '/servers/tools' },
             { text: 'Resources', link: '/servers/resources' },
+            { text: 'Skills', link: '/servers/skills' },
             { text: 'Prompts', link: '/servers/prompts' },
             { text: 'Completion', link: '/servers/completion' },
             { text: 'Logging, progress, cancellation', link: '/servers/logging-progress-cancellation' },
@@ -56,7 +57,8 @@ export const guideSidebar: DefaultTheme.SidebarItem[] = [
             { text: 'OAuth', link: '/clients/oauth' },
             { text: 'Machine auth', link: '/clients/machine-auth' },
             { text: 'Middleware', link: '/clients/middleware' },
-            { text: 'Caching', link: '/clients/caching' }
+            { text: 'Caching', link: '/clients/caching' },
+            { text: 'Skills', link: '/clients/skills' }
         ]
     },
     { text: 'Protocol versions', link: '/protocol-versions' },
