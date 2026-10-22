@@ -388,14 +388,18 @@ export class ClientResponseCache {
      * probe is issued.
      */
     private async _probe(method: string, params?: string): Promise<CacheEntry | undefined> {
+        const generation = this.captureGeneration(method, params);
+        const isCurrent = () => this._evictionGeneration.get(genKey(method, params)) === generation;
         const key = { method, params: params ?? '' };
         const ownPartition = this._partitionFor('private');
         const own = await this._store.get({ ...key, partition: ownPartition });
+        // A delayed store read must not resurrect an entry invalidated while it was pending.
+        if (!isCurrent()) return undefined;
         if (own !== undefined) return own;
         const sharedPartition = this._partitionFor('public');
         if (sharedPartition === ownPartition) return undefined;
         const shared = await this._store.get({ ...key, partition: sharedPartition });
-        return shared?.scope === 'public' ? shared : undefined;
+        return isCurrent() && shared?.scope === 'public' ? shared : undefined;
     }
 
     /**
@@ -469,8 +473,8 @@ export class ClientResponseCache {
     }
 
     /**
-     * Snapshot the eviction generation for `{method, params}` before issuing
-     * the request (a list walk's page 1, or a `resources/read` for `params`).
+     * Snapshot the eviction generation for `{method, params}` before a store
+     * lookup or request (a list walk's page 1, or a `resources/read` for `params`).
      * Records the key so an interleaved {@linkcode evictKey} for the same
      * `{method, params}` knows there is an in-flight write to suppress and
      * bumps; without the record, `evictKey`'s recorded-only bump would skip
