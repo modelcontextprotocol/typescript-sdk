@@ -1,7 +1,8 @@
 /**
- * Companion example for `docs/servers/skills.md`.
+ * Companion example for `skills/mcp-typescript-sdk-skills/references/server.md`,
+ * which renders as `docs/servers/skills.md`.
  *
- * Every `ts` fence on that page is synced from a `//#region` in this file
+ * Every `ts` fence in that file is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs (`pnpm docs:examples`)
  * and prints the output the page quotes.
  *
@@ -121,12 +122,31 @@ const checked = await loadSkills('./skills', {
 });
 //#endregion onWarning
 
+//#region verify_inMemory
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import { SkillsClient } from '@modelcontextprotocol/client/ext/skills';
+
+const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+await server.connect(serverTransport);
+const client = new Client({ name: 'skills-check', version: '1.0.0' });
+await client.connect(clientTransport);
+
+const skillsClient = new SkillsClient(client);
+const { skills: listed } = await skillsClient.list();
+for (const entry of listed) {
+    const { verified } = await skillsClient.read(entry);
+    if (!verified) throw new Error(`${entry.uri} did not verify`);
+}
+console.log(`${listed.length} skill(s) listed and verified`);
+//#endregion verify_inMemory
+
 // Claims the page makes, checked on every run.
 const QUOTED_URIS = ['skill://acme/billing/refunds/SKILL.md', 'skill://git-workflow/SKILL.md'];
 if (JSON.stringify(skills.entries.map(skill => skill.uri)) !== JSON.stringify(QUOTED_URIS)) {
     throw new Error('skills.md: the catalog must publish the quoted URIs, sorted');
 }
 if (checked.entries.length !== 2) throw new Error('skills.md: expected two skills');
+if (listed.length !== 2) throw new Error('SKILL.md: the in-memory check must list and verify both skills');
 if (JSON.stringify(changes) !== JSON.stringify({ added: [], removed: [], changed: [], listChanged: false })) {
     throw new Error('skills.md: reload claim failed');
 }
