@@ -37,8 +37,7 @@ description: Process customer refunds.
         'acme/billing/refunds/templates/refund-email.md': 'Your refund is on its way.\n'
     })
 );
-const server = new McpServer({ name: 'team-skills', version: '1.0.0' });
-catalog.attach(server);
+const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [catalog] });
 const client = new Client({ name: 'skills-docs-host', version: '1.0.0' });
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await server.connect(serverTransport);

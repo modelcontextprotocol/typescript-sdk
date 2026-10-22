@@ -307,7 +307,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
 
             // Write server source. `/skills` also serves a skills catalog, loaded once at module scope
-            // and attached to each per-request server (the shape the server guide recommends for
+            // and passed in `extensions` to each per-request server (the shape the server guide recommends for
             // Workers); `/runtime` reports the globals the skills extension feature-detects.
             const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
@@ -318,7 +318,7 @@ const skills = await SkillsExtension.load(memorySkillFiles({ 'release-notes/SKIL
 
 // A stateless transport serves one request: connect a new pair for each.
 async function connectPair(withSkills) {
-    const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
+    const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" }, withSkills ? { extensions: [skills] } : {});
 
     server.registerTool("greet", {
         description: "Greet someone",
@@ -326,7 +326,6 @@ async function connectPair(withSkills) {
     }, async ({ name }) => ({
         content: [{ type: "text", text: "Hello, " + name + "!" }]
     }));
-    if (withSkills) skills.attach(server);
 
     const transport = new WebStandardStreamableHTTPServerTransport();
     await server.connect(transport);
@@ -398,7 +397,7 @@ export default {
         await client.close();
     }, 30_000);
 
-    it('serves a skills catalog attached per request, on a compatibility date without WeakRef', async () => {
+    it('serves a skills catalog per request, on a compatibility date without WeakRef', async () => {
         // The premise: `enable_weak_ref` is on by default only from compatibility date 2025-05-05.
         const response = await fetch(`http://127.0.0.1:${port}/runtime`);
         expect(await response.json()).toEqual({ weakRef: 'undefined' });
