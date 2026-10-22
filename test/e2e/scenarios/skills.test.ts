@@ -7,9 +7,9 @@
  * resources/directory/read pass SKILLS_WIRE so the wire sniffer permits them.
  */
 
-import { Client, SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { Client, SdkError, SdkErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { SkillsClient, SkillVerificationError } from '@modelcontextprotocol/client/ext/skills';
-import { McpServer, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import type { Skill, SkillCatalog, SkillCatalogOptions, SkillSource, SkillWarning } from '@modelcontextprotocol/server/ext/skills';
 import { memorySkillFiles, SkillCatalogError, skillEntry, SkillsExtension } from '@modelcontextprotocol/server/ext/skills';
 import { expect, vi } from 'vitest';
@@ -438,7 +438,7 @@ verifies('skills:verify:size', async ({ transport }: TestArgs) => {
     const notes = await skillEntry('notes', { 'SKILL.md': NOTES_MD, 'a.md': 'aaaa' });
     const source = lyingSource(notes, uri => (uri.endsWith('/a.md') ? 'aaaaa' : NOTES_MD));
     const client = newClient();
-    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client, SKILLS_WIRE);
+    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client);
 
     const read = new SkillsClient(client).read(notes, 'a.md');
 
@@ -450,7 +450,7 @@ verifies('skills:verify:digest', async ({ transport }: TestArgs) => {
     const notes = await skillEntry('notes', { 'SKILL.md': NOTES_MD, 'a.md': 'aaaa' });
     const source = lyingSource(notes, uri => (uri.endsWith('/a.md') ? 'bbbb' : NOTES_MD));
     const client = newClient();
-    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client, SKILLS_WIRE);
+    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client);
 
     const read = new SkillsClient(client).read(notes, 'a.md');
 
@@ -464,7 +464,7 @@ verifies('skills:verify:frontmatter', async ({ transport }: TestArgs) => {
     const listed: Skill = { ...notes, frontmatter: { ...notes.frontmatter, description: 'Something else.' } };
     const source = lyingSource(listed, () => NOTES_MD);
     const client = newClient();
-    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client, SKILLS_WIRE);
+    await using _ = await wire(transport, serving(new SkillsExtension({ source, onWarning: quiet })), client);
 
     const read = new SkillsClient(client).read(listed);
 
@@ -525,8 +525,7 @@ verifies('skills:verify:dynamic', async ({ transport }: TestArgs) => {
     await using _ = await wire(
         transport,
         serving(new SkillsExtension({ source: lyingSource(live, uri => texts[uri]), onWarning: quiet })),
-        client,
-        SKILLS_WIRE
+        client
     );
     const skills = new SkillsClient(client);
 
@@ -676,7 +675,7 @@ async function wireResultOf(wired: Wired, method: string): Promise<Record<string
     throw new Error(`no ${method} result in the HTTP log`);
 }
 
-verifies('skills:cache-fields:absent', async ({ transport }: TestArgs) => {
+verifies('typescript:skills:cache-fields:absent', async ({ transport }: TestArgs) => {
     // A configured hint, so a 2026 stamp leaking onto the 2025 wire would show.
     const catalog = await catalogOf(GIT_FILES, { cacheHint: { ttlMs: 60_000, cacheScope: 'public' } });
     const client = newClient();
@@ -929,9 +928,9 @@ verifies('typescript:skills:catalog:reload-notifies', async ({ transport }: Test
     first.setNotificationHandler('notifications/resources/list_changed', () => void heard.first++);
     second.setNotificationHandler('notifications/resources/list_changed', () => void heard.second++);
     const bothHeard = (count: number) => vi.waitFor(() => expect(heard).toEqual({ first: count, second: count }));
-    await using _ = await wire(transport, serving(catalog), first, SKILLS_WIRE);
+    await using _ = await wire(transport, serving(catalog), first);
     {
-        await using _ = await wire(transport, serving(catalog), second, SKILLS_WIRE);
+        await using _ = await wire(transport, serving(catalog), second);
 
         files['delta/SKILL.md'] = skillMd('delta', 'Added later.');
         await expect(catalog.reload()).resolves.toEqual({ added: [DELTA], removed: [], changed: [], listChanged: true });
@@ -950,4 +949,32 @@ verifies('typescript:skills:catalog:reload-notifies', async ({ transport }: Test
         await expect(catalog.reload()).resolves.toEqual({ added: [], removed: [DELTA], changed: [], listChanged: true });
         await bothHeard(3);
     }
+});
+
+verifies('typescript:skills:catalog:reload-listen', async () => {
+    const files: Record<string, string> = { 'git-workflow/SKILL.md': GIT_MD };
+    const catalog = await catalogOf(files);
+    // Hosted by the body, not wire(): publishing the change needs the handler's notify.
+    const handler = createMcpHandler(serving(catalog), { legacy: 'reject', keepAliveMs: 0 });
+    const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+    await client.connect(
+        new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), { fetch: (url, init) => handler.fetch(new Request(url, init)) })
+    );
+    await using _ = { [Symbol.asyncDispose]: () => Promise.all([client.close(), handler.close()]).then(() => {}) };
+    expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    const seen: string[] = [];
+    client.setNotificationHandler('notifications/resources/list_changed', () => void seen.push('resources/list_changed'));
+    const subscription = await client.listen({ resourcesListChanged: true });
+    expect(subscription.honoredFilter).toEqual({ resourcesListChanged: true });
+
+    files['delta/SKILL.md'] = skillMd('delta', 'Added later.');
+    const changes = await catalog.reload();
+    expect(changes).toMatchObject({ added: ['skill://delta/SKILL.md'], listChanged: true });
+    // Each server the handler built has served its one request and closed, so reload() alone reaches no client.
+    await new Promise(resolve => setTimeout(resolve, 30));
+    expect(seen).toEqual([]);
+
+    if (changes.listChanged) handler.notify.resourcesChanged();
+    await vi.waitFor(() => expect(seen).toEqual(['resources/list_changed']));
+    await subscription.close();
 });

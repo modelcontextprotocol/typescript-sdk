@@ -3415,11 +3415,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             "A skill nested inside another has its own flat skills/list entry, and the enclosing skill's resources also list the nested skill's files."
     },
     'typescript:skills:catalog:limits': {
-        source: 'sdk',
+        source: `${SKILLS_SPEC}L243`,
         behavior:
             'A skill over the catalog limits (SkillCatalogOptions.limits) is still served, with a warning naming it; with strict: true, loading the catalog throws SkillCatalogError instead.',
         transports: ['inMemory'],
-        note: 'load-time behaviour; the transport plays no part'
+        note: "load-time behaviour; the transport plays no part. The spec says servers SHOULD NOT serve a skill over the limits; serving it with a warning by default is this SDK's choice"
     },
     'skills:get:entry': {
         source: `${SKILLS_SPEC}L395-L456`,
@@ -3517,8 +3517,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             { arm: 'entryModern', reason: 'modern-error-surface', note: 'an unknown method answers HTTP 404, surfaced as SdkHttpError' }
         ]
     },
-    'skills:cache-fields:absent': {
-        source: `${SKILLS_SPEC}L29-L31`,
+    'typescript:skills:cache-fields:absent': {
+        source: 'sdk',
         behavior:
             'On 2025-11-25, skills/list, skills/get and resources/directory/read results carry no ttlMs or cacheScope, and SkillsClient returns none.',
         removedInSpecVersion: '2026-07-28',
@@ -3530,7 +3530,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'On 2026-07-28, skills/list, skills/get and resources/directory/read results carry ttlMs and cacheScope (0 and private by default, the cacheHint values when set), and SkillsClient list(), get() and readDirectory() return them.',
         addedInSpecVersion: '2026-07-28',
-        supersedes: ['skills:cache-fields:absent'],
+        supersedes: ['typescript:skills:cache-fields:absent'],
         transports: ['entryModern'],
         note: "only entryModern negotiates 2026-07-28; the other arms' 2026 cells run a legacy client"
     },
@@ -3590,7 +3590,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             "SkillCatalog.reload() that adds or removes a skill, or changes a skill's description, reports listChanged: true and sends notifications/resources/list_changed through every connected server it is attached to; a reload that changes only file content reports listChanged: false and sends nothing.",
         transports: STATEFUL_TRANSPORTS,
         removedInSpecVersion: '2026-07-28',
-        note: 'per-request hosting keeps no live server, and on 2026-07-28 list changes reach clients only through subscriptions/listen (handler.notify is covered in test/integration)'
+        supersededBy: 'typescript:skills:catalog:reload-listen',
+        note: 'per-request hosting keeps no live server, and on 2026-07-28 list changes reach clients only through subscriptions/listen'
+    },
+    'typescript:skills:catalog:reload-listen': {
+        source: 'sdk',
+        behavior:
+            'Behind createMcpHandler on 2026-07-28, SkillCatalog.reload() alone reaches no client (each per-request server has closed); when it reports listChanged, handler.notify.resourcesChanged() delivers notifications/resources/list_changed to a subscriptions/listen stream that asked for resource list changes.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['typescript:skills:catalog:reload-notifies'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify, as resources:listen:list-changed is.'
     }
 } satisfies Record<string, Requirement>;
 
