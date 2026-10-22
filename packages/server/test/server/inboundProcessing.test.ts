@@ -40,6 +40,27 @@ const envelope = {
     [CLIENT_CAPABILITIES_META_KEY]: {}
 };
 
+test.each(['legacy', 'modern'] as const)('closed %s channels drop sends suspended at outbound interception', async era => {
+    const server = new McpServer({ name: 'test', version: '1' });
+    const f = fixture(() => server);
+    const opened = vi.fn();
+    f.receive(era === 'legacy' ? init : { jsonrpc: '2.0', id: 1, method: 'ping', params: { _meta: envelope } }, {
+        onMessageProcessed: opened
+    });
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledOnce());
+    const channel = server.server.transport!;
+    const writesBefore = f.sent.length;
+    try {
+        const sending = channel.send({ jsonrpc: '2.0', id: 7, result: {} });
+        // Close synchronously while send is suspended at the interceptor's await boundary.
+        const closing = channel.close();
+        await Promise.all([sending, closing]);
+        expect(f.sent).toHaveLength(writesBefore);
+    } finally {
+        await f.handle.close();
+    }
+});
+
 test('queued opening completion waits for the real asynchronous factory', async () => {
     const gate = deferred();
     const complete = vi.fn();

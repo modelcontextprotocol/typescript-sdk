@@ -189,6 +189,9 @@ class StdioConnectionChannel implements Transport {
         if ((await this._outboundIntercept?.(message)) === 'handled') {
             return;
         }
+        if (this._closed) {
+            return;
+        }
         return this._wire.send(message, options);
     }
 
