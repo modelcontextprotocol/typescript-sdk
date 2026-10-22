@@ -37,7 +37,7 @@ npm view @modelcontextprotocol/server@latest exports --json | grep -c '"./ext/sk
 
 ## Serve skills
 
-**Pick where the skills come from.** Each source gives you an extension that you attach as shown below; only the first three have `reload()`:
+**Pick where the skills come from.** Each source gives you an extension that you pass in `extensions` as shown below; only the first three have `reload()`:
 
 - **A folder on disk** (Node): `loadSkills`, which the steps below walk through.
 - **Skills defined in code** (Workers and other runtimes without a file system, tests): `memorySkillFiles`. See [Serve skills defined in code](references/server.md#serve-skills-defined-in-code).
@@ -46,7 +46,7 @@ npm view @modelcontextprotocol/server@latest exports --json | grep -c '"./ext/sk
 
 **Lay out the folder.** Each folder holding a `SKILL.md` is one skill. Its frontmatter needs a `name` equal to the folder's name and a `description`. Other folders only group skills in the URI.
 
-**Load the folder once and attach it before the server connects.** `attach` throws on a connected server, and each server takes one skills extension. A server connected by hand keeps its `server.connect(transport)` call, after `attach`.
+**Load the folder once and pass it in `extensions` when you construct the server.** Each server takes one skills extension: a second one fails construction. A server connected by hand keeps its `server.connect(transport)` call.
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#loadSkills_basic"
 import { McpServer } from '@modelcontextprotocol/server';
@@ -54,22 +54,17 @@ import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 
 const skills = await loadSkills('./skills');
 
-const server = new McpServer({ name: 'team-skills', version: '1.0.0' });
-skills.attach(server);
+const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] });
 ```
 
 **Resolve the folder from the module, not the working directory.** A relative path like `'./skills'` resolves against `process.cwd()`, and MCP hosts may start stdio servers from another directory (such as `/`), where the load throws and takes the whole server down with it. Build the path from the module's location instead: `fileURLToPath(new URL('../skills', import.meta.url))` from `src/index.ts`, or `path.join(__dirname, '../skills')` in CommonJS.
 
-**Where a factory builds the server, attach inside it**, so every server it builds serves the same catalog. That covers `serveStdio(createServer)` on stdio as well as `createMcpHandler` over HTTP:
+**Where a factory builds the server, pass it in `extensions` there**, so every server it builds serves the same catalog. That covers `serveStdio(createServer)` on stdio as well as `createMcpHandler` over HTTP:
 
-```ts source="../../examples/guides/servers/skills.examples.ts#attach_perRequest"
+```ts source="../../examples/guides/servers/skills.examples.ts#extensions_perRequest"
 import { createMcpHandler } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'team-skills', version: '1.0.0' });
-    skills.attach(mcp);
-    return mcp;
-});
+const handler = createMcpHandler(() => new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] }));
 ```
 
 **Pick up edits with `reload()`** if the user expects changes to show without a restart. Call it from whatever tells the project the folder changed (a file watcher, an admin route, a deploy hook). A server that stays connected (stdio) notifies its clients itself. Behind `createMcpHandler`, publish the change on the handler, where `changes` is what `await skills.reload()` returned:

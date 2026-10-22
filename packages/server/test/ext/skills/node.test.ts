@@ -130,8 +130,7 @@ description: Lives outside the root.
 
     it('refuses a file edited on disk until reload() publishes it', async () => {
         const catalog = await loadSkills(root, { onWarning: () => undefined });
-        const mcp = newServer();
-        catalog.attach(mcp);
+        const mcp = newServer(catalog);
         await writeFile(path.join(root, 'git-workflow', 'references', 'REVIEW.md'), '# Review v2\n');
         const uri = 'skill://git-workflow/references/REVIEW.md';
         expect(await errorOf(mcp, 'resources/read', { uri })).toMatchObject({ code: -32_603 });

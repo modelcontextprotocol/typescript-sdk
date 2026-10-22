@@ -3396,7 +3396,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'skills:capability:declared': {
         source: `${SKILLS_SPEC}L35-L65`,
         behavior:
-            "A server with skills attached declares extensions['io.modelcontextprotocol/skills'] next to the resources capability: { directoryRead: true } when the source implements directory reads, {} otherwise. SkillsClient.supported and .directoryRead reflect the declaration."
+            "A server serving skills declares extensions['io.modelcontextprotocol/skills'] next to the resources capability: { directoryRead: true } when the source implements directory reads, {} otherwise. SkillsClient.supported and .directoryRead reflect the declaration."
     },
     'skills:client:requires-declaration': {
         source: `${SKILLS_SPEC}L67`,
@@ -3415,7 +3415,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:skills:resources:app-resource-first': {
         source: 'sdk',
         behavior:
-            'A resource the application registers before attaching the extension wins at its URI in resources/read, and is listed ahead of the skills in resources/list.'
+            'A resource the application registers on a server serving skills wins at its URI in resources/read, and is listed ahead of the skills in resources/list.'
     },
     'skills:list:entries': {
         source: `${SKILLS_SPEC}L139-L231`,
@@ -3599,17 +3599,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A skills/list that repeats a URI makes SkillsClient.list() throw INVALID_RESULT naming every copy; with skipInvalid it returns the valid entries and lists the refused ones, by index, in invalid.'
     },
-    'typescript:skills:attach:rules': {
+    'typescript:skills:extension:one-per-server': {
         source: 'sdk',
         behavior:
-            'Attaching the same skills extension to a server twice does nothing; attaching a second extension throws and leaves the server serving the first; attaching to a connected server throws.',
+            'A server takes one skills extension: passing two, or the same one twice, in extensions fails construction; a server with one serves its catalog.',
         transports: ['inMemory'],
         note: 'local API; the transport plays no part'
     },
     'typescript:skills:catalog:reload-notifies': {
         source: 'sdk',
         behavior:
-            "SkillCatalog.reload() that adds or removes a skill, or changes a skill's description, reports listChanged: true and sends notifications/resources/list_changed through every connected server it is attached to; a reload that changes only file content reports listChanged: false and sends nothing.",
+            "SkillCatalog.reload() that adds or removes a skill, or changes a skill's description, reports listChanged: true and sends notifications/resources/list_changed through every connected server it is set up on; a reload that changes only file content reports listChanged: false and sends nothing.",
         transports: STATEFUL_TRANSPORTS,
         removedInSpecVersion: '2026-07-28',
         supersededBy: 'typescript:skills:catalog:reload-listen',

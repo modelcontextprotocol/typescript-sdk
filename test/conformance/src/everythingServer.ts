@@ -165,12 +165,11 @@ function createMcpServer() {
             // request that carries requestState is verified before the handler
             // runs. A rejection answers a wire-level -32602 with
             // data.reason 'invalid_request_state'.
-            requestState: { verify: requestStateCodec.verify }
+            requestState: { verify: requestStateCodec.verify },
+            // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
+            extensions: [conformanceSkills]
         }
     );
-
-    // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
-    conformanceSkills.attach(mcpServer);
 
     // Helper to send log messages using the underlying server
     function sendLog(
