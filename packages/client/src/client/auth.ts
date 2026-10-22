@@ -60,6 +60,10 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /** Every scope challenged or requested so far on this transport, including this response's challenge. */
+    accumulatedScope?: string;
+    /** Resource metadata URL from the transport's latest challenge that carried one. */
+    resourceMetadataUrl?: URL;
 }
 
 /**
@@ -187,11 +191,15 @@ export async function handleOAuthUnauthorized(
     ctx: UnauthorizedContext,
     extraAuthOptions?: Pick<AuthOptions, 'skipIssuerMetadataValidation'>
 ): Promise<void> {
-    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(ctx.response);
+    const challenge = extractWWWAuthenticateParams(ctx.response);
+    const tokens = await provider.tokens();
+    // The refresh still runs first; a new authorization keeps earlier grants (e.g. from step-up).
+    const priorScope = computeScopeUnion(tokens?.scope, ctx.accumulatedScope);
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
-        resourceMetadataUrl,
-        scope,
+        resourceMetadataUrl: challenge.resourceMetadataUrl ?? ctx.resourceMetadataUrl,
+        scope: challenge.scope,
+        ...(priorScope ? { priorScope } : {}),
         fetchFn: ctx.fetchFn,
         ...extraAuthOptions
     });
@@ -999,6 +1007,14 @@ export interface AuthOptions {
     iss?: string;
     /** Scope to request; computed by Scope Selection Strategy when omitted. */
     scope?: string;
+    /**
+     * Scope already granted or requested that a new authorization should keep. It is
+     * added to the scope chosen by the Scope Selection Strategy (`scope`, then PRM
+     * `scopes_supported`, then `clientMetadata.scope`) and does not stop a refresh.
+     * Values missing from the authorization server's advertised `scopes_supported` are
+     * dropped. Ignored by non-interactive providers (no `redirectUrl`).
+     */
+    priorScope?: string;
     /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
     resourceMetadataUrl?: URL;
     /** Custom `fetch` implementation. */
@@ -1091,6 +1107,17 @@ export async function auth(provider: OAuthClientProvider, options: AuthOptions):
 }
 
 /**
+ * The part of `priorScope` worth requesting again: when the authorization server advertises
+ * `scopes_supported`, only those values. A token's `scope` can hold values the server does not
+ * accept back in a request (expanded forms, another server's names after a migration).
+ */
+function filterToSupportedScopes(priorScope: string | undefined, metadata: AuthorizationServerMetadata | undefined): string | undefined {
+    const supported = metadata?.scopes_supported;
+    if (!priorScope || !supported?.length) return priorScope;
+    return computeScopeUnion(...priorScope.split(/\s+/).filter(token => supported.includes(token)));
+}
+
+/**
  * Selects scopes per the MCP spec and augment for refresh token support.
  */
 export function determineScope(options: {
@@ -1131,6 +1158,7 @@ async function authInternal(
         authorizationCode,
         iss,
         scope,
+        priorScope,
         resourceMetadataUrl,
         fetchFn,
         skipIssuerMetadataValidation,
@@ -1275,12 +1303,16 @@ async function authInternal(
     }
 
     // Scope selection used consistently for DCR and the authorization request.
-    const resolvedScope = determineScope({
-        requestedScope: scope,
-        resourceMetadata,
-        authServerMetadata: metadata,
-        clientMetadata: provider.clientMetadata
-    });
+    const resolvedScope = computeScopeUnion(
+        determineScope({
+            requestedScope: scope,
+            resourceMetadata,
+            authServerMetadata: metadata,
+            clientMetadata: provider.clientMetadata
+        }),
+        // Non-interactive providers request their configured scope each time; only a user's grant is kept.
+        filterToSupportedScopes(provider.redirectUrl ? priorScope : undefined, metadata)
+    );
 
     // Handle client registration if needed. SEP-2352: a stored credential whose `issuer`
     // stamp names a different authorization server reads back as `undefined`, so the flow

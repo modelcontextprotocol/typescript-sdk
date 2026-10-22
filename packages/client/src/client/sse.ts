@@ -18,6 +18,7 @@ import type { AuthProvider, OAuthClientProvider } from './auth';
 import {
     adaptOAuthProvider,
     auth,
+    computeScopeUnion,
     extractWWWAuthenticateParams,
     isOAuthClientProvider,
     resolveAuthorizationCallbackParams,
@@ -270,8 +271,8 @@ export class SSEClientTransport implements Transport {
                         this._last401Response = response;
                         if (response.headers.has('www-authenticate')) {
                             const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                            this._resourceMetadataUrl = resourceMetadataUrl;
-                            this._scope = scope;
+                            this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
+                            this._scope = computeScopeUnion(this._scope, scope);
                         }
                     }
 
@@ -287,19 +288,27 @@ export class SSEClientTransport implements Transport {
                         this._last401Response = undefined;
                         this._connectAuthRetried = true;
                         this._eventSource?.close();
-                        this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit }).then(
-                            // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
-                            () => this._startOrAuth().then(resolve, reject),
-                            // onUnauthorized failed → not yet reported. Auth-seam
-                            // stamp: covers the SDK's OAuth flow and custom
-                            // callbacks alike.
-                            (error: unknown) => {
-                                this._connectAuthRetried = false;
-                                markAuthSeamEscape(error);
-                                this.onerror?.(error as Error);
-                                reject(error);
-                            }
-                        );
+                        this._authProvider
+                            .onUnauthorized({
+                                response,
+                                serverUrl: this._url,
+                                fetchFn: this._fetchWithInit,
+                                resourceMetadataUrl: this._resourceMetadataUrl,
+                                accumulatedScope: this._scope
+                            })
+                            .then(
+                                // onUnauthorized succeeded → retry fresh. Its onerror handles its own onerror?.() + reject.
+                                () => this._startOrAuth().then(resolve, reject),
+                                // onUnauthorized failed → not yet reported. Auth-seam
+                                // stamp: covers the SDK's OAuth flow and custom
+                                // callbacks alike.
+                                (error: unknown) => {
+                                    this._connectAuthRetried = false;
+                                    markAuthSeamEscape(error);
+                                    this.onerror?.(error as Error);
+                                    reject(error);
+                                }
+                            );
                         return;
                     }
                     const retried = this._connectAuthRetried;
@@ -452,8 +461,8 @@ export class SSEClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
+                        this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
@@ -461,7 +470,9 @@ export class SSEClientTransport implements Transport {
                             await this._authProvider.onUnauthorized({
                                 response,
                                 serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
+                                fetchFn: this._fetchWithInit,
+                                resourceMetadataUrl: this._resourceMetadataUrl,
+                                accumulatedScope: this._scope
                             });
                         } catch (error) {
                             // Auth-seam stamp: covers the SDK's OAuth flow and
