@@ -37,6 +37,13 @@ npm view @modelcontextprotocol/server@latest exports --json | grep -c '"./ext/sk
 
 ## Serve skills
 
+**Pick where the skills come from.** Each source gives you an extension that you attach as shown below; only the first three have `reload()`:
+
+- **A folder on disk** (Node): `loadSkills`, which the steps below walk through.
+- **Skills defined in code** (Workers and other runtimes without a file system, tests): `memorySkillFiles`. See [Serve skills defined in code](references/server.md#serve-skills-defined-in-code).
+- **Your own storage** (an object store, a database, a git repository): a `SkillFiles` adapter. See [Serve skills from your own storage](references/server.md#serve-skills-from-your-own-storage).
+- **Skills that differ per caller or are generated per request:** a `SkillSource`. See [Generate skills with a `SkillSource`](references/server.md#generate-skills-with-a-skillsource).
+
 **Lay out the folder.** Each folder holding a `SKILL.md` is one skill. Its frontmatter needs a `name` equal to the folder's name and a `description`. Other folders only group skills in the URI.
 
 **Load the folder once and attach it before the server connects.** `attach` throws on a connected server, and each server takes one skills extension. A server connected by hand keeps its `server.connect(transport)` call, after `attach`.
@@ -73,7 +80,7 @@ if (changes.listChanged) handler.notify.resourcesChanged();
 
 Then tell the user about any load warnings, and [verify](#verify).
 
-Read [references/server.md](references/server.md) for skills without a folder (`memorySkillFiles` for runtimes without a file system, a `SkillFiles` adapter for your own storage, a `SkillSource` for skills that depend on the request), and for `onWarning`, `strict`, `limits`, `prefix` and `pageSize`.
+Read [references/server.md](references/server.md) for `onWarning`, `strict`, `limits`, `prefix` and `pageSize`.
 
 ## Use skills
 
@@ -143,6 +150,8 @@ for (const entry of listed) {
 }
 console.log(`${listed.length} skill(s) listed and verified`);
 ```
+
+An entry whose `resources` is `"dynamic"` (only a `SkillSource` serves one) has no file list. `read` still checks its `SKILL.md` frontmatter but returns `verified: false`, so accept such an entry when `read` does not throw.
 
 For a stdio server, the same loop works over `StdioClientTransport` (from `@modelcontextprotocol/client/stdio`) against the server's real start command; set its `cwd` option to another directory (such as `/`), as hosts do, so a path that depends on the working directory fails here and not in the user's host. Compare the number of skills listed with the number of skill folders, and account for each one missing: a warning, or a dot-name.
 
