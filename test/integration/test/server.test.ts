@@ -1540,6 +1540,60 @@ describe('createMessage validation', () => {
         ).rejects.toThrow('Client does not support sampling tools capability.');
     });
 
+    test('should throw when includeContext thisServer or allServers is used without sampling.context capability', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            { capabilities: { sampling: {} } } // No context capability
+        );
+
+        client.setRequestHandler('sampling/createMessage', async () => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: 'Response' }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        for (const includeContext of ['thisServer', 'allServers'] as const) {
+            await expect(
+                server.createMessage({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+                    maxTokens: 100,
+                    includeContext
+                })
+            ).rejects.toThrow('Client does not support sampling context capability.');
+        }
+    });
+
+    test('should allow includeContext thisServer on a 2025-06-18 connection, which predates sampling.context', async () => {
+        const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
+
+        const client = new Client(
+            { name: 'test client', version: '1.0' },
+            { capabilities: { sampling: {} }, supportedProtocolVersions: ['2025-06-18'] }
+        );
+
+        client.setRequestHandler('sampling/createMessage', async request => ({
+            model: 'test-model',
+            role: 'assistant',
+            content: { type: 'text', text: `includeContext=${request.params.includeContext}` }
+        }));
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-06-18');
+
+        const result = await server.createMessage({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
+            maxTokens: 100,
+            includeContext: 'thisServer'
+        });
+        expect(result.content).toEqual({ type: 'text', text: 'includeContext=thisServer' });
+    });
+
     test('should throw when tool_result is mixed with other content', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 

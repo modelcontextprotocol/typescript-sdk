@@ -1107,6 +1107,15 @@ export class Server extends Protocol<ServerContext> {
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
+        // sampling.context is a 2025-11-25 capability: older revisions allow thisServer/allServers without it
+        const predatesContextCapability = this._negotiatedProtocolVersion !== undefined && this._negotiatedProtocolVersion < '2025-11-25';
+        if (
+            (params.includeContext === 'thisServer' || params.includeContext === 'allServers') &&
+            !predatesContextCapability &&
+            !this._clientCapabilities?.sampling?.context
+        ) {
+            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling context capability.');
+        }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
         // These may appear even without tools/toolChoice in the current request when

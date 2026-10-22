@@ -1113,12 +1113,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The server does not use includeContext values thisServer or allServers unless the client declared the sampling.context capability.',
         transports: ['inMemory', 'stdio', 'streamableHttp'],
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: "Server.createMessage (src/server/index.ts ~line 497) only gates tools/toolChoice on clientCapabilities.sampling.tools; there is no check of clientCapabilities.sampling.context for includeContext 'thisServer'/'allServers', so the request reaches the client callback instead of being refused."
-            }
-        ]
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:create:not-supported': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#capabilities',
