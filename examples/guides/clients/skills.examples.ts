@@ -1,7 +1,8 @@
 /**
- * Companion example for `docs/clients/skills.md`.
+ * Companion example for `skills/mcp-typescript-sdk-skills/references/client.md`,
+ * which renders as `docs/clients/skills.md`.
  *
- * Every `ts` fence on that page is synced from a `//#region` in this file
+ * Every `ts` fence in that file is synced from a `//#region` in this file
  * (`pnpm sync:snippets --check`). The file also runs (`pnpm docs:examples`)
  * against an in-memory server and prints the output the page quotes.
  *
