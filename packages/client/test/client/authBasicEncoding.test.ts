@@ -1,9 +1,9 @@
 /**
  * RFC 6749 §2.3.1: for `client_secret_basic`, the client identifier and the
- * client password are each encoded with the `application/x-www-form-urlencoded`
- * algorithm (Appendix B) before being joined with ":" and base64-encoded into
- * the `Authorization` header. A conformant token endpoint splits the decoded
- * value on the first ":" and form-decodes both halves before comparing them.
+ * client password are each encoded before being joined with ":" and
+ * base64-encoded into the `Authorization` header. The encoding is the RFC 3986
+ * percent-encoding the Python SDK uses (`quote(value, safe="")`), so `~` stays
+ * as it is; a form-decoding token endpoint recovers both halves.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -22,7 +22,7 @@ function recoverCredentials(authorization: string): { username: string; password
 }
 
 describe('client_secret_basic credential encoding (RFC 6749 §2.3.1)', () => {
-    it('form-urlencodes both halves before base64-encoding them', () => {
+    it('percent-encodes both halves before base64-encoding them', () => {
         const headers = new Headers();
         applyBasicAuth('client id', 'sec:ret+with=special', headers);
 
@@ -31,8 +31,20 @@ describe('client_secret_basic credential encoding (RFC 6749 §2.3.1)', () => {
 
         const decoded = Buffer.from(authorization!.replace(/^Basic /, ''), 'base64').toString('utf8');
 
-        // Appendix B: space -> "+", ":" -> "%3A", "+" -> "%2B", "=" -> "%3D".
-        expect(decoded).toBe('client+id:sec%3Aret%2Bwith%3Dspecial');
+        // space -> "%20", ":" -> "%3A", "+" -> "%2B", "=" -> "%3D".
+        expect(decoded).toBe('client%20id:sec%3Aret%2Bwith%3Dspecial');
+    });
+
+    it('leaves "~" unencoded like the Python SDK', () => {
+        const headers = new Headers();
+        applyBasicAuth('cid', 'Abc8Q~xYz.-_Q', headers);
+
+        const decoded = Buffer.from(headers.get('Authorization')!.replace(/^Basic /, ''), 'base64').toString('utf8');
+
+        // A form encoder would send "Q%7E"; existing secrets such as Entra's
+        // "Q~..." must keep their bytes.
+        expect(decoded).toBe('cid:Abc8Q~xYz.-_Q');
+        expect(recoverCredentials(headers.get('Authorization')!).password).toBe('Abc8Q~xYz.-_Q');
     });
 
     it('lets a conformant server recover the original credentials', () => {
