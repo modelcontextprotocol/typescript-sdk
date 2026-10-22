@@ -1,0 +1,35 @@
+.changeset/sep-2350-scope-accumulation-followup.md
+  s_efab1c228e4145::t_451f91f724ca61 1-5
+packages/client/src/client/auth.ts
+  s_efab1c228e4145::t_0ed215312a8b67 63-66,194-203,206-208
+packages/client/src/client/middleware.ts
+  s_efab1c228e4145::t_adb8f0f0a5997c 5,55,61,78-79,84-85
+packages/client/src/client/sse.ts
+  s_efab1c228e4145::t_002b1746bc1e75 21,274-275,291-311,464-465,473-475
+packages/client/src/client/streamableHttp.ts
+  s_efab1c228e4145::t_aeceece0d3b05c 252-258,458-461,463-467,621,632-634,1086,1097-1099
+packages/client/test/client/auth.test.ts
+  s_efab1c228e4145::t_1ccb61f6f78b04 35,226-385
+packages/client/test/client/middleware.test.ts
+  s_efab1c228e4145::t_7c90827dcd4485 161-196
+packages/client/test/client/sse.test.ts
+  s_efab1c228e4145::t_2fc464417a8646 1690,1697,1715-1719,1740-1764
+packages/client/test/client/streamableHttp.test.ts
+  s_efab1c228e4145::t_6217730e84c71b 5-6,1352-1555
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "471599132bb1f17ab058fa3aa502223cd1dcb6ff",
+  "prompts": {},
+  "sessions": {
+    "s_efab1c228e4145": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1636d-fe64-7019-9951-9ccc73389018",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
