@@ -1,0 +1,49 @@
+.changeset/skills-extension.md
+  s_4822886279d293::t_7614916cb9edec 13
+docs/servers/skills.md
+  s_4822886279d293::t_37d0a619547e5a 7,15,48,50,53,187
+examples/guides/clients/skills.examples.ts
+  s_4822886279d293::t_a85635b35448db 40
+examples/guides/servers/skills.examples.ts
+  s_4822886279d293::t_e36b06cf2959a3 25,32,35-36,141-142
+examples/skills/server.ts
+  s_4822886279d293::t_0a1fda4088d605 3-4,20
+packages/server/src/ext/skills/extension.ts
+  s_4822886279d293::t_f8d0045dacdf6c 28,62-63,66-71,73,107-113,115-116,119-121,126,128-129,131-132,135-138,141,228,272,310,315
+packages/server/src/ext/skills/node.ts
+  s_4822886279d293::t_98031e916db6c8 62
+packages/server/test/ext/skills/catalog.test.ts
+  s_4822886279d293::t_2d169bea509ca6 9,17,165,169,171,179,242,248,284,301,328
+packages/server/test/ext/skills/extension.test.ts
+  s_4822886279d293::t_824135a2908f22 9,30,32,38-39,49,58,62,68,72,79,83,93,96,104,123,133,145,151,155,169,185,208-209,211-212,218,221-224,227,230-237,240-247,249-252,255-268,271,274,278,280
+packages/server/test/ext/skills/harness.ts
+  s_4822886279d293::t_0fca270f589492 9,23-25
+packages/server/test/ext/skills/node.test.ts
+  s_4822886279d293::t_01c1a9db799960 133
+test/conformance/src/everythingServer.ts
+  s_4822886279d293::t_b47515c4d06f84 168-170
+test/integration/test/__fixtures__/skillsStdioServer.ts
+  s_4822886279d293::t_bfec3a450d6e2e 2-3,14
+test/integration/test/server/cloudflareWorkers.test.ts
+  s_4822886279d293::t_98b49f72f12328 310,321,400
+test/integration/test/skills/skillsEndToEnd.test.ts
+  s_4822886279d293::t_85fcb12eb13f4c 34,167-169
+test/integration/test/skills/skillsWire.test.ts
+  s_4822886279d293::t_f54b7d954a6fad 8,50,52-53,87,92,98,112,118,131,141-142,153,166,186
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "a27067952a8e7a408901f5dfc015d9ed007a9f54",
+  "prompts": {},
+  "sessions": {
+    "s_4822886279d293": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a15687-abd1-7441-bf74-32b94636c01a",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
