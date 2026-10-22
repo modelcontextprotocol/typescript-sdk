@@ -637,7 +637,7 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return crossCheckMismatch(
             'name-header-invalid-encoding',
             normalizedNameHeader,
-            'the Mcp-Name header carries an invalid Base64 sentinel value',
+            'the Mcp-Name header carries invalid characters or an invalid Base64 sentinel value',
             'standard-header-validation'
         );
     }
