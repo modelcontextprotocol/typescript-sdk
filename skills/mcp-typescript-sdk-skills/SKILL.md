@@ -131,7 +131,7 @@ Both:
 
 ## Verify
 
-**Server:** list and read every skill through a real client. In a script or test, connect a `Client` to the server over an in-memory pair and read each entry with `SkillsClient`. `read` throws when a file fails a check:
+**Server:** list every skill and read every file it lists through a real client. In a script or test, connect a `Client` to the server over an in-memory pair and read each file with `SkillsClient`. `read` throws when a file fails a check, and the loop throws when the server lists no skills:
 
 ```ts source="../../examples/guides/servers/skills.examples.ts#verify_inMemory"
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
@@ -144,14 +144,15 @@ await client.connect(clientTransport);
 
 const skillsClient = new SkillsClient(client);
 const { skills: listed } = await skillsClient.list();
+if (listed.length === 0) throw new Error('the server listed no skills');
 for (const entry of listed) {
-    const { verified } = await skillsClient.read(entry);
-    if (!verified) throw new Error(`${entry.uri} did not verify`);
+    const files = entry.resources === 'dynamic' ? [entry.uri] : entry.resources.map(file => file.uri);
+    for (const uri of files) await skillsClient.read(entry, uri);
 }
 console.log(`${listed.length} skill(s) listed and verified`);
 ```
 
-An entry whose `resources` is `"dynamic"` (only a `SkillSource` serves one) has no file list. `read` still checks its `SKILL.md` frontmatter but returns `verified: false`, so accept such an entry when `read` does not throw.
+An entry whose `resources` is `"dynamic"` (only a `SkillSource` serves one) has no file list, so the loop reads only its `SKILL.md`: `read` checks the frontmatter but has no size or digest to check, and returns `verified: false`.
 
 For a stdio server, the same loop works over `StdioClientTransport` (from `@modelcontextprotocol/client/stdio`) against the server's real start command; set its `cwd` option to another directory (such as `/`), as hosts do, so a path that depends on the working directory fails here and not in the user's host. Compare the number of skills listed with the number of skill folders, and account for each one missing: a warning, or a dot-name.
 

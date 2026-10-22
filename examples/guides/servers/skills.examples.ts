@@ -133,9 +133,10 @@ await client.connect(clientTransport);
 
 const skillsClient = new SkillsClient(client);
 const { skills: listed } = await skillsClient.list();
+if (listed.length === 0) throw new Error('the server listed no skills');
 for (const entry of listed) {
-    const { verified } = await skillsClient.read(entry);
-    if (!verified) throw new Error(`${entry.uri} did not verify`);
+    const files = entry.resources === 'dynamic' ? [entry.uri] : entry.resources.map(file => file.uri);
+    for (const uri of files) await skillsClient.read(entry, uri);
 }
 console.log(`${listed.length} skill(s) listed and verified`);
 //#endregion verify_inMemory
