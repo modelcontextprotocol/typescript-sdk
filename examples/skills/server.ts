@@ -1,7 +1,7 @@
 /**
  * Serves the `skills/` folder next to this file as MCP skills (SEP-2640),
- * under the `examples` prefix: one `loadSkills` call at startup, attached to
- * every server instance.
+ * under the `examples` prefix: one `loadSkills` call at startup, passed to
+ * every server instance in `extensions`.
  *
  * One binary, either transport — selected by `--http --port <N>` (defaults to
  * stdio). See `examples/CONTRIBUTING.md` for the canonical shape.
@@ -17,9 +17,7 @@ import { serveStdio } from '@modelcontextprotocol/server/stdio';
 const skills = await loadSkills(siblingPath(import.meta.url, 'skills'), { prefix: 'examples' });
 
 function buildServer(): McpServer {
-    const mcp = new McpServer({ name: 'skills-example', version: '1.0.0' });
-    skills.attach(mcp);
-    return mcp;
+    return new McpServer({ name: 'skills-example', version: '1.0.0' }, { extensions: [skills] });
 }
 
 const { transport, port } = parseExampleArgs();

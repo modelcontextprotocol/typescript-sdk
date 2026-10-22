@@ -6,6 +6,7 @@ import {
     setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core-internal';
 
+import type { ServerExtension } from '../../../src/server/extension';
 import { invoke } from '../../../src/server/invoke';
 import { McpServer } from '../../../src/server/mcp';
 
@@ -19,8 +20,9 @@ export interface Reply {
 
 let nextId = 1;
 
-export function newServer(): McpServer {
-    return new McpServer({ name: 'skills-test', version: '1.0.0' });
+/** A server with `extensions` set up on it, as `new McpServer(info, { extensions })` does. */
+export function newServer(...extensions: ServerExtension[]): McpServer {
+    return new McpServer({ name: 'skills-test', version: '1.0.0' }, { extensions });
 }
 
 /** Sends one JSON-RPC request through the real dispatch path, on the given protocol revision. */

@@ -23,23 +23,18 @@ import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 
 const skills = await loadSkills('./skills');
 
-const server = new McpServer({ name: 'team-skills', version: '1.0.0' });
-skills.attach(server);
+const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] });
 //#endregion loadSkills_basic
 
 //#region entries
 console.log(skills.entries.map(skill => skill.uri).join('\n'));
 //#endregion entries
 
-//#region attach_perRequest
+//#region extensions_perRequest
 import { createMcpHandler } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'team-skills', version: '1.0.0' });
-    skills.attach(mcp);
-    return mcp;
-});
-//#endregion attach_perRequest
+const handler = createMcpHandler(() => new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] }));
+//#endregion extensions_perRequest
 
 // What the handler publishes to `subscriptions/listen` streams, recorded for the checks at the end.
 const published: string[] = [];
@@ -164,6 +159,7 @@ if (!liveChanges.listChanged || JSON.stringify(published) !== JSON.stringify(['r
 if (inline.entries[0]?.frontmatter.name !== 'release-notes' || fromBucket.entries[0]?.uri !== inline.entries[0]?.uri) {
     throw new Error('skills.md: in-code and adapter catalogs must match');
 }
-for (const extension of [inline, fromBucket, generated]) extension.attach(new McpServer({ name: 'docs-check', version: '1.0.0' }));
+for (const extension of [inline, fromBucket, generated])
+    new McpServer({ name: 'docs-check', version: '1.0.0' }, { extensions: [extension] });
 await handler.close();
 await server.close();

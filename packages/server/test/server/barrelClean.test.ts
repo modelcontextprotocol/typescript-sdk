@@ -164,13 +164,13 @@ describe('@modelcontextprotocol/server root and ext/skills are runtime-neutral',
         expect(graph.some(content => SKILLS_CODE.test(content))).toBe(true);
     });
 
-    test('the ext/skills declarations give subclasses no attach hook to override', () => {
-        // SEP-3371 registration (`extensions: [skills]`) will not go through attach(), so no hook may be public API.
+    test('the ext/skills declarations give subclasses no setup hook to override', () => {
+        // The after-setup hook is internal wiring between SkillsExtension and SkillCatalog, so it must not be public API.
         const graph = declarationGraphOf(join(distDir, 'ext/skills/index.d.mts'));
         expect(graph.some(file => /\bdeclare class SkillCatalog\b/.test(readFileSync(file, 'utf8')))).toBe(true);
         for (const file of graph) {
             expect({ file, content: readFileSync(file, 'utf8') }).not.toEqual(
-                expect.objectContaining({ content: expect.stringMatching(/\bafterAttach\b/) })
+                expect.objectContaining({ content: expect.stringMatching(/\bafterSetup\b/) })
             );
         }
     });

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { SkillCatalogOptions, SkillWarning } from '../../../src/ext/skills/index';
 import { memorySkillFiles, SkillCatalogError, SkillsExtension } from '../../../src/ext/skills/index';
+import type { McpServer } from '../../../src/server/mcp';
 import { ESCALATION, fixtureFiles, GIT, GIT_SKILL_MD, LOGO, PNG, PURCHASE_ORDER, REFUNDS, REFUNDS_SKILL_MD, REMBOURSE } from './fixtures';
 import { errorOf, LEGACY, newServer, resultOf } from './harness';
 
@@ -13,8 +14,7 @@ async function loaded(options: SkillCatalogOptions = {}) {
     const files = fixtureFiles();
     const warnings: SkillWarning[] = [];
     const catalog = await SkillsExtension.load(memorySkillFiles(files), { onWarning: warning => warnings.push(warning), ...options });
-    const mcp = newServer();
-    catalog.attach(mcp);
+    const mcp = newServer(catalog);
     return { catalog, mcp, warnings, files };
 }
 
@@ -162,14 +162,13 @@ describe('SkillCatalog serving', () => {
 
     it('serves many servers from one catalog', async () => {
         const { catalog } = await loaded();
-        const servers = [newServer(), newServer(), newServer()];
-        for (const server of servers) catalog.attach(server);
+        const servers = [newServer(catalog), newServer(catalog), newServer(catalog)];
         for (const server of servers) expect(await resultOf(server, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
     });
 
-    it('keeps attach cheap while many attached servers are still alive', async () => {
+    it('keeps setup cheap while many servers it is set up on are still alive', async () => {
         const { catalog } = await loaded();
-        const servers = Array.from({ length: 1100 }, () => newServer());
+        const servers: McpServer[] = [];
         const deref = WeakRef.prototype.deref;
         let derefs = 0;
         WeakRef.prototype.deref = function (this: WeakRef<WeakKey>) {
@@ -177,7 +176,7 @@ describe('SkillCatalog serving', () => {
             return deref.call(this);
         };
         try {
-            for (const server of servers) catalog.attach(server);
+            for (let index = 0; index < 1100; index++) servers.push(newServer(catalog));
         } finally {
             WeakRef.prototype.deref = deref;
         }
@@ -240,14 +239,13 @@ describe('SkillCatalog.reload', () => {
         expect(await catalog.reload()).toMatchObject({ added: ['skill://aaa/SKILL.md'], listChanged: true });
     });
 
-    it('attaches and reloads where the runtime has no WeakRef, tracking no servers (Workers before 2025-05-05)', async () => {
+    it('sets up and reloads where the runtime has no WeakRef, tracking no servers (Workers before 2025-05-05)', async () => {
         const { catalog, files } = await loaded();
         const descriptor = Object.getOwnPropertyDescriptor(globalThis, 'WeakRef')!;
         Reflect.deleteProperty(globalThis, 'WeakRef');
         try {
             expect(typeof WeakRef).toBe('undefined');
-            const mcp = newServer();
-            expect(() => catalog.attach(mcp)).not.toThrow();
+            const mcp = newServer(catalog);
             expect(await resultOf(mcp, 'skills/get', { uri: GIT })).toMatchObject({ skill: { uri: GIT } });
             const notify = vi.spyOn(mcp.server, 'sendResourceListChanged');
             const [, serverSide] = InMemoryTransport.createLinkedPair();
@@ -283,9 +281,7 @@ description: d
 
     it('notifies each connected server once, and only when the listing changes', async () => {
         const { catalog, files, mcp: disconnected } = await loaded();
-        const mcp = newServer();
-        catalog.attach(mcp);
-        catalog.attach(mcp);
+        const mcp = newServer(catalog);
         const notify = vi.spyOn(mcp.server, 'sendResourceListChanged');
         const skipped = vi.spyOn(disconnected.server, 'sendResourceListChanged');
         const [, serverSide] = InMemoryTransport.createLinkedPair();
@@ -302,8 +298,7 @@ description: d
 
     it('reports a failed list_changed send as a warning, never an unhandled rejection', async () => {
         const { catalog, files, warnings } = await loaded();
-        const mcp = newServer();
-        catalog.attach(mcp);
+        const mcp = newServer(catalog);
         const [, serverSide] = InMemoryTransport.createLinkedPair();
         await mcp.connect(serverSide);
         vi.spyOn(serverSide, 'send').mockRejectedValue(new Error('transport down'));
@@ -330,9 +325,8 @@ description: d
             throw new Error('sink failed');
         });
         const { catalog, files } = await loaded({ onWarning: sink });
-        const servers = [newServer(), newServer(), newServer()];
+        const servers = [newServer(catalog), newServer(catalog), newServer(catalog)];
         for (const server of servers) {
-            catalog.attach(server);
             await server.connect(InMemoryTransport.createLinkedPair()[1]);
         }
         const [throwsSync, rejects, healthy] = servers.map(server => vi.spyOn(server.server, 'sendResourceListChanged'));
