@@ -929,10 +929,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
-        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
-            .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+        // Dispatch synchronously so a notification that shares a read with
+        // its request's response is not deferred past _onresponse, which
+        // deletes the matching progress handler (see #3018). Async handler
+        // rejections and synchronous throws still route to _onerror.
+        try {
+            const result = handler === undefined ? fallback!(notification) : handler(notification, codec);
+            if (result !== undefined && typeof (result as PromiseLike<void>).then === 'function') {
+                Promise.resolve(result).catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+            }
+        } catch (error) {
+            this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
+        }
     }
 
     private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
