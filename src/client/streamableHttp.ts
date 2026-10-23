@@ -264,6 +264,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 if (response.status === 401 && this._authProvider) {
                     // Need to authenticate
+                    if (response.headers.has('www-authenticate')) {
+                        const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._scope = scope;
+                    }
                     return await this._authThenStart();
                 }
 

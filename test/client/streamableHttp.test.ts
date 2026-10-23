@@ -623,6 +623,44 @@ describe('StreamableHTTPClientTransport', () => {
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
     });
 
+    it('passes resource_metadata from WWW-Authenticate to auth on 401 during GET SSE request', async () => {
+        const fetchMock = global.fetch as Mock;
+        fetchMock
+            // First call: GET returns 401 with resource_metadata
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer resource_metadata="http://example.com/resource", scope="new_scope"'
+                })
+            })
+            // Second call: GET after auth, server has no standalone SSE stream
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 405,
+                statusText: 'Method Not Allowed',
+                headers: new Headers()
+            });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.resumeStream('last-event-id');
+
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(authSpy).toHaveBeenCalledWith(
+            mockAuthProvider,
+            expect.objectContaining({
+                scope: 'new_scope',
+                resourceMetadataUrl: new URL('http://example.com/resource')
+            })
+        );
+
+        authSpy.mockRestore();
+    });
+
     it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
