@@ -254,10 +254,10 @@ verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
     // prior to connect (Protocol wires transport.onerror before start() and
     // before the initialize handshake).'
     //
-    // Spawn the fixture with E2E_GARBAGE_STDOUT=1: it writes non-JSON garbage to
-    // stdout immediately (before the handshake) and exits. The garbage fails to
-    // parse, triggering transport.onerror. Assert that client.onerror fires and
-    // that connect() does not hang or falsely succeed.
+    // Spawn the fixture with E2E_GARBAGE_STDOUT=1: before the handshake it writes
+    // non-JSON noise (which is deliberately skipped) plus a schema-invalid JSON-RPC
+    // line, which must surface through transport.onerror. Assert that
+    // client.onerror fires and that connect() does not hang or falsely succeed.
 
     const transport = new StdioClientTransport({
         command: 'npx',
@@ -290,7 +290,12 @@ verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
 
         // At least one error should relate to JSON parsing of the garbage lines.
         const hasJsonError = errors.some(
-            e => e.message.includes('JSON') || e.message.includes('parse') || e.message.includes('Unexpected token')
+            e =>
+                e.message.includes('JSON') ||
+                e.message.includes('parse') ||
+                e.message.includes('Unexpected token') ||
+                // non-JSON lines are now skipped; the schema-invalid line surfaces as a validation error naming the jsonrpc field
+                e.message.includes('"jsonrpc"')
         );
         expect(hasJsonError).toBe(true);
     } finally {

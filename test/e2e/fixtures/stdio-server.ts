@@ -52,6 +52,8 @@ if (process.env.E2E_GARBAGE_STDOUT === '1') {
     process.stdout.write('GARBAGE LINE 1: not json\n');
     process.stdout.write('GARBAGE LINE 2: {malformed json\n');
     process.stdout.write('GARBAGE LINE 3: also not valid jsonrpc\n');
+    // Valid JSON but not a valid JSON-RPC message: non-JSON noise is skipped, but schema-invalid messages must still surface via onerror.
+    process.stdout.write('{"jsonrpc":"1.0","bogus":true}\n');
     process.stdin.resume();
     process.stdin.on('end', () => process.exit(0));
     setTimeout(() => process.exit(1), 30_000);
