@@ -1,6 +1,7 @@
+import { setImmediate } from 'node:timers/promises';
+
 import type { JSONRPCRequest } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
-import { setImmediate } from 'node:timers/promises';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client';
@@ -50,7 +51,7 @@ describe('request identifier matching', () => {
                 await state.peerTransport.send(
                     kind === 'result'
                         ? { jsonrpc: '2.0', id, result: initializeResult }
-                        : { jsonrpc: '2.0', id, error: { code: -32603, message: 'Unrelated request failed' } }
+                        : { jsonrpc: '2.0', id, error: { code: -32_603, message: 'Unrelated request failed' } }
                 );
                 await setImmediate();
                 expect(state.isSettled()).toBe(false);
@@ -96,13 +97,30 @@ describe('request identifier matching', () => {
     it('ignores an error response without an identifier', async () => {
         const state = await startHandshake();
         try {
-            await state.peerTransport.send({ jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' } });
+            await state.peerTransport.send({ jsonrpc: '2.0', error: { code: -32_700, message: 'Parse error' } });
             await setImmediate();
             expect(state.isSettled()).toBe(false);
             expect(state.errors).toHaveLength(1);
             expect(state.errors[0]!.message).toContain('unknown message ID');
             await state.peerTransport.send({ jsonrpc: '2.0', id: state.request.id, result: initializeResult });
             await expect(state.connected).resolves.toBeUndefined();
+        } finally {
+            await state.client.close();
+        }
+    });
+
+    it('rejects a null-identifier error without settling the request', async () => {
+        const state = await startHandshake();
+        try {
+            // @ts-expect-error Exercise the schema guard with an invalid incoming identifier.
+            await state.peerTransport.send({ jsonrpc: '2.0', id: null, error: { code: -32_700, message: 'Parse error' } });
+            await setImmediate();
+            expect(state.isSettled()).toBe(false);
+            expect(state.errors).toHaveLength(1);
+            expect(state.errors[0]!.message).toContain('Unknown message type');
+            await state.peerTransport.send({ jsonrpc: '2.0', id: state.request.id, result: initializeResult });
+            await expect(state.connected).resolves.toBeUndefined();
+            expect(state.errors).toHaveLength(1);
         } finally {
             await state.client.close();
         }
@@ -125,7 +143,7 @@ describe('request identifier matching', () => {
             await state.peerTransport.send({
                 jsonrpc: '2.0',
                 id: state.request.id,
-                error: { code: -32603, message: 'Initialization failed' }
+                error: { code: -32_603, message: 'Initialization failed' }
             });
             await expect(state.connected).rejects.toThrow('Initialization failed');
             expect(state.errors).toEqual([]);
