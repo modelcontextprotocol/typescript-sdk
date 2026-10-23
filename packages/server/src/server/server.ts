@@ -60,11 +60,13 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
+import { perRequestClassificationOf } from './perRequestTransport';
 
 /**
  * The request methods whose 2026-07-28 result vocabulary includes
@@ -290,6 +292,7 @@ export class Server extends Protocol<ServerContext> {
     private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
+    private _boundFromTransport = false;
 
     /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
@@ -340,9 +343,7 @@ export class Server extends Protocol<ServerContext> {
 
         // server/discover is installed only when the supported-versions list
         // carries a modern revision: a legacy-only server keeps answering -32601.
-        // A hand-constructed instance is never era-bound, so the handler stays
-        // unreachable behind the era gate until a serving entry (createMcpHandler,
-        // serveStdio) marks the instance as serving the 2026-07-28 era.
+        // The handler becomes reachable when a serving entry or connect() binds a modern revision.
         if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
             this.setRequestHandler('server/discover', () => this._ondiscover());
         }
@@ -359,6 +360,22 @@ export class Server extends Protocol<ServerContext> {
                 SdkErrorCode.AlreadyConnected,
                 'Use a separate Server instance per connection: this instance is already connected to a transport. To connect it to a new transport, call close() first.'
             );
+        }
+        // A new connection never inherits a binding taken from an earlier per-request transport.
+        if (this._boundFromTransport) {
+            this._boundFromTransport = false;
+            this._negotiatedProtocolVersion = undefined;
+        }
+        // A per-request transport classified at a modern revision this instance lists and the SDK implements binds that revision.
+        const revision = perRequestClassificationOf(transport)?.revision;
+        if (
+            revision !== undefined &&
+            !this._servedModernEra() &&
+            SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(revision) &&
+            modernProtocolVersions(this._supportedProtocolVersions).includes(revision)
+        ) {
+            this._negotiatedProtocolVersion = revision;
+            this._boundFromTransport = true;
         }
         await super.connect(transport);
     }
@@ -966,8 +983,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * declared capabilities, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -979,8 +996,8 @@ export class Server extends Protocol<ServerContext> {
      * @deprecated Read client identity from the per-request handler context instead: on
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
      * name and version, while on 2025-era connections this accessor keeps returning the
-     * `initialize`-scoped value. The accessor remains functional — instances serving the
-     * 2026-07-28 era are backfilled per request from the validated envelope.
+     * `initialize`-scoped value. The accessor remains functional where `createMcpHandler`
+     * serves the 2026-07-28 era: it backfills it per request from the validated envelope.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;

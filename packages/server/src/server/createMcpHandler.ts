@@ -829,7 +829,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                if (scan.valid && scan.declarations.length > 0) {
+                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
                         void product.close().catch(reportError);

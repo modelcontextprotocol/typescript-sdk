@@ -387,6 +387,19 @@ export interface OAuthClientProvider {
     validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
 
     /**
+     * Returns the `scope` that {@linkcode auth} sends on a refresh-token request. Left undefined
+     * (the default), or when it returns `undefined` or `''`, the request carries no `scope`, which
+     * asks for the scope already granted (RFC 6749 §6).
+     *
+     * Implement it only for an authorization server that rejects a refresh without `scope`:
+     * other servers may reject or narrow a refresh that carries one. The returned value must
+     * not include a scope that was not originally granted.
+     *
+     * @param tokens - The stored tokens being refreshed; `tokens.scope` is the scope last saved with them.
+     */
+    scopeForRefresh?(tokens: StoredOAuthTokens): string | undefined | Promise<string | undefined>;
+
+    /**
      * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
      * credentials, in the case where the server has indicated that they are no longer valid.
      * This avoids requiring the user to intervene manually.
@@ -1385,6 +1398,7 @@ async function authInternal(
     // current token's granted scope — refreshing would not widen it (RFC 6749
     // §6), so skip straight to a fresh authorization request.
     if (tokens?.refresh_token && !forceReauthorization) {
+        const refreshScope = await provider.scopeForRefresh?.(tokens);
         let newTokens: OAuthTokens | undefined;
         try {
             // Attempt to refresh the token
@@ -1392,6 +1406,7 @@ async function authInternal(
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
+                scope: refreshScope,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
                 dpop: await provider.dpop?.(),
@@ -1426,12 +1441,7 @@ async function authInternal(
         // token, so silently dropping the new tokens would leave the client
         // with credentials that are already invalid server-side.
         if (newTokens) {
-            // RFC 6749 §5.1/§6: the SDK sends no `scope` parameter on refresh, so a
-            // response without `scope` (including a null-stripped one) asserts the grant
-            // is unchanged — preserve the stored scope instead of erasing the recorded
-            // grant (the 403 insufficient_scope step-up unions it to avoid losing
-            // previously-granted permissions). The conditional spread keeps `scope`
-            // strictly absent when neither side has one — never present-but-undefined.
+            // Refresh responses omit scope when the grant is unchanged (RFC 6749 §6); keep the stored one, strictly absent if neither has it.
             const preservedScope = newTokens.scope ?? tokens.scope;
             await provider.saveTokens({ ...newTokens, ...(preservedScope !== undefined && { scope: preservedScope }), issuer }, infoCtx);
             return 'AUTHORIZED';
@@ -2360,6 +2370,7 @@ export async function refreshAuthorization(
         metadata,
         clientInformation,
         refreshToken,
+        scope,
         resource,
         addClientAuthentication,
         dpop,
@@ -2368,6 +2379,11 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
+        /**
+         * `scope` to send on the request; omitted or `''` sends none, which asks for the scope
+         * already granted (RFC 6749 §6). When sent, it is also the result's `scope` if the response has none.
+         */
+        scope?: string;
         resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
@@ -2379,6 +2395,9 @@ export async function refreshAuthorization(
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
+    if (scope) {
+        tokenRequestParams.set('scope', scope);
+    }
 
     const tokens = await executeTokenRequest(authorizationServerUrl, {
         metadata,
@@ -2390,8 +2409,8 @@ export async function refreshAuthorization(
         fetchFn
     });
 
-    // Preserve original refresh token if server didn't return a new one
-    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken };
+    // Preserve the original refresh token, and the scope sent (RFC 6749 §5.1), if the server didn't return new ones
+    return { ...tokens, refresh_token: tokens.refresh_token ?? refreshToken, ...(scope && !tokens.scope && { scope }) };
 }
 
 /**
