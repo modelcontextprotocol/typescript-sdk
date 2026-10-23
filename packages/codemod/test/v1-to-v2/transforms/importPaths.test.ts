@@ -571,6 +571,23 @@ describe('import-paths transform', () => {
         expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK import path');
     });
 
+    it.each([
+        ['@modelcontextprotocol/sdk/client', 'Client', '@modelcontextprotocol/client'],
+        ['@modelcontextprotocol/sdk/client/index', 'Client', '@modelcontextprotocol/client'],
+        ['@modelcontextprotocol/sdk/server', 'Server', '@modelcontextprotocol/server'],
+        ['@modelcontextprotocol/sdk/validation', 'jsonSchemaValidator', '@modelcontextprotocol/server']
+    ])('resolves the bare barrel subpath %s the same as its index.js', (specifier, symbol, target) => {
+        const input = `import { ${symbol} } from '${specifier}';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain(`from "${target}"`);
+        expect(output).toContain(symbol);
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK import path');
+    });
+
     it('preserves type-only imports separately', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
@@ -854,6 +871,17 @@ describe('import-paths transform', () => {
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         const output = sourceFile.getFullText();
         expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK export path');
+    });
+
+    it('resolves a bare barrel subpath re-export (sdk/client)', () => {
+        const input = `export { Client } from '@modelcontextprotocol/sdk/client';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'client' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/client');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
         expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK export path');
     });
