@@ -632,3 +632,14 @@ describe('removed symbols in mocks and dynamic imports', () => {
         expect(text).toContain(`vi.mock('@modelcontextprotocol/server'`);
     });
 });
+
+describe('dynamic import binding defaults', () => {
+    it('preserves fallback initializers when renaming a shorthand binding', () => {
+        const result = applyTransform(`const { McpError = fallback } = await import('@modelcontextprotocol/sdk/types.js');`);
+        expect(result).toContain('ProtocolError: McpError = fallback');
+    });
+    it('preserves defaults in then callback bindings', () => {
+        const result = applyTransform(`import('@modelcontextprotocol/sdk/types.js').then(({ McpError = fallback }) => McpError);`);
+        expect(result).toContain('ProtocolError: McpError = fallback');
+    });
+});
