@@ -230,9 +230,12 @@ export class UriTemplate {
                 pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
                 break;
             }
-            case '+':
-            case '#': {
+            case '+': {
                 pattern = '(.+)';
+                break;
+            }
+            case '#': {
+                pattern = '#(.*)';
                 break;
             }
             case '.': {
