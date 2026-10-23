@@ -22,7 +22,9 @@ const packages = packageJsonPaths.map(p => {
 // (the schemas mirror the documented types 1:1) so monorepo-wide invalid-link validation can stay ON.
 const DOCS_EXCLUDED_PACKAGES = new Set(['@modelcontextprotocol/core']);
 const publicPackages = packages.filter(p => p.manifest.private !== true && !DOCS_EXCLUDED_PACKAGES.has(p.manifest.name));
-const entryPoints = publicPackages.map(p => p.rootDir);
+// TypeDoc treats entry points as globs, which require forward slashes on Windows.
+// Keep native paths above for filesystem reads, then normalize only the glob inputs.
+const entryPoints = publicPackages.map(p => p.rootDir.replaceAll('\\', '/'));
 
 console.log(
     'Typedoc selected public packages:',
