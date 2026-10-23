@@ -35,6 +35,16 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    the changed files (`prettier --write` / `eslint --fix` / `biome format --write`); the
    codemod prints the exact command after it runs.
 6. **Run your tests.**
+7. **Decide whether to serve the 2026-07-28 revision.** The upgrade alone does not: a server
+   that still calls `server.connect(new StdioServerTransport())` or hands requests to a
+   `*StreamableHTTPServerTransport` serves 2025-era clients only, and a client pinned to
+   2026-07-28 cannot connect to it. To serve both, move the entry point to
+   `serveStdio(() => createServer())` or `createMcpHandler(() => createServer())`. A server
+   that uses HTTP sessions keeps its transport for 2025-era clients and routes to it with
+   `isLegacyRequest`, in front of `createMcpHandler(factory, { legacy: 'reject' })`.
+   `createMcpHandler` checks no `Host` or `Origin` header, so a server that set
+   `enableDnsRebindingProtection` mounts host and origin validation in front of it; see
+   [Serving the 2026-07-28 revision](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28.md#serving-the-2026-07-28-revision).
 
 Migrating a large codebase gradually instead of in one pass? See
 [Migrating in stages (large codebases)](references/packaging-runtime.md#migrating-in-stages-large-codebases).
