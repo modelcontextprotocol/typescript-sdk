@@ -187,9 +187,13 @@ export class McpServer {
         this.server.assertCanSetRequestHandler(getMethodValue(ListToolsRequestSchema));
         this.server.assertCanSetRequestHandler(getMethodValue(CallToolRequestSchema));
 
+        // Preserve user's listChanged setting from constructor
+        const currentToolsCap = this.server._capabilities?.tools;
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: currentToolsCap?.listChanged !== undefined 
+                    ? currentToolsCap.listChanged 
+                    : true
             }
         });
 
