@@ -14,6 +14,8 @@ const server = new McpServer({ name: 'team-skills', version: '1.0.0' });
 skills.attach(server);
 ```
 
+`attach` is experimental: how an extension is wired to a server may change in a minor release.
+
 A **skill** is a folder with a `SKILL.md` and the files it references (SEP-2640). Clients list skills with `skills/list` and read each file with `resources/read`, checking it against the digest your server published.
 
 ## Lay out the skills folder
