@@ -24,6 +24,13 @@ export enum SdkErrorCode {
     // Transport errors
     /** Request timed out waiting for response */
     RequestTimeout = 'REQUEST_TIMEOUT',
+    /**
+     * The request's `AbortSignal` fired before a response arrived. Distinct
+     * from {@linkcode RequestTimeout} so callers can tell a deliberate
+     * `controller.abort()` apart from the request's own timeout elapsing —
+     * both used to surface as `RequestTimeout`.
+     */
+    RequestAborted = 'REQUEST_ABORTED',
     /** Connection was closed */
     ConnectionClosed = 'CONNECTION_CLOSED',
     /** Failed to send message */

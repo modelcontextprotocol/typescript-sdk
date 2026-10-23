@@ -160,7 +160,16 @@ export function inputRequiredRoundsExceededMessage(method: string, maxRounds: nu
 export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
     return new Promise((resolve, reject) => {
         if (signal?.aborted) {
-            reject(signal.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal.reason)));
+            reject(
+                signal.reason instanceof SdkError
+                    ? signal.reason
+                    : new SdkError(
+                          SdkErrorCode.RequestAborted,
+                          signal.reason === undefined ? 'Request was aborted' : String(signal.reason),
+                          undefined,
+                          signal.reason === undefined ? undefined : { cause: signal.reason }
+                      )
+            );
             return;
         }
         const timer = setTimeout(() => {
@@ -169,7 +178,16 @@ export function sleep(ms: number, signal: AbortSignal | undefined): Promise<void
         }, ms);
         const onAbort = (): void => {
             clearTimeout(timer);
-            reject(signal?.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal?.reason)));
+            reject(
+                signal?.reason instanceof SdkError
+                    ? signal.reason
+                    : new SdkError(
+                          SdkErrorCode.RequestAborted,
+                          signal?.reason === undefined ? 'Request was aborted' : String(signal?.reason),
+                          undefined,
+                          signal?.reason === undefined ? undefined : { cause: signal?.reason }
+                      )
+            );
         };
         signal?.addEventListener('abort', onAbort, { once: true });
     });
