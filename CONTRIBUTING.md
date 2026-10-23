@@ -26,6 +26,16 @@ We welcome contributions to the Model Context Protocol TypeScript SDK! This docu
 - Keep changes focused and atomic
 - Provide a clear description of changes
 
+## Good to know
+
+Details about this branch that neither the code nor the tools will tell you.
+
+- **Tests** — Tests live under `test/`, mirroring `src/`; a test file next to its source never runs.
+- **Imports** — Relative imports carry the `.js` extension; the compiler accepts them without it, Node does not.
+- **Public surface** — Everything under `src/` is reachable by users, because `package.json` exports `./*`.
+- **Zod** — User-supplied schemas may be Zod v3 or v4; `src/server/zod-compat.ts` handles both.
+- **Both lines** — A fix that also applies to v2 lands on `main` as well.
+
 ## Running Examples
 
 - Start the server: `npm run server`

@@ -1,4 +1,10 @@
-# MCP TypeScript SDK [![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk)](https://www.npmjs.com/package/@modelcontextprotocol/sdk) [![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/LICENSE)
+# MCP TypeScript SDK [![NPM Version](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fsdk)](https://www.npmjs.com/package/@modelcontextprotocol/sdk) [![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fsdk)](https://github.com/modelcontextprotocol/typescript-sdk/blob/v1.x/LICENSE)
+
+> **This is v1.x of the MCP TypeScript SDK, the maintenance line.** It implements the MCP spec up to 2025-11-25. Support for the [2026-07-28 spec](https://modelcontextprotocol.io/specification/2026-07-28) is not planned for v1.x: it is in v2, the current stable release, which
+> ships as separate packages, [`@modelcontextprotocol/server`](https://www.npmjs.com/package/@modelcontextprotocol/server) and [`@modelcontextprotocol/client`](https://www.npmjs.com/package/@modelcontextprotocol/client). See the
+> [v2 documentation](https://ts.sdk.modelcontextprotocol.io/v2/) and the [migration guide](https://ts.sdk.modelcontextprotocol.io/v2/migration/upgrade-to-v2).
+>
+> **Staying on v1.x?** It continues to receive bug fixes and security updates for at least six months after the v2 release (2026-07-27). The v1 documentation is at <https://ts.sdk.modelcontextprotocol.io/>.
 
 <details>
 <summary>Table of Contents</summary>
@@ -17,7 +23,7 @@
 ## Overview
 
 The Model Context Protocol allows applications to provide context for LLMs in a standardized way, separating the concerns of providing context from the actual LLM interaction. This TypeScript SDK implements
-[the full MCP specification](https://modelcontextprotocol.io/specification/draft), making it easy to:
+[the 2025-11-25 MCP specification](https://modelcontextprotocol.io/specification/2025-11-25), making it easy to:
 
 - Create MCP servers that expose resources, prompts and tools
 - Build MCP clients that can connect to any MCP server

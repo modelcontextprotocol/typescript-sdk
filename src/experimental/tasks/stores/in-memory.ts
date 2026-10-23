@@ -13,6 +13,7 @@ interface StoredTask {
     task: Task;
     request: Request;
     requestId: RequestId;
+    sessionId?: string;
     result?: Result;
 }
 
@@ -21,6 +22,11 @@ interface StoredTask {
  *
  * This implementation stores all tasks in memory and provides automatic cleanup
  * based on the ttl duration specified in the task creation parameters.
+ *
+ * A task created with a sessionId belongs to that session: calls that pass a different
+ * sessionId treat the task as not found, and listTasks with a sessionId returns that
+ * session's tasks and the tasks created without a sessionId. Calls that pass no sessionId
+ * are not restricted.
  *
  * Note: This is not suitable for production use as all data is lost on restart.
  * For production, consider implementing TaskStore with a database or distributed cache.
@@ -39,7 +45,18 @@ export class InMemoryTaskStore implements TaskStore {
         return randomBytes(16).toString('hex');
     }
 
-    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, _sessionId?: string): Promise<Task> {
+    /**
+     * Returns the stored task unless it belongs to a different session than the caller's.
+     */
+    private lookup(taskId: string, sessionId?: string): StoredTask | undefined {
+        const stored = this.tasks.get(taskId);
+        if (stored && sessionId !== undefined && stored.sessionId !== undefined && stored.sessionId !== sessionId) {
+            return undefined;
+        }
+        return stored;
+    }
+
+    async createTask(taskParams: CreateTaskOptions, requestId: RequestId, request: Request, sessionId?: string): Promise<Task> {
         // Generate a unique task ID
         const taskId = this.generateTaskId();
 
@@ -64,7 +81,8 @@ export class InMemoryTaskStore implements TaskStore {
         this.tasks.set(taskId, {
             task,
             request,
-            requestId
+            requestId,
+            sessionId
         });
 
         // Schedule cleanup if ttl is specified
@@ -81,13 +99,13 @@ export class InMemoryTaskStore implements TaskStore {
         return task;
     }
 
-    async getTask(taskId: string, _sessionId?: string): Promise<Task | null> {
-        const stored = this.tasks.get(taskId);
+    async getTask(taskId: string, sessionId?: string): Promise<Task | null> {
+        const stored = this.lookup(taskId, sessionId);
         return stored ? { ...stored.task } : null;
     }
 
-    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, _sessionId?: string): Promise<void> {
-        const stored = this.tasks.get(taskId);
+    async storeTaskResult(taskId: string, status: 'completed' | 'failed', result: Result, sessionId?: string): Promise<void> {
+        const stored = this.lookup(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -119,8 +137,8 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async getTaskResult(taskId: string, _sessionId?: string): Promise<Result> {
-        const stored = this.tasks.get(taskId);
+    async getTaskResult(taskId: string, sessionId?: string): Promise<Result> {
+        const stored = this.lookup(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -132,8 +150,8 @@ export class InMemoryTaskStore implements TaskStore {
         return stored.result;
     }
 
-    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, _sessionId?: string): Promise<void> {
-        const stored = this.tasks.get(taskId);
+    async updateTaskStatus(taskId: string, status: Task['status'], statusMessage?: string, sessionId?: string): Promise<void> {
+        const stored = this.lookup(taskId, sessionId);
         if (!stored) {
             throw new Error(`Task with ID ${taskId} not found`);
         }
@@ -168,9 +186,10 @@ export class InMemoryTaskStore implements TaskStore {
         }
     }
 
-    async listTasks(cursor?: string, _sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
+    async listTasks(cursor?: string, sessionId?: string): Promise<{ tasks: Task[]; nextCursor?: string }> {
         const PAGE_SIZE = 10;
-        const allTaskIds = Array.from(this.tasks.keys());
+        // Page over the tasks the caller can look up, so listTasks follows the same rule as getTask.
+        const allTaskIds = Array.from(this.tasks.keys()).filter(taskId => this.lookup(taskId, sessionId));
 
         let startIndex = 0;
         if (cursor) {
@@ -206,7 +225,7 @@ export class InMemoryTaskStore implements TaskStore {
     }
 
     /**
-     * Get all tasks (useful for debugging)
+     * Get all tasks of all sessions (useful for debugging)
      */
     getAllTasks(): Task[] {
         return Array.from(this.tasks.values()).map(stored => ({ ...stored.task }));
@@ -230,7 +249,7 @@ export class InMemoryTaskMessageQueue implements TaskMessageQueue {
     /**
      * Generates a queue key from taskId.
      * SessionId is intentionally ignored because taskIds are globally unique
-     * and tasks need to be accessible across HTTP requests/sessions.
+     * and the task store decides which session a task is found for.
      */
     private getQueueKey(taskId: string, _sessionId?: string): string {
         return taskId;

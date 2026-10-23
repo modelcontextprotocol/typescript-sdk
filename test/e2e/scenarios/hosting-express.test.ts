@@ -212,7 +212,7 @@ verifies('hosting:auth:aud-validation', async (_args: TestArgs) => {
 
     const app = express();
     app.use(express.json());
-    app.use(requireBearerAuth({ verifier, resourceMetadataUrl: SERVER_RESOURCE_ID }));
+    app.use(requireBearerAuth({ verifier, resourceMetadataUrl: SERVER_RESOURCE_ID, expectedResource: new URL(SERVER_RESOURCE_ID) }));
     app.post('/mcp', (_req, res) => {
         res.json({ jsonrpc: '2.0', id: 1, result: { ok: true } });
     });

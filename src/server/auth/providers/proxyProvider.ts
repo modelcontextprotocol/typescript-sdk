@@ -12,6 +12,10 @@ import { AuthorizationParams, OAuthServerProvider } from '../provider.js';
 import { ServerError } from '../errors.js';
 import { FetchLike } from '../../../shared/transport.js';
 
+// `issuer` is added by a client when it stores a value; upstream responses are parsed without it.
+const TokenResponseSchema = OAuthTokensSchema.omit({ issuer: true });
+const RegistrationResponseSchema = OAuthClientInformationFullSchema.omit({ issuer: true });
+
 export type ProxyEndpoints = {
     authorizationUrl: string;
     tokenUrl: string;
@@ -113,7 +117,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
                     }
 
                     const data = await response.json();
-                    return OAuthClientInformationFullSchema.parse(data);
+                    return RegistrationResponseSchema.parse(data);
                 }
             })
         };
@@ -188,7 +192,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokensSchema.parse(data);
+        return TokenResponseSchema.parse(data);
     }
 
     async exchangeRefreshToken(
@@ -229,7 +233,7 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
         }
 
         const data = await response.json();
-        return OAuthTokensSchema.parse(data);
+        return TokenResponseSchema.parse(data);
     }
 
     async verifyAccessToken(token: string): Promise<AuthInfo> {

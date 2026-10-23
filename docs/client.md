@@ -46,6 +46,11 @@ For OAuth-secured MCP servers, the client `auth` module exposes:
 - `PrivateKeyJwtProvider`
 - `StaticPrivateKeyJwtProvider`
 
+Pass `expectedIssuer` (the issuer URL of the authorization server the credentials were registered with) to each of these. `auth()` then only presents the credentials to that authorization server and throws if the MCP server advertises a different one. Omitting it is deprecated.
+
+If you implement `OAuthClientProvider` yourself, store the objects passed to `saveClientInformation()` and `saveTokens()` unchanged: they carry an `issuer` property naming the authorization server they came from, and `auth()` does not reuse them with a different one. If
+`clientInformation()` returns pre-registered credentials, include `issuer` yourself.
+
 Examples:
 
 - [`simpleOAuthClient.ts`](../src/examples/client/simpleOAuthClient.ts)
