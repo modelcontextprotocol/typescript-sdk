@@ -51,6 +51,14 @@ export type AuthRouterOptions = {
     /**
      * The URL of the protected resource (RS) whose metadata we advertise.
      * If not provided, falls back to `baseUrl` and then to `issuerUrl` (AS=RS).
+     *
+     * Pass the MCP endpoint URL itself (e.g. `https://api.example.com/mcp`), not just the
+     * origin. RFC 9728 §3 places the metadata at
+     * `/.well-known/oauth-protected-resource/<path>` and §3.3 requires its `resource` to be
+     * identical to the resource the client connected to. The `baseUrl` fallback therefore only
+     * yields a compliant document when the MCP endpoint is served at the origin root; clients
+     * that enforce §3.3 (Gemini CLI, Antigravity CLI) reject `resource: https://host/` when they
+     * connected to `https://host/mcp`, while the reference SDK client happens to accept it.
      */
     resourceServerUrl?: URL;
 
