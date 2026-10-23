@@ -84,6 +84,20 @@ describe('clientAuth middleware', () => {
         expect(response.body.error_description).toBe('Invalid client_secret');
     });
 
+    it('rejects invalid client_secret of a different length than the real one', async () => {
+        // Exercises the constant-time comparison's length-mismatch path
+        // (`timingSafeEqual` throws on unequal-length buffers, so this must
+        // be handled explicitly rather than left to throw).
+        const response = await supertest(app).post('/protected').send({
+            client_id: 'valid-client',
+            client_secret: 'short'
+        });
+
+        expect(response.status).toBe(400);
+        expect(response.body.error).toBe('invalid_client');
+        expect(response.body.error_description).toBe('Invalid client_secret');
+    });
+
     it('rejects missing client_id', async () => {
         const response = await supertest(app).post('/protected').send({
             client_secret: 'valid-secret'
