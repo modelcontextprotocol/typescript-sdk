@@ -967,6 +967,71 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 const errorData = await response.json();
                 expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
             });
+
+            it('should accept comma-separated protocol versions containing a supported version', async () => {
+                sessionId = await initializeServer();
+
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '2025-11-25, 2024-11-05'
+                    },
+                    body: JSON.stringify(TEST_MESSAGES.toolsList)
+                });
+
+                expect(response.status).toBe(200);
+            });
+
+            it('should reject comma-separated protocol versions when none are supported', async () => {
+                sessionId = await initializeServer();
+
+                const response = await fetch(baseUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '1999-01-01, 2000-01-01'
+                    },
+                    body: JSON.stringify(TEST_MESSAGES.toolsList)
+                });
+
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32000, /Bad Request: Unsupported protocol version/);
+            });
+
+            it('should accept comma-separated protocol versions on GET requests', async () => {
+                sessionId = await initializeServer();
+
+                const response = await fetch(baseUrl, {
+                    method: 'GET',
+                    headers: {
+                        Accept: 'text/event-stream',
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '2025-11-25, 2024-11-05'
+                    }
+                });
+
+                expect(response.status).toBe(200);
+            });
+
+            it('should accept comma-separated protocol versions on DELETE requests', async () => {
+                sessionId = await initializeServer();
+
+                const response = await fetch(baseUrl, {
+                    method: 'DELETE',
+                    headers: {
+                        'mcp-session-id': sessionId,
+                        'mcp-protocol-version': '2025-11-25, 2024-11-05'
+                    }
+                });
+
+                expect(response.status).toBe(200);
+            });
         });
     });
 
