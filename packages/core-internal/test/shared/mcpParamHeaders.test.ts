@@ -301,6 +301,21 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         });
     });
 
+    test('a plain header with a character outside 0x20-0x7E / 0x09 → reject 400/-32020, even when it equals the body', () => {
+        // Node's HTTP parser hands a raw 0xE9 byte through as 'é'; a conforming client Base64-wraps it.
+        expect(decodeMcpParamValue('café')).toBeUndefined();
+        const r = validateMcpParamHeaders(DECLS, { region: 'café' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'café' }));
+        expect(r).toMatchObject({
+            kind: 'reject',
+            httpStatus: 400,
+            code: HEADER_MISMATCH_ERROR_CODE,
+            cell: 'param-header-invalid-encoding'
+        });
+        expect(
+            validateMcpParamHeaders(DECLS, { region: 'a\tb' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'a\tb' }))
+        ).toBeUndefined();
+    });
+
     test('integer-typed declarations are compared numerically (42.0 == 42)', () => {
         const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
         expect(validateMcpParamHeaders(intDecl, { n: 42 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '42.0' }))).toBeUndefined();
