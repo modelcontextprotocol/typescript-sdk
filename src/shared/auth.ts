@@ -143,6 +143,55 @@ export const OAuthTokensSchema = z
     })
     .strip();
 
+/** {@link OAuthTokensSchema} as it appears on the wire: without the client-only `issuer` stamp. */
+const OAuthTokensWireSchema = OAuthTokensSchema.omit({ issuer: true });
+
+/**
+ * Schema for parsing OAuth 2.1 token responses received from an authorization
+ * server.
+ *
+ * Some authorization servers serialize absent optional members as JSON null
+ * (e.g. `"refresh_token": null`), which is nonconformant with RFC 6749 §5.1.
+ * We normalize null to undefined for leniency: null values in optional
+ * members are normalized to absent before validation, so that (a) otherwise
+ * valid responses from such servers parse, and (b) `expires_in: null` never
+ * reaches `z.coerce.number()`, which would coerce it to 0 — an
+ * instantly-expired token. Null values in required members are still
+ * rejected, non-object input is passed through unchanged, and the strict
+ * {@link OAuthTokensSchema} is unaffected.
+ *
+ * Per RFC 6749 §5.1, an absent `scope` member is a positive assertion that
+ * the granted scope is identical to the scope the client requested, so
+ * stripping `scope: null` converts a response with undefined semantics into
+ * that assertion. This has no bearing on enforcement — the SDK never uses
+ * `tokens.scope` for authorization decisions, and the resource server remains
+ * authoritative — but consumers must not derive granted-scope conclusions
+ * from the member's absence. Consumers that need the authoritative grant
+ * should use token introspection instead.
+ *
+ * The client-only `issuer` stamp is not part of the wire format: like the other
+ * response parse paths, this schema validates against {@link OAuthTokensSchema}
+ * without its `issuer` member, so an authorization server cannot inject the
+ * value the client binds stored credentials to.
+ */
+export const OAuthTokenResponseSchema = z.preprocess(
+    data => {
+        if (data === null || typeof data !== 'object' || Array.isArray(data)) {
+            return data;
+        }
+        const normalized: Record<string, unknown> = { ...data };
+        for (const [key, fieldSchema] of Object.entries(OAuthTokensWireSchema.shape)) {
+            if (normalized[key] === null && fieldSchema.safeParse(undefined).success) {
+                delete normalized[key];
+            }
+        }
+        return normalized;
+    },
+    // `issuer` is added by the client when it stores a value; authorization server
+    // responses are parsed without it (and `.strip()` then drops an incoming key).
+    OAuthTokensWireSchema
+);
+
 /**
  * OAuth 2.1 error response
  */
