@@ -593,6 +593,40 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expectErrorResponse(errorData, -32000, /Client must accept text\/event-stream/);
         });
 
+        it('should reject GET when text/event-stream appears only as a substring', async () => {
+            sessionId = await initializeServer();
+
+            const response = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream-bogus',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                }
+            });
+
+            expect(response.status).toBe(406);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32000, /Client must accept text\/event-stream/);
+        });
+
+        it('should reject GET when text/event-stream has q=0', async () => {
+            sessionId = await initializeServer();
+
+            const response = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream; q=0',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                }
+            });
+
+            expect(response.status).toBe(406);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32000, /Client must accept text\/event-stream/);
+        });
+
         it('should reject POST requests without proper Accept header', async () => {
             sessionId = await initializeServer();
 
@@ -610,6 +644,41 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(response.status).toBe(406);
             const errorData = await response.json();
             expectErrorResponse(errorData, -32000, /Client must accept both application\/json and text\/event-stream/);
+        });
+
+        it('should reject POST when required media types appear only as substrings', async () => {
+            sessionId = await initializeServer();
+
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId, {
+                Accept: 'application/jsonx, text/event-stream-bogus'
+            });
+
+            expect(response.status).toBe(406);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32000, /Client must accept both application\/json and text\/event-stream/);
+        });
+
+        it('should reject POST when a required media type has q=0', async () => {
+            sessionId = await initializeServer();
+
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId, {
+                Accept: 'application/json; q=0, text/event-stream'
+            });
+
+            expect(response.status).toBe(406);
+            const errorData = await response.json();
+            expectErrorResponse(errorData, -32000, /Client must accept both application\/json and text\/event-stream/);
+        });
+
+        it('should accept required media types with parameters and positive quality', async () => {
+            sessionId = await initializeServer();
+
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId, {
+                Accept: 'Application/JSON; q=0.9, text/event-stream; charset=utf-8'
+            });
+
+            expect(response.status).toBe(200);
+            await response.body?.cancel();
         });
 
         it('should reject unsupported Content-Type', async () => {
