@@ -111,6 +111,12 @@ export function unfollowedRedirect(url: string | URL, response: Response): strin
     return `Redirect to ${target.href} not followed; use that URL as the endpoint if it is the intended server`;
 }
 
+/** Releases the unread body of `response` without waiting for it; reads it to its end when it has no `cancel()`. Never throws. */
+export function releaseBody(response: Response): void {
+    const release = async () => (typeof response.body?.cancel === 'function' ? response.body.cancel() : response.text?.());
+    release().catch(() => {});
+}
+
 /**
  * Options for sending a JSON-RPC message.
  */
