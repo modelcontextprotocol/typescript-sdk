@@ -184,11 +184,14 @@ export {
 
 // Auth schemas (OAuth / OpenID / IdJag) — kept as a SEPARATE group from the MCP spec schemas above,
 // mirroring the SDK's own spec-vs-auth split (these live in src/auth.ts, not src/schemas.ts,
-// and are registered as `authSchemas` in core-internal's specTypeSchema.ts). This group is EXACTLY core-internal's
+// and are registered as `authSchemas` in core-internal's specTypeSchema.ts). This group is core-internal's
 // `authSchemas` set — every auth schema that has a public spec type (so `isSpecType.OAuthTokens`,
-// `isSpecType.IdJagTokenExchangeResponse`, etc. exist). The typeless internal URL field-validators
+// `isSpecType.IdJagTokenExchangeResponse`, etc. exist). OAuthTokenResponseSchema is the one addition
+// on top of that set: it introduces no spec type of its own (its output type is OAuthTokens) and
+// stays out of `authSchemas`, but it is public v1 API and the v1-to-v2 codemod routes its imports
+// here, so it needs this public home. The typeless internal URL field-validators
 // (SafeUrlSchema, OptionalSafeUrlSchema) are not auth schemas and stay out. The coreSchemas test
-// asserts this group stays in sync with core-internal's `authSchemas`.
+// asserts this group stays in sync with core-internal's `authSchemas` plus that one addition.
 export {
     IdJagTokenExchangeResponseSchema,
     OAuthClientInformationFullSchema,
@@ -198,6 +201,7 @@ export {
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
+    OAuthTokenResponseSchema,
     OAuthTokenRevocationRequestSchema,
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
