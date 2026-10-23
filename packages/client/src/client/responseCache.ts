@@ -284,6 +284,8 @@ export class ClientResponseCache {
      * has never read therefore cannot grow this map.
      */
     private readonly _evictionGeneration = new Map<string, number>();
+    // A reset must invalidate pending reads even if the same key is captured again at generation zero.
+    private _connectionGeneration = 0;
     /**
      * `name → Tool` index derived from the cached `tools/list` entry, memoized
      * against the entry's `stamp` so it re-derives only when the backing entry
@@ -388,8 +390,10 @@ export class ClientResponseCache {
      * probe is issued.
      */
     private async _probe(method: string, params?: string): Promise<CacheEntry | undefined> {
+        const connectionGeneration = this._connectionGeneration;
         const generation = this.captureGeneration(method, params);
-        const isCurrent = () => this._evictionGeneration.get(genKey(method, params)) === generation;
+        const isCurrent = () =>
+            this._connectionGeneration === connectionGeneration && this._evictionGeneration.get(genKey(method, params)) === generation;
         const key = { method, params: params ?? '' };
         const ownPartition = this._partitionFor('private');
         const own = await this._store.get({ ...key, partition: ownPartition });
@@ -595,6 +599,7 @@ export class ClientResponseCache {
      * return is a plain void here and the caller need not await.
      */
     resetForReconnect(): void {
+        this._connectionGeneration++;
         if (!this._isUserSupplied) void this._store.clear();
         this._evictionGeneration.clear();
         this._toolIndex = undefined;
