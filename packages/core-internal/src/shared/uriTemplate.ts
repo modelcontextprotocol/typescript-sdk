@@ -240,7 +240,7 @@ export class UriTemplate {
                 break;
             }
             case '/': {
-                pattern = '/' + (part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)');
+                pattern = '/' + (part.exploded ? '([^/,]+(?:[/,][^/,]+)*)' : '([^/,]+)');
                 break;
             }
             default: {
@@ -255,7 +255,7 @@ export class UriTemplate {
     match(uri: string): Variables | null {
         UriTemplate.validateLength(uri, MAX_TEMPLATE_LENGTH, 'URI');
         let pattern = '^';
-        const names: Array<{ name: string; exploded: boolean }> = [];
+        const names: Array<{ name: string; exploded: boolean; operator: string }> = [];
 
         for (const part of this.parts) {
             if (typeof part === 'string') {
@@ -264,7 +264,7 @@ export class UriTemplate {
                 const patterns = this.partToRegExp(part);
                 for (const { pattern: partPattern, name } of patterns) {
                     pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
+                    names.push({ name, exploded: part.exploded, operator: part.operator });
                 }
             }
         }
@@ -278,11 +278,12 @@ export class UriTemplate {
 
         const result: Variables = {};
         for (const [i, name_] of names.entries()) {
-            const { name, exploded } = name_!;
+            const { name, exploded, operator } = name_!;
             const value = match[i + 1]!;
             const cleanName = name.replace('*', '');
 
-            result[cleanName] = exploded && value.includes(',') ? value.split(',') : value;
+            const separator = operator === '/' && value.includes('/') ? '/' : ',';
+            result[cleanName] = exploded && value.includes(separator) ? value.split(separator) : value;
         }
 
         return result;
