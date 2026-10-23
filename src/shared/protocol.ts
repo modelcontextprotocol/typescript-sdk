@@ -553,7 +553,9 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        // `requestId` is optional on the 2025-era wire schema. Absent is the
+        // only thing that means "no id": `0` and `''` are legal request ids.
+        if (notification.params.requestId === undefined) {
             return;
         }
         // Handle request cancellation
@@ -1370,8 +1372,14 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID or related task that could be lost).
+        // Absent is the only thing that means "no id" here too: `0` and `''` are
+        // legal request ids, and the pending set is keyed by method alone, so
+        // treating them as absent lets a related notification be coalesced away.
         const canDebounce =
-            debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
+            debouncedMethods.includes(notification.method) &&
+            !notification.params &&
+            options?.relatedRequestId === undefined &&
+            !options?.relatedTask;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
