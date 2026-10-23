@@ -2579,6 +2579,10 @@ describe('Task-based execution', () => {
             // Query task result using the captured task ID
             const result = await client.experimental.tasks.getTaskResult(taskId!, CallToolResultSchema);
             expect(result.content).toEqual([{ type: 'text', text: 'Result data!' }]);
+
+            // The result schema is optional and falls back to the generic tasks/result schema
+            const untypedResult = await client.experimental.tasks.getTaskResult(taskId!);
+            expect(untypedResult.content).toEqual([{ type: 'text', text: 'Result data!' }]);
         });
 
         test('should query task list from server using listTasks', async () => {
