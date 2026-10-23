@@ -115,6 +115,8 @@ export class SkillsExtension {
      * skills extension per server: attaching another one throws and leaves the
      * server as it was, as does attaching to a server that already handles one
      * of the skills methods.
+     *
+     * @experimental How an extension is wired to a server may change in a minor release.
      */
     attach(mcp: McpServer): void {
         if (this.#attached.has(mcp)) return;
