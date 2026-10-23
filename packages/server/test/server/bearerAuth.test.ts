@@ -62,6 +62,14 @@ describe('verifyBearerToken', () => {
         });
     });
 
+    it('rejects a DPoP-bound token (cnf.jkt set) presented under the Bearer scheme (RFC 9449 §7.2)', async () => {
+        const verifier = verifierReturning({ ...validAuthInfo, cnf: { jkt: 'thumbprint-1' } });
+        await expect(verifyBearerToken('Bearer valid-token', { verifier })).rejects.toMatchObject({
+            code: OAuthErrorCode.InvalidToken,
+            message: 'Token is DPoP-bound and must be presented with the DPoP scheme, not Bearer'
+        });
+    });
+
     it('enforces requiredScopes before expiry (matching the Express middleware order)', async () => {
         // Expired AND missing a scope: the scope failure wins, as it always has.
         const verifier = verifierReturning({ ...validAuthInfo, scopes: ['read'], expiresAt: Date.now() / 1000 - 100 });
