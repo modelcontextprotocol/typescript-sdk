@@ -59,6 +59,11 @@
             "import": "./dist/esm/experimental/tasks/index.js",
             "require": "./dist/cjs/experimental/tasks/index.js"
         },
+        "./*.js": {
+            "types": "./dist/esm/*.d.ts",
+            "import": "./dist/esm/*.js",
+            "require": "./dist/cjs/*.js"
+        },
         "./*": {
             "types": "./dist/esm/*.d.ts",
             "import": "./dist/esm/*",
