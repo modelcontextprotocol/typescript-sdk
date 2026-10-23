@@ -22,10 +22,10 @@ type CommonOpts = {
 };
 
 function mapMiniTarget(t: CommonOpts['target'] | undefined): 'draft-7' | 'draft-2020-12' {
-    if (!t) return 'draft-7';
+    if (!t) return 'draft-2020-12';
     if (t === 'jsonSchema7' || t === 'draft-7') return 'draft-7';
     if (t === 'jsonSchema2019-09' || t === 'draft-2020-12') return 'draft-2020-12';
-    return 'draft-7'; // fallback
+    return 'draft-2020-12'; // fallback
 }
 
 export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): JsonSchema {
