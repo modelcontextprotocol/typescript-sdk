@@ -182,6 +182,12 @@ export type NotificationOptions = {
      * May be used to indicate to the transport which incoming request to associate this outgoing notification with.
      */
     relatedRequestId?: RequestId;
+
+    /**
+     * Aborts the underlying per-message request when the transport supports
+     * request-level cancellation (for example, a Streamable HTTP POST).
+     */
+    requestSignal?: AbortSignal;
 };
 
 /**
