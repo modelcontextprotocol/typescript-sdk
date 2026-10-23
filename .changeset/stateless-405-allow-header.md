@@ -2,4 +2,4 @@
 '@modelcontextprotocol/server': patch
 ---
 
-fix(server): set `Allow: POST` on legacy stateless 405 responses for non-POST requests (RFC 9110).
+`createMcpHandler` now sends `Allow: POST` on every `405` it answers to a non-POST request, with `legacy: 'stateless'` (the default) and with `legacy: 'reject'`.
