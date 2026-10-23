@@ -189,7 +189,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().tools?.listChanged ?? true
             }
         });
 
