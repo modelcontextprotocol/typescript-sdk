@@ -32,7 +32,18 @@ function createDefaultAjvInstance(engineClass: typeof Ajv2020 | typeof Ajv2019 |
         strict: false,
         validateFormats: true,
         validateSchema: false,
-        allErrors: true
+        allErrors: true,
+        logger: {
+            log: (...args: unknown[]) => console.log(...args),
+            warn: (...args: unknown[]) => {
+                // Unknown formats are ignored under strict: false; avoid noise for each schema path.
+                if (typeof args[0] === 'string' && args[0].startsWith('unknown format')) {
+                    return;
+                }
+                console.warn(...args);
+            },
+            error: (...args: unknown[]) => console.error(...args)
+        }
     });
     addFormats(ajv);
     return ajv;
@@ -92,7 +103,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * `strict: false`, `validateFormats: true`, `validateSchema: false`, `allErrors: true`, and
      * `ajv-formats` registered — **lazily, on the first {@linkcode getValidator} call needing each**, so
      * constructing the provider (e.g. as the default validator of a `Client`/`Server` that never
-     * validates a JSON Schema) does not pay the ajv + ajv-formats instantiation cost. The parameter
+     * validates a JSON Schema) does not pay the ajv + ajv-formats instantiation cost.
+     * Unknown-format warnings are suppressed by the default engines; all other diagnostics are
+     * forwarded to the console. Pass a custom engine to retain unknown-format warnings. The parameter
      * is typed structurally so consumers who don't pass an instance need not have `ajv` installed.
      */
     constructor(ajv?: AjvLike) {
