@@ -688,6 +688,73 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Updating Tool with ZodObject schemas
+         *
+         * Regression test for https://github.com/modelcontextprotocol/typescript-sdk/issues/1960:
+         * RegisteredTool.update() used to call objectFromShape() directly, which crashes on
+         * ZodObject instances (Zod v3) or silently drops the schema (Zod v4). The update path
+         * now routes through getZodSchemaObject(), matching the registerTool() create path.
+         */
+        test('should update tool with ZodObject paramsSchema and outputSchema', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const paramsSchema = z.object({
+                id: z.string(),
+                property: z.string().optional()
+            });
+            const outputSchema = z.object({
+                result: z.string()
+            });
+
+            // Register initial tool with a raw shape
+            const tool = mcpServer.registerTool(
+                'test',
+                {
+                    description: 'A test tool',
+                    inputSchema: { id: z.string() }
+                },
+                async () => ({
+                    content: [{ type: 'text' as const, text: 'ok' }]
+                })
+            );
+
+            // Updating with ZodObject instances must not throw and must keep the schema
+            expect(() => tool.update({ paramsSchema })).not.toThrow();
+            expect(() => tool.update({ outputSchema })).not.toThrow();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // The updated schemas should be visible in tools/list with their properties
+            const listResult = await client.request(
+                {
+                    method: 'tools/list'
+                },
+                ListToolsResultSchema
+            );
+
+            expect(listResult.tools[0].inputSchema).toMatchObject({
+                properties: {
+                    id: { type: 'string' },
+                    property: { type: 'string' }
+                }
+            });
+            expect(listResult.tools[0].outputSchema).toMatchObject({
+                properties: {
+                    result: { type: 'string' }
+                }
+            });
+        });
+
+        /***
          * Test: Tool List Changed Notifications
          */
         test('should send tool list changed notifications when connected', async () => {
