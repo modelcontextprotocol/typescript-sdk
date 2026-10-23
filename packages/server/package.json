@@ -60,6 +60,16 @@
                 "default": "./dist/ext/skills/node.cjs"
             }
         },
+        "./ext/tasks": {
+            "import": {
+                "types": "./dist/ext/tasks/index.d.mts",
+                "default": "./dist/ext/tasks/index.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/tasks/index.d.cts",
+                "default": "./dist/ext/tasks/index.cjs"
+            }
+        },
         "./validators/ajv": {
             "import": {
                 "types": "./dist/validators/ajv.d.mts",
@@ -141,6 +151,9 @@
             ],
             "stdio": [
                 "dist/stdio.d.mts"
+            ],
+            "ext/tasks": [
+                "dist/ext/tasks/index.d.mts"
             ]
         }
     },
@@ -169,6 +182,7 @@
         "@opentelemetry/api": "catalog:otel",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",

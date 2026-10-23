@@ -39,13 +39,22 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         name: '@modelcontextprotocol/client',
         // './ext/skills' is the client side of the Skills extension (SEP-2640) — public API,
         // kept off the root barrel so the extension surface stays opt-in and separately versioned.
-        exportKeys: ['.', './stdio', './ext/skills', './validators/ajv', './validators/cf-worker', './_shims']
+        exportKeys: ['.', './stdio', './ext/skills', './ext/tasks', './validators/ajv', './validators/cf-worker', './_shims']
     },
     server: {
         name: '@modelcontextprotocol/server',
         // './ext/skills' — the server side of the same extension; './ext/skills/node'
         // — its Node-only folder adapter (kept off './ext/skills' so that stays runtime-neutral).
-        exportKeys: ['.', './stdio', './ext/skills', './ext/skills/node', './validators/ajv', './validators/cf-worker', './_shims']
+        exportKeys: [
+            '.',
+            './stdio',
+            './ext/skills',
+            './ext/skills/node',
+            './ext/tasks',
+            './validators/ajv',
+            './validators/cf-worker',
+            './_shims'
+        ]
     },
     'server-legacy': {
         name: '@modelcontextprotocol/server-legacy',
