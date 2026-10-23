@@ -2241,6 +2241,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:refresh:no-scope-by-default': {
+        source: 'sdk',
+        behavior:
+            'Unless the provider implements scopeForRefresh(), a refresh request carries grant_type, refresh_token, the resource indicator and client authentication only: no scope parameter, even when the stored tokens record a scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:refresh:scope-opt-in': {
+        source: 'sdk',
+        behavior:
+            'A provider that implements scopeForRefresh(tokens) has the returned scope sent on every refresh request, and that scope is saved with the new tokens when the refresh response has none, so a client stays signed in across expiries at an authorization server that rejects a refresh without scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:as-metadata-discovery:issuer-validation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',
         behavior:
