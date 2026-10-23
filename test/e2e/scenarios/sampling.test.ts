@@ -107,7 +107,8 @@ verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
 
 verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
-    const client = newClient();
+    // thisServer and allServers are only sent to a client that declares sampling.context.
+    const client = newClient({ sampling: { context: {} } });
     client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
