@@ -3,10 +3,10 @@ import { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types.js';
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 /**
- * Normalizes HeadersInit to a plain Record<string, string> for manipulation.
+ * Normalizes request headers to a plain Record<string, string> for manipulation.
  * Handles Headers objects, arrays of tuples, and plain objects.
  */
-export function normalizeHeaders(headers: HeadersInit | undefined): Record<string, string> {
+export function normalizeHeaders(headers: RequestInit['headers'] | undefined): Record<string, string> {
     if (!headers) return {};
 
     if (headers instanceof Headers) {
