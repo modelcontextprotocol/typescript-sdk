@@ -95,6 +95,8 @@ const authed = new StreamableHTTPClientTransport(serverUrl, {
 
 `provider` is the same `OAuthClientProvider` you would hand to the transport directly. With `statusLevel: 400`, `withLogging` stays silent until a request fails.
 
+When the provider implements `dpop()`, `withOAuth` already composes DPoP request signing and nonce handling for DPoP-bound access tokens. Do not wrap the same `fetch` again with `withDpop`. See [Enable DPoP](./oauth.md#enable-dpop) for the provider setup; use `withDpop` directly only when you manage the bound token and signing session yourself.
+
 ::: tip
 For the common case, pass `authProvider` to the transport instead — see [OAuth](./oauth.md). `withOAuth` is for stacks that already own `fetch` and need auth composed with other layers.
 :::

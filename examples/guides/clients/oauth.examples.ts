@@ -23,6 +23,7 @@ import type {
 import {
     checkResourceAllowed,
     Client,
+    DpopSession,
     IssuerMismatchError,
     resourceUrlFromServerUrl,
     StreamableHTTPClientTransport,
@@ -97,6 +98,20 @@ class MyOAuthProvider implements OAuthClientProvider {
     }
 }
 //#endregion MyOAuthProvider_class
+
+// ---------------------------------------------------------------------------
+// "Enable DPoP"
+// ---------------------------------------------------------------------------
+
+//#region DpopOAuthProvider_class
+class DpopOAuthProvider extends MyOAuthProvider {
+    private readonly dpopSession = DpopSession.create();
+
+    dpop() {
+        return this.dpopSession;
+    }
+}
+//#endregion DpopOAuthProvider_class
 
 // ---------------------------------------------------------------------------
 // "Hand the transport an OAuth provider"

@@ -97,6 +97,28 @@ class MyOAuthProvider implements OAuthClientProvider {
 
 The SDK calls the `save*` methods as the flow produces values and reads them back through `tokens()`, `clientInformation()`, `codeVerifier()`, and `discoveryState()`. On a later `connect()` it reads `tokens()` before anything else, so a provider backed by durable storage skips the browser round trip.
 
+## Enable DPoP
+
+DPoP (Demonstrating Proof of Possession) binds an OAuth access token to a signing key held by the client. To opt in, return a `DpopSession` from your provider's `dpop()` method:
+
+```ts source="../../examples/guides/clients/oauth.examples.ts#DpopOAuthProvider_class"
+class DpopOAuthProvider extends MyOAuthProvider {
+    private readonly dpopSession = DpopSession.create();
+
+    dpop() {
+        return this.dpopSession;
+    }
+}
+```
+
+Use `new DpopOAuthProvider()` in place of `new MyOAuthProvider()` in the connection example, and keep that provider for the callback and reconnect. `DpopSession.create()` returns a promise; storing it once keeps the same signing key and nonce state for the lifetime of the client registration.
+
+The SDK signs token requests with DPoP proofs. When the authorization server issues `token_type: "DPoP"`, the transports present the access token with the `DPoP` authorization scheme and a fresh proof for each request. A Bearer token still uses the Bearer scheme. Neither the transports nor `withOAuth` need an additional `withDpop` wrapper; see [Client middleware](./middleware.md#combine-middleware-with-an-auth-provider).
+
+::: warning Persist the signing key with the tokens
+This example keeps both tokens and the DPoP session in memory. If your application persists DPoP-bound tokens across restarts, preserve their signing key in secure storage too, or discard those tokens and authorize again. A new `DpopSession.create()` generates a new key; it cannot prove possession of the key that existing tokens are bound to. The default private key is non-extractable, so persisting only the tokens is not sufficient.
+:::
+
 ## Finish the flow from the callback
 
 The authorization server redirects the end user to `redirectUrl` with `code` and `state` in the query. Compare `state`, hand the whole query to `finishAuth`, and reconnect.
