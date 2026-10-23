@@ -7,6 +7,18 @@ const MAX_VARIABLE_LENGTH = 1000000; // 1MB
 const MAX_TEMPLATE_EXPRESSIONS = 10000;
 const MAX_REGEX_LENGTH = 1000000; // 1MB
 
+type TemplatePart = {
+    name: string;
+    operator: string;
+    names: string[];
+    exploded: boolean;
+    /** Set by a trailing `?` on the variable, e.g. `{name?}`: the segment may be absent. */
+    optional: boolean;
+};
+
+// Operators whose expansion is empty when the variable is undefined, so a match must tolerate the segment being absent.
+const PREFIXED_SEGMENT_OPERATORS = new Set(['/', '.']);
+
 export class UriTemplate {
     /**
      * Returns true if the given string contains any URI template expressions.
@@ -25,7 +37,7 @@ export class UriTemplate {
         }
     }
     private readonly template: string;
-    private readonly parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }>;
+    private readonly parts: Array<string | TemplatePart>;
 
     get variableNames(): string[] {
         return this.parts.flatMap(part => (typeof part === 'string' ? [] : part.names));
@@ -41,8 +53,8 @@ export class UriTemplate {
         return this.template;
     }
 
-    private parse(template: string): Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> {
-        const parts: Array<string | { name: string; operator: string; names: string[]; exploded: boolean }> = [];
+    private parse(template: string): Array<string | TemplatePart> {
+        const parts: Array<string | TemplatePart> = [];
         let currentText = '';
         let i = 0;
         let expressionCount = 0;
@@ -64,6 +76,7 @@ export class UriTemplate {
                 const expr = template.slice(i + 1, end);
                 const operator = this.getOperator(expr);
                 const exploded = expr.includes('*');
+                const optional = expr.trimEnd().endsWith('?');
                 const names = this.getNames(expr);
                 const name = names[0];
 
@@ -72,7 +85,7 @@ export class UriTemplate {
                     UriTemplate.validateLength(name, MAX_VARIABLE_LENGTH, 'Variable name');
                 }
 
-                parts.push({ name, operator, names, exploded });
+                parts.push({ name, operator, names, exploded, optional });
                 i = end + 1;
             } else {
                 currentText += template[i];
@@ -97,7 +110,7 @@ export class UriTemplate {
         return expr
             .slice(operator.length)
             .split(',')
-            .map(name => name.replace('*', '').trim())
+            .map(name => name.replace('*', '').trim().replace(/\?$/, ''))
             .filter(name => name.length > 0);
     }
 
@@ -109,15 +122,7 @@ export class UriTemplate {
         return encodeURIComponent(value);
     }
 
-    private expandPart(
-        part: {
-            name: string;
-            operator: string;
-            names: string[];
-            exploded: boolean;
-        },
-        variables: Variables
-    ): string {
+    private expandPart(part: TemplatePart, variables: Variables): string {
         if (part.operator === '?' || part.operator === '&') {
             const pairs = part.names
                 .map(name => {
@@ -167,14 +172,18 @@ export class UriTemplate {
         let result = '';
         let hasQueryParam = false;
 
-        for (const part of this.parts) {
+        for (const [index, part] of this.parts.entries()) {
             if (typeof part === 'string') {
                 result += part;
                 continue;
             }
 
             const expanded = this.expandPart(part, variables);
-            if (!expanded) continue;
+            if (!expanded) {
+                // An absent `{name?}` takes its leading `/` with it: `a/{b?}` expands to `a`, not `a/`.
+                if (this.optionalSeparator(this.parts[index - 1], part)) result = result.slice(0, -1);
+                continue;
+            }
 
             // Convert ? to & if we already have a query parameter
             if ((part.operator === '?' || part.operator === '&') && hasQueryParam) {
@@ -191,16 +200,17 @@ export class UriTemplate {
         return result;
     }
 
+    /** Returns `/` when `literal` ends with the separator that belongs to the optional `{name?}` part following it. */
+    private optionalSeparator(literal: string | TemplatePart | undefined, part: string | TemplatePart | undefined): string {
+        if (typeof literal !== 'string' || part === undefined || typeof part === 'string') return '';
+        return part.optional && literal.endsWith('/') ? '/' : '';
+    }
+
     private escapeRegExp(str: string): string {
         return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     }
 
-    private partToRegExp(part: {
-        name: string;
-        operator: string;
-        names: string[];
-        exploded: boolean;
-    }): Array<{ pattern: string; name: string }> {
+    private partToRegExp(part: TemplatePart): Array<{ pattern: string; name: string }> {
         const patterns: Array<{ pattern: string; name: string }> = [];
 
         // Validate variable name length for matching
@@ -250,15 +260,19 @@ export class UriTemplate {
         let pattern = '^';
         const names: Array<{ name: string; exploded: boolean }> = [];
 
-        for (const part of this.parts) {
+        for (const [index, part] of this.parts.entries()) {
             if (typeof part === 'string') {
-                pattern += this.escapeRegExp(part);
-            } else {
-                const patterns = this.partToRegExp(part);
-                for (const { pattern: partPattern, name } of patterns) {
-                    pattern += partPattern;
-                    names.push({ name, exploded: part.exploded });
-                }
+                // A separator owned by a following `{name?}` is emitted inside that part's optional group.
+                const literal = this.optionalSeparator(part, this.parts[index + 1]) ? part.slice(0, -1) : part;
+                pattern += this.escapeRegExp(literal);
+                continue;
+            }
+
+            const separator = this.optionalSeparator(this.parts[index - 1], part);
+            const isOptional = part.optional || PREFIXED_SEGMENT_OPERATORS.has(part.operator);
+            for (const { pattern: partPattern, name } of this.partToRegExp(part)) {
+                pattern += isOptional ? `(?:${separator}${partPattern})?` : partPattern;
+                names.push({ name, exploded: part.exploded });
             }
         }
 
@@ -273,6 +287,8 @@ export class UriTemplate {
         for (let i = 0; i < names.length; i++) {
             const { name, exploded } = names[i];
             const value = match[i + 1];
+            // Only an optional group can be left unmatched; an absent segment yields no key.
+            if (value === undefined) continue;
             const cleanName = name.replace('*', '');
 
             if (exploded && value.includes(',')) {
