@@ -213,7 +213,8 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     if (io === 'output') {
         // SEP-2106: outputSchema may have any JSON Schema root. An explicit `type` (object or
         // not) is returned as-is. A typeless root only gets `type:'object'` defaulted when it is
-        // PROVABLY object-shaped — either it carries object keywords at the root, or every
+        // PROVABLY object-shaped — it carries object keywords at the root, it is a `$ref` to a
+        // `type:'object'` definition, or every
         // member of a root `oneOf`/`anyOf`/`allOf` is itself `type:'object'` (the
         // `z.discriminatedUnion(...)`, `z.union([z.object(...), ...])`, `z.intersection(...)`
         // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
