@@ -1108,45 +1108,61 @@ export class Server extends Protocol<ServerContext> {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
-        // Message structure validation - always validate tool_use/tool_result pairs.
-        // These may appear even without tools/toolChoice in the current request when
-        // a previous sampling request returned tool_use and this is a follow-up with results.
-        if (params.messages.length > 0) {
-            const lastMessage = params.messages.at(-1)!;
-            const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
-            const hasToolResults = lastContent.some(c => c.type === 'tool_result');
+        // Validate the full history, not just its final pair: every assistant
+        // tool_use must be followed by matching user tool_result content.
+        const contentOf = (message: CreateMessageRequest['params']['messages'][number] | undefined) =>
+            message === undefined ? [] : Array.isArray(message.content) ? message.content : [message.content];
+        for (let i = 0; i < params.messages.length; i++) {
+            const message = params.messages[i]!;
+            const content = contentOf(message);
+            const toolUses = content.filter((block): block is ToolUseContent => block.type === 'tool_use');
+            const toolResults = content.filter((block): block is ToolResultContent => block.type === 'tool_result');
 
-            const previousMessage = params.messages.length > 1 ? params.messages.at(-2) : undefined;
-            const previousContent = previousMessage
-                ? Array.isArray(previousMessage.content)
-                    ? previousMessage.content
-                    : [previousMessage.content]
-                : [];
-            const hasPreviousToolUse = previousContent.some(c => c.type === 'tool_use');
-
-            if (hasToolResults) {
-                if (lastContent.some(c => c.type !== 'tool_result')) {
+            if (toolUses.length > 0 && message.role !== 'assistant') {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'tool_use blocks must be in an assistant message');
+            }
+            if (toolResults.length > 0 && message.role !== 'user') {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'tool_result blocks must be in a user message');
+            }
+            if (toolResults.length > 0) {
+                if (content.length !== toolResults.length) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InvalidParams,
-                        'The last message must contain only tool_result content if any is present'
+                        'A user message containing tool_result blocks must contain only tool_result content'
                     );
                 }
-                if (!hasPreviousToolUse) {
+
+                const previous = params.messages[i - 1];
+                const previousToolUses =
+                    previous?.role === 'assistant'
+                        ? contentOf(previous).filter((block): block is ToolUseContent => block.type === 'tool_use')
+                        : [];
+                if (previousToolUses.length === 0) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InvalidParams,
                         'tool_result blocks are not matching any tool_use from the previous message'
                     );
                 }
-            }
-            if (hasPreviousToolUse) {
-                const toolUseIds = new Set(previousContent.filter(c => c.type === 'tool_use').map(c => (c as ToolUseContent).id));
-                const toolResultIds = new Set(
-                    lastContent.filter(c => c.type === 'tool_result').map(c => (c as ToolResultContent).toolUseId)
-                );
+
+                const toolUseIds = new Set(previousToolUses.map(block => block.id));
+                const toolResultIds = new Set(toolResults.map(block => block.toolUseId));
                 if (toolUseIds.size !== toolResultIds.size || ![...toolUseIds].every(id => toolResultIds.has(id))) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InvalidParams,
                         'ids of tool_result blocks and tool_use blocks from previous message do not match'
+                    );
+                }
+            }
+            if (toolUses.length > 0) {
+                const next = params.messages[i + 1];
+                const nextToolResults =
+                    next?.role === 'user'
+                        ? contentOf(next).filter((block): block is ToolResultContent => block.type === 'tool_result')
+                        : [];
+                if (nextToolResults.length === 0) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
+                        'tool_use blocks must be followed by matching tool_result blocks in the next user message'
                     );
                 }
             }
