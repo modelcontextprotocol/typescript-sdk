@@ -126,6 +126,7 @@ For a custom HTTP entry built from `classifyInboundRequest` and `PerRequestHTTPS
 
 Every `McpServer` owns its `Server` as `mcp.server`, so drop down per method, never per program. Declare the extra capability in the constructor, keep `registerTool` for the tools, and hand-register the one method `McpServer` has no API for.
 
+<!-- prettier-ignore -->
 ```ts source="../../examples/guides/advanced/low-level-server.examples.ts#lowLevel_escapeHatch"
 const mcp = new McpServer({ name: 'catalog', version: '1.0.0' }, { capabilities: { resources: { subscribe: true } } });
 
@@ -146,6 +147,29 @@ mcp.server.setRequestHandler('resources/subscribe', async request => {
 ```
 
 `registerTool` still answers `tools/list` and `tools/call`; `resources/subscribe` reaches the handler you wrote. On the 2026-07-28 revision resource subscriptions arrive on a `subscriptions/listen` stream the serving entries answer for you — see [Protocol versions](../protocol-versions.md).
+
+## Inspect params before handler parsing
+
+For compatibility with an existing non-standard caller, set
+`includeRawRequestParams: true` in the `Server` options to expose post-transport-parse
+params as `ctx.mcpReq.rawParams`. The option defaults to `false` and works
+on both supported wire eras. `setRequestHandler` still validates the request and
+passes the parsed request as its first argument; unknown params members remain
+stripped from that argument.
+
+Unknown siblings at the `tools/call` params level, such as `resource_type` and
+`record_id`, are preserved before handler parsing. This does not preserve raw wire
+bytes or guarantee unchanged nested metadata: transport schemas may normalize
+objects such as `_meta`. For example, an extra `extension` subfield in
+`_meta['io.modelcontextprotocol/related-task']` is stripped before capture, while
+`taskId` survives.
+
+Raw params are untrusted and include protocol metadata and retry fields.
+Validate only the application extension fields you intend to
+consume. Use the parsed request for known fields and the existing context accessors
+for protocol metadata and verified state. Never merge raw params over the parsed
+request: if a future protocol revision assigns an extension's name, that revision's
+schema governs the field. `_meta` remains the standard place for extensions.
 
 ## Decide which layer to build on
 
