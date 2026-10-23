@@ -35,6 +35,28 @@ describe('UriTemplate', () => {
             const template = new UriTemplate('{var}');
             expect(template.expand({ var: 'value with spaces' })).toBe('value%20with%20spaces');
         });
+
+        it('should encode reserved punctuation that encodeURIComponent leaves unchanged', () => {
+            const punctuation = "!'()*";
+            const encoded = '%21%27%28%29%2A';
+            expect(new UriTemplate('{var}').expand({ var: 'Hello World!' })).toBe('Hello%20World%21');
+            expect(new UriTemplate('{var}').expand({ var: punctuation })).toBe(encoded);
+            expect(new UriTemplate('X{.var}').expand({ var: punctuation })).toBe(`X.${encoded}`);
+            expect(new UriTemplate('X{/var}').expand({ var: punctuation })).toBe(`X/${encoded}`);
+            expect(new UriTemplate('X{?var}').expand({ var: punctuation })).toBe(`X?var=${encoded}`);
+            expect(new UriTemplate('X{&var}').expand({ var: punctuation })).toBe(`X&var=${encoded}`);
+        });
+
+        it('should strictly encode each value of a simple list', () => {
+            expect(new UriTemplate('{list}').expand({ list: ['hello!', "it's"] })).toBe('hello%21,it%27s');
+        });
+
+        it('should preserve reserved punctuation for reserved and fragment expansions', () => {
+            const punctuation = "!'()*";
+            expect(new UriTemplate('{+var}').expand({ var: punctuation })).toBe(punctuation);
+            expect(new UriTemplate('X{#var}').expand({ var: punctuation })).toBe(`X#${punctuation}`);
+            expect(new UriTemplate('{var}').expand({ var: 'azAZ09-._~' })).toBe('azAZ09-._~');
+        });
     });
 
     describe('reserved expansion', () => {
