@@ -1439,3 +1439,62 @@ describe('asynchronous cache reads during invalidation', () => {
         }
     });
 });
+
+describe('cache reads across reconnect', () => {
+    const cases = (['private', 'public'] as const).flatMap(scope =>
+        [false, true].flatMap(changeServer => [false, true].map(readBeforeRelease => ({ scope, changeServer, readBeforeRelease })))
+    );
+
+    it.each(cases)(
+        '$scope read is discarded on reset (changeServer=$changeServer, readBeforeRelease=$readBeforeRelease)',
+        async ({ scope, changeServer, readBeforeRelease }) => {
+            const store = new InMemoryResponseCacheStore();
+            const cache = new ClientResponseCache(store, true, undefined, 'alice');
+            const partition = (server: string) => JSON.stringify([server, scope === 'public' ? '' : 'alice']);
+            const entry = (tool: Tool) => ({
+                value: JSON.stringify({ tools: [tool] }),
+                expiresAt: Date.now() + 60_000,
+                scope
+            });
+            cache.setServerIdentity('old-server');
+            store.set({ method: 'tools/list', partition: partition('old-server') }, entry(TOOL_A));
+            const get = store.get.bind(store);
+            let release!: () => void;
+            let started!: () => void;
+            const gate = new Promise<void>(resolve => {
+                release = resolve;
+            });
+            const reading = new Promise<void>(resolve => {
+                started = resolve;
+            });
+            let pause = true;
+            (store as ResponseCacheStore).get = async key => {
+                const snapshot = get(key);
+                if (pause && snapshot !== undefined) {
+                    pause = false;
+                    started();
+                    await gate;
+                }
+                return snapshot;
+            };
+            const pending = cache.read('tools/list');
+            try {
+                await reading;
+                cache.resetForReconnect();
+                expect(get({ method: 'tools/list', partition: partition('old-server') })).toBeDefined();
+                const server = changeServer ? 'new-server' : 'old-server';
+                cache.setServerIdentity(server);
+                store.set({ method: 'tools/list', partition: partition(server) }, entry(TOOL_B));
+                if (readBeforeRelease) {
+                    expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_B] } });
+                }
+                release();
+                expect(await pending).toBeUndefined();
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_B] } });
+            } finally {
+                release();
+                await pending;
+            }
+        }
+    );
+});
