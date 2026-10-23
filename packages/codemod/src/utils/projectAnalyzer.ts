@@ -106,7 +106,7 @@ function inferProjectTypeFromSource(targetDir: string): TransformContext['projec
                 visit(full);
             } else if (entry.isFile()) {
                 const ext = path.extname(entry.name);
-                if (!SCAN_EXTENSIONS.has(ext) || entry.name.endsWith('.d.ts')) continue;
+                if (!SCAN_EXTENSIONS.has(ext) || /\.d\.(?:ts|mts|cts)$/.test(entry.name)) continue;
                 if (scanned >= SCAN_FILE_BUDGET) return;
                 scanned++;
                 let content: string;
