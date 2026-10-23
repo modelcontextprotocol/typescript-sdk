@@ -1779,6 +1779,77 @@ test('should handle partial listChanged capability support', async () => {
 });
 
 describe('outputSchema validation', () => {
+    test('should validate an in-flight call against the output schema active when it started', async () => {
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {}
+            }
+        );
+
+        let catalogGeneration = 'old';
+        let callCount = 0;
+        let releaseFirstCall!: () => void;
+        const firstCallMayReturn = new Promise<void>(resolve => {
+            releaseFirstCall = resolve;
+        });
+
+        vi.spyOn(client, 'request').mockImplementation(async request => {
+            if (request.method === 'tools/list') {
+                return {
+                    tools: [
+                        {
+                            name: 'versioned-tool',
+                            inputSchema: {
+                                type: 'object',
+                                properties: {}
+                            },
+                            outputSchema: {
+                                type: 'object',
+                                properties: {
+                                    generation: { const: catalogGeneration }
+                                },
+                                required: ['generation'],
+                                additionalProperties: false
+                            }
+                        }
+                    ]
+                };
+            }
+
+            if (request.method === 'tools/call') {
+                callCount += 1;
+                const callGeneration = catalogGeneration;
+                if (callCount === 1) {
+                    await firstCallMayReturn;
+                }
+                return {
+                    content: [],
+                    structuredContent: { generation: callGeneration }
+                };
+            }
+
+            throw new Error(`Unexpected request: ${request.method}`);
+        });
+
+        await client.listTools();
+        const firstCall = client.callTool({ name: 'versioned-tool' });
+
+        catalogGeneration = 'new';
+        await client.listTools();
+        releaseFirstCall();
+
+        await expect(firstCall).resolves.toMatchObject({
+            structuredContent: { generation: 'old' }
+        });
+        await expect(client.callTool({ name: 'versioned-tool' })).resolves.toMatchObject({
+            structuredContent: { generation: 'new' }
+        });
+    });
+
     /***
      * Test: Validate structuredContent Against outputSchema
      */
