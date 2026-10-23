@@ -28,7 +28,7 @@ function mapMiniTarget(t: CommonOpts['target'] | undefined): 'draft-7' | 'draft-
     return 'draft-7'; // fallback
 }
 
-export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): JsonSchema {
+export function toJsonSchemaCompat(schema: AnySchema, opts?: CommonOpts): JsonSchema {
     if (isZ4Schema(schema)) {
         // v4 branch — use Mini's built-in toJSONSchema
         return z4mini.toJSONSchema(schema as z4c.$ZodType, {
