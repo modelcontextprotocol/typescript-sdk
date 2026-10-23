@@ -104,6 +104,7 @@ export type ProtocolOptions = {
  * The default request timeout, in miliseconds.
  */
 export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60000;
+const MAX_RECENTLY_COMPLETED_PROGRESS_TOKENS = 64;
 
 /**
  * Options that can be given per request.
@@ -328,6 +329,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
+    private _recentlyCompletedProgressTokens = new Set<number>();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
@@ -650,6 +652,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
+        this._recentlyCompletedProgressTokens.clear();
         this._taskProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
@@ -892,6 +895,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
         const handler = this._progressHandlers.get(messageId);
         if (!handler) {
+            // A request can finish before progress notifications that were already in transit
+            // are dispatched. Drop progress for a recently finished request, while preserving
+            // the error for tokens that were never registered.
+            if (this._recentlyCompletedProgressTokens.has(messageId)) {
+                return;
+            }
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
@@ -905,7 +914,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
             } catch (error) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._cleanupProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
@@ -913,6 +922,23 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         handler(params);
+    }
+
+    private _cleanupProgressHandler(progressToken: number): void {
+        if (this._progressHandlers.delete(progressToken)) {
+            this._rememberCompletedProgressToken(progressToken);
+        }
+    }
+
+    private _rememberCompletedProgressToken(progressToken: number): void {
+        this._recentlyCompletedProgressTokens.add(progressToken);
+
+        if (this._recentlyCompletedProgressTokens.size > MAX_RECENTLY_COMPLETED_PROGRESS_TOKENS) {
+            const oldestProgressToken = this._recentlyCompletedProgressTokens.values().next().value;
+            if (oldestProgressToken !== undefined) {
+                this._recentlyCompletedProgressTokens.delete(oldestProgressToken);
+            }
+        }
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
@@ -954,7 +980,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
         }
 
         if (!isTaskResponse) {
-            this._progressHandlers.delete(messageId);
+            this._cleanupProgressHandler(messageId);
         }
 
         if (isJSONRPCResultResponse(response)) {
@@ -1197,7 +1223,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
 
             const cancel = (reason: unknown) => {
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._cleanupProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
 
                 this._transport
@@ -1510,7 +1536,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     private _cleanupTaskProgressHandler(taskId: string): void {
         const progressToken = this._taskProgressTokens.get(taskId);
         if (progressToken !== undefined) {
-            this._progressHandlers.delete(progressToken);
+            this._cleanupProgressHandler(progressToken);
             this._taskProgressTokens.delete(taskId);
         }
     }
