@@ -41,7 +41,9 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    2026-07-28 cannot connect to it. To serve both, move the entry point to
    `serveStdio(() => createServer())` or `createMcpHandler(() => createServer())`. A server
    that uses HTTP sessions keeps its transport for 2025-era clients and routes to it with
-   `isLegacyRequest`, in front of `createMcpHandler(factory, { legacy: 'reject' })`; see
+   `isLegacyRequest`, in front of `createMcpHandler(factory, { legacy: 'reject' })`.
+   `createMcpHandler` checks no `Host` or `Origin` header, so a server that set
+   `enableDnsRebindingProtection` mounts host and origin validation in front of it; see
    [Serving the 2026-07-28 revision](https://ts.sdk.modelcontextprotocol.io/v2/migration/support-2026-07-28.md#serving-the-2026-07-28-revision).
 
 Migrating a large codebase gradually instead of in one pass? See
