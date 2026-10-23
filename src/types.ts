@@ -2305,6 +2305,8 @@ export const ServerResultSchema = z.union([
 ]);
 
 export class McpError extends Error {
+    public readonly rawMessage: string;
+
     constructor(
         public readonly code: number,
         message: string,
@@ -2312,22 +2314,26 @@ export class McpError extends Error {
     ) {
         super(`MCP error ${code}: ${message}`);
         this.name = 'McpError';
+        this.rawMessage = message;
     }
 
     /**
      * Factory method to create the appropriate error type based on the error code and data
      */
     static fromError(code: number, message: string, data?: unknown): McpError {
+        const prefix = `MCP error ${code}: `;
+        const bareMessage = message.startsWith(prefix) ? message.slice(prefix.length) : message;
+
         // Check for specific error types
         if (code === ErrorCode.UrlElicitationRequired && data) {
             const errorData = data as { elicitations?: unknown[] };
             if (errorData.elicitations) {
-                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], message);
+                return new UrlElicitationRequiredError(errorData.elicitations as ElicitRequestURLParams[], bareMessage);
             }
         }
 
         // Default to generic McpError
-        return new McpError(code, message, data);
+        return new McpError(code, bareMessage, data);
     }
 }
 
