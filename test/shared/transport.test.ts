@@ -2,6 +2,7 @@ import {
     fetchLeavingRedirects,
     fetchWithinOrigin,
     isWithinOrigin,
+    normalizeHeaders,
     unfollowedRedirect,
     type FetchLike
 } from '../../src/shared/transport.js';
@@ -243,5 +244,26 @@ describe('fetchLeavingRedirects', () => {
         await fetchWithinOrigin(fetchFn)('https://example.com/mcp', init);
 
         expect(calls).toEqual([{ url: 'https://example.com/mcp', init: { ...init, redirect: 'manual' } }]);
+    });
+});
+
+describe('normalizeHeaders', () => {
+    it('returns an empty object when headers are undefined', () => {
+        expect(normalizeHeaders(undefined)).toEqual({});
+    });
+
+    it('reads a Headers object', () => {
+        expect(normalizeHeaders(new Headers({ 'x-test': 'a' }))).toEqual({ 'x-test': 'a' });
+    });
+
+    it('reads an array of tuples', () => {
+        expect(normalizeHeaders([['x-test', 'a']])).toEqual({ 'x-test': 'a' });
+    });
+
+    it('copies a plain object', () => {
+        const headers = { 'x-test': 'a' };
+        const result = normalizeHeaders(headers);
+        expect(result).toEqual(headers);
+        expect(result).not.toBe(headers);
     });
 });
