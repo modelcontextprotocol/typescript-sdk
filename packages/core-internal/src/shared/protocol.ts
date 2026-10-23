@@ -1180,13 +1180,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const messageId = Number(progressToken);
 
         const handler = this._progressHandlers.get(messageId);
-        if (!handler) {
+        const responseHandler = this._responseHandlers.get(messageId);
+        const timeoutInfo = this._timeoutInfo.get(messageId);
+
+        if (!handler && !responseHandler) {
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
-
-        const responseHandler = this._responseHandlers.get(messageId);
-        const timeoutInfo = this._timeoutInfo.get(messageId);
 
         if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
             try {
@@ -1201,7 +1201,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
         }
 
-        handler(params);
+        handler?.(params);
     }
 
     /**
@@ -1445,6 +1445,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             if (options?.onprogress) {
                 this._progressHandlers.set(messageId, options.onprogress);
+            }
+            if (options?.onprogress || options?.resetTimeoutOnProgress) {
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
