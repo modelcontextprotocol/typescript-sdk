@@ -628,6 +628,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'On the 2025 era, a McpServer tool whose outputSchema has a non-object root (e.g. z.union([z.object(...), z.string()]) → typeless {anyOf:[…]}) wraps EVERY structuredContent value as {result:<value>} — including object-valued results — so the result always satisfies the wrapped outputSchema advertised in tools/list. The wrap predicate follows the per-tool schema decision, not the runtime value shape.',
         note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-side mirror is 2025:jsonschema:non-object-output-wrapped.'
     },
+    '2025:jsonschema:ref-to-object-not-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On the 2025 era, a McpServer tool whose outputSchema root is a same-document $ref to a $defs or definitions entry of type "object" (what zod writes for z.object(...).meta({ id })), or a union of such refs, is advertised with type:"object" at the root and returns its object structuredContent unwrapped, like the same schema written inline. A $ref to a non-object entry is still wrapped.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm.'
+    },
     'server:jsonschema:union-output-natural': {
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
