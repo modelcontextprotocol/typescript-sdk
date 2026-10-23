@@ -2319,6 +2319,18 @@ describe('OAuth Authorization', () => {
             expect(tokens.scope).toBe('read');
         });
 
+        it('returns the scope sent when the response scope is empty', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ ...validTokens, scope: '' }) });
+
+            const tokens = await refreshAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                refreshToken: 'refresh123',
+                scope: 'read write'
+            });
+
+            expect(tokens.scope).toBe('read write');
+        });
+
         it('validates token response schema', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,

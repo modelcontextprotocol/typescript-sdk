@@ -173,7 +173,7 @@ class ScopeOnRefreshProvider extends MyOAuthProvider {
 }
 ```
 
-The SDK sends the returned string on every refresh it makes for this provider, and saves it with the new tokens when the refresh response has no `scope`; returning `undefined` sends none. If the sign-in response had no `scope`, `tokens.scope` is `undefined`: return the scope you requested instead. `refreshAuthorization()` takes the same value as its `scope` option.
+The SDK sends the returned string on every refresh it makes for this provider, and saves it with the new tokens when the refresh response has no `scope`; returning `undefined` sends none. If the sign-in response had no `scope`, `tokens.scope` is `undefined`: return the scope that was requested instead, which is the `scope` parameter of the URL passed to `redirectToAuthorization`. `refreshAuthorization()` takes the same value as its `scope` option.
 
 ::: warning
 Implement it only for an authorization server that needs it. Another server may reject a refresh that carries `scope`, or fail it once a granted scope is retired: a refresh that works without `scope` then ends in an `OAuthError` or a new sign-in. The `OAuthError` repeats on every request until you clear the stored tokens.

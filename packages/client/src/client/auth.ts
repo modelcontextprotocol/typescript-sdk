@@ -2408,7 +2408,7 @@ export async function refreshAuthorization(
     });
 
     // Preserve the original refresh token, and the scope sent (RFC 6749 §5.1), if the server didn't return new ones
-    return { refresh_token: refreshToken, ...(scope && { scope }), ...tokens };
+    return { refresh_token: refreshToken, ...tokens, ...(scope && !tokens.scope && { scope }) };
 }
 
 /**
