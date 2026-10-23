@@ -56,3 +56,13 @@ function AjvJsonSchemaValidator_withFormats() {
     //#endregion AjvJsonSchemaValidator_withFormats
     return validator;
 }
+
+/**
+ * Example: Custom engine options while preserving per-dialect dispatch.
+ */
+function AjvJsonSchemaValidator_withOptions() {
+    //#region AjvJsonSchemaValidator_withOptions
+    const validator = new AjvJsonSchemaValidator({ options: { useDefaults: true } });
+    //#endregion AjvJsonSchemaValidator_withOptions
+    return validator;
+}
