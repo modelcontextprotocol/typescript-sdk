@@ -151,3 +151,18 @@ describe('detectFormatter', () => {
         expect(detectFormatter(src, home)?.name).toBe('Biome');
     });
 });
+
+describe('formatter search starting at the home boundary', () => {
+    it('does not inspect the home directory itself', () => {
+        const home = createTempDir();
+        writeFileSync(path.join(home, '.prettierrc'), '{}');
+        expect(detectFormatter(home, home)).toBeNull();
+    });
+    it('does not inspect an ancestor of the home directory', () => {
+        const ancestor = createTempDir();
+        const home = path.join(ancestor, 'home');
+        mkdirSync(home);
+        writeFileSync(path.join(ancestor, 'biome.json'), '{}');
+        expect(detectFormatter(ancestor, home)).toBeNull();
+    });
+});
