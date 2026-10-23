@@ -1,8 +1,9 @@
-import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import type { FetchLike, JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import * as authModule from '../../src/client/auth';
 import { UnauthorizedError } from '../../src/client/auth';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
@@ -1346,6 +1347,289 @@ describe('StreamableHTTPClientTransport', () => {
         expect(authSpy).not.toHaveBeenCalled();
 
         authSpy.mockRestore();
+    });
+
+    describe('scope accumulation on step-up authorization (SEP-2350)', () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const mock403Then202 = (challengeScope: string) => {
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${challengeScope}"`
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+        };
+
+        it('requests the union of previously granted scopes and the challenged scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('deduplicates when the challenge repeats an already-granted scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('write admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('uses only the challenged scope when there is no prior scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue(undefined);
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('does not add PRM or provider scopes when an explicit prior scope is known', async () => {
+            vi.spyOn(mockAuthProvider, 'clientMetadata', 'get').mockReturnValue({
+                redirect_uris: ['http://localhost/callback'],
+                scope: 'provider-default'
+            });
+            mockAuthProvider.discoveryState = vi.fn().mockResolvedValue({
+                authorizationServerUrl: 'http://localhost:1234',
+                resourceMetadata: {
+                    resource: 'http://localhost:1234/mcp',
+                    scopes_supported: ['read', 'prm-unrequested']
+                }
+            });
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('does not remember a step-up scope the authorization server refused', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read'
+            });
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="admin"' }),
+                text: () => Promise.resolve('Insufficient scope')
+            });
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockRejectedValue(new OAuthError(OAuthErrorCode.InvalidScope, 'admin is not allowed'));
+
+            await expect(transport.send(message)).rejects.toThrow('admin is not allowed');
+            expect((transport as unknown as { _scope?: string })._scope).toBeUndefined();
+
+            authSpy.mockRestore();
+        });
+
+        it('keeps a redirected step-up scope only once finishAuth saves tokens for it', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read'
+            });
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="admin"' }),
+                text: () => Promise.resolve('Insufficient scope')
+            });
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('REDIRECT');
+            const scopeOf = () => (transport as unknown as { _scope?: string })._scope;
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect(scopeOf()).toBeUndefined();
+
+            authSpy.mockResolvedValue('AUTHORIZED');
+            await transport.finishAuth('code');
+            expect(authSpy).toHaveBeenLastCalledWith(mockAuthProvider, expect.objectContaining({ scope: 'read admin' }));
+            expect(scopeOf()).toBe('read admin');
+
+            authSpy.mockRestore();
+        });
+
+        it('drops a redirected step-up scope when the user declines it', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read'
+            });
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="admin"' }),
+                text: () => Promise.resolve('Insufficient scope')
+            });
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('REDIRECT');
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            await expect(
+                transport.finishAuth(new URLSearchParams({ error: 'access_denied', error_description: 'declined' }))
+            ).rejects.toThrow();
+            expect((transport as unknown as { _scope?: string })._scope).toBeUndefined();
+            expect((transport as unknown as { _pendingStepUpScope?: string })._pendingStepUpScope).toBeUndefined();
+
+            authSpy.mockRestore();
+        });
+
+        it('drops an abandoned step-up scope once a 401 starts a new authorization', async () => {
+            // A small server: metadata and the token endpoint answer any number of times; only the
+            // MCP endpoint is scripted, because it is the server whose state changes.
+            const mcpResponses = [
+                new Response('Insufficient scope', {
+                    status: 403,
+                    headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="admin"' }
+                }),
+                new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer realm="test"' } }),
+                new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Bearer realm="test"' } })
+            ];
+            const serverFetch: FetchLike = async input => {
+                const url = new URL(input instanceof Request ? input.url : input);
+                if (url.pathname.startsWith('/.well-known/oauth-protected-resource')) {
+                    return Response.json({ resource: 'http://localhost:1234/mcp', authorization_servers: ['http://localhost:1234'] });
+                }
+                if (url.pathname.startsWith('/.well-known/oauth-authorization-server')) {
+                    return Response.json({
+                        issuer: 'http://localhost:1234',
+                        authorization_endpoint: 'http://localhost:1234/authorize',
+                        token_endpoint: 'http://localhost:1234/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    });
+                }
+                if (url.pathname === '/token') {
+                    return Response.json({ access_token: 'new-token', token_type: 'Bearer', scope: 'read' });
+                }
+                if (url.pathname === '/mcp') {
+                    return mcpResponses.shift() ?? new Response(null, { status: 202 });
+                }
+                throw new Error(`Unexpected request: ${url}`);
+            };
+            mockAuthProvider.tokens.mockResolvedValue({ access_token: 'test-token', token_type: 'Bearer', scope: 'read' });
+            mockAuthProvider.codeVerifier.mockResolvedValue('verifier');
+            const authorizeScopes = () =>
+                mockAuthProvider.redirectToAuthorization.mock.calls.map(([url]) => (url as URL).searchParams.get('scope'));
+            const serverTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: serverFetch
+            });
+
+            // Step-up asks for "read admin"; the user never returns from that link.
+            await expect(serverTransport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect(authorizeScopes()).toEqual(['read admin']);
+
+            // The next request gets a plain 401, which starts a new authorization for the known scope.
+            await expect(serverTransport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect(authorizeScopes()).toEqual(['read admin', 'read']);
+
+            // Finishing that authorization must not revive the abandoned step-up scope.
+            await serverTransport.finishAuth('code');
+            await expect(serverTransport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect(authorizeScopes()).toEqual(['read admin', 'read', 'read']);
+            await serverTransport.close().catch(() => {});
+        });
+
+        it('keeps accumulated scope after a 401 challenge without scope', async () => {
+            const authProvider: AuthProvider = { token: vi.fn(async () => undefined) };
+            const challengeTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+            const resourceMetadataUrl = new URL('http://localhost:1234/.well-known/oauth-protected-resource/mcp');
+            (challengeTransport as unknown as { _scope?: string })._scope = 'read write';
+            (challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl = resourceMetadataUrl;
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({
+                    'WWW-Authenticate': 'Bearer realm="test"'
+                }),
+                text: () => Promise.resolve('Unauthorized')
+            });
+
+            await expect(challengeTransport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect((challengeTransport as unknown as { _scope?: string })._scope).toBe('read write');
+            expect((challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl).toBe(resourceMetadataUrl);
+
+            await challengeTransport.close().catch(() => {});
+        });
     });
 
     describe('Reconnection Logic', () => {

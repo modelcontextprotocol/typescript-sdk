@@ -2,7 +2,7 @@ import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth';
-import { auth } from '../../src/client/auth';
+import { auth, handleOAuthUnauthorized } from '../../src/client/auth';
 import {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
@@ -15,6 +15,33 @@ const RESOURCE_SERVER_URL = 'https://resource.example.com/';
 const AUTH_SERVER_URL = 'https://auth.example.com';
 
 describe('auth-extensions providers (end-to-end with auth())', () => {
+    it('renews a client_credentials token with the challenged scope, not the scope the old token records', async () => {
+        const provider = new ClientCredentialsProvider({
+            expectedIssuer: AUTH_SERVER_URL,
+            clientId: 'my-client',
+            clientSecret: 'my-secret'
+        });
+        provider.saveTokens({ access_token: 'expired', token_type: 'Bearer', scope: 'read legacy' });
+        const requestedScopes: Array<string | null> = [];
+        const fetchMock = createMockOAuthFetch({
+            resourceServerUrl: RESOURCE_SERVER_URL,
+            authServerUrl: AUTH_SERVER_URL,
+            onTokenRequest: async (_url, init) => {
+                requestedScopes.push((init?.body as URLSearchParams).get('scope'));
+            }
+        });
+
+        await handleOAuthUnauthorized(provider, {
+            response: new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Bearer scope="read"' } }),
+            serverUrl: new URL(RESOURCE_SERVER_URL),
+            fetchFn: fetchMock,
+            accumulatedScope: 'read'
+        });
+
+        expect(requestedScopes).toEqual(['read']);
+        expect(provider.tokens()?.access_token).toBe('test-access-token');
+    });
+
     it('authenticates using ClientCredentialsProvider with client_secret_basic', async () => {
         const provider = new ClientCredentialsProvider({
             expectedIssuer: AUTH_SERVER_URL,

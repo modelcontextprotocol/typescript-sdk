@@ -32,6 +32,7 @@ import {
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     fetchToken,
+    handleOAuthUnauthorized,
     InsecureTokenEndpointError,
     isHttpsUrl,
     isStrictScopeSuperset,
@@ -219,6 +220,240 @@ describe('OAuth Authorization', () => {
             // The spec explicitly does not require clients to deduplicate
             // hierarchically; the AS normalizes redundancy.
             expect(computeScopeUnion('admin', 'read')).toBe('admin read');
+        });
+    });
+
+    describe('handleOAuthUnauthorized', () => {
+        it('keeps previously granted scopes when the refresh fails and a new authorization starts', async () => {
+            const resourceMetadataUrl = new URL('https://resource.example.com/custom-prm');
+            const tokenEndpoint = 'https://auth.example.com/token';
+            let tokensInvalidated = false;
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
+                tokens: vi.fn(async () =>
+                    tokensInvalidated
+                        ? undefined
+                        : {
+                              access_token: 'old-token',
+                              token_type: 'Bearer',
+                              refresh_token: 'refresh-token',
+                              scope: 'openid read'
+                          }
+                ),
+                invalidateCredentials: vi.fn(async (scope: string) => {
+                    if (scope === 'tokens') tokensInvalidated = true;
+                }),
+                saveTokens: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn()
+            };
+            const response = new Response(null, {
+                status: 401,
+                headers: { 'WWW-Authenticate': 'Bearer scope="write"' }
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString === resourceMetadataUrl.toString()) {
+                    return Promise.resolve(
+                        Response.json({
+                            resource: 'https://api.example.com/mcp',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    );
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve(
+                        Response.json({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: tokenEndpoint,
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    );
+                }
+                if (urlString === tokenEndpoint) {
+                    return Promise.resolve(Response.json({ error: 'invalid_grant' }, { status: 400 }));
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            await expect(
+                handleOAuthUnauthorized(provider, {
+                    response,
+                    serverUrl: new URL('https://api.example.com/mcp'),
+                    fetchFn: mockFetch,
+                    resourceMetadataUrl,
+                    accumulatedScope: 'read'
+                })
+            ).rejects.toBeInstanceOf(UnauthorizedError);
+
+            expect(mockFetch.mock.calls[0]?.[0].toString()).toBe(resourceMetadataUrl.toString());
+            expect(mockFetch.mock.calls.some(([url]) => url.toString() === tokenEndpoint)).toBe(true);
+            const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
+            expect(new Set(authorizationUrl.searchParams.get('scope')?.split(' '))).toEqual(new Set(['openid', 'read', 'write']));
+        });
+
+        it('keeps previously granted scopes alongside the default selection when the challenge has no scope', async () => {
+            const provider = refreshableProvider('read write');
+            provider.tokens = vi.fn().mockResolvedValue(undefined);
+
+            await expect(
+                handleOAuthUnauthorized(provider, {
+                    response: new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Bearer realm="mcp"' } }),
+                    serverUrl: new URL('https://api.example.com/mcp'),
+                    fetchFn: mockFetch,
+                    accumulatedScope: 'read write'
+                })
+            ).rejects.toBeInstanceOf(UnauthorizedError);
+
+            const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
+            expect(new Set(authorizationUrl.searchParams.get('scope')?.split(' '))).toEqual(new Set(['base', 'read', 'write']));
+        });
+
+        /** A provider holding a refreshable token, plus a fetch that serves discovery and the token endpoint. */
+        function refreshableProvider(tokenScope: string | undefined): OAuthClientProvider {
+            const tokenEndpoint = 'https://auth.example.com/token';
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve(
+                        Response.json({
+                            resource: 'https://api.example.com/mcp',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['base']
+                        })
+                    );
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve(
+                        Response.json({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: tokenEndpoint,
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    );
+                }
+                if (urlString === tokenEndpoint) {
+                    return Promise.resolve(Response.json({ access_token: 'refreshed-token', token_type: 'Bearer' }));
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { redirect_uris: ['http://localhost:3000/callback'], client_name: 'Test Client' };
+                },
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'old-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'refresh-token',
+                    ...(tokenScope === undefined ? {} : { scope: tokenScope })
+                }),
+                saveTokens: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn()
+            };
+        }
+
+        it('retains only token scopes the authorization server advertises', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve(
+                        Response.json({
+                            resource: 'https://api.example.com/mcp',
+                            authorization_servers: ['https://auth.example.com'],
+                            scopes_supported: ['api://app/.default']
+                        })
+                    );
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve(
+                        Response.json({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256'],
+                            scopes_supported: ['openid', 'offline_access']
+                        })
+                    );
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { redirect_uris: ['http://localhost:3000/callback'], client_name: 'Test Client' };
+                },
+                clientInformation: vi.fn().mockResolvedValue({ client_id: 'test-client' }),
+                // The authorization server reported expanded scopes it does not accept back in a request.
+                tokens: vi.fn().mockResolvedValue({ access_token: 'old-token', token_type: 'Bearer', scope: 'openid api://app/Read' }),
+                saveTokens: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn()
+            };
+
+            await expect(
+                handleOAuthUnauthorized(provider, {
+                    response: new Response(null, { status: 401 }),
+                    serverUrl: new URL('https://api.example.com/mcp'),
+                    fetchFn: mockFetch
+                })
+            ).rejects.toBeInstanceOf(UnauthorizedError);
+
+            const authorizationUrl = (provider.redirectToAuthorization as Mock).mock.calls[0]?.[0] as URL;
+            expect(new Set(authorizationUrl.searchParams.get('scope')?.split(' '))).toEqual(new Set(['api://app/.default', 'openid']));
+        });
+
+        it('refreshes a token that does not record its granted scope', async () => {
+            const provider = refreshableProvider(undefined);
+
+            await handleOAuthUnauthorized(provider, {
+                response: new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Bearer scope="write"' } }),
+                serverUrl: new URL('https://api.example.com/mcp'),
+                fetchFn: mockFetch,
+                accumulatedScope: 'read'
+            });
+
+            expect(mockFetch.mock.calls.some(([url]) => url.toString() === 'https://auth.example.com/token')).toBe(true);
+            expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+        });
+
+        it('refreshes when only previously requested scope, not the challenge, exceeds the grant', async () => {
+            const provider = refreshableProvider('read');
+
+            await handleOAuthUnauthorized(provider, {
+                response: new Response(null, { status: 401, headers: { 'WWW-Authenticate': 'Bearer scope="read"' } }),
+                serverUrl: new URL('https://api.example.com/mcp'),
+                fetchFn: mockFetch,
+                // An earlier step-up asked for `write`, but the user never granted it.
+                accumulatedScope: 'read write'
+            });
+
+            expect(mockFetch.mock.calls.some(([url]) => url.toString() === 'https://auth.example.com/token')).toBe(true);
+            expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
         });
     });
 

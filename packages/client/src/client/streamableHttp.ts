@@ -345,6 +345,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _url: URL;
     private _resourceMetadataUrl?: URL;
     private _scope?: string;
+    /** A step-up union waiting for `finishAuth()`; it joins `_scope` once tokens for it are saved. */
+    private _pendingStepUpScope?: string;
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
@@ -457,14 +459,13 @@ export class StreamableHTTPClientTransport implements Transport {
         // so previously-granted permissions are not lost on re-authorization.
         const tokens = await this._oauthProvider.tokens();
         const unionScope = computeScopeUnion(this._scope, tokens?.scope, challenge.scope);
-        this._scope = unionScope;
 
         // Superset-gated refresh bypass: refresh cannot widen scope (RFC 6749 §6),
         // so when the union strictly exceeds what the current token was granted
         // we must force a fresh authorization request.
         const forceReauthorization = isStrictScopeSuperset(unionScope, tokens?.scope);
 
-        return auth(this._oauthProvider, {
+        const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: unionScope,
@@ -472,6 +473,10 @@ export class StreamableHTTPClientTransport implements Transport {
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
+        // Keep the union only once granted, so a later 401 does not re-request a refused or declined scope.
+        if (result === 'AUTHORIZED') this._scope = unionScope;
+        else this._pendingStepUpScope = unionScope;
+        return result;
     }
 
     /** `baseFetch` with redirects handled as `redirectPolicy` says. */
@@ -610,18 +615,22 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                         // Preserve any union accumulated by `_stepUpAuthorize` so a 401
                         // mid-chain does not narrow `_scope` back to the challenge value.
                         this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        // A 401 redirect supersedes a step-up the user never finished.
+                        this._pendingStepUpScope = undefined;
                         try {
                             await this._authProvider.onUnauthorized({
                                 response,
                                 serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
+                                fetchFn: this._fetchWithInit,
+                                resourceMetadataUrl: this._resourceMetadataUrl,
+                                accumulatedScope: this._scope
                             });
                         } catch (error) {
                             // Auth-seam stamp: covers the SDK's OAuth flow and
@@ -942,6 +951,9 @@ export class StreamableHTTPClientTransport implements Transport {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
+        // A declined or failed callback drops the pending step-up scope too.
+        const pendingStepUpScope = this._pendingStepUpScope;
+        this._pendingStepUpScope = undefined;
         const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
             codeOrParams,
             iss,
@@ -955,13 +967,14 @@ export class StreamableHTTPClientTransport implements Transport {
             authorizationCode,
             iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
-            scope: this._scope,
+            scope: pendingStepUpScope ?? this._scope,
             fetchFn: this._fetchWithInit,
             skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');
         }
+        if (pendingStepUpScope) this._scope = pendingStepUpScope;
     }
 
     async close(): Promise<void> {
@@ -1073,18 +1086,22 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                         // Preserve any union accumulated by `_stepUpAuthorize` so a 401
                         // mid-chain does not narrow `_scope` back to the challenge value.
                         this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
+                        // A 401 redirect supersedes a step-up the user never finished.
+                        this._pendingStepUpScope = undefined;
                         try {
                             await this._authProvider.onUnauthorized({
                                 response,
                                 serverUrl: this._url,
-                                fetchFn: this._fetchWithInit
+                                fetchFn: this._fetchWithInit,
+                                resourceMetadataUrl: this._resourceMetadataUrl,
+                                accumulatedScope: this._scope
                             });
                         } catch (error) {
                             // Auth-seam stamp: covers the SDK's OAuth flow and
