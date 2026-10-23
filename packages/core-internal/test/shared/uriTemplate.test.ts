@@ -312,3 +312,19 @@ describe('UriTemplate', () => {
         });
     });
 });
+
+describe('multiple scalar variables in one URI expression', () => {
+    it.each([
+        ['{first,second}', 'a%20b,c%2Fd'],
+        ['{+first,second}', 'a%20b,c/d'],
+        ['{#first,second}', '#a%20b,c/d'],
+        ['{.first,second}', '.a%20b.c%2Fd'],
+        ['{/first,second}', '/a%20b/c%2Fd']
+    ])('expands %s with operator prefixes and encoding', (template, expected) => {
+        expect(new UriTemplate(template).expand({ first: 'a b', second: 'c/d' })).toBe(expected);
+    });
+});
+
+test('omits empty lists in a multi-variable expression', () => {
+    expect(new UriTemplate('{#first,second}').expand({ first: [], second: [] })).toBe('');
+});

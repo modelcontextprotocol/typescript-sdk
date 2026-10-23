@@ -136,9 +136,14 @@ export class UriTemplate {
         }
 
         if (part.names.length > 1) {
-            const values = part.names.map(name => variables[name]).filter(v => v !== undefined);
+            const values = part.names
+                .map(name => variables[name])
+                .map(v => (Array.isArray(v) ? v[0] : v))
+                .filter(v => v !== undefined);
             if (values.length === 0) return '';
-            return values.map(v => (Array.isArray(v) ? v[0] : v)).join(',');
+            const separator = part.operator === '.' || part.operator === '/' ? part.operator : ',';
+            const prefix = ['#', '.', '/'].includes(part.operator) ? part.operator : '';
+            return prefix + values.map(v => this.encodeValue(v, part.operator)).join(separator);
         }
 
         const value = variables[part.name];
