@@ -9,3 +9,6 @@
 export type { ServeStdioOptions, StdioServerHandle } from './server/serveStdio';
 export { serveStdio } from './server/serveStdio';
 export { StdioServerTransport } from './server/stdio';
+
+/** This SDK propagates MessageExtraInfo.onMessageProcessed through stdio dispatch. */
+export const supportsInboundMessageCompletion = true;

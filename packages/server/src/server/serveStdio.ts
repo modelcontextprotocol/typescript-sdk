@@ -163,7 +163,7 @@ class StdioConnectionChannel implements Transport {
          * modern-era listen router to fan a change notification out onto the
          * active subscriptions instead of broadcasting it unsolicited.
          */
-        private readonly _outboundIntercept?: (message: JSONRPCMessage) => 'handled' | undefined
+        private readonly _outboundIntercept?: (message: JSONRPCMessage) => 'handled' | undefined | Promise<'handled' | undefined>
     ) {}
 
     async start(): Promise<void> {
@@ -186,7 +186,10 @@ class StdioConnectionChannel implements Transport {
             // sends are dropped.
             return;
         }
-        if (this._outboundIntercept?.(message) === 'handled') {
+        if ((await this._outboundIntercept?.(message)) === 'handled') {
+            return;
+        }
+        if (this._closed) {
             return;
         }
         return this._wire.send(message, options);
@@ -199,6 +202,7 @@ class StdioConnectionChannel implements Transport {
     /** Forwards one inbound message to the connected instance. */
     deliver(message: JSONRPCMessage, extra?: MessageExtraInfo): void {
         if (this._closed) {
+            extra?.onMessageProcessed?.();
             return;
         }
         if (isJSONRPCRequest(message)) {
@@ -414,7 +418,7 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
     const listenRouter = new StdioListenRouter(options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS);
 
     /** Outbound intercept installed on a modern instance's channel. */
-    const modernOutboundIntercept = (message: JSONRPCMessage): 'handled' | undefined => {
+    const modernOutboundIntercept = async (message: JSONRPCMessage): Promise<'handled' | undefined> => {
         if (!isJSONRPCNotification(message)) return undefined;
         const routed = listenRouter.routeOutbound(message);
         if (routed === 'passthrough') return undefined;
@@ -423,9 +427,23 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         // it is dropped — the modern era never delivers an un-requested
         // change type unsolicited). Nothing else from the instance is
         // affected.
-        for (const stamped of routed) {
-            void wire.send({ jsonrpc: '2.0', ...stamped }).catch(error => reportError(toError(error)));
-        }
+        const deliveries = routed.map(stamped => {
+            const id = stamped.params?._meta?.['io.modelcontextprotocol/subscriptionId'];
+            const record = typeof id === 'number' || typeof id === 'string' ? listenCompletions.get(id) : undefined;
+            let delivery: Promise<void>;
+            try {
+                delivery = wire.send({ jsonrpc: '2.0', ...stamped }).catch(error => reportError(toError(error)));
+            } catch (error) {
+                reportError(toError(error));
+                delivery = Promise.resolve();
+            }
+            record?.deliveries.add(delivery);
+            void delivery.then(() => record?.deliveries.delete(delivery));
+            return delivery;
+        });
+        // Start the routed snapshot without an intervening await: cancellation cannot
+        // retire an id and then observe a deferred new write from this same snapshot.
+        await Promise.all(deliveries);
         return 'handled';
     };
 
@@ -434,7 +452,20 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
      * Returns `true` when the message was served at the entry and must NOT
      * be delivered to the pinned instance.
      */
-    const tryServeListen = async (message: JSONRPCMessage): Promise<boolean> => {
+    const listenCompletions = new Map<
+        RequestId,
+        { complete?: () => void; acknowledgement: Promise<void>; deliveries: Set<Promise<void>> }
+    >();
+    const completeListen = async (id: RequestId): Promise<void> => {
+        const record = listenCompletions.get(id);
+        if (!record) return;
+        await record.acknowledgement;
+        await Promise.all(record.deliveries);
+        if (listenCompletions.get(id) !== record) return;
+        listenCompletions.delete(id);
+        record.complete?.();
+    };
+    const tryServeListen = async (message: JSONRPCMessage, extra?: MessageExtraInfo): Promise<boolean> => {
         if (isJSONRPCRequest(message) && message.method === 'subscriptions/listen') {
             // Entry-handled listen is its own request-handling subsystem; it
             // applies the same per-request envelope rung the instance's
@@ -461,12 +492,22 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     requested: claimedVersion ?? 'unknown'
                 });
                 reply = { jsonrpc: '2.0' as const, id: message.id, error: { code: error.code, message: error.message, data: error.data } };
+            } else if (listenCompletions.has(message.id)) {
+                reply = {
+                    jsonrpc: '2.0' as const,
+                    id: message.id,
+                    error: { code: -32_602, message: 'Subscription request ID is already active' }
+                };
             } else {
                 reply = listenRouter.serve(message);
             }
-            await wire
-                .send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params })
+            const acknowledgement = Promise.resolve()
+                .then(() => wire.send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params }))
                 .catch(error => reportError(toError(error)));
+            if (!('error' in reply)) {
+                listenCompletions.set(message.id, { complete: extra?.onMessageProcessed, acknowledgement, deliveries: new Set() });
+            }
+            await acknowledgement;
             return true;
         }
         if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
@@ -476,6 +517,7 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // request). After this point nothing further is delivered for
             // that subscription id (post-cancel hardening).
             if (cancelledId !== undefined && listenRouter.cancel(cancelledId)) {
+                await completeListen(cancelledId);
                 return true;
             }
         }
@@ -569,175 +611,200 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         }
     };
 
-    const processMessage = async (message: JSONRPCMessage): Promise<void> => {
-        if (state.phase === 'closed') {
-            return;
-        }
+    const processMessage = async (message: JSONRPCMessage, extra?: MessageExtraInfo): Promise<void> => {
+        let delegated = false;
+        const deliver = (channel: StdioConnectionChannel, classification?: MessageClassification) => {
+            channel.deliver(message, { ...extra, ...(classification ? { classification } : {}) });
+            delegated = true;
+        };
+        try {
+            await (async () => {
+                if (state.phase === 'closed') {
+                    return;
+                }
 
-        if (state.phase === 'pinned') {
+                if (state.phase === 'pinned') {
+                    if (
+                        state.era === 'modern' &&
+                        isJSONRPCRequest(message) &&
+                        message.method === 'initialize' &&
+                        !carriesValidModernEnvelopeClaim(message.params)
+                    ) {
+                        // The modern era is confirmed for this connection; a late
+                        // legacy handshake is answered with the version error naming
+                        // the supported revisions (the specification recommends
+                        // naming them in any error returned to `initialize`, and
+                        // rules out falling back once the modern era is confirmed).
+                        const requestedVersion =
+                            message.params !== null &&
+                            typeof message.params === 'object' &&
+                            typeof (message.params as { protocolVersion?: unknown }).protocolVersion === 'string'
+                                ? ((message.params as { protocolVersion: string }).protocolVersion as string)
+                                : undefined;
+                        await answerLegacyRejection(message, 'initialize', requestedVersion);
+                        return;
+                    }
+                    if (state.era === 'modern' && (await tryServeListen(message, extra))) {
+                        return;
+                    }
+                    if (isTornDown()) {
+                        // Closed while entry listen routing was being checked (a
+                        // buffered final message can race stdin EOF): stay closed.
+                        return;
+                    }
+                    deliver(state.instance.channel);
+                    return;
+                }
+
+                // Negotiation window ('opening' | 'probe').
+                if (!isJSONRPCRequest(message) && !isJSONRPCNotification(message)) {
+                    // A JSON-RPC response before any era is pinned: nothing has been
+                    // asked of the client yet, so there is nothing it can answer.
+                    reportError(new Error('Discarded a JSON-RPC response received before the connection negotiated an era'));
+                    return;
+                }
+
+                const opening = classifyOpeningMessage(message);
+                switch (opening.kind) {
+                    case 'invalid-envelope': {
+                        const detail = `Invalid _meta envelope for protocol revision 2026-07-28: ${opening.issue.key}: ${opening.issue.problem}`;
+                        if (isJSONRPCRequest(message)) {
+                            await writeErrorResponse(message.id, ProtocolErrorCode.InvalidParams, detail, { envelope: opening.issue });
+                        } else {
+                            reportError(new Error(`Discarded a notification with a malformed envelope: ${detail}`));
+                        }
+                        return;
+                    }
+                    case 'unsupported-revision': {
+                        if (isJSONRPCRequest(message)) {
+                            const error = new UnsupportedProtocolVersionError({
+                                supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
+                                requested: opening.requested
+                            });
+                            reportError(error);
+                            await writeErrorResponse(message.id, error.code, error.message, error.data);
+                        } else {
+                            reportError(new Error(`Discarded a notification claiming unsupported protocol revision ${opening.requested}`));
+                        }
+                        return;
+                    }
+                    case 'modern': {
+                        if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                            if (state.phase === 'probe') {
+                                // A repeated probe is answered by the same optimistic
+                                // instance and the negotiation window stays open: only
+                                // a non-discover enveloped request commits the
+                                // connection to the modern era, so a later fallback
+                                // `initialize` is still served by a fresh legacy
+                                // instance.
+                                deliver(state.instance.channel, opening.classification);
+                                return;
+                            }
+                            // Probe: answer from an optimistically built modern
+                            // instance so the advertisement reflects the real server
+                            // definition, but do not pin the connection yet — the
+                            // client may still fall back to `initialize` when it
+                            // shares no modern revision with the advertisement.
+                            const instance = await connectInstance('modern', opening.revision);
+                            if (isTornDown()) {
+                                // The connection was torn down while the factory was
+                                // building the probe instance: dispose of it and stay
+                                // closed instead of resurrecting the negotiation
+                                // window; nothing is delivered or answered.
+                                await disposeLateInstance(instance);
+                                return;
+                            }
+                            state = { phase: 'probe', instance };
+                            deliver(instance.channel, opening.classification);
+                            return;
+                        }
+                        if (state.phase === 'probe') {
+                            if (isJSONRPCNotification(message)) {
+                                // An enveloped notification during the negotiation
+                                // window (for example a notifications/cancelled for
+                                // the probe itself) is delivered to the probe instance
+                                // without committing the era: only a non-discover
+                                // enveloped request pins the connection, so a later
+                                // fallback `initialize` is still served by a fresh
+                                // legacy instance.
+                                deliver(state.instance.channel, opening.classification);
+                                return;
+                            }
+                            // The probe was followed by a modern request: the client
+                            // committed to the modern era — pin the probe instance.
+                            state = { phase: 'pinned', era: 'modern', instance: state.instance };
+                        } else {
+                            const instance = await connectInstance('modern', opening.revision);
+                            if (isTornDown()) {
+                                // Closed while the factory was building the modern
+                                // instance: dispose of it and stay closed.
+                                await disposeLateInstance(instance);
+                                return;
+                            }
+                            state = { phase: 'pinned', era: 'modern', instance };
+                        }
+                        if (await tryServeListen(message, extra)) {
+                            return;
+                        }
+                        if (isTornDown()) {
+                            // Closed while entry listen routing was being checked (a
+                            // buffered final message can race stdin EOF): stay closed.
+                            return;
+                        }
+                        deliver(state.instance.channel, opening.classification);
+                        return;
+                    }
+                    case 'legacy': {
+                        if (legacyMode === 'reject') {
+                            if (isJSONRPCRequest(message)) {
+                                await answerLegacyRejection(message, opening.reason, opening.requestedVersion);
+                            }
+                            // Claim-less notifications are accepted and dropped (the
+                            // stdio analog of the HTTP entry's 202-and-drop); the
+                            // connection stays open for a modern opening.
+                            return;
+                        }
+                        if (state.phase === 'probe') {
+                            // Probe-then-fallback: the client probed, found no
+                            // mutually supported modern revision, and fell back to
+                            // the 2025 handshake on the same connection. The probe
+                            // instance is discarded; a fresh legacy instance serves
+                            // the handshake.
+                            await discardProbeInstance(state.instance);
+                            if (isTornDown()) {
+                                // Closed while the probe was being discarded: stay closed.
+                                return;
+                            }
+                            state = { phase: 'opening' };
+                        }
+                        const instance = await connectInstance('legacy');
+                        if (isTornDown()) {
+                            // Closed while the factory was building the legacy
+                            // instance: dispose of it and stay closed.
+                            await disposeLateInstance(instance);
+                            return;
+                        }
+                        state = { phase: 'pinned', era: 'legacy', instance };
+                        deliver(state.instance.channel);
+                        return;
+                    }
+                }
+            })();
+        } catch (error) {
+            if (isJSONRPCRequest(message)) {
+                await writeErrorResponse(message.id, ProtocolErrorCode.InternalError, 'Internal server error');
+            }
+            reportError(toError(error));
+        } finally {
             if (
-                state.era === 'modern' &&
-                isJSONRPCRequest(message) &&
-                message.method === 'initialize' &&
-                !carriesValidModernEnvelopeClaim(message.params)
+                !delegated &&
+                !(
+                    isJSONRPCRequest(message) &&
+                    listenCompletions.get(message.id)?.complete === extra?.onMessageProcessed &&
+                    extra?.onMessageProcessed !== undefined
+                )
             ) {
-                // The modern era is confirmed for this connection; a late
-                // legacy handshake is answered with the version error naming
-                // the supported revisions (the specification recommends
-                // naming them in any error returned to `initialize`, and
-                // rules out falling back once the modern era is confirmed).
-                const requestedVersion =
-                    message.params !== null &&
-                    typeof message.params === 'object' &&
-                    typeof (message.params as { protocolVersion?: unknown }).protocolVersion === 'string'
-                        ? ((message.params as { protocolVersion: string }).protocolVersion as string)
-                        : undefined;
-                await answerLegacyRejection(message, 'initialize', requestedVersion);
-                return;
-            }
-            if (state.era === 'modern' && (await tryServeListen(message))) {
-                return;
-            }
-            if (isTornDown()) {
-                // Closed while entry listen routing was being checked (a
-                // buffered final message can race stdin EOF): stay closed.
-                return;
-            }
-            state.instance.channel.deliver(message);
-            return;
-        }
-
-        // Negotiation window ('opening' | 'probe').
-        if (!isJSONRPCRequest(message) && !isJSONRPCNotification(message)) {
-            // A JSON-RPC response before any era is pinned: nothing has been
-            // asked of the client yet, so there is nothing it can answer.
-            reportError(new Error('Discarded a JSON-RPC response received before the connection negotiated an era'));
-            return;
-        }
-
-        const opening = classifyOpeningMessage(message);
-        switch (opening.kind) {
-            case 'invalid-envelope': {
-                const detail = `Invalid _meta envelope for protocol revision 2026-07-28: ${opening.issue.key}: ${opening.issue.problem}`;
-                if (isJSONRPCRequest(message)) {
-                    await writeErrorResponse(message.id, ProtocolErrorCode.InvalidParams, detail, { envelope: opening.issue });
-                } else {
-                    reportError(new Error(`Discarded a notification with a malformed envelope: ${detail}`));
-                }
-                return;
-            }
-            case 'unsupported-revision': {
-                if (isJSONRPCRequest(message)) {
-                    const error = new UnsupportedProtocolVersionError({
-                        supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
-                        requested: opening.requested
-                    });
-                    reportError(error);
-                    await writeErrorResponse(message.id, error.code, error.message, error.data);
-                } else {
-                    reportError(new Error(`Discarded a notification claiming unsupported protocol revision ${opening.requested}`));
-                }
-                return;
-            }
-            case 'modern': {
-                if (isJSONRPCRequest(message) && message.method === 'server/discover') {
-                    if (state.phase === 'probe') {
-                        // A repeated probe is answered by the same optimistic
-                        // instance and the negotiation window stays open: only
-                        // a non-discover enveloped request commits the
-                        // connection to the modern era, so a later fallback
-                        // `initialize` is still served by a fresh legacy
-                        // instance.
-                        state.instance.channel.deliver(message, { classification: opening.classification });
-                        return;
-                    }
-                    // Probe: answer from an optimistically built modern
-                    // instance so the advertisement reflects the real server
-                    // definition, but do not pin the connection yet — the
-                    // client may still fall back to `initialize` when it
-                    // shares no modern revision with the advertisement.
-                    const instance = await connectInstance('modern', opening.revision);
-                    if (isTornDown()) {
-                        // The connection was torn down while the factory was
-                        // building the probe instance: dispose of it and stay
-                        // closed instead of resurrecting the negotiation
-                        // window; nothing is delivered or answered.
-                        await disposeLateInstance(instance);
-                        return;
-                    }
-                    state = { phase: 'probe', instance };
-                    instance.channel.deliver(message, { classification: opening.classification });
-                    return;
-                }
-                if (state.phase === 'probe') {
-                    if (isJSONRPCNotification(message)) {
-                        // An enveloped notification during the negotiation
-                        // window (for example a notifications/cancelled for
-                        // the probe itself) is delivered to the probe instance
-                        // without committing the era: only a non-discover
-                        // enveloped request pins the connection, so a later
-                        // fallback `initialize` is still served by a fresh
-                        // legacy instance.
-                        state.instance.channel.deliver(message, { classification: opening.classification });
-                        return;
-                    }
-                    // The probe was followed by a modern request: the client
-                    // committed to the modern era — pin the probe instance.
-                    state = { phase: 'pinned', era: 'modern', instance: state.instance };
-                } else {
-                    const instance = await connectInstance('modern', opening.revision);
-                    if (isTornDown()) {
-                        // Closed while the factory was building the modern
-                        // instance: dispose of it and stay closed.
-                        await disposeLateInstance(instance);
-                        return;
-                    }
-                    state = { phase: 'pinned', era: 'modern', instance };
-                }
-                if (await tryServeListen(message)) {
-                    return;
-                }
-                if (isTornDown()) {
-                    // Closed while entry listen routing was being checked (a
-                    // buffered final message can race stdin EOF): stay closed.
-                    return;
-                }
-                state.instance.channel.deliver(message, { classification: opening.classification });
-                return;
-            }
-            case 'legacy': {
-                if (legacyMode === 'reject') {
-                    if (isJSONRPCRequest(message)) {
-                        await answerLegacyRejection(message, opening.reason, opening.requestedVersion);
-                    }
-                    // Claim-less notifications are accepted and dropped (the
-                    // stdio analog of the HTTP entry's 202-and-drop); the
-                    // connection stays open for a modern opening.
-                    return;
-                }
-                if (state.phase === 'probe') {
-                    // Probe-then-fallback: the client probed, found no
-                    // mutually supported modern revision, and fell back to
-                    // the 2025 handshake on the same connection. The probe
-                    // instance is discarded; a fresh legacy instance serves
-                    // the handshake.
-                    await discardProbeInstance(state.instance);
-                    if (isTornDown()) {
-                        // Closed while the probe was being discarded: stay closed.
-                        return;
-                    }
-                    state = { phase: 'opening' };
-                }
-                const instance = await connectInstance('legacy');
-                if (isTornDown()) {
-                    // Closed while the factory was building the legacy
-                    // instance: dispose of it and stay closed.
-                    await disposeLateInstance(instance);
-                    return;
-                }
-                state = { phase: 'pinned', era: 'legacy', instance };
-                state.instance.channel.deliver(message);
-                return;
+                extra?.onMessageProcessed?.();
             }
         }
     };
@@ -745,7 +812,7 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
     // Inbound messages are processed strictly in arrival order: the queue
     // absorbs anything that arrives while the opening exchange is still being
     // decided (factory construction and instance connection are async).
-    const queue: JSONRPCMessage[] = [];
+    const queue: { message: JSONRPCMessage; extra?: MessageExtraInfo }[] = [];
     let pumping = false;
     const pump = async (): Promise<void> => {
         if (pumping) {
@@ -754,9 +821,9 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         pumping = true;
         try {
             while (queue.length > 0) {
-                const message = queue.shift()!;
+                const { message, extra } = queue.shift()!;
                 try {
-                    await processMessage(message);
+                    await processMessage(message, extra);
                 } catch (error) {
                     // Every arm of processMessage that answers a request does
                     // so through writeErrorResponse (which never throws — wire
@@ -771,6 +838,7 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                         await writeErrorResponse(message.id, ProtocolErrorCode.InternalError, 'Internal server error');
                     }
                     reportError(toError(error));
+                    extra?.onMessageProcessed?.();
                 }
             }
         } finally {
@@ -792,6 +860,7 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         // from a transport drop.
         for (const result of listenRouter.teardownAll()) {
             await wire.send(result).catch(error => reportError(toError(error)));
+            await completeListen(result.id);
         }
         if (current.phase === 'probe' || current.phase === 'pinned') {
             await current.instance.product.close().catch(error => reportError(toError(error)));
@@ -799,8 +868,18 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         await wire.close().catch(error => reportError(toError(error)));
     };
 
-    wire.onmessage = (message: JSONRPCMessage) => {
-        queue.push(message);
+    wire.onmessage = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {
+        let processed = false;
+        const onMessageProcessed = () => {
+            if (processed) return;
+            processed = true;
+            try {
+                extra?.onMessageProcessed?.();
+            } catch (error) {
+                reportError(toError(error));
+            }
+        };
+        queue.push({ message, extra: extra?.onMessageProcessed ? { ...extra, onMessageProcessed } : extra });
         void pump();
     };
     wire.onerror = error => {
@@ -816,6 +895,8 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         closing = true;
         const current = state;
         state = { phase: 'closed' };
+        listenRouter.teardownAll();
+        for (const id of listenCompletions.keys()) void completeListen(id);
         if (current.phase === 'probe' || current.phase === 'pinned') {
             void current.instance.product.close().catch(error => reportError(toError(error)));
         }
