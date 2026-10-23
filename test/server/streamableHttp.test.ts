@@ -4094,6 +4094,78 @@ describe('WebStandardStreamableHTTPServerTransport SSE keep-alive lifecycle', ()
         await transport.close();
     });
 
+    it('should settle an in-flight JSON-mode request when the transport closes mid-handler', async () => {
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+        let releaseTool: (() => void) | undefined;
+        let signalToolStarted: (() => void) | undefined;
+        const toolStarted = new Promise<void>(resolve => {
+            signalToolStarted = resolve;
+        });
+        mcpServer.tool('slow', async () => {
+            signalToolStarted!();
+            await new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+            return { content: [] };
+        });
+        await mcpServer.connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        // close() runs while the handler is genuinely parked: signalled by the
+        // handler rather than polled, so the POST is guaranteed registered.
+        const inFlight = transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/call', params: { name: 'slow', arguments: {} }, id: 'call-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+        await toolStarted;
+        await transport.close();
+
+        // Without settling in cleanup(), the POST would hang until the client
+        // gave up instead of failing fast.
+        const response = await inFlight;
+        expect(response.status).toBe(503);
+        expect(await response.json()).toMatchObject({
+            jsonrpc: '2.0',
+            error: { code: -32000 },
+            id: null
+        });
+
+        releaseTool?.();
+        await vi.advanceTimersByTimeAsync(0);
+    });
+
+    it('should release the JSON-mode stream mapping once the response has been sent', async () => {
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        await new McpServer({ name: 'test-server', version: '1.0.0' }).connect(transport);
+        const initResponse = await transport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+        const sessionId = initResponse.headers.get('mcp-session-id') as string;
+
+        const response = await transport.handleRequest(
+            req('POST', {
+                body: { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'list-1' },
+                headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': '2025-11-25' }
+            })
+        );
+        expect(response.status).toBe(200);
+        await response.arrayBuffer();
+
+        // A completed POST must not leave its mapping behind until close():
+        // long-lived sessions would otherwise accumulate one entry per request.
+        expect(transport['_streamMapping'].size).toBe(0);
+
+        await transport.close();
+    });
+
     it('should close the transport when the onsessionclosed callback throws on DELETE', async () => {
         const transport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
