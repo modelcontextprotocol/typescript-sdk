@@ -52,7 +52,8 @@ import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
     CallToolRequest,
-    ToolExecution
+    ToolExecution,
+    ServerCapabilities
 } from '../types.js';
 import { isCompletable, getCompleter } from './completable.js';
 import { UriTemplate, Variables } from '../shared/uriTemplate.js';
@@ -121,6 +122,14 @@ export class McpServer {
 
     private readonly _maxToolInputElements: number | undefined;
 
+    /**
+     * Capabilities explicitly provided in the constructor options, if any.
+     * Kept here (rather than read back from the underlying `Server`) so that
+     * user-declared settings such as `listChanged: false` survive the default
+     * capabilities registered when request handlers are set up.
+     */
+    private readonly _userCapabilities: ServerCapabilities | undefined;
+
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
@@ -132,6 +141,7 @@ export class McpServer {
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
         this.server = new Server(serverInfo, options);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
+        this._userCapabilities = options?.capabilities;
 
         // A capability declared in the options gets its handlers now, so registering after connect() works.
         if (options?.capabilities?.tools) {
@@ -143,6 +153,14 @@ export class McpServer {
         if (options?.capabilities?.prompts) {
             this.setPromptRequestHandlers();
         }
+    }
+
+    /**
+     * Resolves the `listChanged` value to advertise for a capability, preserving an
+     * explicit user setting from the constructor options and defaulting to `true`.
+     */
+    private _resolveListChanged(capability: 'tools' | 'resources' | 'prompts'): boolean {
+        return this._userCapabilities?.[capability]?.listChanged ?? true;
     }
 
     /**
@@ -187,9 +205,10 @@ export class McpServer {
         this.server.assertCanSetRequestHandler(getMethodValue(ListToolsRequestSchema));
         this.server.assertCanSetRequestHandler(getMethodValue(CallToolRequestSchema));
 
+        // Preserve the user's `listChanged` setting from the constructor options.
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: this._resolveListChanged('tools')
             }
         });
 
@@ -561,7 +580,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             resources: {
-                listChanged: true
+                listChanged: this._resolveListChanged('resources')
             }
         });
 
@@ -641,7 +660,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             prompts: {
-                listChanged: true
+                listChanged: this._resolveListChanged('prompts')
             }
         });
 

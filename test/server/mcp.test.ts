@@ -290,6 +290,49 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.content).toEqual([{ type: 'text', text: 'Hello, world' }]);
         });
 
+        test('should preserve user-declared listChanged: false from the constructor (#2622)', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    capabilities: {
+                        tools: { listChanged: false },
+                        resources: { listChanged: false },
+                        prompts: { listChanged: false }
+                    }
+                }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerTool('test-tool', { inputSchema: { name: z.string() } }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}` }]
+            }));
+
+            // The value advertised to the client during initialization must match what was declared.
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(false);
+            expect(capabilities?.resources?.listChanged).toBe(false);
+            expect(capabilities?.prompts?.listChanged).toBe(false);
+        });
+
+        test('should default listChanged to true when not set in the constructor', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: {}, resources: {}, prompts: {} } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const capabilities = client.getServerCapabilities();
+            expect(capabilities?.tools?.listChanged).toBe(true);
+            expect(capabilities?.resources?.listChanged).toBe(true);
+            expect(capabilities?.prompts?.listChanged).toBe(true);
+        });
+
         test('should answer list requests with empty lists when a capability was declared and nothing is registered', async () => {
             const mcpServer = new McpServer(
                 { name: 'test server', version: '1.0' },
