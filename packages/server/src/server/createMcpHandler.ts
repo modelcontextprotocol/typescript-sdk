@@ -281,7 +281,8 @@ function jsonRpcErrorResponse(httpStatus: number, code: number, message: string,
             error: { code, message, ...(data !== undefined && { data }) },
             id
         },
-        { status: httpStatus }
+        // This entry serves POST only, so every 405 it answers names POST (RFC 9110 §15.5.6).
+        { status: httpStatus, ...(httpStatus === 405 && { headers: { Allow: 'POST' } }) }
     );
 }
 
