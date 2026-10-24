@@ -8,15 +8,15 @@ const MODERN_PROTOCOL_GUIDE = 'https://ts.sdk.modelcontextprotocol.io/v2/migrati
 const LEGACY_SERVER_TRANSPORTS = new Map([
     [
         '@modelcontextprotocol/server/stdio:StdioServerTransport',
-        'This StdioServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use serveStdio(() => createServer()).'
+        'This StdioServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use serveStdio(() => buildServer()).'
     ],
     [
         '@modelcontextprotocol/node:NodeStreamableHTTPServerTransport',
-        'This NodeStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use createMcpHandler(() => createServer()).'
+        'This NodeStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, see the migration guide for routing modern clients through createMcpHandler while preserving legacy session state.'
     ],
     [
         '@modelcontextprotocol/server:WebStandardStreamableHTTPServerTransport',
-        'This WebStandardStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use createMcpHandler(() => createServer()).'
+        'This WebStandardStreamableHTTPServerTransport entry serves 2025-era clients only. To also serve protocol revision 2026-07-28, use createMcpHandler(() => buildServer()).'
     ]
 ]);
 
