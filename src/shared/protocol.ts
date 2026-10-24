@@ -1131,6 +1131,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
     request<T extends AnySchema>(request: SendRequestT, resultSchema: T, options?: RequestOptions): Promise<SchemaOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, task, relatedTask } = options ?? {};
 
+        let onAbort: (() => void) | undefined;
+
         // Send the request
         return new Promise<SchemaOutput<T>>((resolve, reject) => {
             const earlyReject = (error: unknown) => {
@@ -1195,7 +1197,12 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 };
             }
 
+            let responseReceived = false;
+
             const cancel = (reason: unknown) => {
+                if (responseReceived) {
+                    return;
+                }
                 this._responseHandlers.delete(messageId);
                 this._progressHandlers.delete(messageId);
                 this._cleanupTimeout(messageId);
@@ -1223,6 +1230,7 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 if (options?.signal?.aborted) {
                     return;
                 }
+                responseReceived = true;
 
                 if (response instanceof Error) {
                     return reject(response);
@@ -1241,9 +1249,8 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 }
             });
 
-            options?.signal?.addEventListener('abort', () => {
-                cancel(options?.signal?.reason);
-            });
+            onAbort = () => cancel(options?.signal?.reason);
+            options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             const timeoutHandler = () => cancel(McpError.fromError(ErrorCode.RequestTimeout, 'Request timed out', { timeout }));
@@ -1282,6 +1289,10 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                     this._cleanupTimeout(messageId);
                     reject(error);
                 });
+            }
+        }).finally(() => {
+            if (onAbort) {
+                options?.signal?.removeEventListener('abort', onAbort);
             }
         });
     }

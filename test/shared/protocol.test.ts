@@ -173,6 +173,55 @@ describe('protocol tests', () => {
         }
     });
 
+    describe('abort listener cleanup after resolution', () => {
+        const resultSchema: ZodType<{ result: string }> = z.object({ result: z.string() });
+
+        const respondTo = (id: number | string) => {
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id,
+                result: { result: 'ok' }
+            } as JSONRPCMessage);
+        };
+
+        test('removes the abort listener and sends no cancelled notification once the response arrived', async () => {
+            await protocol.connect(transport);
+            const controller = new AbortController();
+            const removeSpy = vi.spyOn(controller.signal, 'removeEventListener');
+
+            const promise = protocol.request({ method: 'example', params: {} }, resultSchema, { signal: controller.signal });
+            const requestId = (sendSpy.mock.calls[0]?.[0] as JSONRPCRequest).id;
+            respondTo(requestId);
+            await expect(promise).resolves.toEqual({ result: 'ok' });
+            // Let the promise's finally() run.
+            await new Promise(resolve => setTimeout(resolve, 0));
+
+            expect(removeSpy).toHaveBeenCalledWith('abort', expect.any(Function));
+
+            controller.abort('releasing the controller');
+            await new Promise(resolve => setTimeout(resolve, 0));
+            const cancelled = sendSpy.mock.calls.filter(call => (call[0] as { method?: string }).method === 'notifications/cancelled');
+            expect(cancelled).toHaveLength(0);
+        });
+
+        test('still sends a cancelled notification when aborted before the response arrives', async () => {
+            await protocol.connect(transport);
+            const controller = new AbortController();
+
+            const promise = protocol.request({ method: 'example', params: {} }, resultSchema, { signal: controller.signal });
+            const requestId = (sendSpy.mock.calls[0]?.[0] as JSONRPCRequest).id;
+            controller.abort('caller gave up');
+            await expect(promise).rejects.toThrow();
+
+            const cancelled = sendSpy.mock.calls.filter(
+                call =>
+                    (call[0] as { method?: string }).method === 'notifications/cancelled' &&
+                    (call[0] as { params?: { requestId?: number | string } }).params?.requestId === requestId
+            );
+            expect(cancelled).toHaveLength(1);
+        });
+    });
+
     test('should invoke onclose when the connection is closed', async () => {
         const oncloseMock = vi.fn();
         protocol.onclose = oncloseMock;
