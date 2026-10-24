@@ -2333,6 +2333,114 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+
+    test('should preserve cached tool metadata when a later listTools fails to compile an output schema', async () => {
+        let listToolsCallCount = 0;
+
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(InitializeRequestSchema, async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: {},
+            serverInfo: {
+                name: 'test-server',
+                version: '1.0.0'
+            }
+        }));
+
+        server.setRequestHandler(ListToolsRequestSchema, async () => {
+            listToolsCallCount += 1;
+
+            if (listToolsCallCount === 1) {
+                return {
+                    tools: [
+                        {
+                            name: 'versioned',
+                            inputSchema: {
+                                type: 'object',
+                                additionalProperties: false
+                            },
+                            outputSchema: {
+                                type: 'object',
+                                properties: {
+                                    generation: { const: 'old' }
+                                },
+                                required: ['generation'],
+                                additionalProperties: false
+                            }
+                        },
+                        {
+                            name: 'task-required',
+                            inputSchema: {
+                                type: 'object',
+                                additionalProperties: false
+                            },
+                            execution: {
+                                taskSupport: 'required'
+                            }
+                        }
+                    ]
+                };
+            }
+
+            return {
+                tools: [
+                    {
+                        name: 'invalid',
+                        inputSchema: {
+                            type: 'object',
+                            additionalProperties: false
+                        },
+                        outputSchema: {
+                            type: 'object',
+                            properties: {
+                                value: { type: 'not-a-json-schema-type' }
+                            }
+                        }
+                    }
+                ]
+            };
+        });
+
+        server.setRequestHandler(CallToolRequestSchema, async request => {
+            if (request.params.name === 'versioned') {
+                return {
+                    structuredContent: { generation: 'new' }
+                };
+            }
+
+            throw new Error('Unknown tool');
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await client.listTools();
+
+        await expect(client.listTools()).rejects.toThrow(/type must be JSONType/);
+
+        await expect(client.callTool({ name: 'versioned', arguments: {} })).rejects.toThrow(
+            /Structured content does not match the tool's output schema/
+        );
+
+        await expect(client.callTool({ name: 'task-required', arguments: {} })).rejects.toThrow(/requires task-based execution/);
+    });
 });
 
 describe('Task-based execution', () => {
