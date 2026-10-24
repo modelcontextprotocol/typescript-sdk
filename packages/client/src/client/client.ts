@@ -975,6 +975,9 @@ export class Client extends Protocol<ClientContext> {
     /**
      * Connects to a server via the given transport and performs the MCP initialization handshake.
      *
+     * In the legacy handshake, `options.timeout` applies independently to the
+     * initialize request and the initialized notification POST, not to their combined duration.
+     *
      * @example Basic usage (stdio)
      * ```ts source="./client.examples.ts#Client_connect_stdio"
      * const client = new Client({ name: 'my-client', version: '1.0.0' });
@@ -1097,17 +1100,9 @@ export class Client extends Protocol<ClientContext> {
 
             this._instructions = result.instructions;
 
-            // The initialized notification is the final leg of the connect
-            // handshake. Streamable HTTP transports await the POST response
-            // from `send()`, so a server that never responds here must not
-            // leave connect() pending beyond its timeout or caller signal.
-            // Use a derived signal: the caller's signal is scoped to connect,
-            // while the transport needs a per-message signal to abort this
-            // POST without closing unrelated transport state.
+            // Each legacy handshake stage gets its own timeout, matching per-request timeout semantics.
             const initializedAbort = new AbortController();
-            const toConnectAbortError = (reason: unknown): SdkError =>
-                reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
-            if (options?.signal?.aborted) throw toConnectAbortError(options.signal.reason);
+            if (options?.signal?.aborted) throw options.signal.reason;
 
             const notificationTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             let timeoutId: ReturnType<typeof setTimeout> | undefined;
@@ -1117,7 +1112,7 @@ export class Client extends Protocol<ClientContext> {
             });
             const abortPromise = new Promise<never>((_resolve, reject) => {
                 abortFromConnect = () => {
-                    const error = toConnectAbortError(options?.signal?.reason);
+                    const error = options?.signal?.reason;
                     initializedAbort.abort(error);
                     reject(error);
                 };
