@@ -287,14 +287,13 @@ export class ClientResponseCache {
      */
     private readonly _evictionGeneration = new Map<string, number>();
     /**
-     * Keys whose generation `0` snapshot was captured on a previous connection
-     * (populated by {@linkcode resetForReconnect}) and has already been
-     * redeemed by a post-reset generation-`0` {@linkcode write}. Once the
-     * post-reset generation-`0` write completes, any second generation-`0`
-     * write for that key (the delayed pre-reset request) is rejected.
+     * Baseline generation for keys not yet recorded in
+     * {@linkcode _evictionGeneration} on the current connection. Starts at `0`
+     * and advances past the highest generation issued so far on every
+     * {@linkcode resetForReconnect}, so a pre-reset generation snapshot can
+     * never match a post-reset state even after the map is cleared.
      */
-    private readonly _preResetZeroKeys = new Set<string>();
-    private readonly _postResetZeroWrittenKeys = new Set<string>();
+    private _generationBase = 0;
     /**
      * `name → Tool` index derived from the cached `tools/list` entry, memoized
      * against the entry's `stamp` so it re-derives only when the backing entry
@@ -426,9 +425,7 @@ export class ClientResponseCache {
      * dispatch proceeds.
      */
     async evict(method: string): Promise<void> {
-        this._preResetZeroKeys.delete(method);
-        this._postResetZeroWrittenKeys.delete(method);
-        this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
+        this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? this._generationBase) + 1);
         await this._deleteBoth(method, '');
     }
 
@@ -477,8 +474,6 @@ export class ClientResponseCache {
         // be held even when the generation entry has since been cleared by
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
-        this._preResetZeroKeys.delete(gk);
-        this._postResetZeroWrittenKeys.delete(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
         await this._deleteBoth(method, params);
     }
@@ -493,9 +488,8 @@ export class ClientResponseCache {
      */
     captureGeneration(method: string, params?: string): number {
         const gk = genKey(method, params);
-        const current = this._evictionGeneration.get(gk) ?? 0;
+        const current = this._evictionGeneration.get(gk) ?? this._generationBase;
         this._evictionGeneration.set(gk, current);
-        this._postResetZeroWrittenKeys.delete(gk);
         return current;
     }
 
@@ -541,12 +535,7 @@ export class ClientResponseCache {
         capturedGen: number,
         freshness?: { expiresAt: number; scope: CacheScope; params?: string }
     ): Promise<void> {
-        const gk = genKey(method, freshness?.params);
-        if (this._evictionGeneration.get(gk) !== capturedGen) return;
-        if (capturedGen === 0 && this._preResetZeroKeys.has(gk)) {
-            if (this._postResetZeroWrittenKeys.has(gk)) return;
-            this._postResetZeroWrittenKeys.add(gk);
-        }
+        if (this._evictionGeneration.get(genKey(method, freshness?.params)) !== capturedGen) return;
         const params = freshness?.params ?? '';
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
@@ -613,11 +602,14 @@ export class ClientResponseCache {
      */
     resetForReconnect(): void {
         if (!this._isUserSupplied) void this._store.clear();
-        for (const [gk, gen] of this._evictionGeneration) {
-            if (gen === 0) this._preResetZeroKeys.add(gk);
+        if (this._evictionGeneration.size > 0) {
+            let maxGeneration = this._generationBase;
+            for (const gen of this._evictionGeneration.values()) {
+                if (gen > maxGeneration) maxGeneration = gen;
+            }
+            this._generationBase = maxGeneration + 1;
+            this._evictionGeneration.clear();
         }
-        this._postResetZeroWrittenKeys.clear();
-        this._evictionGeneration.clear();
         this._toolIndex = undefined;
         this._toolOutputValidatorIndex = undefined;
         this._serverIdentity = '';

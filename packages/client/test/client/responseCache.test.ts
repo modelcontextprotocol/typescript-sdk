@@ -173,7 +173,8 @@ describe('ClientResponseCache', () => {
         expect(userCache.captureGeneration('prompts/list')).toBe(1);
         userCache.resetForReconnect();
         expect(userStore.get({ method: 'tools/list', partition: PRE })).toBeDefined();
-        expect(userCache.captureGeneration('prompts/list')).toBe(0);
+        expect((userCache as unknown as { _evictionGeneration: Map<string, number> })._evictionGeneration.size).toBe(0);
+        expect(userCache.captureGeneration('prompts/list')).toBe(2);
         // Index dropped → re-derived from the (still-populated) store on next read.
         expect((userCache as unknown as { _toolIndex?: unknown })._toolIndex).toBeUndefined();
         expect((await userCache.toolDefinition('a'))?.name).toBe('a');
@@ -1340,15 +1341,31 @@ describe('Client honours cacheHints (SEP-2549)', () => {
     it.each(
         (['private', 'public'] as const).flatMap(scope =>
             [false, true].flatMap(changeServer =>
-                [false, true].map(freshWriteBeforeStale => ({ scope, changeServer, freshWriteBeforeStale }))
+                (
+                    [
+                        'none',
+                        'capture-write-stale',
+                        'capture-stale-write',
+                        'write-recapture-stale',
+                        'concurrent-post-reset',
+                        'evicted-pre-reset-and-post-reset'
+                    ] as const
+                ).map(ordering => ({
+                    scope,
+                    changeServer,
+                    ordering
+                }))
             )
         )
     )(
-        'rejects pre-reset generation-0 writes after resetForReconnect (scope=$scope, changeServer=$changeServer, freshWriteBeforeStale=$freshWriteBeforeStale)',
-        async ({ scope, changeServer, freshWriteBeforeStale }) => {
+        'rejects pre-reset writes after resetForReconnect (scope=$scope, changeServer=$changeServer, ordering=$ordering)',
+        async ({ scope, changeServer, ordering }) => {
             const store = new InMemoryResponseCacheStore();
             const cache = new ClientResponseCache(store, true, undefined, 'alice');
             cache.setServerIdentity('server-a');
+            if (ordering === 'evicted-pre-reset-and-post-reset') {
+                await cache.evict('tools/list');
+            }
             const oldGeneration = cache.captureGeneration('tools/list');
 
             cache.resetForReconnect();
@@ -1356,17 +1373,36 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             cache.setServerIdentity(targetServer);
             const freshness = { expiresAt: Date.now() + 60_000, scope };
 
-            if (freshWriteBeforeStale) {
+            if (ordering === 'none') {
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'capture-write-stale') {
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'capture-stale-write') {
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+            } else if (ordering === 'write-recapture-stale') {
+                const firstPostResetGen = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, firstPostResetGen, freshness);
+                cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'concurrent-post-reset') {
+                const gen1 = cache.captureGeneration('tools/list');
+                const gen2 = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, gen1, freshness);
+                await cache.write('tools/list', { tools: [TOOL_B] }, gen2, freshness);
+            } else {
+                await cache.evict('tools/list');
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             }
 
-            // A stale response whose generation was captured before resetForReconnect()
-            // must not overwrite a fresh response or populate the new connection's partition.
-            await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
-
             const hit = await cache.read('tools/list');
-            if (freshWriteBeforeStale) {
+            if (ordering !== 'none') {
                 expect(hit).toEqual({ value: { tools: [TOOL_B] } });
                 expect((await cache.toolDefinition('b'))?.name).toBe('b');
                 expect(await cache.toolDefinition('a')).toBeUndefined();
