@@ -1097,9 +1097,48 @@ export class Client extends Protocol<ClientContext> {
 
             this._instructions = result.instructions;
 
-            await this.notification({
-                method: 'notifications/initialized'
+            // The initialized notification is the final leg of the connect
+            // handshake. Streamable HTTP transports await the POST response
+            // from `send()`, so a server that never responds here must not
+            // leave connect() pending beyond its timeout or caller signal.
+            // Use a derived signal: the caller's signal is scoped to connect,
+            // while the transport needs a per-message signal to abort this
+            // POST without closing unrelated transport state.
+            const initializedAbort = new AbortController();
+            const toConnectAbortError = (reason: unknown): SdkError =>
+                reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+            if (options?.signal?.aborted) throw toConnectAbortError(options.signal.reason);
+
+            const notificationTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+            let timeoutId: ReturnType<typeof setTimeout> | undefined;
+            let abortFromConnect: (() => void) | undefined;
+            const timeoutError = new SdkError(SdkErrorCode.RequestTimeout, 'Timed out waiting for notifications/initialized POST', {
+                timeout: notificationTimeout
             });
+            const abortPromise = new Promise<never>((_resolve, reject) => {
+                abortFromConnect = () => {
+                    const error = toConnectAbortError(options?.signal?.reason);
+                    initializedAbort.abort(error);
+                    reject(error);
+                };
+                options?.signal?.addEventListener('abort', abortFromConnect, { once: true });
+            });
+            const timeoutPromise = new Promise<never>((_resolve, reject) => {
+                timeoutId = setTimeout(() => {
+                    initializedAbort.abort(timeoutError);
+                    reject(timeoutError);
+                }, notificationTimeout);
+            });
+            try {
+                await Promise.race([
+                    this.notification({ method: 'notifications/initialized' }, { requestSignal: initializedAbort.signal }),
+                    abortPromise,
+                    timeoutPromise
+                ]);
+            } finally {
+                if (timeoutId !== undefined) clearTimeout(timeoutId);
+                if (abortFromConnect) options?.signal?.removeEventListener('abort', abortFromConnect);
+            }
 
             // Handshake completion: the negotiated version becomes the
             // instance's connection state, and with it the wire era for
