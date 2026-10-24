@@ -1336,4 +1336,44 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         expect(listCount()).toBe(1);
         expect(errors.map(e => e.message)).toContain('redis down');
     });
+
+    it.each(
+        (['private', 'public'] as const).flatMap(scope =>
+            [false, true].flatMap(changeServer =>
+                [false, true].map(freshWriteBeforeStale => ({ scope, changeServer, freshWriteBeforeStale }))
+            )
+        )
+    )(
+        'rejects pre-reset generation-0 writes after resetForReconnect (scope=$scope, changeServer=$changeServer, freshWriteBeforeStale=$freshWriteBeforeStale)',
+        async ({ scope, changeServer, freshWriteBeforeStale }) => {
+            const store = new InMemoryResponseCacheStore();
+            const cache = new ClientResponseCache(store, true, undefined, 'alice');
+            cache.setServerIdentity('server-a');
+            const oldGeneration = cache.captureGeneration('tools/list');
+
+            cache.resetForReconnect();
+            const targetServer = changeServer ? 'server-b' : 'server-a';
+            cache.setServerIdentity(targetServer);
+            const freshness = { expiresAt: Date.now() + 60_000, scope };
+
+            if (freshWriteBeforeStale) {
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+            }
+
+            // A stale response whose generation was captured before resetForReconnect()
+            // must not overwrite a fresh response or populate the new connection's partition.
+            await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+
+            const hit = await cache.read('tools/list');
+            if (freshWriteBeforeStale) {
+                expect(hit).toEqual({ value: { tools: [TOOL_B] } });
+                expect((await cache.toolDefinition('b'))?.name).toBe('b');
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            } else {
+                expect(hit).toBeUndefined();
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            }
+        }
+    );
 });

@@ -270,11 +270,13 @@ export class ClientResponseCache {
      * Per-logical-key eviction-generation counter. {@linkcode evict} (whole
      * method) and {@linkcode evictKey} (single `{method, params}`) bump it
      * before touching the store; {@linkcode captureGeneration} reads it before
-     * the request; {@linkcode write} skips when it moved — so a `list_changed`
-     * arriving mid-walk, or a `resources/updated` arriving while a
-     * `readResource()` for the same URI is in flight, is not overwritten by
-     * the in-flight request's stale write. The map key is `method` for the
-     * list singletons and `` `${method}\0${params}` `` for per-URI keys.
+     * the request; {@linkcode write} skips when it moved or when the key is
+     * absent (e.g. cleared by {@linkcode resetForReconnect}) — so a
+     * `list_changed` arriving mid-walk, a `resources/updated` arriving while a
+     * `readResource()` for the same URI is in flight, or a pre-reset response
+     * reaching `write` after a reconnect is not written. The map key is
+     * `method` for the list singletons and `` `${method}\0${params}` `` for
+     * per-URI keys.
      *
      * Growth is bounded by keys the CLIENT has issued a `captureGeneration`
      * for: {@linkcode captureGeneration} records the key (so an interleaved
@@ -284,6 +286,15 @@ export class ClientResponseCache {
      * has never read therefore cannot grow this map.
      */
     private readonly _evictionGeneration = new Map<string, number>();
+    /**
+     * Keys whose generation `0` snapshot was captured on a previous connection
+     * (populated by {@linkcode resetForReconnect}) and has already been
+     * redeemed by a post-reset generation-`0` {@linkcode write}. Once the
+     * post-reset generation-`0` write completes, any second generation-`0`
+     * write for that key (the delayed pre-reset request) is rejected.
+     */
+    private readonly _preResetZeroKeys = new Set<string>();
+    private readonly _postResetZeroWrittenKeys = new Set<string>();
     /**
      * `name → Tool` index derived from the cached `tools/list` entry, memoized
      * against the entry's `stamp` so it re-derives only when the backing entry
@@ -415,6 +426,8 @@ export class ClientResponseCache {
      * dispatch proceeds.
      */
     async evict(method: string): Promise<void> {
+        this._preResetZeroKeys.delete(method);
+        this._postResetZeroWrittenKeys.delete(method);
         this._evictionGeneration.set(method, (this._evictionGeneration.get(method) ?? 0) + 1);
         await this._deleteBoth(method, '');
     }
@@ -464,6 +477,8 @@ export class ClientResponseCache {
         // be held even when the generation entry has since been cleared by
         // `resetForReconnect`).
         const current = this._evictionGeneration.get(gk);
+        this._preResetZeroKeys.delete(gk);
+        this._postResetZeroWrittenKeys.delete(gk);
         if (current !== undefined) this._evictionGeneration.set(gk, current + 1);
         await this._deleteBoth(method, params);
     }
@@ -480,6 +495,7 @@ export class ClientResponseCache {
         const gk = genKey(method, params);
         const current = this._evictionGeneration.get(gk) ?? 0;
         this._evictionGeneration.set(gk, current);
+        this._postResetZeroWrittenKeys.delete(gk);
         return current;
     }
 
@@ -525,7 +541,12 @@ export class ClientResponseCache {
         capturedGen: number,
         freshness?: { expiresAt: number; scope: CacheScope; params?: string }
     ): Promise<void> {
-        if ((this._evictionGeneration.get(genKey(method, freshness?.params)) ?? 0) !== capturedGen) return;
+        const gk = genKey(method, freshness?.params);
+        if (this._evictionGeneration.get(gk) !== capturedGen) return;
+        if (capturedGen === 0 && this._preResetZeroKeys.has(gk)) {
+            if (this._postResetZeroWrittenKeys.has(gk)) return;
+            this._postResetZeroWrittenKeys.add(gk);
+        }
         const params = freshness?.params ?? '';
         const ownPartition = this._partitionFor('private');
         const sharedPartition = this._partitionFor('public');
@@ -592,6 +613,10 @@ export class ClientResponseCache {
      */
     resetForReconnect(): void {
         if (!this._isUserSupplied) void this._store.clear();
+        for (const [gk, gen] of this._evictionGeneration) {
+            if (gen === 0) this._preResetZeroKeys.add(gk);
+        }
+        this._postResetZeroWrittenKeys.clear();
         this._evictionGeneration.clear();
         this._toolIndex = undefined;
         this._toolOutputValidatorIndex = undefined;
