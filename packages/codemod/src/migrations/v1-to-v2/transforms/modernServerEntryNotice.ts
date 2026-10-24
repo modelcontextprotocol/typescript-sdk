@@ -51,6 +51,30 @@ export const modernServerEntryNoticeTransform: Transform = {
                     });
                 }
             }
+
+            const namespaceImport = declaration.getNamespaceImport();
+            if (namespaceImport === undefined || declaration.isTypeOnly()) continue;
+
+            for (const [transport, message] of LEGACY_SERVER_TRANSPORTS) {
+                const separator = transport.lastIndexOf(':');
+                if (transport.slice(0, separator) !== specifier) continue;
+                const transportName = transport.slice(separator + 1);
+
+                for (const construction of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+                    const expression = construction.getExpression().asKind(SyntaxKind.PropertyAccessExpression);
+                    if (
+                        expression?.getExpression().getText() !== namespaceImport.getText() ||
+                        expression.getName() !== transportName
+                    ) {
+                        continue;
+                    }
+                    diagnostics.push({
+                        ...info(filePath, construction.getStartLineNumber(), `${message} See ${MODERN_PROTOCOL_GUIDE}.`),
+                        advisoryOnly: true,
+                        resolveCurrentLine: () => construction.getStartLineNumber()
+                    });
+                }
+            }
         }
 
         return { changesCount: 0, diagnostics };
