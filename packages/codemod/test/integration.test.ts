@@ -128,6 +128,25 @@ describe('integration', () => {
         expect(notice?.advisoryOnly).toBe(true);
     });
 
+    it('points namespace-imported migrated servers at the modern serving entry', () => {
+        const dir = createTempDir();
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import * as stdio from '@modelcontextprotocol/sdk/server/stdio.js';`,
+                `const transport = new stdio.StdioServerTransport();`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const notice = result.diagnostics.find(d => d.message.includes('serveStdio'));
+        expect(notice?.level).toBe(DiagnosticLevel.Info);
+        expect(notice?.message).toContain('2026-07-28');
+        expect(notice?.advisoryOnly).toBe(true);
+    });
+
     it('points migrated web-standard HTTP servers at the modern serving entry', () => {
         const dir = createTempDir();
         writeFileSync(
