@@ -62,10 +62,7 @@ export const modernServerEntryNoticeTransform: Transform = {
 
                 for (const construction of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
                     const expression = construction.getExpression().asKind(SyntaxKind.PropertyAccessExpression);
-                    if (
-                        expression?.getExpression().getText() !== namespaceImport.getText() ||
-                        expression.getName() !== transportName
-                    ) {
+                    if (expression?.getExpression().getText() !== namespaceImport.getText() || expression.getName() !== transportName) {
                         continue;
                     }
                     diagnostics.push({
