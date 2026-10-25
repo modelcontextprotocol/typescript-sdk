@@ -1984,6 +1984,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'typescript:client-transport:http:custom-header-case': {
+        source: 'sdk',
+        behavior:
+            'A caller-supplied header whose name differs only in case from a transport-managed header (e.g. MCP-Protocol-Version) replaces it, so a single value is sent and the server accepts the request.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'typescript:client-transport:http:protocol-version-stored': {
         source: 'sdk',
         behavior: 'transport.protocolVersion is populated after connect() completes.',

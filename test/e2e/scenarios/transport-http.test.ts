@@ -273,6 +273,35 @@ verifies('client-transport:http:custom-headers', async (_args: TestArgs) => {
     }
 });
 
+verifies('typescript:client-transport:http:custom-header-case', async (_args: TestArgs) => {
+    const records: RecordedRequest[] = [];
+    const handle = hostPerSession(() => echoServer());
+
+    try {
+        const url = new URL('http://in-process/mcp');
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: recordingFetch(records, handle.handleRequest),
+            requestInit: { headers: { 'MCP-Protocol-Version': OLDER_VERSION } }
+        });
+        const client = newClient();
+
+        await client.connect(transport);
+        await client.ping();
+
+        const initIdx = records.findIndex(r => r.body?.includes('"method":"initialize"'));
+        const afterInit = records.slice(initIdx + 1);
+        expect(afterInit.length).toBeGreaterThan(0);
+        for (const req of afterInit) {
+            expect(req.headers['mcp-protocol-version']).toBe(OLDER_VERSION);
+        }
+
+        await client.close();
+        await transport.close();
+    } finally {
+        await handle.close();
+    }
+});
+
 verifies('typescript:client-transport:http:custom-fetch', async (_args: TestArgs) => {
     const customFetchCalls: string[] = [];
     const records: RecordedRequest[] = [];
