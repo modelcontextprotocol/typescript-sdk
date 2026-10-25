@@ -1,0 +1,29 @@
+.changeset/sep-2350-scope-accumulation-followup.md
+  s_efab1c228e4145::t_5e989a173222b6 5
+packages/client/src/client/auth.ts
+  s_efab1c228e4145::t_317b181000f7b4 1109-1118
+packages/client/src/client/sse.ts
+  s_efab1c228e4145::t_6c01c32310b101 23,412-427,431-432
+packages/client/src/client/streamableHttp.ts
+  s_efab1c228e4145::t_cc6f4adf7e9079 32,349-352,465-467,482-486,965-980,984-985,994-999
+packages/client/test/client/sse.test.ts
+  s_efab1c228e4145::t_34bd13a0afa68d 1639-1663
+packages/client/test/client/streamableHttp.test.ts
+  s_efab1c228e4145::t_5d3745b7febfa2 1500-1580,1583-1586,1588-1589,1591-1594,1597-1600,1602-1604,1606-1607,1610-1626,1628-1663,1665-1691
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c1128b30c2a20411c83053fbf049e853d3ca6764",
+  "prompts": {},
+  "sessions": {
+    "s_efab1c228e4145": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1636d-fe64-7019-9951-9ccc73389018",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
