@@ -977,6 +977,8 @@ export class Client extends Protocol<ClientContext> {
      *
      * In the legacy handshake, `options.timeout` applies independently to the
      * initialize request and the initialized notification POST, not to their combined duration.
+     * Only the initialized stage rejects with the original caller abort reason; initialize
+     * uses request() behavior, wrapping non-SdkError reasons in RequestTimeout.
      *
      * @example Basic usage (stdio)
      * ```ts source="./client.examples.ts#Client_connect_stdio"

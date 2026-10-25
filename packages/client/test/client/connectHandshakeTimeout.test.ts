@@ -10,6 +10,10 @@ class HangingInitializedTransport implements Transport {
     onmessage?: (message: JSONRPCMessage) => void;
 
     initializedSignal: AbortSignal | undefined;
+    private initializeSent!: () => void;
+    readonly initializeSentPromise = new Promise<void>(resolve => {
+        this.initializeSent = resolve;
+    });
     closeCalls = 0;
     private initializedSent!: () => void;
     readonly initializedSentPromise = new Promise<void>(resolve => {
@@ -19,7 +23,8 @@ class HangingInitializedTransport implements Transport {
     constructor(
         private readonly honorRequestSignal = true,
         private readonly initializeDelay = 0,
-        private readonly afterInitialize?: () => void
+        private readonly afterInitialize?: () => void,
+        private readonly hangInitialize = false
     ) {}
 
     async start(): Promise<void> {}
@@ -28,6 +33,8 @@ class HangingInitializedTransport implements Transport {
         if (!('method' in message)) return;
 
         if (message.method === 'initialize' && 'id' in message) {
+            this.initializeSent();
+            if (this.hangInitialize) return;
             if (this.initializeDelay) await new Promise(resolve => setTimeout(resolve, this.initializeDelay));
             this.onmessage?.({
                 jsonrpc: '2.0',
@@ -105,6 +112,30 @@ describe('Client.connect initialized notification cancellation', () => {
         expect(transport.initializedSignal?.aborted).toBe(true);
         expect(transport.closeCalls).toBe(1);
         expect(client.transport).toBeUndefined();
+    });
+
+    test('records the current cross-stage abort boundary; update alongside request() cancellation semantics', async () => {
+        // This records the current boundary, not a requirement to keep request() cancellation semantics unchanged.
+        const reason = new Error('user cancel');
+        for (const hangInitialize of [true, false]) {
+            const transport = new HangingInitializedTransport(true, 0, undefined, hangInitialize);
+            const client = createClient();
+            const controller = new AbortController();
+            const connecting = client.connect(transport, { timeout: 1_000, signal: controller.signal });
+            const rejected = connecting.catch((error: unknown) => error);
+
+            await (hangInitialize ? transport.initializeSentPromise : transport.initializedSentPromise);
+            controller.abort(reason);
+
+            if (hangInitialize) {
+                const error = await rejected;
+                expect(error).toBeInstanceOf(SdkError);
+                expect(error).toMatchObject({ code: SdkErrorCode.RequestTimeout });
+                expect(error).not.toBe(reason);
+            } else {
+                await expect(connecting).rejects.toBe(reason);
+            }
+        }
     });
 
     test('gives initialized a fresh timeout after initialize uses part of its budget', async () => {
