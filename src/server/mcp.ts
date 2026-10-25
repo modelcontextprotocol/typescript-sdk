@@ -40,6 +40,7 @@ import {
     Prompt,
     PromptArgument,
     GetPromptResult,
+    Icon,
     ReadResourceResult,
     ServerRequest,
     ServerNotification,
@@ -655,7 +656,8 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromSchema(prompt.argsSchema) : undefined,
+                            icons: prompt.icons
                         };
                     })
             })
@@ -896,12 +898,14 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: PromptArgsRawShape | undefined,
-        callback: PromptCallback<PromptArgsRawShape | undefined>
+        callback: PromptCallback<PromptArgsRawShape | undefined>,
+        icons?: Icon[]
     ): RegisteredPrompt {
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
             argsSchema: argsSchema === undefined ? undefined : objectFromShape(argsSchema),
+            icons,
             callback,
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -915,6 +919,7 @@ export class McpServer {
                 if (typeof updates.title !== 'undefined') registeredPrompt.title = updates.title;
                 if (typeof updates.description !== 'undefined') registeredPrompt.description = updates.description;
                 if (typeof updates.argsSchema !== 'undefined') registeredPrompt.argsSchema = objectFromShape(updates.argsSchema);
+                if (typeof updates.icons !== 'undefined') registeredPrompt.icons = updates.icons;
                 if (typeof updates.callback !== 'undefined') registeredPrompt.callback = updates.callback;
                 if (typeof updates.enabled !== 'undefined') registeredPrompt.enabled = updates.enabled;
                 this.sendPromptListChanged();
@@ -1210,6 +1215,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
         },
         cb: PromptCallback<Args>
     ): RegisteredPrompt {
@@ -1217,14 +1223,15 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema } = config;
+        const { title, description, argsSchema, icons } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
             argsSchema,
-            cb as PromptCallback<PromptArgsRawShape | undefined>
+            cb as PromptCallback<PromptArgsRawShape | undefined>,
+            icons
         );
 
         this.setPromptRequestHandlers();
@@ -1550,6 +1557,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: AnyObjectSchema;
+    icons?: Icon[];
     callback: PromptCallback<undefined | PromptArgsRawShape>;
     enabled: boolean;
     enable(): void;
@@ -1559,6 +1567,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        icons?: Icon[];
         callback?: PromptCallback<Args>;
         enabled?: boolean;
     }): void;

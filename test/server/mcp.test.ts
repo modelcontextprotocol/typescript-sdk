@@ -8,6 +8,7 @@ import {
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
+    type Icon,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
@@ -3663,6 +3664,67 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0].name).toBe('test');
             expect(result.prompts[0].description).toBe('Test description');
+        });
+
+        test('should include prompt icons in listings without changing icon-free prompts', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const icons: Icon[] = [
+                { src: 'https://example.com/review.svg', mimeType: 'image/svg+xml', sizes: ['any'], theme: 'light' },
+                { src: 'https://example.com/review-dark.png', mimeType: 'image/png', sizes: ['48x48'], theme: 'dark' }
+            ];
+
+            mcpServer.registerPrompt('review', { title: 'Code Review', argsSchema: { code: z.string() }, icons }, ({ code }) => ({
+                messages: [{ role: 'user', content: { type: 'text', text: code } }]
+            }));
+            mcpServer.registerPrompt('plain', {}, () => ({ messages: [] }));
+            mcpServer.prompt('legacy', 'Legacy prompt', () => ({ messages: [] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            try {
+                expect((await client.listPrompts()).prompts).toEqual([
+                    { name: 'review', title: 'Code Review', arguments: [{ name: 'code', required: true }], icons },
+                    { name: 'plain' },
+                    { name: 'legacy', description: 'Legacy prompt' }
+                ]);
+                expect(await client.getPrompt({ name: 'review', arguments: { code: 'const value = 1;' } })).toEqual({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'const value = 1;' } }]
+                });
+                expect(await client.getPrompt({ name: 'legacy' })).toEqual({ messages: [] });
+            } finally {
+                await Promise.all([client.close(), mcpServer.close()]);
+            }
+        });
+
+        test('should replace, preserve, and clear prompt icons through updates', async () => {
+            const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+            const client = new Client({ name: 'test client', version: '1.0' });
+            const prompt = mcpServer.registerPrompt('test', {}, () => ({ messages: [] }));
+            const icons: Icon[] = [{ src: 'https://example.com/prompt.png' }];
+            const replacement: Icon[] = [{ src: 'https://example.com/updated.svg', mimeType: 'image/svg+xml' }];
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            try {
+                prompt.update({ icons });
+                expect((await client.listPrompts()).prompts[0].icons).toEqual(icons);
+
+                prompt.update({ icons: replacement });
+                expect((await client.listPrompts()).prompts[0].icons).toEqual(replacement);
+
+                prompt.update({ description: 'Updated description', icons: undefined });
+                expect((await client.listPrompts()).prompts[0]).toMatchObject({
+                    description: 'Updated description',
+                    icons: replacement
+                });
+
+                prompt.update({ icons: [] });
+                expect((await client.listPrompts()).prompts[0].icons).toEqual([]);
+            } finally {
+                await Promise.all([client.close(), mcpServer.close()]);
+            }
         });
 
         /***

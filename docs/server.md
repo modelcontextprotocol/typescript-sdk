@@ -366,7 +366,7 @@ For full runnable examples of resources:
 
 Prompts are reusable templates that help humans (or client UIs) talk to models in a consistent way. They are declared on the server and listed through MCP.
 
-A minimal prompt:
+A prompt with an optional display icon:
 
 ```typescript
 server.registerPrompt(
@@ -374,7 +374,8 @@ server.registerPrompt(
     {
         title: 'Code Review',
         description: 'Review code for best practices and potential issues',
-        argsSchema: { code: z.string() }
+        argsSchema: { code: z.string() },
+        icons: [{ src: 'https://example.com/code-review.svg', mimeType: 'image/svg+xml' }]
     },
     ({ code }) => ({
         messages: [
@@ -389,6 +390,8 @@ server.registerPrompt(
     })
 );
 ```
+
+Clients can display the optional `icons` metadata returned by `prompts/list`. The returned prompt handle accepts `update({ icons: [...] })` to replace them and `update({ icons: [] })` to clear them. Omitting `icons` from an update preserves the current value.
 
 #### Image content in prompts
 
