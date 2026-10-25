@@ -1109,9 +1109,6 @@ export class Client extends Protocol<ClientContext> {
             const notificationTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
             let timeoutId: ReturnType<typeof setTimeout> | undefined;
             let abortFromConnect: (() => void) | undefined;
-            const timeoutError = new SdkError(SdkErrorCode.RequestTimeout, 'Timed out waiting for notifications/initialized POST', {
-                timeout: notificationTimeout
-            });
             const abortPromise = new Promise<never>((_resolve, reject) => {
                 abortFromConnect = () => {
                     const error = options?.signal?.reason;
@@ -1122,6 +1119,9 @@ export class Client extends Protocol<ClientContext> {
             });
             const timeoutPromise = new Promise<never>((_resolve, reject) => {
                 timeoutId = setTimeout(() => {
+                    const timeoutError = new SdkError(SdkErrorCode.RequestTimeout, 'Timed out waiting for notifications/initialized POST', {
+                        timeout: notificationTimeout
+                    });
                     initializedAbort.abort(timeoutError);
                     reject(timeoutError);
                 }, notificationTimeout);
