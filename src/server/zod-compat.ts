@@ -10,7 +10,15 @@ import * as z3rt from 'zod/v3';
 import * as z4mini from 'zod/v4-mini';
 
 // --- Unified schema types ---
-export type AnySchema = z3.ZodTypeAny | z4.$ZodType;
+export interface ZodV4TypeLike<Output = unknown, Input = unknown> {
+    _zod: {
+        output: Output;
+        input: Input;
+        def?: unknown;
+    };
+}
+
+export type AnySchema = z3.ZodTypeAny | ZodV4TypeLike;
 export type AnyObjectSchema = z3.AnyZodObject | z4.$ZodObject | AnySchema;
 export type ZodRawShapeCompat = Record<string, AnySchema>;
 
@@ -30,6 +38,8 @@ export interface ZodV3Internal {
 
 export interface ZodV4Internal {
     _zod?: {
+        output?: unknown;
+        input?: unknown;
         def?: {
             type?: string;
             value?: unknown;
@@ -41,9 +51,9 @@ export interface ZodV4Internal {
 }
 
 // --- Type inference helpers ---
-export type SchemaOutput<S> = S extends z3.ZodTypeAny ? z3.infer<S> : S extends z4.$ZodType ? z4.output<S> : never;
+export type SchemaOutput<S> = S extends z3.ZodTypeAny ? z3.infer<S> : S extends ZodV4TypeLike<infer Output, unknown> ? Output : never;
 
-export type SchemaInput<S> = S extends z3.ZodTypeAny ? z3.input<S> : S extends z4.$ZodType ? z4.input<S> : never;
+export type SchemaInput<S> = S extends z3.ZodTypeAny ? z3.input<S> : S extends ZodV4TypeLike<unknown, infer Input> ? Input : never;
 
 /**
  * Infers the output type from a ZodRawShapeCompat (raw shape object).
@@ -54,7 +64,7 @@ export type ShapeOutput<Shape extends ZodRawShapeCompat> = {
 };
 
 // --- Runtime detection ---
-export function isZ4Schema(s: AnySchema): s is z4.$ZodType {
+export function isZ4Schema(s: AnySchema): s is ZodV4TypeLike {
     // Present on Zod 4 (Classic & Mini) schemas; absent on Zod 3
     const schema = s as unknown as ZodV4Internal;
     return !!schema._zod;
@@ -81,7 +91,7 @@ export function safeParse<S extends AnySchema>(
 ): { success: true; data: SchemaOutput<S> } | { success: false; error: unknown } {
     if (isZ4Schema(schema)) {
         // Mini exposes top-level safeParse
-        const result = z4mini.safeParse(schema, data);
+        const result = z4mini.safeParse(schema as z4.$ZodType, data);
         return result as { success: true; data: SchemaOutput<S> } | { success: false; error: unknown };
     }
     const v3Schema = schema as z3.ZodTypeAny;
@@ -95,7 +105,7 @@ export async function safeParseAsync<S extends AnySchema>(
 ): Promise<{ success: true; data: SchemaOutput<S> } | { success: false; error: unknown }> {
     if (isZ4Schema(schema)) {
         // Mini exposes top-level safeParseAsync
-        const result = await z4mini.safeParseAsync(schema, data);
+        const result = await z4mini.safeParseAsync(schema as z4.$ZodType, data);
         return result as { success: true; data: SchemaOutput<S> } | { success: false; error: unknown };
     }
     const v3Schema = schema as z3.ZodTypeAny;
