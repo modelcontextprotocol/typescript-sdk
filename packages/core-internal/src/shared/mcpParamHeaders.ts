@@ -287,6 +287,16 @@ export function decodeMcpParamValue(value: string): string | undefined {
     }
 }
 
+/**
+ * Why {@linkcode decodeMcpParamValue} returned `undefined` for `value`, worded for an error message, so
+ * that a client author can tell a plain value that needed Base64 wrapping from a broken sentinel.
+ */
+export function describeMcpParamDecodeFailure(value: string): string {
+    return value.startsWith(BASE64_SENTINEL_PREFIX) && value.endsWith(BASE64_SENTINEL_SUFFIX)
+        ? 'an invalid Base64 sentinel value'
+        : 'a plain value with a character outside 0x20-0x7E / 0x09, which has to be sent Base64-wrapped';
+}
+
 /* ------------------------------------------------------------------------ *
  * Client-side header construction (the 5-step MUST algorithm, steps 3–5)
  * ------------------------------------------------------------------------ */
@@ -378,7 +388,7 @@ export function validateMcpParamHeaders(
             return paramHeaderMismatchRejection(
                 'param-header-invalid-encoding',
                 headerKey,
-                `the ${headerKey} header carries invalid characters or an invalid Base64 sentinel value`
+                `the ${headerKey} header carries ${describeMcpParamDecodeFailure(headerValue)}`
             );
         }
         // Integer/number-typed declarations compare numerically (the spec's

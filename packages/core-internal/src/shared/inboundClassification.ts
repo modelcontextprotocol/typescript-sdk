@@ -80,7 +80,7 @@ import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelope
 // `HeaderMismatch` constant and rejection type from here, so this is a benign
 // two-module cycle (both sides only consume the other's exports inside
 // function bodies, never at module-evaluation time).
-import { decodeMcpParamValue } from './mcpParamHeaders';
+import { decodeMcpParamValue, describeMcpParamDecodeFailure } from './mcpParamHeaders';
 import { isModernProtocolVersion } from './protocolEras';
 
 /* ------------------------------------------------------------------------ *
@@ -637,7 +637,7 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return crossCheckMismatch(
             'name-header-invalid-encoding',
             normalizedNameHeader,
-            'the Mcp-Name header carries invalid characters or an invalid Base64 sentinel value',
+            `the Mcp-Name header carries ${describeMcpParamDecodeFailure(normalizedNameHeader)}`,
             'standard-header-validation'
         );
     }
