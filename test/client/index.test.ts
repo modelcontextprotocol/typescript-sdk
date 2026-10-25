@@ -2433,7 +2433,7 @@ describe('outputSchema validation', () => {
 
         await client.listTools();
 
-        await expect(client.listTools()).rejects.toThrow(/type must be JSONType/);
+        await expect(client.listTools()).rejects.toThrow(/^type must be JSONType or JSONType\[\]: not-a-json-schema-type$/);
 
         await expect(client.callTool({ name: 'versioned', arguments: {} })).rejects.toThrow(
             /Structured content does not match the tool's output schema/
