@@ -1596,6 +1596,47 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(toolsResponse.status).toBe(200);
         });
 
+        it('should return a JSON error when a stateless transport is reused with a pre-parsed body', async () => {
+            const reusedMcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+            reusedMcpServer.tool('greet', 'A simple greeting tool', { name: z.string() }, async ({ name }): Promise<CallToolResult> => {
+                return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+            });
+
+            const reusedTransport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const onerror = vi.fn<(error: Error) => void>();
+            reusedTransport.onerror = onerror;
+            await reusedMcpServer.connect(reusedTransport);
+
+            const reusedServer = createServer(async (req, res) => {
+                const chunks: Uint8Array[] = [];
+                for await (const chunk of req) {
+                    chunks.push(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
+                }
+                const parsedBody = chunks.length > 0 ? JSON.parse(Buffer.concat(chunks).toString()) : undefined;
+                await reusedTransport.handleRequest(req, res, parsedBody);
+            });
+            const reusedBaseUrl = await listenOnRandomPort(reusedServer);
+
+            try {
+                const initResponse = await sendPostRequest(reusedBaseUrl, TEST_MESSAGES.initialize);
+                expect(initResponse.status).toBe(200);
+                expect(initResponse.headers.get('mcp-session-id')).toBeNull();
+
+                onerror.mockClear();
+                const toolsResponse = await sendPostRequest(reusedBaseUrl, TEST_MESSAGES.toolsList);
+
+                expect(toolsResponse.status).toBe(500);
+                expect(toolsResponse.headers.get('content-type')).toContain('application/json');
+                expectErrorResponse(await toolsResponse.json(), -32000, /Stateless transport cannot be reused/);
+                expect(onerror).toHaveBeenCalledTimes(1);
+                expect(onerror.mock.calls[0]![0].message).toMatch(/Stateless transport cannot be reused/);
+            } finally {
+                reusedServer.close();
+                await reusedTransport.close();
+                await reusedMcpServer.close();
+            }
+        });
+
         it('should handle POST requests with various session IDs in stateless mode', async () => {
             await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
@@ -3195,6 +3236,30 @@ describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
         await transport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList }));
         expect(onerrorSpy).toHaveBeenCalledTimes(1);
         expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Server not initialized/);
+    });
+
+    it('should call onerror and return JSON when stateless transport is reused', async () => {
+        const statelessServer = new McpServer({ name: 'test', version: '1.0.0' });
+        const statelessTransport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+        const statelessSpy = vi.fn<(error: Error) => void>();
+        statelessTransport.onerror = statelessSpy;
+        await statelessServer.connect(statelessTransport);
+
+        try {
+            const initResponse = await statelessTransport.handleRequest(req('POST', { body: TEST_MESSAGES.initialize }));
+            expect(initResponse.status).toBe(200);
+
+            statelessSpy.mockClear();
+            const response = await statelessTransport.handleRequest(req('POST', { body: TEST_MESSAGES.toolsList }));
+
+            expect(response.status).toBe(500);
+            expectErrorResponse(await response.json(), -32000, /Stateless transport cannot be reused/);
+            expect(statelessSpy).toHaveBeenCalledTimes(1);
+            expect(statelessSpy.mock.calls[0]![0]!.message).toMatch(/Stateless transport cannot be reused/);
+        } finally {
+            await statelessTransport.close();
+            await statelessServer.close();
+        }
     });
 
     it('should call onerror for invalid session ID', async () => {
