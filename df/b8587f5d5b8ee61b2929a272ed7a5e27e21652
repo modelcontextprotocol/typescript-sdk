@@ -1,0 +1,28 @@
+packages/client/test/client/auth.test.ts
+  s_efab1c228e4145::t_5968a8f19641dd 5636-5857
+packages/client/src/client/auth.ts
+  s_efab1c228e4145::t_742b47f18a9e46 1109-1112,1115,1124-1137,1183-1184,1484-1490,1496
+  s_efab1c228e4145::t_1dc5815bbe200c 261-274
+.changeset/sep-2350-scope-accumulation-followup.md
+  s_efab1c228e4145::t_9053195bf8ccd6 1-5
+docs/clients/oauth.md
+  s_efab1c228e4145::t_216c7ff7455005 5,183-194,204
+examples/guides/clients/oauth.examples.ts
+  s_efab1c228e4145::t_c1e14ce3a5119c 194-199
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "dfb8587f5d5b8ee61b2929a272ed7a5e27e21652",
+  "prompts": {},
+  "sessions": {
+    "s_efab1c228e4145": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1636d-fe64-7019-9951-9ccc73389018",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
