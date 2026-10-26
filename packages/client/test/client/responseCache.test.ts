@@ -1345,6 +1345,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                     [
                         'none',
                         'double-reset',
+                        'reset-capture-reset-stale',
                         'capture-write-stale',
                         'capture-stale-write',
                         'write-recapture-stale',
@@ -1382,6 +1383,16 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'reset-capture-reset-stale') {
+                const midGeneration = cache.captureGeneration('tools/list');
+                cache.resetForReconnect();
+                cache.setServerIdentity(targetServer);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, midGeneration, freshness);
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, midGeneration, freshness);
             } else if (ordering === 'capture-write-stale') {
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
