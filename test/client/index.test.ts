@@ -2433,8 +2433,17 @@ describe('outputSchema validation', () => {
 
         await client.listTools();
 
-        await expect(client.listTools()).rejects.toThrow(/^type must be JSONType or JSONType\[\]: not-a-json-schema-type$/);
+        try {
+            await client.listTools();
+            expect.unreachable('second listTools() should have thrown');
+        } catch (error) {
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toMatch(/^type must be JSONType or JSONType\[\]: not-a-json-schema-type$/);
+            expect((error as Error & { toolName?: string }).toolName).toBe('invalid');
+        }
 
+        // Previous complete catalog must remain: versioned still validates against the old schema,
+        // and task-required is still known as requiring task-based execution.
         await expect(client.callTool({ name: 'versioned', arguments: {} })).rejects.toThrow(
             /Structured content does not match the tool's output schema/
         );

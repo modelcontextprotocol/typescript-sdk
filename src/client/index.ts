@@ -792,8 +792,29 @@ export class Client<
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
-                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                validators.set(tool.name, toolValidator);
+                try {
+                    const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+                    validators.set(tool.name, toolValidator);
+                } catch (error) {
+                    // Preserve the underlying validator error (message/shape) for callers that
+                    // match on it, while attaching the tool name for diagnostics. Rethrow before
+                    // swapping caches so a failed refresh leaves the previous generation intact.
+                    if (error instanceof Error) {
+                        Object.defineProperty(error, 'toolName', {
+                            value: tool.name,
+                            enumerable: false,
+                            configurable: true
+                        });
+                        throw error;
+                    }
+                    const wrapped = new Error(String(error));
+                    Object.defineProperty(wrapped, 'toolName', {
+                        value: tool.name,
+                        enumerable: false,
+                        configurable: true
+                    });
+                    throw wrapped;
+                }
             }
 
             // If the tool supports task-based execution, cache that information
