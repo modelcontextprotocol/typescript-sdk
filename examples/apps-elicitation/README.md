@@ -39,4 +39,5 @@ pnpm tsx examples/apps-elicitation/client.ts --http http://127.0.0.1:3000/mcp
 Related proposals:
 
 - [MCP Apps draft PR #733](https://github.com/modelcontextprotocol/ext-apps/pull/733)
-- [SEP-3118](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/3118)
+  The extension draft is the normative proposal. Core SEP-3118 was closed because
+  this feature needs no core protocol change.
