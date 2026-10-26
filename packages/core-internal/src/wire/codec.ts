@@ -33,9 +33,10 @@
  * Custom-handler shadowing policy (both directions): a method that belongs to
  * the SPEC-METHOD UNIVERSE — the union of every codec's registry, derived,
  * not hand-curated — is ALWAYS era-gated, so a custom handler registered for
- * a deleted spec method (e.g. `tasks/get`) serves it only on the era that
+ * a deleted spec method (e.g. `tasks/result`) serves it only on the era that
  * defines it. Methods outside the universe are consumer-owned extension
  * methods: they are era-blind and require explicit schemas, exactly as today.
+ * Exception: `isExtensionReusedRequestMethod`, the Tasks extension names sent or served with an explicit schema.
  *
  * Everything in `wire/` is internal to the bundled, `private: true` core —
  * nothing per-revision is public surface, and nothing here may ever be
@@ -57,6 +58,7 @@ import type {
     RequestMethod,
     RequestTypeMap,
     Result,
+    ResultMetaObject,
     ResultTypeMap
 } from '../types/types';
 import { rev2025Codec } from './rev2025-11-25/codec';
@@ -147,6 +149,8 @@ export type DecodedResult =
            */
           inputRequests: Record<string, unknown>;
           requestState?: string;
+          /** Result-level `_meta`, carried through so a manual caller sees it. */
+          _meta?: ResultMetaObject;
       }
     | { kind: 'invalid'; error: SdkError };
 
@@ -330,6 +334,11 @@ export function isSpecRequestMethod(method: string): boolean {
 
 export function isSpecNotificationMethod(method: string): boolean {
     return ALL_CODECS.some(codec => codec.hasNotificationMethod(method));
+}
+
+/** The names SEP-2663 re-defines for the Tasks extension on the era that removed them from core. */
+export function isExtensionReusedRequestMethod(method: string): boolean {
+    return method === 'tasks/get' || method === 'tasks/cancel';
 }
 
 const ALL_CODECS: readonly WireCodec[] = [rev2025Codec, rev2026Codec];

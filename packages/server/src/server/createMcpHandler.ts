@@ -281,7 +281,8 @@ function jsonRpcErrorResponse(httpStatus: number, code: number, message: string,
             error: { code, message, ...(data !== undefined && { data }) },
             id
         },
-        { status: httpStatus }
+        // This entry serves POST only, so every 405 it answers names POST (RFC 9110 §15.5.6).
+        { status: httpStatus, ...(httpStatus === 405 && { headers: { Allow: 'POST' } }) }
     );
 }
 
@@ -295,6 +296,13 @@ function toError(value: unknown): Error {
 
 function internalServerErrorResponse(id: RequestId | null = null): Response {
     return jsonRpcErrorResponse(500, -32_603, 'Internal server error', undefined, id);
+}
+
+/** Throws when the factory returned an instance that is still connected to another exchange. */
+function assertNotServing(server: Server): void {
+    if (server.transport !== undefined) {
+        throw new Error('The factory returned an instance that is still serving another request. Return a new instance for each request.');
+    }
 }
 
 /* ------------------------------------------------------------------------ *
@@ -786,6 +794,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+        assertNotServing(server);
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /
         // per-stream filtering / subscription-id stamping / keepalive /
@@ -821,7 +830,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                if (scan.valid && scan.declarations.length > 0) {
+                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
                         void product.close().catch(reportError);
@@ -852,6 +862,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             }
         }
 
+        // Checked again after the awaits above, before anything is written to the instance.
+        assertNotServing(server);
+
         // Era-write at instance binding, then modern-only handler installation —
         // both before the instance is connected to the per-request transport.
         setNegotiatedProtocolVersion(server, claimedRevision);
@@ -867,10 +880,15 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // Track the instance until its exchange tears down so close() can abort it.
         const previousOnClose = server.onclose;
         inflight.add(server);
-        server.onclose = () => {
+        const onExchangeClose = () => {
             inflight.delete(server);
+            // Restore by identity so a handler installed during the exchange is kept.
+            if (server.onclose === onExchangeClose) {
+                server.onclose = previousOnClose;
+            }
             previousOnClose?.();
         };
+        server.onclose = onExchangeClose;
 
         try {
             const response = await invoke(product, route.message, {

@@ -122,7 +122,7 @@ describe('serveStdio — subscriptions/listen', () => {
         const results = inbound.filter(m => 'result' in m) as { id: unknown; result: unknown }[];
         expect(results.map(m => m.id)).toEqual(['s1', 's2']);
         // #3002: each close result carries the serving instance's identity
-        // (SubscriptionsListenResultMeta extends ResultMetaObject).
+        // (SubscriptionsListenResultMetaObject extends ResultMetaObject).
         const serverInfo = { name: 's', version: '1' };
         expect(results.map(m => m.result)).toEqual([
             { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: 's1', 'io.modelcontextprotocol/serverInfo': serverInfo } },

@@ -1,9 +1,9 @@
 {
     "name": "@modelcontextprotocol/fastify",
     "private": false,
-    "version": "2.0.0",
+    "version": "2.0.1",
     "description": "Fastify adapters for the Model Context Protocol TypeScript server SDK - Fastify middleware",
-    "license": "MIT",
+    "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",

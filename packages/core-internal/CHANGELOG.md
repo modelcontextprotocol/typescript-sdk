@@ -1,5 +1,35 @@
 # @modelcontextprotocol/core-internal
 
+## 2.0.5
+
+### Patch Changes
+
+- [#2762](https://github.com/modelcontextprotocol/typescript-sdk/pull/2762) [`b022522`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b022522089a0c8b632595c6e7b536453945ed5a9) Thanks [@pcarleton](https://github.com/pcarleton)! - `x-mcp-header` on a `number`-typed tool parameter is now rejected, matching the 2026-07-28 spec ("Parameters with type `number` are not permitted"; clients MUST exclude such tools from `tools/list`). Previously `number` was accepted only to satisfy an older conformance fixture that has since been corrected. `integer`, `string` and `boolean` are unaffected.
+
+- Updated dependencies [[`46d9c99`](https://github.com/modelcontextprotocol/typescript-sdk/commit/46d9c9921b6542e813c1ecc5f9fc964085e8e3bb)]:
+    - @modelcontextprotocol/core@2.4.0
+
+## 2.0.4
+
+### Patch Changes
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.3.1
+
+## 2.0.3
+
+### Patch Changes
+
+- Updated dependencies [[`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1)]:
+    - @modelcontextprotocol/core@2.3.0
+
+## 2.0.2
+
+### Patch Changes
+
+- Updated dependencies [[`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd)]:
+    - @modelcontextprotocol/core@2.2.0
+
 ## 2.0.1
 
 ### Patch Changes

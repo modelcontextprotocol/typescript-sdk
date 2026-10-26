@@ -55,11 +55,16 @@ function createHostManagedTransport(serverUrl: URL, session: HostSessionStore, u
 
 // --- MODE B: User-configured OAuth -----------------------------------------
 
-function createUserConfiguredTransport(serverUrl: URL, clientId: string, clientSecret: string): StreamableHTTPClientTransport {
+function createUserConfiguredTransport(
+    serverUrl: URL,
+    clientId: string,
+    clientSecret: string,
+    expectedIssuer: string
+): StreamableHTTPClientTransport {
     // Built-in OAuth provider — the transport adapts it to AuthProvider internally.
     // On 401, adaptOAuthProvider synthesizes onUnauthorized → handleOAuthUnauthorized,
     // which runs token refresh (or redirect for interactive flows).
-    const authProvider = new ClientCredentialsProvider({ clientId, clientSecret });
+    const authProvider = new ClientCredentialsProvider({ clientId, clientSecret, expectedIssuer });
 
     return new StreamableHTTPClientTransport(serverUrl, { authProvider });
 }
@@ -92,11 +97,12 @@ async function main() {
     } else if (mode === 'oauth') {
         const clientId = process.env.OAUTH_CLIENT_ID;
         const clientSecret = process.env.OAUTH_CLIENT_SECRET;
-        if (!clientId || !clientSecret) {
-            console.error('OAUTH_CLIENT_ID and OAUTH_CLIENT_SECRET required for oauth mode');
+        const expectedIssuer = process.env.OAUTH_EXPECTED_ISSUER;
+        if (!clientId || !clientSecret || !expectedIssuer) {
+            console.error('OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET and OAUTH_EXPECTED_ISSUER required for oauth mode');
             process.exit(1);
         }
-        transport = createUserConfiguredTransport(serverUrl, clientId, clientSecret);
+        transport = createUserConfiguredTransport(serverUrl, clientId, clientSecret, expectedIssuer);
     } else {
         console.error(`Unknown mode: ${mode}. Use 'host' or 'oauth'.`);
         process.exit(1);

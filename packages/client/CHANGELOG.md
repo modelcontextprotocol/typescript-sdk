@@ -1,5 +1,93 @@
 # @modelcontextprotocol/client
 
+## 2.4.0
+
+### Minor Changes
+
+- [#3085](https://github.com/modelcontextprotocol/typescript-sdk/pull/3085) [`a633756`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a63375661399956a744ff8b34d03d36e3d09e98a) Thanks [@claude](https://github.com/apps/claude)! - Add an opt-in for sending `scope` on refresh-token requests, for authorization servers that reject a refresh without it (Microsoft Entra ID answers `AADSTS90009` when the client and the resource are the same app registration, #2718). `OAuthClientProvider` gains an optional `scopeForRefresh(tokens)`: `auth()`, and so the transports and `withOAuth`, sends the string it returns. `refreshAuthorization()` gains an optional `scope`. When a scope is sent and the response has none, the sent scope is kept on the returned tokens. Without either option the refresh request and the saved tokens are unchanged.
+
+- [#3047](https://github.com/modelcontextprotocol/typescript-sdk/pull/3047) [`46d9c99`](https://github.com/modelcontextprotocol/typescript-sdk/commit/46d9c9921b6542e813c1ecc5f9fc964085e8e3bb) Thanks [@KKonstantinov](https://github.com/KKonstantinov), [@tobi-oye](https://github.com/tobi-oye), [@mattzcarey](https://github.com/mattzcarey)! - Add the Skills extension (SEP-2640), reachable through new `ext/skills` subpaths; package root exports are unchanged.
+    - `@modelcontextprotocol/server/ext/skills`: `SkillsExtension` (`attach(server)` serves `skills/list`, `skills/get`, `resources/directory/read` and a `skill://{+path}` resource template), `SkillsExtension.load(files)` returning a `SkillCatalog` with `entries` and `reload()`, the `SkillFiles` storage adapter with `memorySkillFiles`, `SkillSource` for generated catalogs, `skillEntry`, and `SkillCatalogError`. Invalid skills are skipped with a warning (`onWarning`), or fail under `strict`. A file whose bytes are valid UTF-8 is served as `text`, whatever its MIME type; any other file as a base64 `blob`.
+    - `@modelcontextprotocol/server/ext/skills/node`: `loadSkills(folder)` and `nodeSkillFiles(folder)`.
+    - `@modelcontextprotocol/client/ext/skills`: `SkillsClient` with `list()` (throws on an invalid entry; `skipInvalid: true` keeps the valid ones and returns the rest in `invalid`), `get()`, `read(skill, path?)` (size, digest and `SKILL.md` frontmatter verified, `SkillVerificationError` on a mismatch; a copy from the response cache that fails a check is fetched once more with `cacheMode: 'refresh'` first) and `readDirectory()`.
+    - `@modelcontextprotocol/core/ext/skills`: schemas, types and constants, including `SKILL_LIMITS`. The result schemas follow the stable spec, so `ttlMs` and `cacheScope` are required.
+
+    `SkillsExtension.attach` is `@experimental`: how an extension is wired to a server may change in a minor release. The rest of the Skills API is stable.
+
+    Works on 2025-11-25 and 2026-07-28. On 2026-07-28 only, the server sends the caching fields (`ttlMs`, `cacheScope`), and `SkillsClient` requires them and returns them from `list()`, `get()` and `readDirectory()`.
+
+### Patch Changes
+
+- [#3083](https://github.com/modelcontextprotocol/typescript-sdk/pull/3083) [`ef38c67`](https://github.com/modelcontextprotocol/typescript-sdk/commit/ef38c6765a15ee29030340dfea28b013893fa0a2) Thanks [@claude](https://github.com/apps/claude)! - The bundled Ajv validator is now built with fast-uri 3.1.8 (was 3.1.0). fast-uri 3.1.6 and later reject a `$id` or `$ref` whose text before the first colon is not a valid URI scheme (`my_tool:output`), or whose URN namespace is not valid (`urn:my_tool:output`): a schema that uses one no longer compiles, and a tool that carries it fails with an invalid-schema error. An underscore without a colon (`my_tool_output`) and a `$ref` into `#/$defs/...` or `#/definitions/...` are not affected.
+
+- [#2762](https://github.com/modelcontextprotocol/typescript-sdk/pull/2762) [`b022522`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b022522089a0c8b632595c6e7b536453945ed5a9) Thanks [@pcarleton](https://github.com/pcarleton)! - `x-mcp-header` on a `number`-typed tool parameter is now rejected, matching the 2026-07-28 spec ("Parameters with type `number` are not permitted"; clients MUST exclude such tools from `tools/list`). Previously `number` was accepted only to satisfy an older conformance fixture that has since been corrected. `integer`, `string` and `boolean` are unaffected.
+
+- Updated dependencies [[`46d9c99`](https://github.com/modelcontextprotocol/typescript-sdk/commit/46d9c9921b6542e813c1ecc5f9fc964085e8e3bb)]:
+    - @modelcontextprotocol/core@2.4.0
+
+## 2.3.1
+
+### Patch Changes
+
+- Updated dependencies []:
+    - @modelcontextprotocol/core@2.3.1
+
+## 2.3.0
+
+### Minor Changes
+
+- [#2901](https://github.com/modelcontextprotocol/typescript-sdk/pull/2901) [`433eb41`](https://github.com/modelcontextprotocol/typescript-sdk/commit/433eb413dc305ebeb93b8ebcde0095a8fc0d5fa0) Thanks [@claude](https://github.com/apps/claude)! - The HTTP client transports and the OAuth client helpers now follow a redirect only when it stays within the origin of the request (same scheme, host and port, or http to https on the same host with default ports) and keeps the method (a 307 or 308, or any redirect of a GET). Any other redirect is not followed. A transport then fails the request with an error that names the target; the session is kept and later messages still send. OAuth metadata discovery moves on to the next well-known URL, and any other OAuth request fails with an error that gives the status. Same-origin redirects that keep the method keep working on Node, up to five in a row, and no code changes are needed there. If your endpoint redirects to another origin, configure the transport with the URL it redirects to. A `requestInit.redirect` of `'error'` or `'manual'` is passed to fetch as it is for the requests a transport sends to the server (POST, GET and DELETE of the Streamable HTTP transport, POST of the SSE transport); for its OAuth requests, and for any other value, `requestInit.redirect` is not consulted by default. Browsers do not expose the target of a redirect to a page, so there a redirected request fails instead of being followed. Setting `redirectPolicy: 'follow'` on a transport leaves its redirects to the fetch implementation, as before this change.
+
+### Patch Changes
+
+- [#2599](https://github.com/modelcontextprotocol/typescript-sdk/pull/2599) [`5238fba`](https://github.com/modelcontextprotocol/typescript-sdk/commit/5238fba4424f82ec1ae9f6f458dd655ab322062d) Thanks [@freya0926](https://github.com/freya0926)! - A server can now serve, and a client can now call, `tasks/get` and `tasks/cancel` of the Tasks extension (SEP-2663) on a 2026-07-28 connection, when the handler is registered and the request is sent with an explicit schema. Every other method that a protocol revision removed is still refused. If one server factory serves both eras and such a handler is meant for 2025-era clients only, register it only when `ctx.era === 'legacy'`.
+
+- [#2846](https://github.com/modelcontextprotocol/typescript-sdk/pull/2846) [`63c0fca`](https://github.com/modelcontextprotocol/typescript-sdk/commit/63c0fcab49dc13f22dd7d016d6320c62d05e3ca8) Thanks [@Sthreal](https://github.com/Sthreal)! - Receiving a large message as a single SSE event over Streamable HTTP, such as a tool result of tens of megabytes, is now fast: a 50 MB result that took about 13 seconds arrives in under a second. The client now requires `eventsource-parser` 3.0.8 or later. `SSEClientTransport` reads through the `eventsource` package and gets the same speed-up once that also resolves `eventsource-parser` 3.0.8 or later.
+
+- [#2908](https://github.com/modelcontextprotocol/typescript-sdk/pull/2908) [`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1) Thanks [@claude](https://github.com/apps/claude)! - The `license` field of the package manifests is now `Apache-2.0`; the `LICENSE` file shipped in each package carries the full terms, including the MIT text for earlier contributions. No code change.
+
+- [#2903](https://github.com/modelcontextprotocol/typescript-sdk/pull/2903) [`e765b3b`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e765b3be84b7eba1837ba8da84acd6898cc47c65) Thanks [@claude](https://github.com/apps/claude)! - With `versionNegotiation` in `'auto'` or pin mode, a `server/discover` probe answered with a 2xx that carries no usable reply (a body that
+  is not JSON under `application/json`, a bare `204`, a missing or unaccepted content type) still rejects `connect()` with
+  `EraNegotiationFailed`; an empty SSE stream or a `202` surfaces as the probe timeout instead. The message now says
+  `the server answered with an unusable reply (...)` instead of reading like a network failure. To connect to a 2025 server behind a front that
+  answers the probe this way, pass `connect(transport, { prior: { kind: 'legacy' } })` or use `mode: 'legacy'`.
+
+- [#2905](https://github.com/modelcontextprotocol/typescript-sdk/pull/2905) [`c0cd01a`](https://github.com/modelcontextprotocol/typescript-sdk/commit/c0cd01a21d867e57b29d7216416b25bf36898292) Thanks [@claude](https://github.com/apps/claude)! - `SSEClientTransport` now retries the SSE connection once after `onUnauthorized()` resolves, as documented. If the retry is also answered with 401, `start()` rejects with `SdkHttpError` (`ClientHttpAuthentication`) instead of calling `onUnauthorized()` again. A 401 on a later reconnect of a stream that had opened still gets one refresh.
+
+- Updated dependencies [[`633dd3e`](https://github.com/modelcontextprotocol/typescript-sdk/commit/633dd3e12bff6869c932c4a526341622320912b1)]:
+    - @modelcontextprotocol/core@2.3.0
+
+## 2.2.0
+
+### Minor Changes
+
+- [#2887](https://github.com/modelcontextprotocol/typescript-sdk/pull/2887) [`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd) Thanks [@maxisbey](https://github.com/maxisbey)! - Constructing `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider` or `CrossAppAccessProvider` without `expectedIssuer` is deprecated: the constructor logs one `console.warn` and that call signature is marked `@deprecated`. Behaviour is otherwise unchanged. Pass the `issuer` of the authorization server the credentials were registered with.
+
+    `fetchToken()` throws `AuthorizationServerMismatchError`, before sending anything, when the provider's client information is bound to a different authorization server than the one it is called with. The `AuthorizationServerMismatchError` message no longer assumes the authorization-code callback; its fields are unchanged.
+
+    `OAuthTokensSchema` and `OAuthClientInformationSchema` accept the optional `issuer` stamp, so a provider that reads storage back through them keeps it. `auth()` overwrites it on every save.
+
+### Patch Changes
+
+- [#2885](https://github.com/modelcontextprotocol/typescript-sdk/pull/2885) [`9dd722f`](https://github.com/modelcontextprotocol/typescript-sdk/commit/9dd722fd0b533b3cb44cd2834409f7ea4dd32b00) Thanks [@claude](https://github.com/apps/claude)! - Sending a notification on a closed connection no longer produces a briefly unhandled promise rejection (seen as `unhandledrejection` on Cloudflare Workers) in addition to the returned rejection.
+
+- [#2883](https://github.com/modelcontextprotocol/typescript-sdk/pull/2883) [`c0f7aec`](https://github.com/modelcontextprotocol/typescript-sdk/commit/c0f7aec2925a46b32dc2f2aad5bf636a36f02c78) Thanks [@claude](https://github.com/apps/claude)! - Fix a type-check failure for CommonJS TypeScript projects introduced in 2.1.0: `dist/index.d.cts` imported types from `jose`, which is ESM-only, so `tsc` with `module: node16`/`node18` and `skipLibCheck: false` failed with TS1479. The two `jose` types used by the DPoP API (`CryptoKey`, `JWK`) are now inlined into the declaration files. No runtime change.
+
+- [#2768](https://github.com/modelcontextprotocol/typescript-sdk/pull/2768) [`efebf5b`](https://github.com/modelcontextprotocol/typescript-sdk/commit/efebf5b2ba2f07c6fa27ada824a0999b801fec0a) Thanks [@web-abin](https://github.com/web-abin)! - Correct the JSDoc for insecure OAuth token endpoints. The TLS requirement comes from the MCP authorization specification's OAuth 2.1 communication-security rules, not SEP-2207, which covers OIDC-flavored refresh-token guidance. Documentation only; no runtime behavior change.
+
+- [#2729](https://github.com/modelcontextprotocol/typescript-sdk/pull/2729) [`a4ae2f9`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a4ae2f98da3814a9290f2791cfcca8148dcec978) Thanks [@claude](https://github.com/apps/claude)! - Correct the `registerClient` `@deprecated` notice: Dynamic Client Registration was deprecated by spec PR modelcontextprotocol#2858 (Client ID Metadata Documents), not SEP-2577 (which deprecates roots, sampling, and logging). The notice now also names the earliest possible removal date under the feature lifecycle policy (2027-07-28) and clarifies that the `client_id_metadata_document_supported` gating lives in the built-in `auth()` flow — `registerClient` called directly always sends the registration request. Documentation only; no runtime behavior change.
+
+- [#2862](https://github.com/modelcontextprotocol/typescript-sdk/pull/2862) [`e780e13`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e780e13869ad419a864b669bd5fa9702cfb36b14) Thanks [@SyedTashfin](https://github.com/SyedTashfin)! - Preserve `_meta` on `input_required` results. The 2026-07-28 decode seam rebuilt the payload from `inputRequests` and `requestState` only, so result-level metadata a server sent on an `input_required` result (including `io.modelcontextprotocol/serverInfo`) was dropped before an `allowInputRequired: true` caller could see it. `Result._meta` is a result-level field, so `input_required` carries it exactly like any other result.
+
+- [#2886](https://github.com/modelcontextprotocol/typescript-sdk/pull/2886) [`ef39308`](https://github.com/modelcontextprotocol/typescript-sdk/commit/ef39308e963496b75e50553f6265d99cacb4fbb9) Thanks [@claude](https://github.com/apps/claude)! - `listTools()`, `listPrompts()`, `listResources()` and `listResourceTemplates()` called without a cursor now follow `nextCursor` until the server stops sending one, instead of stopping silently with a short list when a cursor repeats; a page that has the same items and the same `nextCursor` as the page before it ends the walk and is not added twice, and `listMaxPages` still caps the walk.
+
+- [#2642](https://github.com/modelcontextprotocol/typescript-sdk/pull/2642) [`cfa09db`](https://github.com/modelcontextprotocol/typescript-sdk/commit/cfa09db614308eaf4fd575c89833da8878d4acb7) Thanks [@claude](https://github.com/apps/claude)! - Fix `Client.listen()` rejections escaping as process-level unhandled rejections. The internal `opening` promise could reject (ack timeout, transport close, server cancel, caller abort) while `listen()` was still serially awaiting `transport.send(...)`, so no rejection handler was attached yet — the rejection surfaced as an `unhandledRejection` that caller-side handling cannot prevent, and a send that never settles (e.g. a stdio write parked on `'drain'`) left `listen()` suspended forever even though the ack timer had already fired. `listen()` now suspends on the `opening` state machine directly and routes send failures into it, so every termination path rejects the returned promise and nothing escapes.
+
+- [#2597](https://github.com/modelcontextprotocol/typescript-sdk/pull/2597) [`7f7a94c`](https://github.com/modelcontextprotocol/typescript-sdk/commit/7f7a94c22017e121a960e071bb50ec75e34450bd) Thanks [@arimu1](https://github.com/arimu1)! - Treat hostnames ending in `.localhost` as loopback for the SEP-2207 token-endpoint https guard (RFC 6761 §6.3), so host-based multi-tenant local OAuth works. The SDK does not resolve the name itself: `*.localhost` reaches the local machine only if the system resolver follows RFC 6761.
+
+- Updated dependencies [[`edd12e2`](https://github.com/modelcontextprotocol/typescript-sdk/commit/edd12e282620ebf770d67316f19cf91d4112a1bd)]:
+    - @modelcontextprotocol/core@2.2.0
+
 ## 2.1.0
 
 ### Minor Changes
