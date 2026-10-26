@@ -1437,14 +1437,17 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             } else {
-                const postResetBeforeEvict = cache.captureGeneration('tools/list');
+                const postResetBeforeEvict1 = cache.captureGeneration('tools/list');
+                const postResetBeforeEvict2 = cache.captureGeneration('tools/list');
                 await cache.evict('tools/list');
-                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict1, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict2, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
                 await expectCacheMiss();
                 const postEvictGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, postEvictGeneration, freshness);
-                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict1, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict2, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             }
 
