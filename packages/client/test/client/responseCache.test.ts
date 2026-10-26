@@ -1376,11 +1376,18 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             cache.setServerIdentity(targetServer);
             const freshness = { expiresAt: Date.now() + 60_000, scope };
 
+            const expectCacheMiss = async (): Promise<void> => {
+                expect(await cache.read('tools/list')).toBeUndefined();
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            };
+
             if (ordering === 'none') {
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             } else if (ordering === 'double-reset') {
                 cache.resetForReconnect();
                 cache.setServerIdentity(targetServer);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
@@ -1390,6 +1397,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 cache.setServerIdentity(targetServer);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, midGeneration, freshness);
+                await expectCacheMiss();
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
@@ -1401,6 +1409,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             } else if (ordering === 'capture-stale-write') {
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
             } else if (ordering === 'write-recapture-stale') {
                 const firstPostResetGen = cache.captureGeneration('tools/list');
@@ -1411,10 +1420,14 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 const gen1 = cache.captureGeneration('tools/list');
                 const gen2 = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
                 await cache.write('tools/list', { tools: [TOOL_A] }, gen1, freshness);
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_A] } });
                 await cache.write('tools/list', { tools: [TOOL_B] }, gen2, freshness);
             } else if (ordering === 'evicted-pre-reset-and-post-reset') {
                 await cache.evict('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
@@ -1423,6 +1436,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 await cache.evict('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
                 const postEvictGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, postEvictGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
