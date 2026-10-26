@@ -1350,7 +1350,8 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                         'capture-stale-write',
                         'write-recapture-stale',
                         'concurrent-post-reset',
-                        'evicted-pre-reset-and-post-reset'
+                        'evicted-pre-reset-and-post-reset',
+                        'post-reset-capture-evict-write'
                     ] as const
                 ).map(ordering => ({
                     scope,
@@ -1412,10 +1413,19 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, gen1, freshness);
                 await cache.write('tools/list', { tools: [TOOL_B] }, gen2, freshness);
-            } else {
+            } else if (ordering === 'evicted-pre-reset-and-post-reset') {
                 await cache.evict('tools/list');
                 const newGeneration = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else {
+                const postResetBeforeEvict = cache.captureGeneration('tools/list');
+                await cache.evict('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                const postEvictGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, postEvictGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, postResetBeforeEvict, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             }
 
