@@ -1476,6 +1476,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             const cache = new ClientResponseCache(store, true, undefined, 'alice');
             cache.setServerIdentity('server-a');
             const oldGen = cache.captureGeneration('resources/read', 'res://a');
+            const oldGenB = cache.captureGeneration('resources/read', 'res://b');
 
             cache.resetForReconnect();
             const targetServer = changeServer ? 'server-b' : 'server-a';
@@ -1484,7 +1485,9 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             const freshnessB = { expiresAt: Date.now() + 60_000, scope, params: 'res://b' };
 
             await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
             expect(await cache.read('resources/read', 'res://a')).toBeUndefined();
+            expect(await cache.read('resources/read', 'res://b')).toBeUndefined();
 
             const postResetBeforeEvict1 = cache.captureGeneration('resources/read', 'res://a');
             const postResetBeforeEvict2 = cache.captureGeneration('resources/read', 'res://a');
@@ -1494,9 +1497,12 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             await cache.write('resources/read', { contents: [{ text: 'stale-a1' }] }, postResetBeforeEvict1, freshnessA);
             await cache.write('resources/read', { contents: [{ text: 'stale-a2' }] }, postResetBeforeEvict2, freshnessA);
             await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
             expect(await cache.read('resources/read', 'res://a')).toBeUndefined();
+            expect(await cache.read('resources/read', 'res://b')).toBeUndefined();
 
             await cache.write('resources/read', { contents: [{ text: 'fresh-b' }] }, siblingGenB, freshnessB);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
             expect(await cache.read('resources/read', 'res://b')).toEqual({
                 value: { contents: [{ text: 'fresh-b' }] }
             });
