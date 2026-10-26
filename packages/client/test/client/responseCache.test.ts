@@ -1344,6 +1344,7 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 (
                     [
                         'none',
+                        'double-reset',
                         'capture-write-stale',
                         'capture-stale-write',
                         'write-recapture-stale',
@@ -1374,6 +1375,12 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             const freshness = { expiresAt: Date.now() + 60_000, scope };
 
             if (ordering === 'none') {
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'double-reset') {
+                cache.resetForReconnect();
+                cache.setServerIdentity(targetServer);
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             } else if (ordering === 'capture-write-stale') {
                 const newGeneration = cache.captureGeneration('tools/list');
