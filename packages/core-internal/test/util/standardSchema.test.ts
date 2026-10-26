@@ -1,6 +1,30 @@
 import * as z from 'zod/v4';
 
-import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
+import { type StandardSchemaV1, standardSchemaToJsonSchema, validateStandardSchema } from '../../src/util/standardSchema';
+
+describe('validateStandardSchema', () => {
+    test.each(['synchronous', 'asynchronous'] as const)('rejects %s failures with an empty issues array', async mode => {
+        const schema: StandardSchemaV1 = {
+            '~standard': {
+                version: 1,
+                vendor: 'empty-issues',
+                validate: () => (mode === 'asynchronous' ? Promise.resolve({ issues: [] }) : { issues: [] })
+            }
+        };
+
+        await expect(validateStandardSchema(schema, { name: 'example' })).resolves.toEqual({ success: false, error: '' });
+    });
+
+    test('preserves transformed values when validation succeeds', async () => {
+        const schema = z.string().transform(value => value.toUpperCase());
+
+        await expect(validateStandardSchema(schema, 'hello')).resolves.toEqual({ success: true, data: 'HELLO' });
+    });
+
+    test('preserves undefined when validation succeeds', async () => {
+        await expect(validateStandardSchema(z.undefined(), undefined)).resolves.toEqual({ success: true, data: undefined });
+    });
+});
 
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {
