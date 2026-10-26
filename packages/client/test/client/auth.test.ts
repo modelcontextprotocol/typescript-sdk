@@ -5694,3 +5694,225 @@ describe('OAuth Authorization', () => {
         });
     });
 });
+
+describe('re-authorization after a refused refresh, with includePreviouslyGrantedScopes', () => {
+    const ORIGIN = 'https://mcp.example.com';
+    const MCP_URL = `${ORIGIN}/mcp`;
+
+    /**
+     * An OAuth-protected MCP server reached through `fetchFn`. The token endpoint refuses refresh
+     * tokens (`refresh`), which is what drops the stored grant.
+     */
+    type RefreshError = 'invalid_grant' | 'server_error';
+    const createServer = (options: { refresh?: RefreshError | RefreshError[]; asScopes?: string[]; prmScopes?: string[] } = {}) => {
+        const tokenRequests: URLSearchParams[] = [];
+        const refreshErrors = [options.refresh ?? 'invalid_grant'].flat();
+        const fetchFn = async (input: string | URL, init?: RequestInit): Promise<Response> => {
+            const url = new URL(input);
+            if (url.pathname.startsWith('/.well-known/oauth-protected-resource')) {
+                return Response.json({
+                    resource: MCP_URL,
+                    authorization_servers: [ORIGIN],
+                    ...(options.prmScopes ? { scopes_supported: options.prmScopes } : {})
+                });
+            }
+            if (url.pathname.startsWith('/.well-known/oauth-authorization-server')) {
+                return Response.json({
+                    issuer: ORIGIN,
+                    authorization_endpoint: `${ORIGIN}/authorize`,
+                    token_endpoint: `${ORIGIN}/token`,
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256'],
+                    ...(options.asScopes ? { scopes_supported: options.asScopes } : {})
+                });
+            }
+            if (url.pathname === '/token') {
+                const params = new URLSearchParams(init?.body as string | URLSearchParams);
+                tokenRequests.push(params);
+                if (params.get('grant_type') === 'refresh_token') {
+                    const error = refreshErrors.length > 1 ? refreshErrors.shift()! : refreshErrors[0]!;
+                    return Response.json({ error }, { status: error === 'server_error' ? 500 : 400 });
+                }
+                return Response.json({ access_token: 'new-token', token_type: 'Bearer' });
+            }
+            throw new Error(`Unexpected request: ${url}`);
+        };
+        return { fetchFn, tokenRequests };
+    };
+
+    /** An interactive provider that stores tokens like a real one. */
+    const createProvider = (
+        initial: OAuthTokens | undefined,
+        options: { canInvalidate?: boolean; keepsTokensOnInvalidate?: boolean; interactive?: boolean; optIn?: boolean } = {}
+    ) => {
+        let stored: OAuthTokens | undefined = initial;
+        const interactive = options.interactive ?? true;
+        const provider: OAuthClientProvider & { authorizationScopes: Array<string | null> } = {
+            authorizationScopes: [],
+            includePreviouslyGrantedScopes: options.optIn ?? true,
+            get redirectUrl() {
+                return interactive ? 'http://localhost:3000/callback' : undefined;
+            },
+            get clientMetadata() {
+                return { redirect_uris: interactive ? ['http://localhost:3000/callback'] : [], client_name: 'Test Client' };
+            },
+            clientInformation: () => ({ client_id: 'client-1' }),
+            tokens: () => stored,
+            saveTokens: (tokens: OAuthTokens) => {
+                stored = tokens;
+            },
+            saveCodeVerifier: () => {},
+            codeVerifier: () => 'verifier',
+            redirectToAuthorization(url: URL) {
+                provider.authorizationScopes.push(url.searchParams.get('scope'));
+            },
+            ...(options.canInvalidate === false
+                ? {}
+                : {
+                      invalidateCredentials: (scope: string) => {
+                          if (!options.keepsTokensOnInvalidate && (scope === 'tokens' || scope === 'all')) stored = undefined;
+                      }
+                  }),
+            ...(interactive
+                ? {}
+                : {
+                      prepareTokenRequest: (scope?: string) =>
+                          new URLSearchParams({ grant_type: 'client_credentials', ...(scope ? { scope } : {}) })
+                  })
+        };
+        return provider;
+    };
+    const asSet = (scope: string | null | undefined) => new Set(scope?.split(' '));
+
+    it('asks again for the scope the dropped grant held', async () => {
+        // A user granted `write` through step-up; the refresh is later refused.
+        const server = createServer();
+        const provider = createProvider({ access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' });
+
+        expect(await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn })).toBe('REDIRECT');
+
+        expect(asSet(provider.authorizationScopes[0])).toEqual(new Set(['read', 'write']));
+    });
+
+    it('leaves the request as it was unless the provider opts in', async () => {
+        const server = createServer();
+        const provider = createProvider(
+            { access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' },
+            { optIn: false }
+        );
+
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        expect(provider.authorizationScopes).toEqual(['read']);
+    });
+
+    it('asks for the challenged scope alone once that request was refused', async () => {
+        // An admin removed `write`: the server answers that redirect with invalid_scope, so no token is saved.
+        const server = createServer();
+        const provider = createProvider({ access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' });
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        // The next 401 starts over. The dropped grant is gone, so nothing re-supplies `write`.
+        expect(await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn })).toBe('REDIRECT');
+
+        expect(provider.authorizationScopes.map(asSet)).toEqual([new Set(['read', 'write']), new Set(['read'])]);
+    });
+
+    it('asks for the challenged scope alone when the refresh fails without dropping the grant', async () => {
+        const server = createServer({ refresh: 'server_error' });
+        const provider = createProvider({ access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' });
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        expect(provider.authorizationScopes).toEqual(['read']);
+    });
+
+    it('asks for the challenged scope alone when there is no refresh token', async () => {
+        const server = createServer();
+        const provider = createProvider({ access_token: 'old', token_type: 'Bearer', scope: 'read write' });
+
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        expect(provider.authorizationScopes).toEqual(['read']);
+    });
+
+    it('does not redirect when the provider cannot drop the grant', async () => {
+        const server = createServer();
+        const provider = createProvider(
+            { access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' },
+            { canInvalidate: false }
+        );
+
+        await expect(auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn })).rejects.toThrow(OAuthError);
+
+        expect(provider.authorizationScopes).toEqual([]);
+    });
+
+    it('does not carry the scope while a stored grant remains', async () => {
+        // The provider ignores the invalidation and the second refresh fails softly, so the grant is still stored.
+        const server = createServer({ refresh: ['invalid_grant', 'server_error'] });
+        const provider = createProvider(
+            { access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' },
+            { keepsTokensOnInvalidate: true }
+        );
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        expect(provider.authorizationScopes).toEqual(['read']);
+    });
+
+    it('keeps only values the authorization server advertises', async () => {
+        // The token reports expanded scopes the server does not accept back in a request.
+        const server = createServer({ asScopes: ['openid', 'offline_access'], prmScopes: ['api://app/.default'] });
+        const provider = createProvider({
+            access_token: 'old',
+            token_type: 'Bearer',
+            scope: 'openid api://app/Read',
+            refresh_token: 'r'
+        });
+
+        await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn });
+
+        expect(asSet(provider.authorizationScopes[0])).toEqual(new Set(['api://app/.default', 'openid']));
+    });
+
+    it('leaves scope out when nothing selects one, so the server applies its default grant', async () => {
+        // No challenge scope, no PRM scopes_supported, no clientMetadata.scope; the server advertises only part of its scopes.
+        const server = createServer({ asScopes: ['openid', 'offline_access'] });
+        const provider = createProvider({ access_token: 'old', token_type: 'Bearer', scope: 'openid mcp:tools', refresh_token: 'r' });
+
+        await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn });
+
+        expect(provider.authorizationScopes).toEqual([null]);
+    });
+
+    it('leaves offline_access to the scope selection', async () => {
+        // The client does not declare the refresh_token grant, so the selection does not add offline_access (SEP-2207).
+        const server = createServer({ asScopes: ['read', 'write', 'offline_access'] });
+        const provider = createProvider({
+            access_token: 'old',
+            token_type: 'Bearer',
+            scope: 'read write offline_access',
+            refresh_token: 'r'
+        });
+
+        await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn });
+
+        expect(asSet(provider.authorizationScopes[0])).toEqual(new Set(['read', 'write']));
+    });
+
+    it('leaves non-interactive token requests alone', async () => {
+        const server = createServer();
+        const provider = createProvider(
+            { access_token: 'old', token_type: 'Bearer', scope: 'read write', refresh_token: 'r' },
+            { interactive: false }
+        );
+
+        expect(await auth(provider, { serverUrl: MCP_URL, scope: 'read', fetchFn: server.fetchFn })).toBe('AUTHORIZED');
+
+        const tokenRequest = server.tokenRequests.find(params => params.get('grant_type') === 'client_credentials');
+        expect(tokenRequest?.get('scope')).toBe('read');
+    });
+});

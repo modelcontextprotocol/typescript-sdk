@@ -2,6 +2,7 @@
 shape: how-to
 description: 'Sign an end user in from a client you build with the OAuth authorization-code flow.'
 ---
+
 # Authenticate a user with OAuth
 
 Protecting a server you run → [Require authorization](../serving/authorization.md). Signing a user in from a client → this page. No user present → [Authenticate without a user](./machine-auth.md).
@@ -183,6 +184,18 @@ The SDK sends the returned string on every refresh it makes for this provider, a
 Implement it only for an authorization server that needs it. Another server may reject a refresh that carries `scope`, or fail it once a granted scope is retired: a refresh that works without `scope` then ends in an `OAuthError` or a new sign-in. The `OAuthError` repeats on every request until you clear the stored tokens.
 :::
 
+## Keep earlier scopes when a refresh is refused
+
+When a refresh is refused (`invalid_grant` or `invalid_dpop_proof`), the SDK drops the stored tokens and sends the user to sign in again for the scope it would request on a first sign-in. Permissions granted earlier through step-up are not part of that, so the user steps up again for them. Set `includePreviouslyGrantedScopes` to request them in that sign-in too, as the MCP specification recommends.
+
+```ts source="../../examples/guides/clients/oauth.examples.ts#includePreviouslyGrantedScopes"
+class KeepGrantedScopesProvider extends MyOAuthProvider {
+    includePreviouslyGrantedScopes = true;
+}
+```
+
+The SDK reads the scope saved with the dropped tokens and leaves out `offline_access` and any value the authorization server does not list in `scopes_supported`. It requests that scope once: if the server refuses it, the next sign-in requests the usual scope alone. Nothing is added when the sign-in response had no `scope`, when there is no refresh token, or when no scope would be requested at all.
+
 ## Recap
 
 - This page signs in an end user; machine-to-machine flows live on [Authenticate without a user](./machine-auth.md).
@@ -192,3 +205,4 @@ Implement it only for an authorization server that needs it. Another server may 
 - `IssuerMismatchError` is the mix-up defense — never render the callback's `error_description`.
 - `validateResourceURL` overrides the RFC 8707 `resource` parameter the SDK sends.
 - `scopeForRefresh` adds a `scope` to refresh requests, for authorization servers that reject a refresh without one.
+- `includePreviouslyGrantedScopes` keeps scopes granted earlier when a refused refresh leads to a new sign-in.

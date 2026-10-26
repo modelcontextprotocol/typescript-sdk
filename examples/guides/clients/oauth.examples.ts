@@ -191,3 +191,9 @@ class ScopeOnRefreshProvider extends MyOAuthProvider {
     }
 }
 //#endregion scopeForRefresh_granted
+
+//#region includePreviouslyGrantedScopes
+class KeepGrantedScopesProvider extends MyOAuthProvider {
+    includePreviouslyGrantedScopes = true;
+}
+//#endregion includePreviouslyGrantedScopes
