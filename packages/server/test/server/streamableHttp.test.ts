@@ -574,6 +574,123 @@ describe('Zod v4', () => {
         });
     });
 
+    describe('HTTPServerTransport - Cancellation', () => {
+        async function createTransport(enableJsonResponse: boolean): Promise<WebStandardStreamableHTTPServerTransport> {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' });
+
+            // Resolves only when the request is cancelled, so the POST can never
+            // settle by the handler finishing.
+            mcpServer.registerTool(
+                'hang',
+                { description: 'Waits for its request to be cancelled', inputSchema: z.object({}) },
+                async (_args, ctx) => {
+                    await new Promise<void>(resolve => {
+                        ctx.mcpReq.signal.addEventListener('abort', () => resolve(), { once: true });
+                    });
+                    return { content: [] };
+                }
+            );
+            mcpServer.registerTool('fast', { description: 'Returns immediately' }, async () => ({ content: [] }));
+
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                enableJsonResponse
+            });
+            await mcpServer.connect(transport);
+            return transport;
+        }
+
+        async function initialize(transport: WebStandardStreamableHTTPServerTransport): Promise<string> {
+            const response = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(response.status).toBe(200);
+            const sessionId = response.headers.get('mcp-session-id');
+            expect(sessionId).toBeDefined();
+            return sessionId as string;
+        }
+
+        function cancelRequest(sessionId: string, requestId: string): Request {
+            return createRequest('POST', { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId } }, { sessionId });
+        }
+
+        it('settles a cancelled JSON-mode POST with an empty 202 and removes its mappings', async () => {
+            const transport = await createTransport(true);
+            try {
+                const sessionId = await initialize(transport);
+
+                const call = transport.handleRequest(
+                    createRequest(
+                        'POST',
+                        { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hang' }, id: 'cancel-me' },
+                        { sessionId }
+                    )
+                );
+                // Let the POST register its stream and reach the handler.
+                await new Promise(resolve => setImmediate(resolve));
+
+                const cancel = await transport.handleRequest(cancelRequest(sessionId, 'cancel-me'));
+                expect(cancel.status).toBe(202);
+
+                const response = await call;
+                expect(response.status).toBe(202);
+                expect(await response.text()).toBe('');
+                expect((transport as any)._streamMapping.size).toBe(0);
+                expect((transport as any)._requestToStreamMapping.size).toBe(0);
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('closes a cancelled per-request SSE stream and removes its mappings', async () => {
+            const transport = await createTransport(false);
+            try {
+                const sessionId = await initialize(transport);
+
+                const response = await transport.handleRequest(
+                    createRequest(
+                        'POST',
+                        { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hang' }, id: 'cancel-me' },
+                        { sessionId }
+                    )
+                );
+                expect(response.status).toBe(200);
+                const reader = response.body!.getReader();
+                await new Promise(resolve => setImmediate(resolve));
+
+                await transport.handleRequest(cancelRequest(sessionId, 'cancel-me'));
+
+                expect((await reader.read()).done).toBe(true);
+                expect((transport as any)._streamMapping.size).toBe(0);
+                expect((transport as any)._requestToStreamMapping.size).toBe(0);
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('still delivers a completed batch sibling when the cancelled id is retired', async () => {
+            const transport = await createTransport(true);
+            try {
+                const sessionId = await initialize(transport);
+
+                const batch: JSONRPCMessage[] = [
+                    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hang' }, id: 'cancel-me' },
+                    { jsonrpc: '2.0', method: 'tools/call', params: { name: 'fast' }, id: 'fast-1' }
+                ];
+                const pending = transport.handleRequest(createRequest('POST', batch, { sessionId }));
+                await new Promise(resolve => setImmediate(resolve));
+
+                await transport.handleRequest(cancelRequest(sessionId, 'cancel-me'));
+
+                const response = await pending;
+                expect(response.status).toBe(200);
+                expect(await response.json()).toMatchObject({ jsonrpc: '2.0', id: 'fast-1' });
+                expect((transport as any)._streamMapping.size).toBe(0);
+                expect((transport as any)._requestToStreamMapping.size).toBe(0);
+            } finally {
+                await transport.close();
+            }
+        });
+    });
+
     describe('HTTPServerTransport - Session Callbacks', () => {
         it('should call onsessioninitialized callback', async () => {
             const onInitialized = vi.fn();

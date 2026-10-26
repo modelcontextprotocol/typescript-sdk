@@ -7,12 +7,21 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core-internal';
+import type {
+    AuthInfo,
+    CancelledNotificationParams,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    MessageExtraInfo,
+    RequestId,
+    Transport
+} from '@modelcontextprotocol/core-internal';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
     isJsonContentType,
     isJSONRPCErrorResponse,
+    isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
@@ -910,7 +919,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (!hasRequests) {
                 // if it only contains notifications or responses, return 202
                 for (const message of messages) {
-                    this.onmessage?.(message, { authInfo: options?.authInfo, request });
+                    this._deliverMessage(message, { authInfo: options?.authInfo, request });
                 }
                 return new Response(null, { status: 202 });
             }
@@ -944,7 +953,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     for (const message of messages) {
-                        this.onmessage?.(message, { authInfo: options?.authInfo, request });
+                        this._deliverMessage(message, { authInfo: options?.authInfo, request });
                     }
                 });
             }
@@ -1024,7 +1033,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     };
                 }
 
-                this.onmessage?.(message, { authInfo: options?.authInfo, request, closeSSEStream, closeStandaloneSSEStream });
+                this._deliverMessage(message, { authInfo: options?.authInfo, request, closeSSEStream, closeStandaloneSSEStream });
             }
             // The server SHOULD NOT close the SSE stream before sending all JSON-RPC responses
             // This will be handled by the send() method when responses are ready
@@ -1037,6 +1046,70 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // return JSON-RPC formatted error
             this.onerror?.(error as Error);
             return this.createJsonErrorResponse(400, -32_700, 'Parse error', { data: String(error) });
+        }
+    }
+
+    /**
+     * Dispatches a message, then retires the mapped stream of a cancelled
+     * request. A cancellation replaces that request's response, so nothing
+     * else will settle its POST or close its SSE stream.
+     */
+    private _deliverMessage(message: JSONRPCMessage, extra: MessageExtraInfo): void {
+        this.onmessage?.(message, extra);
+
+        if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
+            this._settleCancelledRequest((message.params as CancelledNotificationParams | undefined)?.requestId);
+        }
+    }
+
+    /**
+     * Drops a cancelled id from the request bookkeeping. When no other
+     * in-flight request needs the same stream, the stream is completed with an
+     * empty 202 in JSON mode, or closed in SSE mode. Batched siblings that are
+     * still pending keep the stream open.
+     */
+    private _settleCancelledRequest(requestId: RequestId | undefined): void {
+        if (requestId === undefined) {
+            return;
+        }
+
+        const streamId = this._requestToStreamMapping.get(requestId);
+        if (streamId === undefined) {
+            return;
+        }
+
+        this._requestToStreamMapping.delete(requestId);
+        this._requestResponseMap.delete(requestId);
+
+        const relatedIds = [...this._requestToStreamMapping.entries()].filter(([, sid]) => sid === streamId).map(([id]) => id);
+        if (!relatedIds.every(id => this._requestResponseMap.has(id))) {
+            return;
+        }
+
+        const stream = this._streamMapping.get(streamId);
+        if (stream === undefined) {
+            return;
+        }
+
+        if (this._enableJsonResponse && stream.resolveJson !== undefined) {
+            const headers: Record<string, string> = {};
+            if (this.sessionId !== undefined) {
+                headers['mcp-session-id'] = this.sessionId;
+            }
+
+            if (relatedIds.length === 0) {
+                stream.resolveJson(new Response(null, { status: 202, headers }));
+            } else {
+                headers['Content-Type'] = 'application/json';
+                const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
+                stream.resolveJson(Response.json(responses.length === 1 ? responses[0] : responses, { status: 200, headers }));
+            }
+        }
+
+        stream.cleanup();
+        for (const id of relatedIds) {
+            this._requestResponseMap.delete(id);
+            this._requestToStreamMapping.delete(id);
         }
     }
 
