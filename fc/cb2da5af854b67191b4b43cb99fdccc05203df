@@ -1,0 +1,23 @@
+.changeset/sep-2350-scope-accumulation-followup.md
+  s_efab1c228e4145::t_9053195bf8ccd6 1-5
+packages/client/test/client/auth.test.ts
+  s_efab1c228e4145::t_5968a8f19641dd 5636-5829
+packages/client/src/client/auth.ts
+  s_efab1c228e4145::t_742b47f18a9e46 1095-1098,1101,1110-1120,1166-1167,1467-1473,1479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "fccb2da5af854b67191b4b43cb99fdccc05203df",
+  "prompts": {},
+  "sessions": {
+    "s_efab1c228e4145": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a1636d-fe64-7019-9951-9ccc73389018",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
