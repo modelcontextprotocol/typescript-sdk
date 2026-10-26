@@ -12,6 +12,10 @@ import type { Requirement } from './types';
 /** Transports with a persistent server instance / standalone notification stream. */
 const STATEFUL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'sse'] as const;
 
+/** The stable Skills extension page (SEP-2640) at the commit the SDK implements; entries append `L<line>`. */
+const SKILLS_SPEC =
+    'https://github.com/modelcontextprotocol/ext-skills/blob/c1aa87e4c381c82b99aa37471d0eae4ab50f9985/specification/stable/skills.mdx?plain=1#';
+
 export const REQUIREMENTS: Record<string, Requirement> = {
     // Lifecycle & version negotiation
 
@@ -623,6 +627,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'On the 2025 era, a McpServer tool whose outputSchema has a non-object root (e.g. z.union([z.object(...), z.string()]) → typeless {anyOf:[…]}) wraps EVERY structuredContent value as {result:<value>} — including object-valued results — so the result always satisfies the wrapped outputSchema advertised in tools/list. The wrap predicate follows the per-tool schema decision, not the runtime value shape.',
         note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-side mirror is 2025:jsonschema:non-object-output-wrapped.'
+    },
+    '2025:jsonschema:ref-to-object-not-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On the 2025 era, a McpServer tool whose outputSchema root is a same-document $ref to a $defs or definitions entry of type "object" (what zod writes for z.object(...).meta({ id })), or a union of such refs, is advertised with type:"object" at the root and returns its object structuredContent unwrapped, like the same schema written inline. A $ref to a non-object entry is still wrapped.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm.'
     },
     'server:jsonschema:union-output-natural': {
         transports: ['entryModern'],
@@ -2237,6 +2249,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:refresh:no-scope-by-default': {
+        source: 'sdk',
+        behavior:
+            'Unless the provider implements scopeForRefresh(), a refresh request carries grant_type, refresh_token, the resource indicator and client authentication only: no scope parameter, even when the stored tokens record a scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:refresh:scope-opt-in': {
+        source: 'sdk',
+        behavior:
+            'A provider that implements scopeForRefresh(tokens) has the returned scope sent on every refresh request, and that scope is saved with the new tokens when the refresh response has none, so a client stays signed in across expiries at an authorization server that rejects a refresh without scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:as-metadata-discovery:issuer-validation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',
         behavior:
@@ -2729,9 +2755,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:hosting:entry:method-405': {
         source: 'sdk',
         behavior:
-            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with `Allow: POST` and a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
         transports: ['entryStateless', 'entryModern'],
-        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The status, the `Allow` header and the JSON-RPC error shape are pinned.'
     },
     'typescript:hosting:entry:parse-error-400': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
@@ -3363,6 +3389,240 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['entryModern'],
         supersedes: ['client:list-changed:auto-refresh'],
         note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify; the auto-opened subscription is the modern delivery path for ClientOptions.listChanged.'
+    },
+
+    // Skills extension (SEP-2640): specified against 2026-07-28; the SDK also serves it on 2025-11-25.
+
+    'skills:capability:declared': {
+        source: `${SKILLS_SPEC}L35-L65`,
+        behavior:
+            "A server with skills attached declares extensions['io.modelcontextprotocol/skills'] next to the resources capability: { directoryRead: true } when the source implements directory reads, {} otherwise. SkillsClient.supported and .directoryRead reflect the declaration."
+    },
+    'skills:client:requires-declaration': {
+        source: `${SKILLS_SPEC}L67`,
+        behavior:
+            'Against a server that does not declare the extension, SkillsClient sends no skills/* request and no resources/read: supported is false, list() returns an empty listing, and get() and read() throw CAPABILITY_NOT_SUPPORTED.'
+    },
+    'skills:resources:skill-md-listed': {
+        source: `${SKILLS_SPEC}L122-L126`,
+        behavior:
+            "resources/list lists each skill's SKILL.md with name and description from its frontmatter, mimeType text/markdown and its byte size; supporting files are not listed."
+    },
+    'typescript:skills:resources:template': {
+        source: 'sdk',
+        behavior: 'The extension publishes exactly one resource template, <baseUri>{+path}, named io.modelcontextprotocol/skills.'
+    },
+    'typescript:skills:resources:app-resource-first': {
+        source: 'sdk',
+        behavior:
+            'A resource the application registers before attaching the extension wins at its URI in resources/read, and is listed ahead of the skills in resources/list.'
+    },
+    'skills:list:entries': {
+        source: `${SKILLS_SPEC}L139-L231`,
+        behavior:
+            'skills/list returns one entry per served skill: the URI of its SKILL.md, its frontmatter verbatim (fields beyond name and description included), and a complete resources array (the SKILL.md included), each file with a sha256 digest and its byte size. A catalog with no skills lists none, still declares the extension, and answers skills/get with -32602.'
+    },
+    'skills:list:pagination': {
+        source: `${SKILLS_SPEC}L352`,
+        behavior:
+            'skills/list pages by cursor: SkillsClient.list() walks every page and returns all entries in order, list({ cursor }) returns that one page with its nextCursor, and an entry is never split across pages.'
+    },
+    'skills:list:invalid-cursor': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#error-handling',
+        behavior: 'skills/list with a cursor the server did not issue fails with -32602 (Invalid params).'
+    },
+    'skills:list:nested': {
+        source: `${SKILLS_SPEC}L137`,
+        behavior:
+            "A skill nested inside another has its own flat skills/list entry, and the enclosing skill's resources also list the nested skill's files."
+    },
+    'typescript:skills:catalog:limits': {
+        source: `${SKILLS_SPEC}L243`,
+        behavior:
+            'A skill over the catalog limits (SkillCatalogOptions.limits) is still served, with a warning naming it; with strict: true, loading the catalog throws SkillCatalogError instead.',
+        transports: ['inMemory'],
+        note: "load-time behaviour; the transport plays no part. The spec says servers SHOULD NOT serve a skill over the limits; serving it with a warning by default is this SDK's choice"
+    },
+    'skills:get:entry': {
+        source: `${SKILLS_SPEC}L395-L456`,
+        behavior: 'skills/get for a SKILL.md URI returns the same entry skills/list returns for that skill.'
+    },
+    'skills:get:unlisted': {
+        source: `${SKILLS_SPEC}L351`,
+        behavior:
+            'A server answers skills/get for a skill its listing leaves out, and the host loads that skill from its URI alone: skills/get, then a verified read.'
+    },
+    'skills:get:unknown': {
+        source: `${SKILLS_SPEC}L449`,
+        behavior: 'skills/get for a URI that names no served skill fails with -32602 (Invalid params), and the message names the URI.'
+    },
+    'skills:errors:internal': {
+        source: `${SKILLS_SPEC}L879`,
+        behavior:
+            'A skill source that answers skills/get with another skill, or with an invalid entry, makes the server fail the request with -32603 (Internal error).'
+    },
+    'skills:read:relative': {
+        source: `${SKILLS_SPEC}L474`,
+        behavior:
+            "SkillsClient.read(entry) returns the skill's SKILL.md, its frontmatter equal to the entry's and the markdown body after it; read(entry, ref) resolves a relative ref against the skill root (under an organisational prefix, for names with a space or non-ASCII letters, with ./ and a #fragment ignored), and each file is verified."
+    },
+    'skills:read:binary': {
+        source: `${SKILLS_SPEC}L478`,
+        behavior:
+            'A binary skill file arrives as a base64 blob, and SkillsClient.read returns its exact bytes, verified against the digest.'
+    },
+    'skills:read:unknown-file': {
+        source: `${SKILLS_SPEC}L878`,
+        behavior: 'resources/read of a skill URI the server does not serve fails with -32602 (Invalid params).'
+    },
+    'skills:read:directory-uri': {
+        source: `${SKILLS_SPEC}L878`,
+        behavior: 'resources/read of a skill directory URI fails with -32602 (Invalid params), and the message says it is a directory.'
+    },
+    'skills:verify:size': {
+        source: `${SKILLS_SPEC}L229`,
+        behavior:
+            "A skill file whose byte length differs from the entry's size fails verification: SkillsClient.read throws SkillVerificationError with reason size and returns no content."
+    },
+    'skills:verify:digest': {
+        source: `${SKILLS_SPEC}L482-L483`,
+        behavior:
+            "A skill file of the listed size whose bytes do not match the entry's digest fails verification: SkillsClient.read throws SkillVerificationError with reason digest."
+    },
+    'skills:verify:frontmatter': {
+        source: `${SKILLS_SPEC}L496-L497`,
+        behavior:
+            "A SKILL.md whose bytes match the entry's digest but whose frontmatter differs from the entry's frontmatter fails verification: SkillsClient.read throws SkillVerificationError with reason frontmatter, naming the differing field."
+    },
+    'skills:verify:unlisted': {
+        source: `${SKILLS_SPEC}L491-L492`,
+        behavior:
+            "SkillsClient.read refuses a file the held entry does not list (a missing file, a ../ ref out of the skill, another skill's URI) with SkillVerificationError reason unlisted, before sending any request."
+    },
+    'skills:verify:directory-ahead-of-entry': {
+        source: `${SKILLS_SPEC}L609-L617`,
+        behavior:
+            'A file added after the host fetched the entry appears in resources/directory/read, but SkillsClient.read under the held entry refuses it as unlisted; after skills/get returns the new entry, the file reads and verifies.'
+    },
+    'skills:verify:dynamic': {
+        source: `${SKILLS_SPEC}L231`,
+        behavior:
+            'A skill whose resources is "dynamic" reads with verified: false (no listing, size or digest to check), but its SKILL.md frontmatter is still compared with the entry, and a ref that climbs out of the skill root is refused as unlisted before any request.'
+    },
+    'skills:host:lazy': {
+        source: `${SKILLS_SPEC}L503`,
+        behavior: "SkillsClient.list() and get() fetch none of a skill's files: no resources/read is sent."
+    },
+    'skills:directory:children': {
+        source: `${SKILLS_SPEC}L601-L603`,
+        behavior:
+            'resources/directory/read returns the direct children of a directory, not recursively: files with their Resource metadata, subdirectories as inode/directory resources.'
+    },
+    'skills:directory:pagination': {
+        source: `${SKILLS_SPEC}L604`,
+        behavior: 'resources/directory/read pages by cursor, and SkillsClient.readDirectory walks every page.'
+    },
+    'skills:directory:not-a-directory': {
+        source: `${SKILLS_SPEC}L601`,
+        behavior: 'resources/directory/read of a file URI, or of a URI that does not exist, fails with -32602 (Invalid params).'
+    },
+    'skills:directory:client-gated': {
+        source: `${SKILLS_SPEC}L64`,
+        behavior:
+            'Against a server that does not declare directoryRead, SkillsClient.readDirectory throws CAPABILITY_NOT_SUPPORTED without sending resources/directory/read.'
+    },
+    'skills:directory:undeclared': {
+        source: `${SKILLS_SPEC}L881`,
+        behavior:
+            'A server that does not declare directoryRead answers resources/directory/read as an unknown method: -32601 (Method not found).',
+        entryExclusions: [
+            { arm: 'entryModern', reason: 'modern-error-surface', note: 'an unknown method answers HTTP 404, surfaced as SdkHttpError' }
+        ]
+    },
+    'typescript:skills:cache-fields:absent': {
+        source: 'sdk',
+        behavior:
+            'On 2025-11-25, skills/list, skills/get and resources/directory/read results carry no ttlMs or cacheScope, and SkillsClient returns none.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'skills:cache-fields:present',
+        note: "2025-11-25 has no CacheableResult; serving skills there is this SDK's backport"
+    },
+    'skills:cache-fields:present': {
+        source: `${SKILLS_SPEC}L353`,
+        behavior:
+            'On 2026-07-28, skills/list, skills/get and resources/directory/read results carry ttlMs and cacheScope (0 and private by default, the cacheHint values when set), and SkillsClient list(), get() and readDirectory() return them.',
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['typescript:skills:cache-fields:absent'],
+        transports: ['entryModern'],
+        note: "only entryModern negotiates 2026-07-28; the other arms' 2026 cells run a legacy client"
+    },
+    'skills:cache-fields:client-rejects-missing': {
+        source: `${SKILLS_SPEC}L353`,
+        behavior:
+            'On 2026-07-28, a skills/list, skills/get or resources/directory/read result missing ttlMs, cacheScope or both makes SkillsClient throw INVALID_RESULT, with skipInvalid too.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: "only entryModern negotiates 2026-07-28; the other arms' 2026 cells run a legacy client"
+    },
+    'skills:result-type': {
+        source: `${SKILLS_SPEC}L349`,
+        behavior: 'On 2026-07-28, skills/list, skills/get and resources/directory/read results carry resultType "complete" on the wire.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: "only entryModern negotiates 2026-07-28; the other arms' 2026 cells run a legacy client"
+    },
+    'skills:host:cache-refetch': {
+        source: `${SKILLS_SPEC}L504`,
+        behavior:
+            "A skill file served from the client's response cache that no longer matches a fresh entry is fetched again and verifies; a copy that matches is served from the cache.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: "only entryModern negotiates 2026-07-28; the other arms' 2026 cells run a legacy client"
+    },
+    'skills:uri:other-scheme': {
+        source: `${SKILLS_SPEC}L106`,
+        behavior:
+            'A source served under another scheme (baseUri github://owner/repo/skills) publishes its resource template, skills/list and skills/get entries under that scheme, and its files read and verify there.'
+    },
+    'typescript:skills:source:list-resources': {
+        source: 'sdk',
+        behavior:
+            "resources/list shows what a SkillSource's listResources returns, minus URIs outside the extension's baseUri (dropped with a warning); a source without listResources lists nothing."
+    },
+    'typescript:skills:source:invalid-entries': {
+        source: 'sdk',
+        behavior:
+            'Invalid entries from a SkillSource are dropped from skills/list with a warning; with strict: true the request fails with -32603 (Internal error) instead.'
+    },
+    'typescript:skills:client:skip-invalid': {
+        source: 'sdk',
+        behavior:
+            'A skills/list that repeats a URI makes SkillsClient.list() throw INVALID_RESULT naming every copy; with skipInvalid it returns the valid entries and lists the refused ones, by index, in invalid.'
+    },
+    'typescript:skills:attach:rules': {
+        source: 'sdk',
+        behavior:
+            'Attaching the same skills extension to a server twice does nothing; attaching a second extension throws and leaves the server serving the first; attaching to a connected server throws.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
+    'typescript:skills:catalog:reload-notifies': {
+        source: 'sdk',
+        behavior:
+            "SkillCatalog.reload() that adds or removes a skill, or changes a skill's description, reports listChanged: true and sends notifications/resources/list_changed through every connected server it is attached to; a reload that changes only file content reports listChanged: false and sends nothing.",
+        transports: STATEFUL_TRANSPORTS,
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'typescript:skills:catalog:reload-listen',
+        note: 'per-request hosting keeps no live server, and on 2026-07-28 list changes reach clients only through subscriptions/listen'
+    },
+    'typescript:skills:catalog:reload-listen': {
+        source: 'sdk',
+        behavior:
+            'Behind createMcpHandler on 2026-07-28, SkillCatalog.reload() alone reaches no client (each per-request server has closed); when it reports listChanged, handler.notify.resourcesChanged() delivers notifications/resources/list_changed to a subscriptions/listen stream that asked for resource list changes.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['typescript:skills:catalog:reload-notifies'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify, as resources:listen:list-changed is.'
     }
 } satisfies Record<string, Requirement>;
 

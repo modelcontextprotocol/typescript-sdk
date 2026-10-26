@@ -259,6 +259,19 @@ export interface OAuthClientProvider {
     clientMetadataUrl?: string;
 
     /**
+     * When `true`, {@linkcode auth} does not add `prompt=consent` to the authorization
+     * request when the requested scope includes `offline_access`.
+     *
+     * OIDC Core §11 allows omitting it when other conditions already permit offline
+     * access, e.g. an administrator granted tenant-wide consent. Some authorization
+     * servers (such as Microsoft Entra ID with user consent disabled) reject a forced
+     * consent prompt from non-admin users even though consent is already in place.
+     *
+     * @default false
+     */
+    skipOfflineAccessConsentPrompt?: boolean;
+
+    /**
      * Metadata about this OAuth client.
      */
     get clientMetadata(): OAuthClientMetadata;
@@ -385,6 +398,19 @@ export interface OAuthClientProvider {
      * Implementations must verify the returned resource matches the MCP server.
      */
     validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
+
+    /**
+     * Returns the `scope` that {@linkcode auth} sends on a refresh-token request. Left undefined
+     * (the default), or when it returns `undefined` or `''`, the request carries no `scope`, which
+     * asks for the scope already granted (RFC 6749 §6).
+     *
+     * Implement it only for an authorization server that rejects a refresh without `scope`:
+     * other servers may reject or narrow a refresh that carries one. The returned value must
+     * not include a scope that was not originally granted.
+     *
+     * @param tokens - The stored tokens being refreshed; `tokens.scope` is the scope last saved with them.
+     */
+    scopeForRefresh?(tokens: StoredOAuthTokens): string | undefined | Promise<string | undefined>;
 
     /**
      * If implemented, provides a way for the client to invalidate (e.g. delete) the specified
@@ -1385,6 +1411,7 @@ async function authInternal(
     // current token's granted scope — refreshing would not widen it (RFC 6749
     // §6), so skip straight to a fresh authorization request.
     if (tokens?.refresh_token && !forceReauthorization) {
+        const refreshScope = await provider.scopeForRefresh?.(tokens);
         let newTokens: OAuthTokens | undefined;
         try {
             // Attempt to refresh the token
@@ -1392,6 +1419,7 @@ async function authInternal(
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
+                scope: refreshScope,
                 resource,
                 addClientAuthentication: provider.addClientAuthentication,
                 dpop: await provider.dpop?.(),
@@ -1440,7 +1468,8 @@ async function authInternal(
         state,
         redirectUrl: provider.redirectUrl,
         scope: resolvedScope,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt: provider.skipOfflineAccessConsentPrompt
     });
 
     await provider.saveCodeVerifier(codeVerifier);
@@ -2083,7 +2112,8 @@ export async function startAuthorization(
         redirectUrl,
         scope,
         state,
-        resource
+        resource,
+        skipOfflineAccessConsentPrompt
     }: {
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
@@ -2091,6 +2121,11 @@ export async function startAuthorization(
         scope?: string;
         state?: string;
         resource?: string | URL;
+        /**
+         * When `true`, `prompt=consent` is not added for an `offline_access` scope.
+         * See {@linkcode OAuthClientProvider.skipOfflineAccessConsentPrompt}.
+         */
+        skipOfflineAccessConsentPrompt?: boolean;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -2130,7 +2165,7 @@ export async function startAuthorization(
         authorizationUrl.searchParams.set('scope', scope);
     }
 
-    if (scope?.split(' ').includes('offline_access')) {
+    if (!skipOfflineAccessConsentPrompt && scope?.split(' ').includes('offline_access')) {
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
@@ -2353,6 +2388,7 @@ export async function refreshAuthorization(
         metadata,
         clientInformation,
         refreshToken,
+        scope,
         resource,
         addClientAuthentication,
         dpop,
@@ -2361,6 +2397,11 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
+        /**
+         * `scope` to send on the request; omitted or `''` sends none, which asks for the scope
+         * already granted (RFC 6749 §6). When sent, it is also the result's `scope` if the response has none.
+         */
+        scope?: string;
         resource?: string | URL;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         /** SEP-1932 / RFC 9449: see {@linkcode executeTokenRequest}'s `dpop` option. */
@@ -2372,6 +2413,9 @@ export async function refreshAuthorization(
         grant_type: 'refresh_token',
         refresh_token: refreshToken
     });
+    if (scope) {
+        tokenRequestParams.set('scope', scope);
+    }
 
     const tokens = await executeTokenRequest(authorizationServerUrl, {
         metadata,
@@ -2383,8 +2427,8 @@ export async function refreshAuthorization(
         fetchFn
     });
 
-    // Preserve original refresh token if server didn't return a new one
-    return { refresh_token: refreshToken, ...tokens };
+    // Preserve the original refresh token, and the scope sent (RFC 6749 §5.1), if the server didn't return new ones
+    return { refresh_token: refreshToken, ...tokens, ...(scope && !tokens.scope && { scope }) };
 }
 
 /**

@@ -1,4 +1,4 @@
-import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCNotification, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
 
 /**
  * A change event a server publishes for delivery on open `subscriptions/listen`
@@ -9,14 +9,18 @@ import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotoc
  * - `resources_list_changed` → `notifications/resources/list_changed`
  * - `resource_updated` → `notifications/resources/updated` (carries the URI)
  *
- * The bus carries the EVENT, not the wire shape — the entry's listen router
- * owns subscription-id stamping and per-stream filtering.
+ * The bus carries the event and any forwarded notification params — the
+ * entry's listen router owns subscription-id stamping and per-stream filtering.
  */
-export type ServerEvent =
+export type ServerEvent = (
     | { kind: 'tools_list_changed' }
     | { kind: 'prompts_list_changed' }
     | { kind: 'resources_list_changed' }
-    | { kind: 'resource_updated'; uri: string };
+    | { kind: 'resource_updated'; uri: string }
+) & {
+    /** Forwarded notification params; the router stamps its own subscription ID and the event's resource URI. */
+    params?: JSONRPCNotification['params'];
+};
 
 /**
  * The server-side change-event seam for `subscriptions/listen`.
@@ -176,19 +180,19 @@ export function honoredSubset(requested: SubscriptionFilter, capabilities?: Serv
 }
 
 /** Map a {@linkcode ServerEvent} onto its wire notification `{method, params}`. */
-export function serverEventToNotification(event: ServerEvent): { method: string; params?: { uri: string } } {
+export function serverEventToNotification(event: ServerEvent): { method: string; params?: JSONRPCNotification['params'] } {
     switch (event.kind) {
         case 'tools_list_changed': {
-            return { method: 'notifications/tools/list_changed' };
+            return { method: 'notifications/tools/list_changed', ...(event.params !== undefined && { params: event.params }) };
         }
         case 'prompts_list_changed': {
-            return { method: 'notifications/prompts/list_changed' };
+            return { method: 'notifications/prompts/list_changed', ...(event.params !== undefined && { params: event.params }) };
         }
         case 'resources_list_changed': {
-            return { method: 'notifications/resources/list_changed' };
+            return { method: 'notifications/resources/list_changed', ...(event.params !== undefined && { params: event.params }) };
         }
         case 'resource_updated': {
-            return { method: 'notifications/resources/updated', params: { uri: event.uri } };
+            return { method: 'notifications/resources/updated', params: { ...event.params, uri: event.uri } };
         }
     }
 }

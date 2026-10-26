@@ -12,9 +12,19 @@
 # 2025 legs.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.11). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.12). Newer conformance releases
 # are adopted by deliberately bumping the pin and reconciling this file in the
 # same change.
+#
+# alpha.11 -> alpha.12 reconciliation: the new SEP-2640 skills scenarios are
+# extension scenarios, and --spec-version drops extension scenarios from a
+# suite, so the two legs that read this file never run them. Their 2026-07-28
+# coverage comes from elsewhere. The server runner already runs extension
+# scenarios at 2026-07-28 by default, in `test:conformance:server:extensions`
+# (expected-failures.yaml). The client runner defaults them to 2025-11-25, so
+# `test:conformance:client:skills:2026` runs each one with
+# `--scenario <s> --spec-version 2026-07-28 --force` (no baseline). Both
+# sections stay empty.
 #
 # alpha.10 -> alpha.11 reconciliation: `json-schema-2020-12-preservation`
 # (client leg; everythingClient negotiates via server/discover like tools_call)
