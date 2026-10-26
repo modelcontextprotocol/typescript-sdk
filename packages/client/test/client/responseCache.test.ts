@@ -175,6 +175,7 @@ describe('ClientResponseCache', () => {
         expect(userStore.get({ method: 'tools/list', partition: PRE })).toBeDefined();
         expect((userCache as unknown as { _evictionGeneration: Map<string, number> })._evictionGeneration.size).toBe(0);
         expect(userCache.captureGeneration('prompts/list')).toBe(2);
+        expect(userCache.captureGeneration('resources/list')).toBe(2);
         // Index dropped → re-derived from the (still-populated) store on next read.
         expect((userCache as unknown as { _toolIndex?: unknown })._toolIndex).toBeUndefined();
         expect((await userCache.toolDefinition('a'))?.name).toBe('a');
@@ -1483,11 +1484,19 @@ describe('Client honours cacheHints (SEP-2549)', () => {
             cache.setServerIdentity(targetServer);
             const freshnessA = { expiresAt: Date.now() + 60_000, scope, params: 'res://a' };
             const freshnessB = { expiresAt: Date.now() + 60_000, scope, params: 'res://b' };
+            const freshnessC = { expiresAt: Date.now() + 60_000, scope, params: 'res://c' };
 
             await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
             await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
             expect(await cache.read('resources/read', 'res://a')).toBeUndefined();
             expect(await cache.read('resources/read', 'res://b')).toBeUndefined();
+
+            const unseenGenC = cache.captureGeneration('resources/read', 'res://c');
+            expect(unseenGenC).toBe(1);
+            await cache.write('resources/read', { contents: [{ text: 'fresh-c' }] }, unseenGenC, freshnessC);
+            expect(await cache.read('resources/read', 'res://c')).toEqual({
+                value: { contents: [{ text: 'fresh-c' }] }
+            });
 
             const postResetBeforeEvict1 = cache.captureGeneration('resources/read', 'res://a');
             const postResetBeforeEvict2 = cache.captureGeneration('resources/read', 'res://a');
