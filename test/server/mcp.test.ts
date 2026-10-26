@@ -14,8 +14,11 @@ import {
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     type Notification,
+    PromptListChangedNotificationSchema,
     ReadResourceResultSchema,
+    ResourceListChangedNotificationSchema,
     type TextContent,
+    ToolListChangedNotificationSchema,
     UrlElicitationRequiredError,
     ErrorCode
 } from '../../src/types.js';
@@ -331,6 +334,97 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(capabilities?.tools?.listChanged).toBe(true);
             expect(capabilities?.resources?.listChanged).toBe(true);
             expect(capabilities?.prompts?.listChanged).toBe(true);
+        });
+
+        test('should not send list-changed notifications on the wire when listChanged: false is declared (#2622)', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                {
+                    capabilities: {
+                        tools: { listChanged: false },
+                        resources: { listChanged: false },
+                        prompts: { listChanged: false }
+                    }
+                }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const received: string[] = [];
+            client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+                received.push('tools');
+            });
+            client.setNotificationHandler(ResourceListChangedNotificationSchema, async () => {
+                received.push('resources');
+            });
+            client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
+                received.push('prompts');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            // Registering late must not put a fallback list-changed notification on the wire:
+            // the client was told listChanged is false, and its own handler ignores such notifications.
+            mcpServer.registerTool('late-tool', { inputSchema: { name: z.string() } }, async ({ name }) => ({
+                content: [{ type: 'text', text: `Hello, ${name}` }]
+            }));
+            mcpServer.registerResource('late-resource', 'test://late', {}, async () => ({
+                contents: [{ uri: 'test://late', text: 'late' }]
+            }));
+            mcpServer.registerPrompt('late-prompt', {}, async () => ({
+                messages: [{ role: 'user', content: { type: 'text', text: 'late' } }]
+            }));
+
+            // Allow any (incorrectly) emitted notification time to arrive before asserting.
+            await new Promise(resolve => setTimeout(resolve, 50));
+            expect(received).toEqual([]);
+
+            // The lists themselves must still reflect the late registrations.
+            expect((await client.request({ method: 'tools/list' }, ListToolsResultSchema)).tools.map(t => t.name)).toEqual(['late-tool']);
+            expect((await client.request({ method: 'resources/list' }, ListResourcesResultSchema)).resources.map(r => r.name)).toEqual([
+                'late-resource'
+            ]);
+            expect((await client.request({ method: 'prompts/list' }, ListPromptsResultSchema)).prompts.map(p => p.name)).toEqual([
+                'late-prompt'
+            ]);
+        });
+
+        test('should send list-changed notifications on the wire when listChanged is true (#2622)', async () => {
+            const mcpServer = new McpServer(
+                { name: 'test server', version: '1.0' },
+                { capabilities: { tools: { listChanged: true }, resources: { listChanged: true }, prompts: { listChanged: true } } }
+            );
+            const client = new Client({ name: 'test client', version: '1.0' });
+
+            const received: string[] = [];
+            client.setNotificationHandler(ToolListChangedNotificationSchema, async () => {
+                received.push('tools');
+            });
+            client.setNotificationHandler(ResourceListChangedNotificationSchema, async () => {
+                received.push('resources');
+            });
+            client.setNotificationHandler(PromptListChangedNotificationSchema, async () => {
+                received.push('prompts');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            mcpServer.registerTool('late-tool', { inputSchema: { name: z.string() } }, async () => ({
+                content: [{ type: 'text', text: 'ok' }]
+            }));
+            mcpServer.registerResource('late-resource', 'test://late', {}, async () => ({
+                contents: [{ uri: 'test://late', text: 'late' }]
+            }));
+            mcpServer.registerPrompt('late-prompt', {}, async () => ({
+                messages: [{ role: 'user', content: { type: 'text', text: 'late' } }]
+            }));
+
+            // Default (listChanged: true) must keep the historical behavior: all three notifications arrive.
+            for (let i = 0; i < 100 && received.length < 3; i++) {
+                await new Promise(resolve => setTimeout(resolve, 10));
+            }
+            expect([...received].sort()).toEqual(['prompts', 'resources', 'tools']);
         });
 
         test('should answer list requests with empty lists when a capability was declared and nothing is registered', async () => {

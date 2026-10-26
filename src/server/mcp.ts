@@ -1272,27 +1272,30 @@ export class McpServer {
     }
     /**
      * Sends a resource list changed event to the client, if connected.
+     * Suppressed when the user advertised `resources.listChanged: false`.
      */
     sendResourceListChanged() {
-        if (this.isConnected()) {
+        if (this.isConnected() && this._resolveListChanged('resources')) {
             this.server.sendResourceListChanged();
         }
     }
 
     /**
      * Sends a tool list changed event to the client, if connected.
+     * Suppressed when the user advertised `tools.listChanged: false`.
      */
     sendToolListChanged() {
-        if (this.isConnected()) {
+        if (this.isConnected() && this._resolveListChanged('tools')) {
             this.server.sendToolListChanged();
         }
     }
 
     /**
      * Sends a prompt list changed event to the client, if connected.
+     * Suppressed when the user advertised `prompts.listChanged: false`.
      */
     sendPromptListChanged() {
-        if (this.isConnected()) {
+        if (this.isConnected() && this._resolveListChanged('prompts')) {
             this.server.sendPromptListChanged();
         }
     }
