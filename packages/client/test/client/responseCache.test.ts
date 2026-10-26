@@ -1417,13 +1417,18 @@ describe('Client honours cacheHints (SEP-2549)', () => {
                 cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
             } else if (ordering === 'concurrent-post-reset') {
+                const toolC: Tool = { name: 'c', inputSchema: { type: 'object', properties: {} } };
                 const gen1 = cache.captureGeneration('tools/list');
                 const gen2 = cache.captureGeneration('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
                 await expectCacheMiss();
                 await cache.write('tools/list', { tools: [TOOL_A] }, gen1, freshness);
                 expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_A] } });
+                await cache.write('tools/list', { tools: [toolC] }, oldGeneration, freshness);
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_A] } });
+                expect(await cache.toolDefinition('c')).toBeUndefined();
                 await cache.write('tools/list', { tools: [TOOL_B] }, gen2, freshness);
+                await cache.write('tools/list', { tools: [toolC] }, oldGeneration, freshness);
             } else if (ordering === 'evicted-pre-reset-and-post-reset') {
                 await cache.evict('tools/list');
                 await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
