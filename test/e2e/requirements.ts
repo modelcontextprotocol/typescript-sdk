@@ -628,6 +628,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'On the 2025 era, a McpServer tool whose outputSchema has a non-object root (e.g. z.union([z.object(...), z.string()]) → typeless {anyOf:[…]}) wraps EVERY structuredContent value as {result:<value>} — including object-valued results — so the result always satisfies the wrapped outputSchema advertised in tools/list. The wrap predicate follows the per-tool schema decision, not the runtime value shape.',
         note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-side mirror is 2025:jsonschema:non-object-output-wrapped.'
     },
+    '2025:jsonschema:ref-to-object-not-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On the 2025 era, a McpServer tool whose outputSchema root is a same-document $ref to a $defs or definitions entry of type "object" (what zod writes for z.object(...).meta({ id })), or a union of such refs, is advertised with type:"object" at the root and returns its object structuredContent unwrapped, like the same schema written inline. A $ref to a non-object entry is still wrapped.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm.'
+    },
     'server:jsonschema:union-output-natural': {
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
@@ -2241,6 +2249,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:refresh:no-scope-by-default': {
+        source: 'sdk',
+        behavior:
+            'Unless the provider implements scopeForRefresh(), a refresh request carries grant_type, refresh_token, the resource indicator and client authentication only: no scope parameter, even when the stored tokens record a scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:refresh:scope-opt-in': {
+        source: 'sdk',
+        behavior:
+            'A provider that implements scopeForRefresh(tokens) has the returned scope sent on every refresh request, and that scope is saved with the new tokens when the refresh response has none, so a client stays signed in across expiries at an authorization server that rejects a refresh without scope.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:as-metadata-discovery:issuer-validation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',
         behavior:
@@ -2733,9 +2755,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:hosting:entry:method-405': {
         source: 'sdk',
         behavior:
-            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with `Allow: POST` and a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
         transports: ['entryStateless', 'entryModern'],
-        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The status, the `Allow` header and the JSON-RPC error shape are pinned.'
     },
     'typescript:hosting:entry:parse-error-400': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
