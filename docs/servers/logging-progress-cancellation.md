@@ -71,6 +71,25 @@ Only the result comes back:
 
 `progress` must increase on every notification for the same token; `total` and `message` are optional.
 
+## Route SDK diagnostics
+
+Pass `logger` to `McpServer` to route the warnings and debug messages the SDK prints locally. On stdio, send every level to stderr so diagnostics never enter the JSON-RPC channel.
+
+```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#sdkLogger_stderr"
+const sdkLogger = {
+    debug: (...args: unknown[]) => console.error('[debug]', ...args),
+    warn: (...args: unknown[]) => console.error('[warn]', ...args)
+};
+
+const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
+```
+
+`Client` and `createMcpHandler` take the same option. The low-level `Server` has no diagnostics of its own, so it does not take one. The SDK logs at two levels, `debug` and `warn`. Both methods are optional, and an omitted one discards diagnostics at that level. The default is `console`, and a logger that throws is ignored.
+
+The client's OAuth helpers run outside a `Client`, so they read the logger from the auth provider instead: set `logger` on your `OAuthClientProvider`, or pass it to a built-in provider such as `ClientCredentialsProvider`.
+
+This logger stays local to the process. It does not send MCP `notifications/message`; use `ctx.mcpReq.log` for that deprecated protocol feature.
+
 ## Log to the client
 
 ::: warning Deprecated — SEP-2577
@@ -221,6 +240,7 @@ Resolve an identifier against a fixed list, as `fetch-source` does. A tool that 
 
 - Every handler receives a context as its second argument; the request-scoped helpers live on `ctx.mcpReq`.
 - `ctx.mcpReq.notify` sends `notifications/progress` when the request carried a `progressToken`; `progress` must increase on each one.
+- The `logger` option routes local SDK diagnostics; it is separate from MCP protocol logging.
 - `ctx.mcpReq.log(level, data)` sends `notifications/message` once the `logging` capability is declared; MCP logging is deprecated (SEP-2577).
 - Declaring `logging` also installs `logging/setLevel`; after `client.setLoggingLevel(level)` the SDK drops messages below that level for the session.
 - `ctx.mcpReq.signal` aborts on cancellation and disconnect — check it in long loops and forward it to your own I/O.

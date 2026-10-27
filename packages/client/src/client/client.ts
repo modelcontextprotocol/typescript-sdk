@@ -43,6 +43,7 @@ import type {
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
     Result,
+    SdkLogger,
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
@@ -57,6 +58,7 @@ import {
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    guardLogger,
     HEADER_MISMATCH_ERROR_CODE,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -185,6 +187,14 @@ export type ClientOptions = ProtocolOptions & {
      * Capabilities to advertise as being supported by this client.
      */
     capabilities?: ClientCapabilities;
+
+    /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
 
     /**
      * JSON Schema validator for tool output validation.
@@ -438,6 +448,7 @@ const DEFAULT_LIST_MAX_PAGES = 64;
 // Package-internal (not exported from the package): what the `ext/` clients share with Client. Set in Client's static block.
 export const clientInternals = {} as {
     enforceStrictCapabilities(client: Client): boolean;
+    logger(client: Client): SdkLogger;
     walkPages<R extends { nextCursor?: string }>(
         client: Client,
         method: string,
@@ -549,6 +560,7 @@ export class Client extends Protocol<ClientContext> {
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private readonly _logger: SdkLogger;
     /**
      * The response-cache substrate. Owns the backing store, the per-method
      * eviction-generation counter, the user-supplied/default flag, and the
@@ -590,6 +602,7 @@ export class Client extends Protocol<ClientContext> {
 
     static {
         clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
+        clientInternals.logger = client => client._logger;
         clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
         clientInternals.readResource = (client, params, options) => client._readResource(params, options);
     }
@@ -656,6 +669,7 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
+        this._logger = guardLogger(options?.logger);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
@@ -1628,7 +1642,7 @@ export class Client extends Protocol<ClientContext> {
     async listPrompts(params?: ListPromptsRequest['params'], options?: CacheableRequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
-            console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
+            this._logger.debug?.('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
         if (params?.cursor !== undefined) {
@@ -1668,7 +1682,7 @@ export class Client extends Protocol<ClientContext> {
     async listResources(params?: ListResourcesRequest['params'], options?: CacheableRequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
-            console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
+            this._logger.debug?.('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
         if (params?.cursor !== undefined) {
@@ -1697,7 +1711,7 @@ export class Client extends Protocol<ClientContext> {
     ): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
-            console.debug(
+            this._logger.debug?.(
                 'Client.listResourceTemplates() called but server does not advertise resources capability - returning empty list'
             );
             return { resourceTemplates: [] };
@@ -2556,7 +2570,7 @@ export class Client extends Protocol<ClientContext> {
     async listTools(params?: ListToolsRequest['params'], options?: CacheableRequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
-            console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
+            this._logger.debug?.('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
         if (params?.cursor !== undefined) {
@@ -2603,7 +2617,9 @@ export class Client extends Protocol<ClientContext> {
         const filtered = result.tools.filter(tool => {
             const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
             if (!scan.valid) {
-                console.warn(`[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`);
+                this._logger.warn?.(
+                    `[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`
+                );
                 return false;
             }
             return true;
