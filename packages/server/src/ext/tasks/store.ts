@@ -16,8 +16,9 @@ export interface CreateTaskParams {
     /** Suggested client polling interval, ms; omitted = no hint on the task. */
     pollIntervalMs?: number;
     /**
-     * Auth binding: the principal the creating request was authenticated as,
-     * when the transport knows one. Stores MUST refuse `tasks/*` access from
+     * Auth binding: the principal of the creating request, from
+     * `TasksExtensionOptions.principal` (by default the OAuth client id plus
+     * the token subject), when there is one. Stores MUST refuse `tasks/*` access from
      * a different principal (fail closed, no existence leak) and MAY ignore
      * it when absent.
      */
