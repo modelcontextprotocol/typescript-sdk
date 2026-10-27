@@ -69,7 +69,7 @@ export interface ServerExtensionContext {
     /**
      * Declares that this extension needs another extension, by id. Throws,
      * naming both, when the server doesn't install it, which fails the
-     * constructor. The full list is known before any `setup` runs, so an
+     * constructor, or `connect` from or after an async `setup`. The full list is known before any `setup` runs, so an
      * extension listed after this one counts. For behaviour that is merely
      * optional, check in code instead and carry on without it.
      */
