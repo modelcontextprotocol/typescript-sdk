@@ -43,6 +43,7 @@ import type {
     RequestOptions,
     ResolvedInputRequiredDriverConfig,
     Result,
+    SdkLogger,
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
@@ -438,6 +439,7 @@ const DEFAULT_LIST_MAX_PAGES = 64;
 // Package-internal (not exported from the package): what the `ext/` clients share with Client. Set in Client's static block.
 export const clientInternals = {} as {
     enforceStrictCapabilities(client: Client): boolean;
+    logger(client: Client): SdkLogger;
     walkPages<R extends { nextCursor?: string }>(
         client: Client,
         method: string,
@@ -590,6 +592,7 @@ export class Client extends Protocol<ClientContext> {
 
     static {
         clientInternals.enforceStrictCapabilities = client => client._enforceStrictCapabilities;
+        clientInternals.logger = client => client._logger;
         clientInternals.walkPages = (client, method, fetchPage, items) => client._walkPages(method, fetchPage, items);
         clientInternals.readResource = (client, params, options) => client._readResource(params, options);
     }

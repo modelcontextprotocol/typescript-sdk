@@ -2,6 +2,7 @@ import type { JSONRPCRequest, Tool } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import { Client } from '../../src/client/client';
+import { SkillsClient } from '../../src/ext/skills/index';
 
 const MODERN = '2026-07-28';
 
@@ -90,6 +91,38 @@ describe('Client logger option', () => {
         expect(consoleWarn).not.toHaveBeenCalled();
 
         consoleWarn.mockRestore();
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
+    it('routes SkillsClient diagnostics to the Client logger', async () => {
+        const debug = vi.fn();
+        const consoleDebug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+        const client = new Client({ name: 'test-client', version: '1.0.0' }, { logger: { debug } });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        serverTransport.onmessage = async message => {
+            if ('method' in message && 'id' in message && message.method === 'initialize') {
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: {},
+                        serverInfo: { name: 'test-server', version: '1.0.0' }
+                    }
+                });
+            }
+        };
+
+        await Promise.all([client.connect(clientTransport), serverTransport.start()]);
+
+        await expect(new SkillsClient(client).list()).resolves.toEqual({ skills: [], invalid: [] });
+        expect(debug).toHaveBeenCalledWith(expect.stringContaining('SkillsClient.list() called but the server does not declare'));
+        expect(consoleDebug).not.toHaveBeenCalled();
+
+        consoleDebug.mockRestore();
         await client.close();
         await clientTransport.close();
         await serverTransport.close();
