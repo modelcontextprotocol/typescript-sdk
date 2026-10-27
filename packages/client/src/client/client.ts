@@ -58,6 +58,7 @@ import {
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    guardLogger,
     HEADER_MISMATCH_ERROR_CODE,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -668,7 +669,7 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
-        this._logger = options?.logger ?? console;
+        this._logger = guardLogger(options?.logger);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;

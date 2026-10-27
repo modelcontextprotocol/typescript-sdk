@@ -17,6 +17,7 @@ import {
     brandedHasInstance,
     checkResourceAllowed,
     fetchWithinOrigin,
+    guardLogger,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
@@ -143,7 +144,7 @@ export function discardIfIssuerMismatch<T extends { issuer?: string }>(
     // A stamp that is not a string (raw storage) counts as no stamp.
     if (typeof stored.issuer !== 'string') {
         if (opts?.canPersistStamp !== false) {
-            (opts?.logger ?? console).warn?.(
+            guardLogger(opts?.logger).warn?.(
                 `[mcp-sdk] SEP-2352: stored OAuth credential has no 'issuer' stamp (pre-upgrade storage or ` +
                     `provider not round-tripping the value). SEP-2352 isolation is inactive for this read; ` +
                     `ensure your provider round-trips the issuer field.`
@@ -1088,7 +1089,7 @@ function warnCredentialInvalidation(provider: OAuthClientProvider, error: OAuthE
     // JSON-stringify the AS-supplied values so attacker-supplied control characters cannot
     // forge log lines — the authorization server is resolved from the resource server's
     // metadata, and both `code` and `message` are echoed from its response verbatim.
-    (provider.logger ?? console).warn?.(
+    guardLogger(provider.logger).warn?.(
         `[mcp-sdk] OAuth ${JSON.stringify(error.code)} — ${action}. Cause: ${JSON.stringify(error.message)}`
     );
 }
@@ -1176,7 +1177,7 @@ async function authInternal(
         forceReauthorization
     }: AuthOptions
 ): Promise<AuthResult> {
-    const logger = provider.logger ?? console;
+    const logger = guardLogger(provider.logger);
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
     const clientMetadata = resolveClientMetadata(provider);

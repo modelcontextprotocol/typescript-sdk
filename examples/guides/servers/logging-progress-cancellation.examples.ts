@@ -24,9 +24,7 @@ const server = new McpServer({ name: 'file-processor', version: '1.0.0' }, { cap
 //#region sdkLogger_stderr
 const sdkLogger = {
     debug: (...args: unknown[]) => console.error('[debug]', ...args),
-    info: (...args: unknown[]) => console.error('[info]', ...args),
-    warn: (...args: unknown[]) => console.error('[warn]', ...args),
-    error: (...args: unknown[]) => console.error('[error]', ...args)
+    warn: (...args: unknown[]) => console.error('[warn]', ...args)
 };
 
 const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });

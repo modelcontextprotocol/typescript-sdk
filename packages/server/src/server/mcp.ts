@@ -33,6 +33,7 @@ import {
     assertCompleteRequestResourceTemplate,
     assertValidCacheHint,
     attachCacheHintFallback,
+    guardLogger,
     isInputRequiredResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
@@ -161,7 +162,7 @@ export class McpServer {
     }
 
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
-        this._logger = options?.logger ?? console;
+        this._logger = guardLogger(options?.logger);
         this.server = new Server(serverInfo, options);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 

@@ -3297,6 +3297,21 @@ describe('OAuth Authorization', () => {
             consoleWarn.mockRestore();
         });
 
+        it('auth() still completes when the provider logger throws', async () => {
+            mockDiscoveryWithTokenEndpoint(() => oauthErrorResponse(OAuthErrorCode.ServerError, 'AS is having a bad day'));
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client', client_secret: 'test-secret' });
+            (mockProvider.tokens as Mock).mockResolvedValue(storedTokens);
+            (mockProvider.saveTokens as Mock).mockResolvedValue(undefined);
+            const warn = vi.fn(() => {
+                throw new Error('log sink closed');
+            });
+            const provider: OAuthClientProvider = Object.create(mockProvider, { logger: { value: { warn } } });
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp-server' })).resolves.toBe('REDIRECT');
+            expect(warn).toHaveBeenCalled();
+        });
+
         it('warns, and cannot recover, when invalid_grant hits a provider with no invalidateCredentials (#2034)', async () => {
             let tokenPosts = 0;
             mockDiscoveryWithTokenEndpoint(() => {
