@@ -1,0 +1,19 @@
+docs/_meta/specs/otel.md
+  s_a5414f34b12e5c::t_98513b3d13e417 1-554
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0b6a728cebe6a5708ea1f7979cdeb36e0e9361f5",
+  "prompts": {},
+  "sessions": {
+    "s_a5414f34b12e5c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17e7f-faec-72ed-aea6-f27d0ee483e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
