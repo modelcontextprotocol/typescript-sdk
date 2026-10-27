@@ -152,7 +152,8 @@ export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrum
             const span = tracer.startSpan(spanName(operation.method, target), { kind: SpanKind.CLIENT, attributes }, parent);
             const spanContext = trace.setSpan(parent, span);
             const injected: Record<string, string> = {};
-            propagation.inject(spanContext, injected, defaultTextMapSetter);
+            // Injected with the span's context active: some propagators (Sentry's) only inject the active context.
+            context.with(spanContext, () => propagation.inject(context.active(), injected, defaultTextMapSetter));
             Object.assign(operation.carrier, injected);
             const metricAttributes = pickMetricAttributes(attributes);
             const started = performance.now();
