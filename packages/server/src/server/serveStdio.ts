@@ -60,6 +60,7 @@ import type {
 import {
     carriesValidModernEnvelopeClaim,
     envelopeClaimVersion,
+    extensionsSettled,
     hasEnvelopeClaim,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -511,6 +512,8 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
     const connectInstance = async (era: 'legacy' | 'modern', revision?: string): Promise<ConnectedInstance> => {
         const product = await factory({ era });
         const server = product instanceof McpServer ? product.server : product;
+        // The binding below reads the instance, so async extension setups must have finished.
+        await extensionsSettled(server);
         if (era === 'modern') {
             // Era-write at instance binding, then modern-only handler
             // installation — the same helpers the HTTP entry's modern path

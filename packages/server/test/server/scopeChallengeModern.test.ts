@@ -270,3 +270,32 @@ describe('scope challenge resource_metadata derivation', () => {
         expect(response.headers.get('WWW-Authenticate')).not.toContain('resource_metadata');
     });
 });
+
+describe('createMcpHandler with an async extension setup', () => {
+    it('runs the scope preflight on a tool the setup registered after an await', async () => {
+        const onCall = vi.fn();
+        const handler = createMcpHandler(
+            () =>
+                new McpServer(
+                    { name: 'modern-scope', version: '1.0.0' },
+                    {
+                        extensions: [
+                            {
+                                id: 'com.example/admin',
+                                async setup(ctx) {
+                                    await new Promise(resolve => setTimeout(resolve, 5));
+                                    ctx.mcp.registerTool('operate', { scopeChallenge: requireScopes('admin') }, async () => {
+                                        onCall();
+                                        return { content: [{ type: 'text', text: 'ok' }] };
+                                    });
+                                }
+                            }
+                        ]
+                    }
+                )
+        );
+        const response = await handler.fetch(call('operate', {}), { authInfo: auth(['repo:read']) });
+        expect(response.status).toBe(403);
+        expect(onCall).not.toHaveBeenCalled();
+    });
+});
