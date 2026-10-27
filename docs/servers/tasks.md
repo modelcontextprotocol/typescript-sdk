@@ -27,11 +27,14 @@ The server advertises `io.modelcontextprotocol/tasks` under `capabilities.extens
 Inside a tool handler, `tasks.create(ctx)` creates the task in the store, bound to the request's principal, and returns the handle the handler answers with. The work itself is yours to start however your server runs things — here, an async function driving the in-memory store's writer handle.
 
 ```ts
+import type { TaskHandle } from '@modelcontextprotocol/server/ext/tasks';
 import * as z from 'zod/v4';
 
 server.registerTool('send_report', { inputSchema: z.object({ to: z.string() }) }, async ({ to }, ctx) => {
     const task = await tasks.create(ctx, { ttlMs: 3_600_000 });
-    void sendReport(store.handle(task.taskId), to);
+    const handle = store.handle(task.taskId);
+    // The work outlives the request: settle its failures on the task, not as an unhandled rejection.
+    void sendReport(handle, to).catch(error => handle.fail({ code: -32_603, message: String(error) }));
     return task;
 });
 
@@ -47,7 +50,7 @@ async function sendReport(handle: TaskHandle, to: string) {
 }
 ```
 
-On the wire the tool answers a flat `CreateTaskResult` (`resultType: "task"`). `requireInput` moves the task to `input_required` and resolves once `tasks/update` has answered every key. `tasks/cancel` aborts `handle.signal`; a later `complete` or `fail` is ignored.
+On the wire the tool answers a flat `CreateTaskResult` (`resultType: "task"`). `requireInput` moves the task to `input_required` and resolves once `tasks/update` has answered every key; it rejects if the task is cancelled or purged meanwhile, which is why the work's promise needs a `catch`. `tasks/cancel` aborts `handle.signal`; a later `complete` or `fail` is ignored.
 
 ## Bring your own store
 
@@ -67,12 +70,12 @@ How the work behind a task runs — a queue, a workflow engine, a durable-execut
 - The extension is served on the 2026-07-28 revision. Task tools are ordinary tools without `outputSchema`; the result encoder forwards `resultType: "task"` for `tools/call` verbatim.
 - A request that does not declare `io.modelcontextprotocol/tasks` in its client capabilities is refused with `-32021` — from `tasks.create`, from the `tasks/*` methods, and by the extension's `tools/call` middleware for any handle minted some other way.
 - `tasks/update`'s `inputResponses` shares its name with the multi-round-trip retry field: the protocol layer lifts it out of the params and the extension reads it back from `ctx.mcpReq.inputResponses`.
-- The SDK `Client` rejects `resultType: "task"` on `tools/call` (typescript-sdk#2637); the requester half of the extension is `@modelcontextprotocol/ext-tasks`.
+- A plain `client.callTool` rejects `resultType: "task"`; the requester half of the extension is `TasksClientExtension` from `@modelcontextprotocol/client/ext/tasks` ([Tasks on the client](../clients/tasks.md)).
 - `notifications/tasks` over `subscriptions/listen` is not implemented (typescript-sdk#2569); polling only.
 
 ## Recap
 
-- `new TasksExtension(store)` in `ServerOptions.extensions` serves the extension.
+- `new TasksExtension(store)` in `McpServerOptions.extensions` serves the extension.
 - `tasks.create(ctx, options?)` in a tool handler returns the task handle to answer with.
 - `TaskStore` is create / get / update / cancel; `InMemoryTaskStore` is the reference and adds a writer `handle`.
 - Execution is the server's; the SDK only defines the API shape.
