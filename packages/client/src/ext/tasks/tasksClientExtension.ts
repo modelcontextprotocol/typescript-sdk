@@ -1,14 +1,15 @@
 /**
  * `TasksClientExtension` — the client side of the MCP Tasks extension
- * (`io.modelcontextprotocol/tasks`) as a {@linkcode ClientExtension}. It
- * advertises the capability on every request, lets `tools/call` answer with a
+ * (`io.modelcontextprotocol/tasks`) as a {@linkcode ClientExtension}. On a
+ * 2026-07-28 connection, which the extension needs, it advertises the
+ * capability on every request, lets `tools/call` answer with a
  * task handle, and wraps the extension's methods: `get`, `update`, `cancel`,
  * and a `waitFor` that polls at the server's suggested interval until the
  * task is terminal.
  *
  * ```ts
  * const tasks = new TasksClientExtension();
- * const client = new Client(info, { extensions: [tasks] });
+ * const client = new Client(info, { versionNegotiation: { mode: 'auto' }, extensions: [tasks] });
  * await client.connect(transport);
  *
  * const outcome = await tasks.callTool({ name: 'send_report', arguments: { to: 'ops' } });
