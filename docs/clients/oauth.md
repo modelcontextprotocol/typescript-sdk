@@ -101,6 +101,10 @@ The SDK calls the `save*` methods as the flow produces values and reads them bac
 When the requested scope includes `offline_access`, the SDK adds `prompt=consent` to the authorization URL. Set `skipOfflineAccessConsentPrompt = true` on the provider to omit it when consent is already granted out of band, such as a Microsoft Entra ID tenant with admin consent and user consent disabled.
 :::
 
+::: tip
+`auth()` prints warnings while it runs, for example when a stored credential has no `issuer` stamp or a token refresh fails. Set `logger` on the provider to route them somewhere other than `console`. It takes the same console-compatible `SdkLogger` as `Client`; on a stdio client, send every level to stderr.
+:::
+
 ## Finish the flow from the callback
 
 The authorization server redirects the end user to `redirectUrl` with `code` and `state` in the query. Compare `state`, hand the whole query to `finishAuth`, and reconnect.

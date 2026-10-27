@@ -5,7 +5,13 @@
  * for common machine-to-machine authentication scenarios.
  */
 
-import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation, StoredOAuthTokens } from '@modelcontextprotocol/core-internal';
+import type {
+    FetchLike,
+    OAuthClientMetadata,
+    SdkLogger,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
+} from '@modelcontextprotocol/core-internal';
 import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth';
@@ -98,9 +104,9 @@ export function createPrivateKeyJwtAuth(options: {
  * The `issuer` stamp for constructor-supplied client information. Omitting `expectedIssuer` is
  * deprecated: nothing else says which authorization server such credentials belong to.
  */
-function checkedExpectedIssuer(expectedIssuer: string | undefined): string | undefined {
+function checkedExpectedIssuer(expectedIssuer: string | undefined, logger: SdkLogger): string | undefined {
     if (expectedIssuer === undefined) {
-        console.warn(
+        logger.warn?.(
             '[mcp-sdk] Omitting `expectedIssuer` is deprecated. Without it, the MCP server decides which authorization ' +
                 "server receives this client's credentials; pass your authorization server's issuer URL as " +
                 '`expectedIssuer` so they are only sent there.'
@@ -144,6 +150,12 @@ export interface ClientCredentialsProviderOptions {
      * the MCP server advertises.
      */
     expectedIssuer?: string;
+
+    /**
+     * Console-compatible sink for SDK warnings about this provider, including those `auth()`
+     * prints while using it. Defaults to `console`.
+     */
+    logger?: SdkLogger;
 }
 
 /**
@@ -166,6 +178,7 @@ export interface ClientCredentialsProviderOptions {
  * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
+    readonly logger: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -174,10 +187,11 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: ClientCredentialsProviderOptions);
     constructor(options: ClientCredentialsProviderOptions) {
+        this.logger = options.logger ?? console;
         this._clientInfo = {
             client_id: options.clientId,
             client_secret: options.clientSecret,
-            issuer: checkedExpectedIssuer(options.expectedIssuer)
+            issuer: checkedExpectedIssuer(options.expectedIssuer, this.logger)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'client-credentials-client',
@@ -282,6 +296,12 @@ export interface PrivateKeyJwtProviderOptions {
      * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
      */
     expectedIssuer?: string;
+
+    /**
+     * Console-compatible sink for SDK warnings about this provider, including those `auth()`
+     * prints while using it. Defaults to `console`.
+     */
+    logger?: SdkLogger;
 }
 
 /**
@@ -306,6 +326,7 @@ export interface PrivateKeyJwtProviderOptions {
  * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
+    readonly logger: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -315,9 +336,10 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: PrivateKeyJwtProviderOptions);
     constructor(options: PrivateKeyJwtProviderOptions) {
+        this.logger = options.logger ?? console;
         this._clientInfo = {
             client_id: options.clientId,
-            issuer: checkedExpectedIssuer(options.expectedIssuer)
+            issuer: checkedExpectedIssuer(options.expectedIssuer, this.logger)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'private-key-jwt-client',
@@ -411,6 +433,12 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
      */
     expectedIssuer?: string;
+
+    /**
+     * Console-compatible sink for SDK warnings about this provider, including those `auth()`
+     * prints while using it. Defaults to `console`.
+     */
+    logger?: SdkLogger;
 }
 
 /**
@@ -421,6 +449,7 @@ export interface StaticPrivateKeyJwtProviderOptions {
  * uses it directly for authentication.
  */
 export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
+    readonly logger: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -430,9 +459,10 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: StaticPrivateKeyJwtProviderOptions);
     constructor(options: StaticPrivateKeyJwtProviderOptions) {
+        this.logger = options.logger ?? console;
         this._clientInfo = {
             client_id: options.clientId,
-            issuer: checkedExpectedIssuer(options.expectedIssuer)
+            issuer: checkedExpectedIssuer(options.expectedIssuer, this.logger)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'static-private-key-jwt-client',
@@ -587,6 +617,12 @@ export interface CrossAppAccessProviderOptions {
      * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
      */
     expectedIssuer?: string;
+
+    /**
+     * Console-compatible sink for SDK warnings about this provider, including those `auth()`
+     * prints while using it. Defaults to `console`.
+     */
+    logger?: SdkLogger;
 }
 
 /**
@@ -630,6 +666,7 @@ export interface CrossAppAccessProviderOptions {
  * ```
  */
 export class CrossAppAccessProvider implements OAuthClientProvider {
+    readonly logger: SdkLogger;
     private _tokens?: StoredOAuthTokens;
     private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
@@ -643,10 +680,11 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     /** @deprecated Pass `expectedIssuer` so the credentials are only sent to that authorization server. */
     constructor(options: CrossAppAccessProviderOptions);
     constructor(options: CrossAppAccessProviderOptions) {
+        this.logger = options.logger ?? console;
         this._clientInfo = {
             client_id: options.clientId,
             client_secret: options.clientSecret,
-            issuer: checkedExpectedIssuer(options.expectedIssuer)
+            issuer: checkedExpectedIssuer(options.expectedIssuer, this.logger)
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'cross-app-access-client',
