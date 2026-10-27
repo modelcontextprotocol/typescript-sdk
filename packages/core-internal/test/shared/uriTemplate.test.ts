@@ -85,6 +85,47 @@ describe('UriTemplate', () => {
         });
     });
 
+    describe('literal encoding (RFC 6570 §3.1)', () => {
+        it('should pct-encode a literal the URI grammar does not allow', () => {
+            // uritemplate-test, "Literal Encoding"
+            expect(new UriTemplate('café/{v}').expand({ v: 'value' })).toBe('caf%C3%A9/value');
+            expect(new UriTemplate('file:///my docs/{v}').expand({ v: 'a.txt' })).toBe('file:///my%20docs/a.txt');
+        });
+
+        it('should keep reserved and unreserved literal characters as written', () => {
+            expect(new UriTemplate('file:///a-b_c~d.e/{v}').expand({ v: 'x' })).toBe('file:///a-b_c~d.e/x');
+            expect(new UriTemplate('http://x.test/p?q=1&r=2#{v}').expand({ v: 'x' })).toBe('http://x.test/p?q=1&r=2#x');
+        });
+
+        it('should keep the brackets of an IPv6 host literal', () => {
+            // encodeURI escapes [ and ], but RFC 3986 reserves them for the host and
+            // `new URL()` keeps them, so the pattern has to keep them too.
+            const template = new UriTemplate('http://[::1]:8080/docs/{name}');
+            expect(new URL('http://[::1]:8080/docs/a.txt').href).toBe('http://[::1]:8080/docs/a.txt');
+            expect(template.expand({ name: 'a.txt' })).toBe('http://[::1]:8080/docs/a.txt');
+            expect(template.match('http://[::1]:8080/docs/a.txt')).toEqual({ name: 'a.txt' });
+        });
+
+        it('should not encode an already-encoded literal twice', () => {
+            expect(new UriTemplate('file:///docs/caf%C3%A9/{v}').expand({ v: 'a.txt' })).toBe('file:///docs/caf%C3%A9/a.txt');
+            // a %5B the author wrote themselves stays a triplet
+            expect(new UriTemplate('file:///docs/%5Bx%5D/{v}').expand({ v: 'a.txt' })).toBe('file:///docs/%5Bx%5D/a.txt');
+        });
+
+        it('should match the pct-encoded form a URL round-trip produces', () => {
+            const template = new UriTemplate('file:///docs/café/{name}');
+            expect(new URL('file:///docs/café/a.txt').href).toBe('file:///docs/caf%C3%A9/a.txt');
+            expect(template.match('file:///docs/caf%C3%A9/a.txt')).toEqual({ name: 'a.txt' });
+        });
+
+        it('should round-trip expand through match', () => {
+            for (const source of ['file:///docs/café/{name}', 'file:///my docs/{name}']) {
+                const template = new UriTemplate(source);
+                expect(template.match(template.expand({ name: 'a.txt' }))).toEqual({ name: 'a.txt' });
+            }
+        });
+    });
+
     describe('matching', () => {
         it('should match simple strings and extract variables', () => {
             const template = new UriTemplate('http://example.com/users/{username}');
