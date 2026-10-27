@@ -103,9 +103,11 @@ describe('ClientOptions.extensions', () => {
             id,
             setup: ctx => ctx.setRequestHandler(name, { params: z.looseObject({}) }, () => ({}))
         });
-        expect(() => new Client({ name: 'c', version: '1' }, { extensions: [claims('com.example/a', 'tools/call')] })).toThrow(
-            'Extension "com.example/a" cannot register "tools/call": it is a core method; wrap it with use() instead'
-        );
+        for (const name of ['tools/call', 'elicitation/create', 'sampling/createMessage', 'roots/list']) {
+            expect(() => new Client({ name: 'c', version: '1' }, { extensions: [claims('com.example/a', name)] })).toThrow(
+                `Extension "com.example/a" cannot register "${name}": it is a core method; wrap it with use() instead`
+            );
+        }
         expect(
             () =>
                 new Client(

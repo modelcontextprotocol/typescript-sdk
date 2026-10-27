@@ -139,14 +139,16 @@ describe('McpServerOptions.extensions', () => {
         expect(log).toEqual(['com.example/a in', 'com.example/b in', 'app', 'com.example/b out', 'com.example/a out']);
     });
 
-    it('refuses a custom method that is a core method', () => {
-        const claimsCore: ServerExtension = {
+    it('refuses a custom method that is a core method of any protocol version', () => {
+        const claims = (name: string): ServerExtension => ({
             id: 'com.example/core',
-            setup: ctx => ctx.setRequestHandler('tools/list', { params: z.looseObject({}) }, () => ({ tools: [] }))
-        };
-        expect(() => new McpServer(info, { extensions: [claimsCore] })).toThrow(
-            'Extension "com.example/core" cannot register "tools/list": it is a core method; wrap it with use() instead'
-        );
+            setup: ctx => ctx.setRequestHandler(name, { params: z.looseObject({}) }, () => ({}))
+        });
+        for (const name of ['tools/list', 'logging/setLevel', 'resources/subscribe', 'tasks/list']) {
+            expect(() => new McpServer(info, { extensions: [claims(name)] })).toThrow(
+                `Extension "com.example/core" cannot register "${name}": it is a core method; wrap it with use() instead`
+            );
+        }
     });
 
     it('refuses a custom method another extension already serves', () => {
