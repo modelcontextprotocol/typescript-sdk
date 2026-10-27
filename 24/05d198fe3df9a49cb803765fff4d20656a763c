@@ -1,0 +1,21 @@
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_555766defd684e::t_26192d289ff33f 44-45,114-116,122
+packages/client/test/ext/tasks/tasksClientExtension.test.ts
+  s_555766defd684e::t_43ca08759ba068 136-167
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2405d198fe3df9a49cb803765fff4d20656a763c",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
