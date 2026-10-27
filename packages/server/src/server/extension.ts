@@ -95,13 +95,7 @@ export interface ServerExtensionContext {
     ): void;
 }
 
-/**
- * Sets up `extensions` on `mcp`, in order (see `installExtensions`). A
- * `setup` that throws, including an unmet `ctx.require`, fails the
- * `McpServer` constructor; one that rejects fails `connect`.
- *
- * Package-internal: called by the `McpServer` constructor.
- */
+/** Package-internal: sets `extensions` up for the constructor (see `installExtensions`). */
 export function installServerExtensions(mcp: McpServer, extensions: readonly ServerExtension[]): void {
     const server = mcp.server;
     installExtensions(

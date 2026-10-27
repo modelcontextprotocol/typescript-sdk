@@ -206,26 +206,20 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
  */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
 
-// "Method not found" raised under middleware for a method with no handler, and the error responses carrying it.
+// The no-handler MethodNotFound raised under middleware, and the responses carrying it.
 const noHandlerErrors = new WeakSet<object>();
 const noHandlerResponses = new WeakSet<object>();
 
-/**
- * Whether `message` answers a request for a method with no handler, raised
- * after middleware passed it through. Transports that map pre-dispatch
- * rejections to an HTTP status (404 for `-32601`) treat it as one, as a web
- * framework answers 404 through route middleware.
- *
- * Package-internal.
- */
+/** Whether `message` answers a method with no handler that middleware passed through; package-internal. */
 export function isNoHandlerResponse(message: object): boolean {
     return noHandlerResponses.has(message);
 }
 
 /**
- * Request middleware (see `Protocol.use`): receives the JSON-RPC request as
- * received (its params not yet validated), the context, and `next` — the
- * handler it wraps — and returns the result that goes on the wire.
+ * Request middleware (see `Protocol.use`): receives the JSON-RPC request,
+ * with wire-only material lifted onto `ctx.mcpReq` and params not yet
+ * validated, the context, and `next` — the handler it wraps — and returns
+ * the result that goes on the wire.
  *
  * Experimental: this shape may change in a minor release.
  *
@@ -829,7 +823,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
-        // Asynchronous extension setups finish before anything is processed; a failed one fails the connect.
+        // Wait for asynchronous extension setups; a failed one fails the connect.
         const extensionsReady = extensionStateOf(this)?.ready;
         if (extensionsReady !== undefined) await extensionsReady;
         this._transport = transport;
@@ -1089,11 +1083,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 ...options,
                 relatedRequestId: request.id
             });
-        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
-                ...options,
-                relatedRequestId: request.id
-            });
+        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions, explicitSchema = false) =>
+            this._requestWithSchemaViaCodec(
+                this._resolveOutboundCodec(r.method),
+                r,
+                resultSchema,
+                { ...options, relatedRequestId: request.id },
+                explicitSchema
+            );
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
@@ -1134,7 +1131,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     const sendCodec = this._resolveOutboundCodec(r.method);
                     this._assertOutboundRequestInEra(sendCodec, r.method);
                     if (isStandardSchema(schemaOrOptions)) {
-                        return sendRequest(r, schemaOrOptions, maybeOptions);
+                        return sendRequest(r, schemaOrOptions, maybeOptions, true);
                     }
                     const validate = codecResultValidator(sendCodec, r.method);
                     if (validate === undefined) {
@@ -1559,8 +1556,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(response);
                 }
 
-                // Extension result kinds (see `acceptResultType`) skip the codec and reach the caller's schema as-is.
-                if (acceptExtensionResultTypes && this._isAcceptedResultType(request.method, response.result)) {
+                // Extension result kinds (see `acceptResultType`) reach an explicit schema as-is; typed calls refuse them on every era.
+                if (this._isAcceptedResultType(request.method, response.result)) {
+                    if (!acceptExtensionResultTypes) {
+                        const resultType = (response.result as { resultType: string }).resultType;
+                        reject(
+                            new SdkError(
+                                SdkErrorCode.UnsupportedResultType,
+                                `Unsupported result type '${resultType}' for ${request.method}: pass a result schema to request() to receive it`,
+                                { resultType, method: request.method }
+                            )
+                        );
+                        return;
+                    }
                     validateStandardSchema(resultSchema, response.result).then(parseResult => {
                         if (parseResult.success) {
                             resolve(parseResult.data);
@@ -1835,7 +1843,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Installs middleware on the request handler for `method`. The middleware
-     * receives the JSON-RPC request as received, the context, and `next` —
+     * receives the JSON-RPC request, the context, and `next` —
      * the handler it wraps — and may answer itself, transform what `next`
      * returns, or throw a `ProtocolError` that becomes the JSON-RPC error
      * response. `setRequestHandler` is the route handler; this is the
@@ -1843,7 +1851,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * result and the middleware returns what goes on the wire.
      *
      * Middleware sits at the JSON-RPC level, before the handler's own
-     * steps: params are not validated yet, `ctx.mcpReq.requestState()` is
+     * steps: wire-only material (the reserved `_meta` envelope keys,
+     * `inputResponses`, `requestState`) is already lifted onto `ctx.mcpReq`,
+     * params are not validated yet, `ctx.mcpReq.requestState()` is
      * the raw wire value (the server's `requestState.verify` hook has not run),
      * and a result the middleware returns without calling `next` skips the
      * handler's result validation.
@@ -1913,12 +1923,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         return typeof resultType === 'string' && accepted.has(resultType);
     }
 
-    /**
-     * The handler `_onrequest` dispatches to for `method`: the registered
-     * handler (or the fallback), with any middleware for the method composed
-     * around it in registration order (first registered outermost).
-     * `undefined` when nothing is registered and no middleware applies.
-     */
+    /** The handler `_onrequest` dispatches `method` to, middleware included; `undefined` when there is none. */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
         if (this._middlewareFor(method).length === 0) return base;
@@ -1935,7 +1940,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /** The middleware for `method`, outermost first: extension middleware (`ctx.use`), then `use()`. */
     private _middlewareFor(method: string): RequestMiddleware<ContextT>[] {
-        // The installer records each side's middleware with its own context type.
         const extension = (extensionStateOf(this)?.middleware ?? []) as unknown as Array<{
             method: string;
             middleware: RequestMiddleware<ContextT>;
@@ -1950,8 +1954,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
         const stack = this._middlewareFor(method);
         let composed = handler;
-        // Wrap from the innermost (last registered) outwards so the first
-        // registered middleware ends up outermost.
+        // Wrap innermost first, so the first middleware ends up outermost.
         for (const middleware of stack.toReversed()) {
             const next = composed;
             composed = async (request, ctx) => middleware(request, ctx, next);

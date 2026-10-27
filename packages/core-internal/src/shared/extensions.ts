@@ -28,11 +28,7 @@ export function extensionStateOf(protocol: object): Readonly<ExtensionState> | u
     return states.get(protocol);
 }
 
-/**
- * Throws when `capabilities` sets an entry under `extensions` that belongs to
- * an installed extension, unless that extension is writing it. Called by
- * `registerCapabilities`, so the entry has one owner.
- */
+/** Throws when `capabilities.extensions` sets an installed extension's entry from outside that extension. */
 export function assertExtensionCapabilitiesUnowned(protocol: object, capabilities: { extensions?: object }): void {
     const state = states.get(protocol);
     if (state === undefined || capabilities.extensions === undefined) return;
@@ -70,19 +66,12 @@ export function useAsExtension<ContextT extends BaseContext>(
     if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
     const state = states.get(protocol);
     if (state === undefined) throw new Error('use: this server or client installed no extensions');
-    // The protocol composes it with its own context type (see `Protocol._middlewareFor`).
     state.middleware.push({ method, middleware: middleware as unknown as RequestMiddleware<BaseContext> });
 }
 
 /**
- * Installs `extensions` on `protocol`, in order. Before any `setup` runs it
- * checks that ids are unique, that each extension has a `setup`, and that no
- * entry under `capabilities.extensions` already exists for an installed id.
- * Each extension is advertised as `{}`, then its `setup` runs. A `setup` that
- * throws fails the caller (the constructor). A `setup` that returns a promise
- * defers the ones after it until it settles, and `connect` waits for all of
- * them, rejecting if one fails, so no message is processed with an extension
- * partly set up.
+ * Installs `extensions` in order, checking ids, `setup` and capability entries
+ * first; an async `setup` defers the ones after it, and `connect` waits for them.
  */
 export function installExtensions<E extends { readonly id: string; setup(ctx: C): void | PromiseLike<void> }, C>(
     protocol: object,

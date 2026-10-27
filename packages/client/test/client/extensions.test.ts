@@ -190,6 +190,14 @@ describe('ClientOptions.extensions', () => {
         await client.close();
     });
 
+    it('refuses an accepted result kind on typed calls over 2025-11-25 too', async () => {
+        const { clientTx } = await scriptedServer('legacy');
+        const client = new Client({ name: 'c', version: '1' }, { extensions: [gateExtension([])] });
+        await client.connect(clientTx);
+        await expect(client.callTool({ name: 'slow', arguments: {} })).rejects.toMatchObject({ code: SdkErrorCode.UnsupportedResultType });
+        await client.close();
+    });
+
     it('serves the handler the extension registered for a server-to-client request', async () => {
         const { clientTx, serverTx, written } = await scriptedServer('legacy');
         const client = new Client({ name: 'c', version: '1' }, { extensions: [gateExtension([])] });
