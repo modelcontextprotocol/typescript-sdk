@@ -4,9 +4,142 @@
  * `Client` set extensions up with these, so both sides refuse the same things
  * with the same messages.
  */
+import type { JSONObject } from '../types/spec.types.2026-07-28';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 import { isExtensionReusedRequestMethod, isSpecRequestMethod } from '../wire/codec';
-import type { BaseContext, InferHandlerResult, Protocol } from './protocol';
+import type { BaseContext, InferHandlerResult, Protocol, RequestMiddleware } from './protocol';
+
+/** What installed extensions add to one server or client, kept off its public surface. */
+interface ExtensionState {
+    /** Ids of the installed extensions; their capability entries belong to them. */
+    readonly owned: ReadonlySet<string>;
+    /** Middleware from `ctx.use`, in setup order; it runs outside middleware added with `use()`. */
+    readonly middleware: Array<{ method: string; middleware: RequestMiddleware<BaseContext> }>;
+    /** Pending while a `setup` is unfinished, and kept when one fails; `connect` waits for it. */
+    ready?: Promise<void>;
+    /** The extension whose capability entry is being written. */
+    writing?: string;
+}
+
+const states = new WeakMap<object, ExtensionState>();
+
+/** The extension state of `protocol`, when it installed any extensions. */
+export function extensionStateOf(protocol: object): Readonly<ExtensionState> | undefined {
+    return states.get(protocol);
+}
+
+/**
+ * Throws when `capabilities` sets an entry under `extensions` that belongs to
+ * an installed extension, unless that extension is writing it. Called by
+ * `registerCapabilities`, so the entry has one owner.
+ */
+export function assertExtensionCapabilitiesUnowned(protocol: object, capabilities: { extensions?: object }): void {
+    const state = states.get(protocol);
+    if (state === undefined || capabilities.extensions === undefined) return;
+    for (const id of Object.keys(capabilities.extensions)) {
+        if (state.owned.has(id) && state.writing !== id) {
+            throw new Error(
+                `capabilities.extensions["${id}"] belongs to the installed "${id}" extension; set it from the extension with ctx.capability`
+            );
+        }
+    }
+}
+
+/** Writes `settings` as the capability entry of extension `id`. */
+export function writeExtensionCapability(
+    protocol: object,
+    id: string,
+    settings: JSONObject,
+    register: (capabilities: { extensions: Record<string, JSONObject> }) => void
+): void {
+    const state = states.get(protocol);
+    if (state !== undefined) state.writing = id;
+    try {
+        register({ extensions: { [id]: settings } });
+    } finally {
+        if (state !== undefined) state.writing = undefined;
+    }
+}
+
+/** `ctx.use`: middleware in the extension tier, outside middleware the application adds with `use()`. */
+export function useAsExtension<ContextT extends BaseContext>(
+    protocol: Protocol<ContextT>,
+    method: string,
+    middleware: RequestMiddleware<ContextT>
+): void {
+    if (typeof middleware !== 'function') throw new TypeError('use: middleware is required');
+    const state = states.get(protocol);
+    if (state === undefined) throw new Error('use: this server or client installed no extensions');
+    // The protocol composes it with its own context type (see `Protocol._middlewareFor`).
+    state.middleware.push({ method, middleware: middleware as unknown as RequestMiddleware<BaseContext> });
+}
+
+/**
+ * Installs `extensions` on `protocol`, in order. Before any `setup` runs it
+ * checks that ids are unique, that each extension has a `setup`, and that no
+ * entry under `capabilities.extensions` already exists for an installed id.
+ * Each extension is advertised as `{}`, then its `setup` runs. A `setup` that
+ * throws fails the caller (the constructor). A `setup` that returns a promise
+ * defers the ones after it until it settles, and `connect` waits for all of
+ * them, rejecting if one fails, so no message is processed with an extension
+ * partly set up.
+ */
+export function installExtensions<E extends { readonly id: string; setup(ctx: C): void | PromiseLike<void> }, C>(
+    protocol: object,
+    extensions: readonly E[],
+    existing: { extensions?: object } | undefined,
+    register: (capabilities: { extensions: Record<string, JSONObject> }) => void,
+    contextFor: (id: string, installed: ReadonlySet<string>) => C
+): void {
+    const ids = uniqueExtensionIds(extensions);
+    for (const extension of extensions) {
+        if (typeof extension.setup !== 'function') {
+            throw new TypeError(`Extension "${String((extension as { id: unknown }).id)}" has no setup`);
+        }
+    }
+    for (const id of ids) {
+        if (existing?.extensions !== undefined && id in existing.extensions) {
+            throw new Error(
+                `Extension "${id}" is also set in capabilities.extensions; drop that entry and set its settings from the extension with ctx.capability`
+            );
+        }
+    }
+    if (ids.size === 0) return;
+
+    const state: ExtensionState = { owned: ids, middleware: [] };
+    states.set(protocol, state);
+    const setUp = (extension: E): void | PromiseLike<void> => {
+        writeExtensionCapability(protocol, extension.id, {}, register);
+        return extension.setup(contextFor(extension.id, ids));
+    };
+    let pending: Promise<void> | undefined;
+    for (const extension of extensions) {
+        if (pending !== undefined) {
+            pending = pending.then(() => setUp(extension));
+            continue;
+        }
+        const result = setUp(extension);
+        if (isThenable(result)) pending = Promise.resolve(result);
+    }
+    if (pending !== undefined) {
+        state.ready = pending;
+        // `connect` reports a failure; nothing else may treat it as unhandled.
+        pending.then(
+            () => {
+                state.ready = undefined;
+            },
+            () => {}
+        );
+    }
+}
+
+function isThenable(value: unknown): value is PromiseLike<void> {
+    return (
+        (typeof value === 'object' || typeof value === 'function') &&
+        value !== null &&
+        typeof (value as { then?: unknown }).then === 'function'
+    );
+}
 
 /**
  * Returns the extensions' ids, or throws when two share one. Runs before any

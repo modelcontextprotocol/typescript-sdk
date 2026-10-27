@@ -200,4 +200,38 @@ describe('ClientOptions.extensions', () => {
         expect((response as { result?: unknown }).result).toEqual({ pong: true });
         await client.close();
     });
+    it('waits in connect for an async setup, so the first request already carries its capability', async () => {
+        const { clientTx, written } = await scriptedServer('legacy');
+        const slow: ClientExtension = {
+            id: 'com.example/slow',
+            async setup(ctx) {
+                await new Promise(resolve => setTimeout(resolve, 5));
+                ctx.capability({ loaded: true });
+            }
+        };
+        const client = new Client({ name: 'c', version: '1' }, { extensions: [slow] });
+        await client.connect(clientTx);
+        const initialize = written.find(message => (message as { method?: string }).method === 'initialize');
+        expect(paramsOf(initialize as JSONRPCMessage)['capabilities']).toMatchObject({
+            extensions: { 'com.example/slow': { loaded: true } }
+        });
+        await client.close();
+    });
+
+    it('fails connect when an async setup rejects, before anything is sent', async () => {
+        const { clientTx, written } = await scriptedServer('legacy');
+        const broken: ClientExtension = { id: 'com.example/broken', setup: async () => Promise.reject(new Error('no key')) };
+        const client = new Client({ name: 'c', version: '1' }, { extensions: [broken] });
+        await expect(client.connect(clientTx)).rejects.toThrow('no key');
+        expect(written).toEqual([]);
+    });
+
+    it('refuses capability entries for an installed id set anywhere but the extension', () => {
+        expect(
+            () =>
+                new Client({ name: 'c', version: '1' }, { capabilities: { extensions: { [EXT_ID]: {} } }, extensions: [gateExtension([])] })
+        ).toThrow(`Extension "${EXT_ID}" is also set in capabilities.extensions`);
+        const client = new Client({ name: 'c', version: '1' }, { extensions: [gateExtension([])] });
+        expect(() => client.registerCapabilities({ extensions: { [EXT_ID]: {} } })).toThrow(/belongs to the installed/);
+    });
 });

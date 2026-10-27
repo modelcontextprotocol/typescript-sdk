@@ -6,7 +6,13 @@ import type {
     ServerContext,
     StandardSchemaV1
 } from '@modelcontextprotocol/core-internal';
-import { requireExtension, setExtensionRequestHandler, uniqueExtensionIds } from '@modelcontextprotocol/core-internal';
+import {
+    installExtensions,
+    requireExtension,
+    setExtensionRequestHandler,
+    useAsExtension,
+    writeExtensionCapability
+} from '@modelcontextprotocol/core-internal';
 
 import type { McpServer } from './mcp';
 
@@ -36,8 +42,12 @@ export interface ServerExtension {
      * `capabilities.extensions`, and unique per server.
      */
     readonly id: string;
-    /** Adds the extension to the server. Called once, at construction, in `extensions` order. */
-    setup(ctx: ServerExtensionContext): void;
+    /**
+     * Adds the extension to the server. Called once, at construction, in
+     * `extensions` order. It may be async: the setups after it wait for it,
+     * and `connect` waits for all of them and rejects if one fails.
+     */
+    setup(ctx: ServerExtensionContext): void | Promise<void>;
 }
 
 /**
@@ -52,7 +62,8 @@ export interface ServerExtensionContext {
     readonly mcp: McpServer;
     /**
      * Sets what the server advertises under `capabilities.extensions[id]`.
-     * Without a call, the server advertises `{}`.
+     * Without a call, the server advertises `{}`. The entry belongs to the
+     * extension: setting it anywhere else throws.
      */
     capability(settings: JSONObject): void;
     /**
@@ -66,7 +77,7 @@ export interface ServerExtensionContext {
     /**
      * Middleware around whatever handler serves `method`, including a core
      * method or another extension's: it may answer, transform or refuse. Runs
-     * outside middleware the application adds later with `mcp.server.use`, and
+     * outside middleware the application adds with `mcp.server.use`, and
      * inside middleware from extensions earlier in `extensions`. See
      * `Protocol.use` for how middleware composes.
      */
@@ -85,25 +96,21 @@ export interface ServerExtensionContext {
 }
 
 /**
- * Sets up `extensions` on `mcp`, in order. Ids are checked before anything is
- * set up, so a duplicate leaves the server untouched. A `setup` that throws,
- * including an unmet `ctx.require`, fails the `McpServer` constructor that
- * called this, so a server with a partly set up extension never exists.
+ * Sets up `extensions` on `mcp`, in order (see `installExtensions`). A
+ * `setup` that throws, including an unmet `ctx.require`, fails the
+ * `McpServer` constructor; one that rejects fails `connect`.
  *
  * Package-internal: called by the `McpServer` constructor.
  */
 export function installServerExtensions(mcp: McpServer, extensions: readonly ServerExtension[]): void {
-    const ids = uniqueExtensionIds(extensions);
-    for (const extension of extensions) {
-        if (typeof extension.setup !== 'function') {
-            throw new TypeError(`Extension "${String((extension as { id: unknown }).id)}" has no setup`);
-        }
-    }
-
-    for (const extension of extensions) {
-        mcp.server.registerCapabilities({ extensions: { [extension.id]: {} } });
-        extension.setup(contextFor(mcp, extension.id, ids));
-    }
+    const server = mcp.server;
+    installExtensions(
+        server,
+        extensions,
+        server.getCapabilities(),
+        capabilities => server.registerCapabilities(capabilities),
+        (id, installed) => contextFor(mcp, id, installed)
+    );
 }
 
 /** The context one extension's `setup` receives; everything it registers is attributed to `id`. */
@@ -112,13 +119,13 @@ function contextFor(mcp: McpServer, id: string, installed: ReadonlySet<string>):
     return {
         mcp,
         capability(settings) {
-            server.registerCapabilities({ extensions: { [id]: settings } });
+            writeExtensionCapability(server, id, settings, capabilities => server.registerCapabilities(capabilities));
         },
         require(extensionId) {
             requireExtension('server', installed, id, extensionId);
         },
         use(method, middleware) {
-            server.use(method, middleware);
+            useAsExtension(server, method, middleware);
         },
         setRequestHandler(name, schemas, handler) {
             setExtensionRequestHandler(server, id, name, schemas, handler);

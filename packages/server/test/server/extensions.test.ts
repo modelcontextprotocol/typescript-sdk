@@ -213,3 +213,96 @@ describe('ServerExtensionContext.require', () => {
         ).not.toThrow();
     });
 });
+
+describe('asynchronous setup', () => {
+    const tick = () => new Promise(resolve => setTimeout(resolve, 5));
+
+    it('defers the setups after it, and connect waits for all of them before serving', async () => {
+        const log: string[] = [];
+        const slow: ServerExtension = {
+            id: 'com.example/slow',
+            async setup(ctx) {
+                await tick();
+                ctx.capability({ loaded: true });
+                ctx.setRequestHandler('slow/ping', { params: z.looseObject({}) }, () => ({ pong: true }));
+                log.push('slow');
+            }
+        };
+        const mcp = new McpServer(info, { extensions: [slow, plain('com.example/after', log)] });
+        expect(log).toEqual([]);
+        const body = await exchange(mcp.server, modernRequest('slow/ping'));
+        expect(body['result']).toMatchObject({ pong: true });
+        expect(log).toEqual(['slow', 'com.example/after']);
+        expect(mcp.server.getCapabilities().extensions).toEqual({ 'com.example/slow': { loaded: true }, 'com.example/after': {} });
+    });
+
+    it('fails connect with the setup error, so nothing is served with the extension partly set up', async () => {
+        const broken: ServerExtension = {
+            id: 'com.example/broken',
+            async setup() {
+                await tick();
+                throw new Error('index unavailable');
+            }
+        };
+        const mcp = new McpServer(info, { extensions: [broken] });
+        await expect(exchange(mcp.server, modernRequest('tools/list'))).rejects.toThrow('index unavailable');
+    });
+
+    it('keeps extension middleware outside application middleware added while setup was pending', async () => {
+        const log: string[] = [];
+        const late: ServerExtension = {
+            id: 'com.example/late',
+            async setup(ctx) {
+                await tick();
+                tracing('com.example/late', log).setup(ctx);
+            }
+        };
+        const mcp = new McpServer(info, { extensions: [late] });
+        mcp.server.use('tools/call', async (request, requestCtx, next) => {
+            log.push('app');
+            return next(request, requestCtx);
+        });
+        echo(mcp);
+        await exchange(mcp.server, modernRequest('tools/call', { name: 'echo', arguments: { text: 'hi' } }));
+        expect(log).toEqual(['com.example/late in', 'app', 'com.example/late out']);
+    });
+});
+
+describe('capability entries of installed extensions', () => {
+    it('refuses an entry for the same id in capabilities.extensions at construction', () => {
+        expect(
+            () => new McpServer(info, { capabilities: { extensions: { [EXT_ID]: { exampleData: false } } }, extensions: [gate] })
+        ).toThrow(`Extension "${EXT_ID}" is also set in capabilities.extensions`);
+    });
+
+    it('refuses registerCapabilities for an installed id, and leaves other entries alone', () => {
+        const mcp = new McpServer(info, { extensions: [gate] });
+        expect(() => mcp.server.registerCapabilities({ extensions: { [EXT_ID]: {} } })).toThrow(
+            `capabilities.extensions["${EXT_ID}"] belongs to the installed "${EXT_ID}" extension`
+        );
+        mcp.server.registerCapabilities({ extensions: { 'com.example/other': {} } });
+        expect(mcp.server.getCapabilities().extensions).toEqual({ [EXT_ID]: { exampleData: true }, 'com.example/other': {} });
+    });
+});
+
+describe('middleware on a method with no handler', () => {
+    const peek = (answer: boolean): ServerExtension => ({
+        id: 'com.example/peek',
+        setup: ctx => ctx.use('peek/status', (request, requestCtx, next) => (answer ? { peeked: true } : next(request, requestCtx)))
+    });
+
+    it('answers HTTP 404 when the middleware passes the not-found through, and the middleware answer otherwise', async () => {
+        const post = async (extension: ServerExtension) => {
+            const mcp = new McpServer(info, { extensions: [extension] });
+            setNegotiatedProtocolVersion(mcp.server, MODERN_REVISION);
+            const response = await invoke(mcp.server, modernRequest('peek/status'), { classification: MODERN });
+            return { status: response.status, body: (await response.json()) as Record<string, unknown> };
+        };
+        const notFound = await post(peek(false));
+        expect(notFound.status).toBe(404);
+        expect(notFound.body['error']).toMatchObject({ code: -32_601 });
+        const answered = await post(peek(true));
+        expect(answered.status).toBe(200);
+        expect(answered.body['result']).toMatchObject({ peeked: true });
+    });
+});
