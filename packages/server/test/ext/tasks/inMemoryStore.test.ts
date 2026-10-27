@@ -60,6 +60,23 @@ describe('InMemoryTaskStore', () => {
         store.close();
     });
 
+    it('settles a pending input wait when the task completes or fails, and refuses a second wait', async () => {
+        const store = new InMemoryTaskStore();
+        const ask = {
+            a: { method: 'elicitation/create', params: { message: 'q', mode: 'form', requestedSchema: { type: 'object', properties: {} } } }
+        } as const;
+        for (const settle of ['complete', 'fail'] as const) {
+            const { taskId } = await store.create({ ttlMs: null });
+            const handle = store.handle(taskId);
+            const waiting = handle.requireInput(ask);
+            await expect(handle.requireInput(ask)).rejects.toThrow('already waiting for input');
+            await (settle === 'complete' ? handle.complete({ content: [] }) : handle.fail({ code: -32_603, message: 'boom' }));
+            await expect(waiting).rejects.toThrow('settled while waiting for input');
+            expect(handle.signal.aborted).toBe(false);
+        }
+        store.close();
+    });
+
     it('purges at the TTL deadline and fails closed on a foreign principal', async () => {
         const store = new InMemoryTaskStore();
         const { taskId } = await store.create({ ttlMs: 10, principal: 'alice' });
