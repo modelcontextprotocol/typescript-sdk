@@ -28,6 +28,12 @@ export function extensionStateOf(protocol: object): Readonly<ExtensionState> | u
     return states.get(protocol);
 }
 
+/** Settles once every extension `setup` on `protocol` has finished; rejects if one failed. */
+export async function extensionsSettled(protocol: object): Promise<void> {
+    const ready = states.get(protocol)?.ready;
+    if (ready !== undefined) await ready;
+}
+
 /** Throws when `capabilities.extensions` sets an installed extension's entry from outside that extension. */
 export function assertExtensionCapabilitiesUnowned(protocol: object, capabilities: { extensions?: object }): void {
     const state = states.get(protocol);

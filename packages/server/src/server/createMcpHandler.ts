@@ -42,6 +42,7 @@ import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    extensionsSettled,
     guardLogger,
     httpStatusForErrorCode,
     isJsonContentType,
@@ -798,6 +799,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+        // The checks below read the instance, so async extension setups must have finished.
+        await extensionsSettled(server);
         assertNotServing(server);
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /
