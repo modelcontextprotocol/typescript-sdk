@@ -6,8 +6,6 @@
  * via the requirement's tier map.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
-
 import { Client } from '@modelcontextprotocol/client';
 import type {
     CallToolRequest,
@@ -18,7 +16,6 @@ import type {
     MessageExtraInfo,
     Notification,
     Progress,
-    ProtocolInstrumentation,
     RequestId,
     Result,
     Transport,
@@ -1115,45 +1112,6 @@ verifies('protocol:meta:request-to-handler', async ({ transport }: TestArgs) => 
     // Exact equality against the sent object: nothing was stripped and nothing (e.g. a progressToken) was injected.
     expect(handlerParamsMeta).toEqual([requestMeta]);
     expect(handlerExtraMeta).toEqual([requestMeta]);
-});
-
-verifies('protocol:meta:trace-context-instrumentation', async ({ transport }: TestArgs) => {
-    const active = new AsyncLocalStorage<string>();
-    const serverSeen: { meta?: Readonly<Record<string, unknown>>; handlerMeta?: unknown; activeInHandler?: string }[] = [];
-    const serverInstrumentation: ProtocolInstrumentation = {
-        receive(operation) {
-            if (operation.method === 'tools/call') serverSeen.push({ meta: operation.meta });
-            return { run: fn => active.run(`server ${operation.method}`, fn), end: () => {} };
-        }
-    };
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' }, { instrumentation: serverInstrumentation });
-        s.registerTool('traced', { inputSchema: z.object({}) }, (_args, ctx) => {
-            serverSeen.at(-1)!.handlerMeta = ctx.mcpReq._meta?.traceparent;
-            serverSeen.at(-1)!.activeInHandler = active.getStore();
-            return { content: [{ type: 'text', text: 'ok' }] };
-        });
-        return s;
-    };
-    const traceparent = '00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01';
-    const client = new Client(
-        { name: 'c', version: '0' },
-        {
-            instrumentation: {
-                send(operation) {
-                    if (operation.method === 'tools/call') operation.carrier.traceparent = traceparent;
-                    return { run: fn => fn(), end: () => {} };
-                }
-            }
-        }
-    );
-    await using _ = await wire(transport, makeServer, client);
-
-    await client.callTool({ name: 'traced', arguments: {} });
-
-    expect(serverSeen).toEqual([
-        { meta: expect.objectContaining({ traceparent }), handlerMeta: traceparent, activeInHandler: 'server tools/call' }
-    ]);
 });
 
 verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {

@@ -147,6 +147,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/core": "workspace:*",
+        "@opentelemetry/api": "catalog:otel",
         "cross-spawn": "catalog:runtimeClientOnly",
         "eventsource": "catalog:runtimeClientOnly",
         "eventsource-parser": "catalog:runtimeClientOnly",

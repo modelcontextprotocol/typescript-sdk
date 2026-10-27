@@ -11,11 +11,12 @@
         "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/hono": "workspace:*",
-        "@modelcontextprotocol/otel": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "@opentelemetry/api": "catalog:otel",
+        "@opentelemetry/context-async-hooks": "catalog:otel",
+        "@opentelemetry/core": "catalog:otel",
         "@opentelemetry/sdk-metrics": "catalog:otel",
-        "@opentelemetry/sdk-trace-node": "catalog:otel",
+        "@opentelemetry/sdk-trace": "catalog:otel",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {

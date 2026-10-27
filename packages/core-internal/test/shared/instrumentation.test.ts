@@ -3,17 +3,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
-import type {
-    BaseContext,
-    InboundOperation,
-    JSONRPCMessage,
-    OperationOutcome,
-    OutboundOperation,
-    ProtocolInstrumentation
-} from '../../src/exports/public/index';
+import type { BaseContext, JSONRPCMessage } from '../../src/exports/public/index';
 import { isJSONRPCRequest, ProtocolError, ProtocolErrorCode, TRACEPARENT_META_KEY } from '../../src/exports/public/index';
-import type { ProtocolOptions } from '../../src/shared/protocol';
-import { Protocol } from '../../src/shared/protocol';
+import type { InboundOperation, OperationOutcome, OutboundOperation, ProtocolInstrumentation } from '../../src/shared/instrumentation';
+import { Protocol, setProtocolInstrumentation } from '../../src/shared/protocol';
 import { InMemoryTransport } from '../../src/util/inMemory';
 
 class TestProtocol extends Protocol<BaseContext> {
@@ -56,10 +49,12 @@ function recorder(als = new AsyncLocalStorage<string>()) {
     return { scopes, instrumentation, als, find };
 }
 
-async function pair(options?: { a?: ProtocolOptions; b?: ProtocolOptions }) {
+async function pair(instrumentation?: { a?: ProtocolInstrumentation; b?: ProtocolInstrumentation }) {
     const [ta, tb] = InMemoryTransport.createLinkedPair();
-    const a = new TestProtocol(options?.a);
-    const b = new TestProtocol(options?.b);
+    const a = new TestProtocol();
+    const b = new TestProtocol();
+    if (instrumentation?.a) setProtocolInstrumentation(a, instrumentation.a);
+    if (instrumentation?.b) setProtocolInstrumentation(b, instrumentation.b);
     await a.connect(ta);
     await b.connect(tb);
     return { a, b, ta, tb };
@@ -68,7 +63,7 @@ async function pair(options?: { a?: ProtocolOptions; b?: ProtocolOptions }) {
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 const Ok = z.object({ ok: z.boolean() });
 
-describe('ProtocolOptions.instrumentation', () => {
+describe('Protocol instrumentation', () => {
     it('leaves outbound messages untouched when no instrumentation is configured', async () => {
         const [ta, tb] = InMemoryTransport.createLinkedPair();
         const sent: JSONRPCMessage[] = [];
@@ -92,7 +87,7 @@ describe('ProtocolOptions.instrumentation', () => {
     it('observes a request on both sides and carries the injected trace context to the peer', async () => {
         const client = recorder();
         const server = recorder(client.als);
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation }, b: { instrumentation: server.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation, b: server.instrumentation });
         let activeInHandler: string | undefined;
         let metaInHandler: unknown;
         b.setRequestHandler('acme/echo', { params: z.object({ v: z.number() }) }, async (_params, ctx) => {
@@ -117,7 +112,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('prefills the carrier with caller-supplied trace context without mutating the caller params', async () => {
         const client = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation });
         let metaInHandler: unknown;
         b.setRequestHandler('acme/echo', { params: z.object({}) }, (_params, ctx) => {
             metaInHandler = ctx.mcpReq._meta;
@@ -140,7 +135,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('runs the transport send in the outbound scope', async () => {
         const client = recorder();
-        const { a, b, ta } = await pair({ a: { instrumentation: client.instrumentation } });
+        const { a, b, ta } = await pair({ a: client.instrumentation });
         b.setRequestHandler('acme/echo', { params: z.object({}) }, () => ({ ok: true }));
         const activeAtSend: (string | undefined)[] = [];
         const send = ta.send.bind(ta);
@@ -158,7 +153,7 @@ describe('ProtocolOptions.instrumentation', () => {
     it('ends both sides with the JSON-RPC error a handler throws', async () => {
         const client = recorder();
         const server = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation }, b: { instrumentation: server.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation, b: server.instrumentation });
         const thrown = new ProtocolError(ProtocolErrorCode.InvalidParams, 'bad input');
         b.setRequestHandler('acme/fail', { params: z.object({}) }, () => {
             throw thrown;
@@ -176,7 +171,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('reports an unhandled method with handled: false and a method-not-found error', async () => {
         const server = recorder();
-        const { a } = await pair({ b: { instrumentation: server.instrumentation } });
+        const { a } = await pair({ b: server.instrumentation });
 
         await expect(a.request({ method: 'acme/missing', params: {} }, Ok)).rejects.toThrow();
 
@@ -190,7 +185,7 @@ describe('ProtocolOptions.instrumentation', () => {
     it('ends a timed-out request with timeout and observes the cancellation notification', async () => {
         const client = recorder();
         const server = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation }, b: { instrumentation: server.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation, b: server.instrumentation });
         b.setRequestHandler(
             'acme/slow',
             { params: z.object({}) },
@@ -208,7 +203,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('ends a request aborted by the caller with cancelled', async () => {
         const client = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation });
         b.setRequestHandler('acme/slow', { params: z.object({}) }, () => new Promise<never>(() => {}));
         const controller = new AbortController();
 
@@ -222,7 +217,7 @@ describe('ProtocolOptions.instrumentation', () => {
     it('ends in-flight operations on both sides with closed when the connection drops', async () => {
         const client = recorder();
         const server = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation }, b: { instrumentation: server.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation, b: server.instrumentation });
         let started!: () => void;
         const handlerStarted = new Promise<void>(resolve => (started = resolve));
         b.setRequestHandler('acme/slow', { params: z.object({}) }, () => {
@@ -241,7 +236,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('ends a result that fails validation with failed', async () => {
         const client = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation });
         b.setRequestHandler('acme/echo', { params: z.object({}) }, () => ({ ok: 'not a boolean' }));
 
         await expect(a.request({ method: 'acme/echo', params: {} }, Ok)).rejects.toThrow('Invalid result');
@@ -251,7 +246,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('ends a failed send with failed', async () => {
         const client = recorder();
-        const { a, ta } = await pair({ a: { instrumentation: client.instrumentation } });
+        const { a, ta } = await pair({ a: client.instrumentation });
         const failure = new Error('socket gone');
         ta.send = () => Promise.reject(failure);
 
@@ -265,7 +260,7 @@ describe('ProtocolOptions.instrumentation', () => {
     it('observes notifications on both sides, including a handler that throws', async () => {
         const client = recorder();
         const server = recorder();
-        const { a, b } = await pair({ a: { instrumentation: client.instrumentation }, b: { instrumentation: server.instrumentation } });
+        const { a, b } = await pair({ a: client.instrumentation, b: server.instrumentation });
         const errors: Error[] = [];
         b.onerror = error => errors.push(error);
         let activeInHandler: string | undefined;
@@ -295,23 +290,19 @@ describe('ProtocolOptions.instrumentation', () => {
         const errors: Error[] = [];
         const { a, b } = await pair({
             a: {
-                instrumentation: {
-                    send: () => {
-                        throw new Error('send hook broke');
-                    }
+                send: () => {
+                    throw new Error('send hook broke');
                 }
             },
             b: {
-                instrumentation: {
-                    receive: () => ({
-                        run: () => {
-                            throw new Error('run broke');
-                        },
-                        end: () => {
-                            throw new Error('end broke');
-                        }
-                    })
-                }
+                receive: () => ({
+                    run: () => {
+                        throw new Error('run broke');
+                    },
+                    end: () => {
+                        throw new Error('end broke');
+                    }
+                })
             }
         });
         a.onerror = error => errors.push(error);
@@ -334,7 +325,7 @@ describe('ProtocolOptions.instrumentation', () => {
 
     it('runs the work itself when scope.run never calls it', async () => {
         const errors: Error[] = [];
-        const { a, b } = await pair({ b: { instrumentation: { receive: () => ({ run: () => undefined as never, end: () => {} }) } } });
+        const { a, b } = await pair({ b: { receive: () => ({ run: () => undefined as never, end: () => {} }) } });
         b.onerror = error => errors.push(error);
         let calls = 0;
         b.setRequestHandler('acme/echo', { params: z.object({}) }, () => {

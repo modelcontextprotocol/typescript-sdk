@@ -1,6 +1,6 @@
 # OpenTelemetry support: design spec
 
-- **Status:** draft for maintainer review. Implemented in [#3115](https://github.com/modelcontextprotocol/typescript-sdk/pull/3115), with the differences listed under [Implementation status](#implementation-status).
+- **Status:** draft for maintainer review. A simpler version is implemented in [#3115](https://github.com/modelcontextprotocol/typescript-sdk/pull/3115); see [Implementation status](#implementation-status).
 - **Tracking issue:** [#1264](https://github.com/modelcontextprotocol/typescript-sdk/issues/1264) ("OpenTelemetry integration out of the box", part of v2).
 - **Related:** [#2370](https://github.com/modelcontextprotocol/typescript-sdk/pull/2370) (injectable `SdkLogger`), [#2820](https://github.com/modelcontextprotocol/typescript-sdk/pull/2820) (extensions and request middleware), [#2270](https://github.com/modelcontextprotocol/typescript-sdk/pull/2270) (SEP-414 `_meta` key constants), SEP-414, SEP-2577, SEP-2028.
 - **Base:** `origin/main` at `b415e60b`. File and line references below are against that commit.
@@ -9,11 +9,16 @@ This file lives under `docs/_meta/`, which `docs/.vitepress/config.mts` excludes
 
 ## Implementation status
 
-#3115 implements this spec in one PR (the hook, `@modelcontextprotocol/otel` with spans, propagation, operation metrics and `captureContent`, the docs page and the `examples/opentelemetry` story). It differs in three places:
+[#3115](https://github.com/modelcontextprotocol/typescript-sdk/pull/3115) implements a simpler version of this spec, after feedback from Cloudflare's Workers observability team: the OpenTelemetry API is a no-op that looks for an SDK on `globalThis`, so the library can call it directly, and a runtime supports it by providing that interface. The PR differs from the sections below in these places:
 
-- **No `connect` hook and no session metrics yet.** `Protocol` doesn't know whether it is the client or the server, and open question 7 is unresolved, so `ProtocolInstrumentation` has only `send` and `receive`. `mcp.client.session.duration` and `mcp.server.session.duration` come with the session hook.
-- **Hook types are copied structurally** in `packages/otel/src/types.ts`, so the package depends on neither `client` nor `server`. `packages/otel/test/types.test.ts` checks both directions of assignability. This is one answer to open question 5.
-- **No stacked PRs.** Everything is in #3115 and can be split along the [rollout](#rollout) lines if reviewers prefer.
+- **Built in and on by default, with no option.** `@opentelemetry/api` is a dependency of `client` and `server`, and the MCP mapping lives in `core-internal` (`shared/openTelemetry.ts`). Registering an OpenTelemetry SDK is the whole setup. There is no `instrumentation` option, no `captureContent`, and no separate `@modelcontextprotocol/otel` package. Users who want MCP spans dropped (for example because Sentry's MCP integration already traces them) filter the instrumentation scopes in their SDK.
+- **The hook is internal.** `ProtocolInstrumentation` and its call sites in `Protocol` are unchanged, but `Client` and `Server` attach OpenTelemetry through a package-internal setter. Exporting the hook later, for vendors or alternative backends, is non-breaking.
+- **Instrumentation scopes** are `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
+- **No Workers backend.** Workers will provide the OpenTelemetry API itself; until then a Workers OpenTelemetry SDK that registers a global tracer provider works.
+- **No session hook or session metrics** yet (open question 7).
+- **Tool arguments, results and prompt arguments are never recorded.** Opt-in content capture can come back as an option later without a break.
+
+## Summary
 
 ## Summary
 

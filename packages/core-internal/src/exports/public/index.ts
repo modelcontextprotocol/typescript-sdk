@@ -45,16 +45,6 @@ export { isJsonContentType } from '../../shared/mediaType';
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 
-// Instrumentation types (experimental)
-export type {
-    InboundOperation,
-    OperationBase,
-    OperationOutcome,
-    OperationScope,
-    OutboundOperation,
-    ProtocolInstrumentation
-} from '../../shared/instrumentation';
-
 // Protocol types and the Protocol base class
 export type {
     BaseContext,

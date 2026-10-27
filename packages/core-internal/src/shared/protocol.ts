@@ -97,14 +97,6 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
-
-    /**
-     * Observes every request and notification this instance sends and receives, for tracing and
-     * metrics. Leaving it out costs nothing and leaves the wire unchanged.
-     *
-     * @experimental The shape may change in a minor release.
-     */
-    instrumentation?: ProtocolInstrumentation;
 };
 
 /**
@@ -565,6 +557,20 @@ export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
     writeNegotiatedProtocolVersion(instance, version);
 }
 
+let writeInstrumentation: <ContextT extends BaseContext>(instance: Protocol<ContextT>, instrumentation: ProtocolInstrumentation) => void;
+
+/**
+ * Package-internal: attaches the instrumentation that observes a {@linkcode Protocol}
+ * instance's traffic. `Client` and `Server` attach OpenTelemetry in their constructors.
+ * Exported on the core internal barrel only — never public API.
+ */
+export function setProtocolInstrumentation<ContextT extends BaseContext>(
+    instance: Protocol<ContextT>,
+    instrumentation: ProtocolInstrumentation
+): void {
+    writeInstrumentation(instance, instrumentation);
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -597,7 +603,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         writeNegotiatedProtocolVersion = (instance, version) => {
             instance._negotiatedProtocolVersion = version;
         };
+        writeInstrumentation = (instance, instrumentation) => {
+            instance._instrumentation = instrumentation;
+        };
     }
+
+    /** Observes this instance's traffic; attached package-internally via `setProtocolInstrumentation`. */
+    private _instrumentation?: ProtocolInstrumentation;
 
     protected _supportedProtocolVersions: string[];
 
@@ -1761,7 +1773,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /** Starts the instrumentation scope for an outbound message and merges its trace-context carrier into `params._meta`. */
     private _startOutbound<T extends JSONRPCRequest | JSONRPCNotification>(message: T): { message: T; scope: GuardedScope | undefined } {
-        const instrumentation = this._options?.instrumentation;
+        const instrumentation = this._instrumentation;
         if (instrumentation?.send === undefined) return { message, scope: undefined };
         const params = message.params;
         const carrier = traceContextCarrier(params?._meta);
@@ -1786,7 +1798,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         handled: boolean,
         extra?: MessageExtraInfo
     ): GuardedScope | undefined {
-        const instrumentation = this._options?.instrumentation;
+        const instrumentation = this._instrumentation;
         if (instrumentation?.receive === undefined) return undefined;
         const params = message.params;
         const meta = params?._meta;

@@ -1,14 +1,4 @@
-import type {
-    Attributes,
-    Context,
-    Histogram,
-    Link,
-    MeterProvider,
-    Span,
-    TextMapGetter,
-    TextMapPropagator,
-    TracerProvider
-} from '@opentelemetry/api';
+import type { Attributes, Context, Histogram, Link, Span, TextMapGetter } from '@opentelemetry/api';
 import {
     context,
     defaultTextMapSetter,
@@ -20,41 +10,7 @@ import {
     trace
 } from '@opentelemetry/api';
 
-import type { InboundOperation, OperationBase, OperationOutcome, OutboundOperation, ProtocolInstrumentation } from './types';
-
-/**
- * Options for {@linkcode openTelemetry}.
- */
-export interface OpenTelemetryOptions {
-    /**
-     * Where spans go.
-     *
-     * @default the global tracer provider
-     */
-    tracerProvider?: TracerProvider;
-    /**
-     * Where metrics go.
-     *
-     * @default the global meter provider
-     */
-    meterProvider?: MeterProvider;
-    /**
-     * How trace context is written to and read from `params._meta`.
-     *
-     * @default the global propagator
-     */
-    propagator?: TextMapPropagator;
-    /**
-     * Record tool arguments, tool results and prompt arguments on spans
-     * (`gen_ai.tool.call.arguments`, `gen_ai.tool.call.result`,
-     * `gen_ai.prompt.variable.<name>`). These can hold sensitive data.
-     *
-     * @default false
-     */
-    captureContent?: boolean;
-}
-
-const SCOPE_NAME = '@modelcontextprotocol/otel';
+import type { InboundOperation, OperationBase, OperationOutcome, OutboundOperation, ProtocolInstrumentation } from './instrumentation';
 
 /** Bucket boundaries the MCP semantic conventions specify for every MCP duration histogram. */
 const DURATION_BUCKETS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
@@ -92,30 +48,19 @@ const metaGetter: TextMapGetter<Readonly<Record<string, unknown>>> = {
 type Side = 'client' | 'server';
 
 /**
- * Traces and measures every MCP request and notification an instance sends or
- * receives, following the OpenTelemetry semantic conventions for MCP, and
- * propagates trace context through `params._meta`.
- *
- * Create it once and pass it as the `instrumentation` option of `Client`,
- * `McpServer` or `Server`. One instance can be shared by every server a
- * `createMcpHandler` factory builds.
- *
- * @example
- * ```ts
- * const instrumentation = openTelemetry();
- * const server = new McpServer({ name: 'weather', version: '1.0.0' }, { instrumentation });
- * ```
+ * OpenTelemetry instrumentation for MCP traffic, following the OpenTelemetry semantic conventions
+ * for MCP: one span per request and notification, the `mcp.client.operation.duration` and
+ * `mcp.server.operation.duration` histograms, and trace context in `params._meta`. It goes through
+ * the global OpenTelemetry API, so nothing is recorded until the application registers an SDK.
  */
-export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstrumentation {
-    const { propagator, captureContent = false } = options;
-    const tracerProvider = options.tracerProvider ?? trace.getTracerProvider();
-    const tracer = tracerProvider.getTracer(SCOPE_NAME);
+export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrumentation {
+    const tracer = trace.getTracer(scopeName);
 
     // Created on first use: the global meter provider has no proxy, so instruments made before the SDK starts would stay no-ops.
     let durations: Record<Side, Histogram> | undefined;
     const duration = (side: Side): Histogram => {
         if (durations === undefined) {
-            const meter = (options.meterProvider ?? metrics.getMeterProvider()).getMeter(SCOPE_NAME);
+            const meter = metrics.getMeter(scopeName);
             const histogram = (name: string, description: string) =>
                 meter.createHistogram(name, { unit: 's', description, advice: { explicitBucketBoundaries: DURATION_BUCKETS } });
             durations = {
@@ -132,12 +77,7 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
         return durations[side];
     };
 
-    const inject = (ctx: Context, carrier: Record<string, string>) =>
-        propagator === undefined
-            ? propagation.inject(ctx, carrier, defaultTextMapSetter)
-            : propagator.inject(ctx, carrier, defaultTextMapSetter);
-    const extract = (ctx: Context, carrier: Readonly<Record<string, unknown>>) =>
-        propagator === undefined ? propagation.extract(ctx, carrier, metaGetter) : propagator.extract(ctx, carrier, metaGetter);
+    const extract = (ctx: Context, carrier: Readonly<Record<string, unknown>>) => propagation.extract(ctx, carrier, metaGetter);
 
     const finish = (
         span: Span,
@@ -154,9 +94,6 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
                 if (method === 'tools/call' && outcome.result.isError === true) {
                     errorType = 'tool_error';
                     span.setStatus({ code: SpanStatusCode.ERROR });
-                } else if (captureContent && method === 'tools/call' && span.isRecording()) {
-                    const value = toJson(outcome.result.structuredContent ?? outcome.result.content);
-                    if (value !== undefined) span.setAttribute('gen_ai.tool.call.result', value);
                 }
                 break;
             }
@@ -177,13 +114,9 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
                 }
                 break;
             }
-            case 'timeout': {
-                errorType = 'timeout';
-                span.setStatus({ code: SpanStatusCode.ERROR });
-                break;
-            }
+            case 'timeout':
             case 'cancelled': {
-                errorType = 'cancelled';
+                errorType = outcome.type;
                 span.setStatus({ code: SpanStatusCode.ERROR });
                 break;
             }
@@ -212,14 +145,14 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
     return {
         send(operation: OutboundOperation) {
             if (SKIPPED_METHODS.has(operation.method)) return;
+            const target = targetOf(operation);
+            const attributes = startAttributes(operation, operation.method, target);
             // Trace context the caller already put in `_meta` parents the span; otherwise the active context does.
             const parent = extract(context.active(), operation.carrier);
-            const target = targetOf(operation);
-            const attributes = startAttributes(operation, operation.method, target, captureContent);
             const span = tracer.startSpan(spanName(operation.method, target), { kind: SpanKind.CLIENT, attributes }, parent);
             const spanContext = trace.setSpan(parent, span);
             const injected: Record<string, string> = {};
-            inject(spanContext, injected);
+            propagation.inject(spanContext, injected, defaultTextMapSetter);
             Object.assign(operation.carrier, injected);
             const metricAttributes = pickMetricAttributes(attributes);
             const started = performance.now();
@@ -231,6 +164,14 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
 
         receive(operation: InboundOperation) {
             if (SKIPPED_METHODS.has(operation.method)) return;
+            // A method nobody handles is a client-chosen string: record it as `_OTHER` to bound cardinality.
+            const method = operation.handled ? operation.method : '_OTHER';
+            const target = operation.handled ? targetOf(operation) : undefined;
+            const attributes = startAttributes(operation, method, target);
+            if (operation.httpRequest !== undefined) {
+                attributes['network.protocol.name'] = 'http';
+                attributes['network.transport'] = 'tcp';
+            }
             const active = context.active();
             const parent = operation.meta === undefined ? active : extract(active, operation.meta);
             // With a remote parent from `_meta`, the ambient span (an HTTP server span, say) becomes a link.
@@ -244,14 +185,6 @@ export function openTelemetry(options: OpenTelemetryOptions = {}): ProtocolInstr
                 isSpanContextValid(ambient)
                     ? [{ context: ambient }]
                     : [];
-            // A method nobody handles is a client-chosen string: record it as `_OTHER` to bound cardinality.
-            const method = operation.handled ? operation.method : '_OTHER';
-            const target = operation.handled ? targetOf(operation) : undefined;
-            const attributes = startAttributes(operation, method, target, captureContent && operation.handled);
-            if (operation.httpRequest !== undefined) {
-                attributes['network.protocol.name'] = 'http';
-                attributes['network.transport'] = 'tcp';
-            }
             const span = tracer.startSpan(spanName(method, target), { kind: SpanKind.SERVER, attributes, links }, parent);
             const spanContext = trace.setSpan(parent, span);
             const metricAttributes = pickMetricAttributes(attributes);
@@ -275,7 +208,7 @@ function spanName(method: string, target: string | undefined): string {
     return target === undefined ? method : `${method} ${target}`;
 }
 
-function startAttributes(operation: OperationBase, method: string, target: string | undefined, captureContent: boolean): Attributes {
+function startAttributes(operation: OperationBase, method: string, target: string | undefined): Attributes {
     const attributes: Attributes = { 'mcp.method.name': method };
     if (operation.id !== undefined) attributes['jsonrpc.request.id'] = String(operation.id);
     const requestedVersion = operation.method === 'initialize' ? operation.params?.protocolVersion : undefined;
@@ -285,20 +218,8 @@ function startAttributes(operation: OperationBase, method: string, target: strin
     if (method === 'tools/call') {
         attributes['gen_ai.operation.name'] = 'execute_tool';
         if (target !== undefined) attributes['gen_ai.tool.name'] = target;
-        if (captureContent) {
-            const value = toJson(operation.params?.arguments);
-            if (value !== undefined) attributes['gen_ai.tool.call.arguments'] = value;
-        }
     }
-    if (method === 'prompts/get') {
-        if (target !== undefined) attributes['gen_ai.prompt.name'] = target;
-        const promptArguments = operation.params?.arguments;
-        if (captureContent && isRecord(promptArguments)) {
-            for (const [name, value] of Object.entries(promptArguments)) {
-                attributes[`gen_ai.prompt.variable.${name}`] = typeof value === 'string' ? value : (toJson(value) ?? '');
-            }
-        }
-    }
+    if (method === 'prompts/get' && target !== undefined) attributes['gen_ai.prompt.name'] = target;
     if (RESOURCE_URI_METHODS.has(method)) {
         const uri = operation.params?.uri;
         if (typeof uri === 'string') attributes['mcp.resource.uri'] = uri;
@@ -325,17 +246,4 @@ function errorTypeOf(error: unknown): string {
     const code = (error as { code?: unknown }).code;
     if (typeof code === 'string' && /^[A-Z][A-Z0-9_]*$/.test(code)) return code;
     return STANDARD_ERROR_NAMES.has(error.name) ? error.name : '_OTHER';
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function toJson(value: unknown): string | undefined {
-    if (value === undefined) return undefined;
-    try {
-        return JSON.stringify(value);
-    } catch {
-        return undefined;
-    }
 }

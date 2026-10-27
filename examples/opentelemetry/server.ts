@@ -1,10 +1,10 @@
 /**
  * OpenTelemetry — a traced server.
  *
- * The application starts the OpenTelemetry SDK; `openTelemetry()` from
- * `@modelcontextprotocol/otel` turns every MCP request the server handles into
- * a SERVER span, parented on the client's span through `params._meta`. Code in
- * a tool runs inside that span, so its own spans nest under it.
+ * The application registers an OpenTelemetry SDK and nothing else: the SDK turns
+ * every MCP request the server handles into a SERVER span, parented on the
+ * client's span through `params._meta`. Code in a tool runs inside that span, so
+ * its own spans nest under it.
  *
  * The `trace-info` tool reports the span it ran in, so the client can check the
  * trace crossed the process boundary. A real server would export its spans with
@@ -13,23 +13,23 @@
 import { serve } from '@hono/node-server';
 import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpHonoApp } from '@modelcontextprotocol/hono';
-import { openTelemetry } from '@modelcontextprotocol/otel';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { trace } from '@opentelemetry/api';
-import type { ReadableSpan } from '@opentelemetry/sdk-trace-node';
-import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { context, propagation, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import type { ReadableSpan } from '@opentelemetry/sdk-trace';
+import { TracerProvider } from '@opentelemetry/sdk-trace';
 import * as z from 'zod/v4';
 
-// Start the SDK before any MCP traffic: tracer provider, W3C propagators, AsyncLocalStorage context.
-// Add `spanProcessors: [new BatchSpanProcessor(new OTLPTraceExporter())]` to export the spans.
-new NodeTracerProvider().register();
-
-// One instrumentation, shared by every server instance the factory builds.
-const instrumentation = openTelemetry();
+// Register the OpenTelemetry SDK before any MCP traffic. That is all the MCP server needs.
+// Add `spanProcessors: [new BatchSpanProcessor({ exporter: new OTLPTraceExporter() })]` to export the spans.
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+trace.setGlobalTracerProvider(new TracerProvider());
 
 function buildServer(): McpServer {
-    const server = new McpServer({ name: 'opentelemetry-example', version: '1.0.0' }, { instrumentation });
+    const server = new McpServer({ name: 'opentelemetry-example', version: '1.0.0' });
 
     server.registerTool(
         'trace-info',

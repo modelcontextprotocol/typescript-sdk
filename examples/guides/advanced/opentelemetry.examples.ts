@@ -12,37 +12,39 @@
  * @module
  */
 /* eslint-disable no-console */
-import { metrics, SpanKind } from '@opentelemetry/api';
 import type { DataPoint, Histogram } from '@opentelemetry/sdk-metrics';
 import { MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics';
-import type { ReadableSpan } from '@opentelemetry/sdk-trace-node';
+import type { ReadableSpan } from '@opentelemetry/sdk-trace';
 
 class CollectingMetricReader extends MetricReader {
     protected async onShutdown(): Promise<void> {}
     protected async onForceFlush(): Promise<void> {}
 }
 const metricReader = new CollectingMetricReader();
-metrics.setGlobalMeterProvider(new MeterProvider({ readers: [metricReader] }));
 
-// "Start the OpenTelemetry SDK" — the application's job, once, before any MCP traffic.
+// "Register an OpenTelemetry SDK" — the application's job, once, before any MCP traffic.
 //#region sdk_setup
-import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace';
 
 // Swap the in-memory exporter for an OTLP exporter to send spans to a backend.
 const exporter = new InMemorySpanExporter();
-const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
-// Registers the tracer provider, the W3C propagators and an AsyncLocalStorage context manager.
-provider.register();
+const tracerProvider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+trace.setGlobalTracerProvider(tracerProvider);
+metrics.setGlobalMeterProvider(new MeterProvider({ readers: [metricReader] }));
 //#endregion sdk_setup
 
-// "Trace a server" — the page's lead block.
-//#region openTelemetry_server
-import { openTelemetry } from '@modelcontextprotocol/otel';
+// "Register an OpenTelemetry SDK" — the server needs no telemetry configuration.
+//#region server_traced
 import { McpServer } from '@modelcontextprotocol/server';
-import { trace } from '@opentelemetry/api';
 import * as z from 'zod/v4';
 
-const server = new McpServer({ name: 'weather', version: '1.0.0' }, { instrumentation: openTelemetry() });
+const server = new McpServer({ name: 'weather', version: '1.0.0' });
 
 server.registerTool('get-weather', { inputSchema: z.object({ city: z.string() }) }, async ({ city }) => {
     // Spans started here are children of the "tools/call get-weather" server span.
@@ -52,46 +54,21 @@ server.registerTool('get-weather', { inputSchema: z.object({ city: z.string() })
     });
     return { content: [{ type: 'text', text: `${city}: ${forecast}` }] };
 });
-//#endregion openTelemetry_server
-
-// "Trace a client"
-//#region openTelemetry_client
-import { Client } from '@modelcontextprotocol/client';
-
-const client = new Client({ name: 'agent', version: '1.0.0' }, { instrumentation: openTelemetry() });
-//#endregion openTelemetry_client
-
-// "Serve over HTTP" — one instrumentation shared by every per-request server.
-//#region openTelemetry_createMcpHandler
-import { createMcpHandler } from '@modelcontextprotocol/server';
-
-const instrumentation = openTelemetry();
-
-const handler = createMcpHandler(() => {
-    const perRequest = new McpServer({ name: 'weather', version: '1.0.0' }, { instrumentation });
-    // perRequest.registerTool(...)
-    return perRequest;
-});
-//#endregion openTelemetry_createMcpHandler
-void handler;
-
-// "Record tool arguments and results"
-//#region openTelemetry_captureContent
-const debugInstrumentation = openTelemetry({ captureContent: true });
-//#endregion openTelemetry_captureContent
-void debugInstrumentation;
+//#endregion server_traced
 
 // ---------------------------------------------------------------------------
-// Harness (not shown on the page). Connects the client and server in memory,
-// makes one tool call inside an agent span, and prints what was recorded.
+// Harness (not shown on the page). Connects a client in memory, makes one tool
+// call inside an agent span, and prints what was recorded.
 // ---------------------------------------------------------------------------
 
-const { InMemoryTransport } = await import('@modelcontextprotocol/client');
+const { SpanKind } = await import('@opentelemetry/api');
+const { Client, InMemoryTransport } = await import('@modelcontextprotocol/client');
+const client = new Client({ name: 'agent', version: '1.0.0' });
 const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
 exporter.reset();
 
-// "Trace a client" — the call the page's span tree comes from.
+// "See the spans" — the call the page's span tree comes from.
 //#region callTool_traced
 await trace.getTracer('agent').startActiveSpan('invoke_agent', async agentSpan => {
     await client.callTool({ name: 'get-weather', arguments: { city: 'Lisbon' } });
@@ -115,10 +92,11 @@ printTree(undefined, 0);
 const toolServerSpan = spans.find(span => span.name === 'tools/call get-weather' && span.kind === SpanKind.SERVER);
 if (toolServerSpan === undefined) throw new Error('opentelemetry.md claim failed: no tools/call server span');
 const { 'jsonrpc.request.id': _requestId, ...stableAttributes } = toolServerSpan.attributes;
-console.log(stableAttributes);
+console.log(toolServerSpan.instrumentationScope.name, stableAttributes);
 
 const { resourceMetrics } = await metricReader.collect();
 const clientDuration = resourceMetrics.scopeMetrics
+    .filter(scope => scope.scope.name === '@modelcontextprotocol/client')
     .flatMap(scope => scope.metrics)
     .find(metric => metric.descriptor.name === 'mcp.client.operation.duration');
 const toolCallPoint = (clientDuration?.dataPoints as DataPoint<Histogram>[] | undefined)?.find(
@@ -128,4 +106,4 @@ if (toolCallPoint === undefined) throw new Error('opentelemetry.md claim failed:
 console.log(`${clientDuration!.descriptor.name} (${clientDuration!.descriptor.unit})`, toolCallPoint.attributes);
 
 await client.close();
-await provider.shutdown();
+await tracerProvider.shutdown();

@@ -11,15 +11,18 @@
 import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { openTelemetry } from '@modelcontextprotocol/otel';
-import { metrics, SpanKind, trace } from '@opentelemetry/api';
+import { context, metrics, propagation, SpanKind, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
 import { MeterProvider, MetricReader } from '@opentelemetry/sdk-metrics';
-import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace';
 
 // The client application's OpenTelemetry SDK. In-memory here so the example can assert on what it recorded.
 const exporter = new InMemorySpanExporter();
-const tracerProvider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
-tracerProvider.register();
+const tracerProvider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+trace.setGlobalTracerProvider(tracerProvider);
 class CollectingMetricReader extends MetricReader {
     protected async onShutdown(): Promise<void> {}
     protected async onForceFlush(): Promise<void> {}
@@ -31,7 +34,7 @@ const { transport, url, era } = parseExampleArgs();
 
 const client = new Client(
     { name: 'opentelemetry-example-client', version: '1.0.0' },
-    { versionNegotiation: { mode: era === 'modern' ? 'auto' : 'legacy' }, instrumentation: openTelemetry() }
+    { versionNegotiation: { mode: era === 'modern' ? 'auto' : 'legacy' } }
 );
 
 await (transport === 'stdio'

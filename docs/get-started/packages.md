@@ -26,15 +26,14 @@ npm install @modelcontextprotocol/server   # expose tools, resources, prompts
 npm install @modelcontextprotocol/client   # connect to servers and call them
 ```
 
-Those two are the starting point for almost everything; a process that plays both roles installs both. The full published set is ten packages:
+Those two are the starting point for almost everything; a process that plays both roles installs both. The full published set is nine packages:
 
 - `@modelcontextprotocol/server` and `@modelcontextprotocol/client` — the two starting points, one per side.
 - `@modelcontextprotocol/node`, `@modelcontextprotocol/express`, `@modelcontextprotocol/hono`, `@modelcontextprotocol/fastify` — optional adapters for serving over HTTP.
-- `@modelcontextprotocol/otel` — OpenTelemetry tracing and metrics, see [OpenTelemetry](../advanced/opentelemetry.md).
 - `@modelcontextprotocol/core` — the raw Zod wire schemas.
 - `@modelcontextprotocol/server-legacy` and `@modelcontextprotocol/codemod` — migration surfaces for v1 code.
 
-An eleventh package in the repository, `@modelcontextprotocol/core-internal`, is private: `server` and `client` bundle it at build time, so it never appears in your dependency tree.
+A tenth package in the repository, `@modelcontextprotocol/core-internal`, is private: `server` and `client` bundle it at build time, so it never appears in your dependency tree.
 
 ## Keep Node-only code behind the `./stdio` subpath
 

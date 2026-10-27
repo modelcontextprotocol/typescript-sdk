@@ -4,15 +4,43 @@ shape: how-to
 
 # OpenTelemetry
 
-`@modelcontextprotocol/otel` traces and measures every MCP request and notification, following the [OpenTelemetry semantic conventions for MCP](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md). Pass `openTelemetry()` as the `instrumentation` option.
+`Client`, `McpServer` and `Server` emit OpenTelemetry spans and metrics for every MCP request and notification, following the [OpenTelemetry semantic conventions for MCP](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md). Register an OpenTelemetry SDK and they show up.
 
-```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#openTelemetry_server"
-import { openTelemetry } from '@modelcontextprotocol/otel';
+```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#sdk_setup"
+import { context, metrics, propagation, trace } from '@opentelemetry/api';
+import { AsyncLocalStorageContextManager } from '@opentelemetry/context-async-hooks';
+import { W3CTraceContextPropagator } from '@opentelemetry/core';
+import { InMemorySpanExporter, SimpleSpanProcessor, TracerProvider } from '@opentelemetry/sdk-trace';
+
+// Swap the in-memory exporter for an OTLP exporter to send spans to a backend.
+const exporter = new InMemorySpanExporter();
+const tracerProvider = new TracerProvider({ spanProcessors: [new SimpleSpanProcessor({ exporter })] });
+
+context.setGlobalContextManager(new AsyncLocalStorageContextManager().enable());
+propagation.setGlobalPropagator(new W3CTraceContextPropagator());
+trace.setGlobalTracerProvider(tracerProvider);
+metrics.setGlobalMeterProvider(new MeterProvider({ readers: [metricReader] }));
+```
+
+::: warning Experimental
+The MCP semantic conventions are still in development. Span and attribute names can change in a minor release.
+:::
+
+## Register an OpenTelemetry SDK
+
+The SDK packages talk to the OpenTelemetry API, which does nothing until an application registers an SDK. Without one, nothing is recorded and nothing is added to `params._meta`.
+
+```sh
+npm install @opentelemetry/api @opentelemetry/sdk-trace @opentelemetry/context-async-hooks @opentelemetry/core
+```
+
+The server needs no telemetry configuration of its own.
+
+```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#server_traced"
 import { McpServer } from '@modelcontextprotocol/server';
-import { trace } from '@opentelemetry/api';
 import * as z from 'zod/v4';
 
-const server = new McpServer({ name: 'weather', version: '1.0.0' }, { instrumentation: openTelemetry() });
+const server = new McpServer({ name: 'weather', version: '1.0.0' });
 
 server.registerTool('get-weather', { inputSchema: z.object({ city: z.string() }) }, async ({ city }) => {
     // Spans started here are children of the "tools/call get-weather" server span.
@@ -24,43 +52,9 @@ server.registerTool('get-weather', { inputSchema: z.object({ city: z.string() })
 });
 ```
 
-::: warning Experimental
-The `instrumentation` option and `@modelcontextprotocol/otel` are experimental, and so are the MCP semantic conventions they follow. Span and attribute names can change in a minor release.
-:::
+The context manager is what makes the MCP span active inside your handlers, so spans you start there nest under it.
 
-## Install the package
-
-The package uses only the OpenTelemetry API. Your application brings the SDK and an exporter.
-
-```sh
-npm install @modelcontextprotocol/otel @opentelemetry/api @opentelemetry/sdk-trace-node
-```
-
-## Start the OpenTelemetry SDK
-
-Register a tracer provider once, before any MCP traffic. `NodeTracerProvider.register()` also installs the W3C propagators and an `AsyncLocalStorage` context manager, which makes the MCP span active inside your handlers.
-
-```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#sdk_setup"
-import { InMemorySpanExporter, NodeTracerProvider, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node';
-
-// Swap the in-memory exporter for an OTLP exporter to send spans to a backend.
-const exporter = new InMemorySpanExporter();
-const provider = new NodeTracerProvider({ spanProcessors: [new SimpleSpanProcessor(exporter)] });
-// Registers the tracer provider, the W3C propagators and an AsyncLocalStorage context manager.
-provider.register();
-```
-
-Without a registered SDK, `openTelemetry()` records nothing and leaves `params._meta` untouched.
-
-## Trace a client
-
-The same option works on `Client`.
-
-```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#openTelemetry_client"
-import { Client } from '@modelcontextprotocol/client';
-
-const client = new Client({ name: 'agent', version: '1.0.0' }, { instrumentation: openTelemetry() });
-```
+## See the spans
 
 Make a call inside a span of your own, here an agent run.
 
@@ -71,7 +65,7 @@ await trace.getTracer('agent').startActiveSpan('invoke_agent', async agentSpan =
 });
 ```
 
-The client's span carries its trace context to the server in `params._meta`, so both sides land in one trace. The span the tool started nests under the server span:
+The client's span carries its trace context to the server in `params._meta`, so both sides land in one trace:
 
 ```
 invoke_agent (internal)
@@ -80,10 +74,10 @@ invoke_agent (internal)
       fetch forecast (internal)
 ```
 
-The server span carries the conventions' attributes (plus `jsonrpc.request.id`, left out here):
+The server span comes from the `@modelcontextprotocol/server` instrumentation scope (client spans from `@modelcontextprotocol/client`) and carries the conventions' attributes, plus `jsonrpc.request.id`, left out here:
 
 ```
-{
+@modelcontextprotocol/server {
   'mcp.method.name': 'tools/call',
   'mcp.protocol.version': '2025-11-25',
   'gen_ai.operation.name': 'execute_tool',
@@ -97,7 +91,7 @@ Any SDK that follows [SEP-414](https://modelcontextprotocol.io/community/seps/41
 
 ## Read the duration metrics
 
-`openTelemetry()` records `mcp.client.operation.duration` for what an instance sends and `mcp.server.operation.duration` for what it receives, in seconds, with the conventions' bucket boundaries. Register a meter provider the same way as the tracer provider. The tool call above recorded:
+Register a meter provider and each instance records `mcp.client.operation.duration` for what it sends and `mcp.server.operation.duration` for what it receives, in seconds, with the conventions' bucket boundaries. The tool call above recorded:
 
 ```
 mcp.client.operation.duration (s) {
@@ -110,24 +104,6 @@ mcp.client.operation.duration (s) {
 
 Metrics never carry session ids, request ids or resource URIs. A server records a method it has no handler for as `_OTHER`, and leaves an unknown tool or prompt name out, so a client can't grow your metric cardinality.
 
-## Serve over HTTP
-
-`createMcpHandler` builds a server per request. Create the instrumentation once and share it.
-
-```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#openTelemetry_createMcpHandler"
-import { createMcpHandler } from '@modelcontextprotocol/server';
-
-const instrumentation = openTelemetry();
-
-const handler = createMcpHandler(() => {
-    const perRequest = new McpServer({ name: 'weather', version: '1.0.0' }, { instrumentation });
-    // perRequest.registerTool(...)
-    return perRequest;
-});
-```
-
-When HTTP instrumentation is active too, the MCP server span stays a child of the client's MCP span and links to the HTTP server span.
-
 ## Know what counts as an error
 
 Failed operations set `error.type` and an `ERROR` status:
@@ -137,24 +113,22 @@ Failed operations set `error.type` and an `ERROR` status:
 - Local failures record `timeout`, `cancelled`, `connection_closed`, or the SDK error code (`SEND_FAILED`, `INVALID_RESULT`).
 - A handler that throws something other than a `ProtocolError` also gets an exception event on the server span.
 
-## Record tool arguments and results
+Spans never carry tool arguments, tool results or prompt arguments.
 
-By default spans carry no tool arguments, tool results or prompt arguments. Turn them on with `captureContent` when you need them for debugging.
+## Serve over HTTP
 
-```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#openTelemetry_captureContent"
-const debugInstrumentation = openTelemetry({ captureContent: true });
-```
+With HTTP instrumentation active too, the MCP server span stays a child of the client's MCP span and links to the HTTP server span. `createMcpHandler` needs nothing extra.
 
-::: warning
-Captured content goes to your telemetry backend as is. Tool arguments and results can hold personal data or secrets.
+::: tip
+Already tracing MCP with another tool, such as Sentry's MCP integration? Drop one of the two to avoid duplicate spans: filter the `@modelcontextprotocol/client` and `@modelcontextprotocol/server` instrumentation scopes out in your SDK's span processor, or turn off the other integration.
 :::
 
 The `examples/opentelemetry` story runs a traced client and server in separate processes over stdio and Streamable HTTP, and checks the trace crosses the wire.
 
 ## Recap
 
-- `openTelemetry()` from `@modelcontextprotocol/otel` goes in the `instrumentation` option of `Client`, `McpServer` or `Server`.
-- Your application starts the OpenTelemetry SDK; without one nothing is recorded.
+- Register an OpenTelemetry SDK; `Client`, `McpServer` and `Server` need no configuration.
+- Without a registered SDK, nothing is recorded and `params._meta` is untouched.
 - Trace context travels in `params._meta`, so client and server spans join one trace and handler spans nest under the server span.
 - Each instance records `mcp.client.operation.duration` and `mcp.server.operation.duration` with low-cardinality attributes.
-- Tool arguments and results are only recorded with `captureContent: true`.
+- Spans never carry tool arguments, tool results or prompt arguments.

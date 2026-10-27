@@ -160,6 +160,7 @@
     },
     "dependencies": {
         "@modelcontextprotocol/core": "workspace:*",
+        "@opentelemetry/api": "catalog:otel",
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {

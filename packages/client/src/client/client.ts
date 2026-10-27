@@ -76,10 +76,12 @@ import {
     SdkError,
     SdkErrorCode,
     SERVER_INFO_META_KEY,
+    setProtocolInstrumentation,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { defaultInstrumentation } from './openTelemetry';
 import type { PriorDiscovery } from './probeClassifier';
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
 import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
@@ -656,6 +658,7 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
+        setProtocolInstrumentation(this, defaultInstrumentation());
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
