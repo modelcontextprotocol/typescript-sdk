@@ -133,6 +133,38 @@ describe('TasksClientExtension', () => {
         await client.close();
     });
 
+    it('waitFor awaits onUpdate before polling again, so an input request is answered once', async () => {
+        const ask = {
+            q: { method: 'elicitation/create', params: { message: '?', mode: 'form', requestedSchema: { type: 'object', properties: {} } } }
+        };
+        const { client, tasks, written } = await scriptedServer([
+            { status: 'input_required', inputRequests: ask },
+            { status: 'completed', result: { content: [] } }
+        ]);
+        let prompts = 0;
+        await tasks.waitFor('t-1', {
+            onUpdate: async task => {
+                if (task.status !== 'input_required') return;
+                prompts += 1;
+                await new Promise(resolve => setTimeout(resolve, 30));
+                await tasks.update('t-1', { q: { action: 'accept' } });
+            }
+        });
+        expect(prompts).toBe(1);
+        expect(methodsWritten(written).filter(method => method === 'tasks/get')).toHaveLength(2);
+
+        const failing = await scriptedServer([{ status: 'working' }]);
+        await expect(
+            failing.tasks.waitFor('t-1', {
+                onUpdate: async () => {
+                    throw new Error('ui closed');
+                }
+            })
+        ).rejects.toThrow('ui closed');
+        await failing.client.close();
+        await client.close();
+    });
+
     it('waitFor stops on abort without touching the task; cancel is an explicit call', async () => {
         const { client, tasks, written } = await scriptedServer([{ status: 'working' }]);
         const controller = new AbortController();

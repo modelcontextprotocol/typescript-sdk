@@ -41,8 +41,8 @@ export interface WaitForOptions {
     pollIntervalMs?: number;
     /** Fallback when the task carries no `pollIntervalMs`, ms. Default 1_000. */
     defaultPollIntervalMs?: number;
-    /** Called with every snapshot, terminal one included. */
-    onUpdate?: (task: DetailedTask) => void;
+    /** Called with every snapshot, terminal one included; polling waits for a returned promise. */
+    onUpdate?: (task: DetailedTask) => void | Promise<void>;
 }
 
 /** A task in a terminal status. */
@@ -111,14 +111,15 @@ export class TasksClientExtension implements ClientExtension {
 
     /**
      * Polls `tasks/get` at the task's suggested interval until the task is
-     * terminal. `input_required` snapshots are reported through `onUpdate`
-     * and polling continues; answer them with {@link update}.
+     * terminal. `input_required` snapshots are reported through `onUpdate`,
+     * and polling resumes once it settles; answer them with {@link update}
+     * there. A rejection from `onUpdate` rejects `waitFor`.
      */
     async waitFor(taskId: string, options?: WaitForOptions): Promise<TerminalTask> {
         for (;;) {
             options?.signal?.throwIfAborted();
             const task = await this.get(taskId, { signal: options?.signal });
-            options?.onUpdate?.(task);
+            await options?.onUpdate?.(task);
             if (TERMINAL.has(task.status)) return task as TerminalTask;
             const delay = options?.pollIntervalMs ?? task.pollIntervalMs ?? options?.defaultPollIntervalMs ?? 1000;
             await sleep(delay, options?.signal);
