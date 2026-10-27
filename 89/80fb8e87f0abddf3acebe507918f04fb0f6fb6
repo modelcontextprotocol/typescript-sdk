@@ -1,0 +1,83 @@
+.changeset/tasks-extension.md
+  s_555766defd684e::t_d54ab5679cb6eb 2,13
+docs/servers/tasks.md
+  s_555766defd684e::t_c380d5c05ad297 86
+examples/client-quickstart/tsconfig.json
+  s_555766defd684e::t_b8e0cd78bcaac4 22-24
+examples/server-quickstart/tsconfig.json
+  s_555766defd684e::t_ad9667e77b70b6 22-24
+examples/shared/tsconfig.json
+  s_555766defd684e::t_03f31e959535a1 22-24
+examples/tsconfig.json
+  s_555766defd684e::t_198a11d857d97f 31,40
+packages/client/src/ext/tasks/index.ts
+  s_555766defd684e::t_e1aaa603a4b97b 26-29,36,61-64
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_555766defd684e::t_063c77a4c2cf3f 27-28
+packages/client/tsconfig.json
+  s_555766defd684e::t_85efd9273247a7 11,25
+packages/client/tsdown.config.ts
+  s_555766defd684e::t_ead20e5ae51fdd 32,45-50
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_555766defd684e::t_34012763216742 74-76
+packages/core-internal/tsconfig.json
+  s_555766defd684e::t_8c0fec3b707ecf 11-12
+packages/core/package.json
+  s_555766defd684e::t_3ad90360680506 53-62,72-74
+packages/core/src/ext/tasks/constants.ts
+  s_555766defd684e::t_2adeb754ac93ad 2-4
+packages/core/src/ext/tasks/index.ts
+  s_555766defd684e::t_68e0d4d35ec081 1-8,10
+packages/core/src/ext/tasks/schemas.ts
+  s_555766defd684e::t_c4ae2ce800a8e3 2,12
+packages/core/src/ext/tasks/types.ts
+  s_555766defd684e::t_a569defa44b2b3 1-82
+packages/core/tsdown.config.ts
+  s_555766defd684e::t_4f4816cbea9245 11
+packages/middleware/express/tsconfig.json
+  s_555766defd684e::t_f856f14ad50478 19-21
+packages/middleware/fastify/tsconfig.json
+  s_555766defd684e::t_17fb106ed9a732 18-20
+packages/middleware/hono/tsconfig.json
+  s_555766defd684e::t_1acef9ce6df766 19-21
+packages/middleware/node/tsconfig.json
+  s_555766defd684e::t_4c46beacb1fb6a 17-19
+packages/server-legacy/tsconfig.json
+  s_555766defd684e::t_5268cedbea48a0 11
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_555766defd684e::t_8917b9019b9000 10
+packages/server/src/ext/tasks/index.ts
+  s_555766defd684e::t_f533cb33a09cb4 32-35,42,67-70
+packages/server/src/ext/tasks/store.ts
+  s_555766defd684e::t_e831590e9517d6 10
+packages/server/src/ext/tasks/tasksExtension.ts
+  s_555766defd684e::t_4622b991abbef8 31,37
+packages/server/tsconfig.json
+  s_555766defd684e::t_64cec12edaaad2 11
+packages/server/tsdown.config.ts
+  s_555766defd684e::t_ec107fa6bd05ea 33,46-51
+test/conformance/tsconfig.json
+  s_555766defd684e::t_d9f815bb65e32f 15-17
+test/e2e/tsconfig.json
+  s_555766defd684e::t_602c78a81704ee 15-17
+test/helpers/tsconfig.json
+  s_555766defd684e::t_672cde0f1c86d7 15-17
+test/integration/tsconfig.json
+  s_555766defd684e::t_85ad1772377d0e 15-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8980fb8e87f0abddf3acebe507918f04fb0f6fb6",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
