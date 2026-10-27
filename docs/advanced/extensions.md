@@ -104,7 +104,7 @@ The client takes the same shape, `{ id, setup(ctx) }`, in `ClientOptions.extensi
 
 - `ctx.capability(settings)`, `ctx.use(method, middleware)` and `ctx.require(extensionId)`, as on the server. `setup` may be async here too; `connect` waits for it before sending anything.
 - `ctx.setRequestHandler(name, schemas, handler)` for custom server-to-client requests. These are served on 2025-11-25 connections only: 2026-07-28 has no server-to-client request channel.
-- `ctx.acceptResultType(method, resultType)`, so results of `method` may carry a `resultType` the extension defines. The explicit-schema `request()` path then hands them to the caller's schema as-is, instead of rejecting the unknown kind; typed calls such as `callTool` keep rejecting the unknown kind.
+- `ctx.acceptResultType(method, resultType)`, so results of `method` may carry a `resultType` the extension defines. The explicit-schema `request()` path then hands them to the caller's schema as-is, instead of rejecting the unknown kind; typed calls such as `callTool` reject it with `UnsupportedResultType` on either protocol version.
 - `ctx.client`, the client being set up.
 
 ```ts
@@ -127,7 +127,7 @@ const client = new Client({ name: 'gated-client', version: '1.0.0' }, { extensio
 
 Middleware works at the JSON-RPC level, before the handler's own steps:
 
-- It receives the request as it arrived. Params are not validated yet.
+- It receives the request with wire-only material (the reserved `_meta` envelope keys, `inputResponses`, `requestState`) already lifted onto `requestCtx.mcpReq`. Params are not validated yet.
 - `requestCtx.mcpReq.requestState()` is the raw wire value. The `requestState.verify` hook runs inside the handler, so don't trust that state in middleware.
 - A result the middleware returns without calling `next` skips the handler's result validation.
 
