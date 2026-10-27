@@ -206,9 +206,9 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
 
 /**
- * Request middleware (see `Protocol.use`): receives the parsed request, the
- * context, and `next` — the handler it wraps — and returns the result that
- * goes on the wire.
+ * Request middleware (see `Protocol.use`): receives the JSON-RPC request as
+ * received (its params not yet validated), the context, and `next` — the
+ * handler it wraps — and returns the result that goes on the wire.
  *
  * Experimental: this shape may change in a minor release.
  *
@@ -1536,6 +1536,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(response);
                 }
 
+                // Extension result kinds (see `acceptResultType`) skip the codec and reach the caller's schema as-is.
+                if (this._isAcceptedResultType(request.method, response.result)) {
+                    validateStandardSchema(resultSchema, response.result).then(parseResult => {
+                        if (parseResult.success) {
+                            resolve(parseResult.data);
+                        } else {
+                            reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
+                        }
+                    }, reject);
+                    return;
+                }
+
                 // Codec decode hop — the structural V-1 home. The era codec
                 // owns the raw-first resultType postures (Q1-SD3):
                 // - 2026 era: REQUIRED discriminator; absent → typed error
@@ -1550,21 +1562,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // `_onresponse`, so a throw out of the decode hop would
                 // otherwise propagate into the transport's onmessage instead
                 // of failing this request.
-                // Extension result kinds (see `acceptResultType`): a raw
-                // `resultType` the caller declared for this method bypasses
-                // the codec's closed vocabulary and reaches the caller's
-                // schema as-is, discriminator included.
-                if (this._isAcceptedResultType(request.method, response.result)) {
-                    validateStandardSchema(resultSchema, response.result).then(parseResult => {
-                        if (parseResult.success) {
-                            resolve(parseResult.data);
-                        } else {
-                            reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
-                        }
-                    }, reject);
-                    return;
-                }
-
                 let decoded: ReturnType<WireCodec['decodeResult']>;
                 try {
                     decoded = codec.decodeResult(request.method, response.result);
@@ -1814,8 +1811,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Installs middleware on the request handler for `method`. The middleware
-     * receives the parsed request, the context, and `next` — the handler it
-     * wraps — and may answer itself, transform what `next` returns, or throw
+     * receives the JSON-RPC request as received (its params not yet
+     * validated), the context, and `next` — the handler it wraps, which
+     * validates them — and may answer itself, transform what `next` returns, or throw
      * a `ProtocolError` that becomes the JSON-RPC error response.
      * `setRequestHandler` is the route handler; this is the middleware
      * around it, Koa-shaped: `await next(request, ctx)` yields the result and
@@ -1855,9 +1853,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * vocabulary (the Tasks extension answers `tools/call` with
      * `resultType: "task"`). A raw response with that discriminator skips the
      * era codec's decode and is validated against the caller's explicit
-     * result schema as-is, discriminator included. Only the explicit-schema
-     * `request(request, resultSchema)` path consults this; typed spec calls
-     * keep the closed vocabulary. Client extensions reach this through
+     * result schema as-is, discriminator included. Typed spec calls such as
+     * `callTool` validate it against the spec result schema, which rejects it
+     * with `InvalidResult`. Client extensions reach this through
      * `ctx.acceptResultType` in their `setup`.
      *
      * @returns A function that withdraws the declaration.

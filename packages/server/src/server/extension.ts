@@ -66,7 +66,7 @@ export interface ServerExtensionContext {
     /**
      * Middleware around whatever handler serves `method`, including a core
      * method or another extension's: it may answer, transform or refuse. Runs
-     * outside middleware the application adds later with `server.use`, and
+     * outside middleware the application adds later with `mcp.server.use`, and
      * inside middleware from extensions earlier in `extensions`. See
      * `Protocol.use` for how middleware composes.
      */

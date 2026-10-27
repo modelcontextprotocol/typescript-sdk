@@ -54,9 +54,9 @@ export type { OriginValidationResult } from './server/middleware/originValidatio
 export { localhostAllowedOrigins, originValidationResponse, validateOriginHeader } from './server/middleware/originValidation';
 export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerRequestResponseMode } from './server/perRequestTransport';
 export { PerRequestHTTPServerTransport } from './server/perRequestTransport';
+export type { ServerExtension, ServerExtensionContext } from './server/extension';
 // Opt-in HMAC sealing for the multi-round-trip requestState (SEP-2322): the
 // convenience codec consumers drop into ServerOptions.requestState.verify.
-export type { ServerExtension, ServerExtensionContext } from './server/extension';
 export type { RequestStateCodec, RequestStateCodecOptions } from './server/requestStateCodec';
 export { createRequestStateCodec } from './server/requestStateCodec';
 export type { ServerOptions } from './server/server';
