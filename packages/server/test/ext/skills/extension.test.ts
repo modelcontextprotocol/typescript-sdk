@@ -279,6 +279,10 @@ describe('setup', () => {
         expect(calls).toBe(0);
         expect('afterSetup' in SkillsExtension.prototype).toBe(false);
     });
+
+    it('rejects an invalid cacheHint at construction', () => {
+        expect(() => new SkillsExtension({ source: sourceOf(), cacheHint: { ttlMs: -1 } })).toThrow();
+    });
 });
 
 describe('skillEntry', () => {
