@@ -116,3 +116,36 @@ test('should fire onerror and close when ReadBuffer overflows', async () => {
     expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
     await closed;
 });
+
+test('should inherit the Windows variables that child tools need by default', async () => {
+    const originalPlatform = process.platform;
+    // DEFAULT_INHERITED_ENV_VARS is computed at import time, so load a fresh copy of the module as if on Windows.
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
+        vi.resetModules();
+        const { DEFAULT_INHERITED_ENV_VARS } = await import('../../src/client/stdio.js');
+        expect(DEFAULT_INHERITED_ENV_VARS).toEqual([
+            'APPDATA',
+            'COMSPEC',
+            'HOMEDRIVE',
+            'HOMEPATH',
+            'LOCALAPPDATA',
+            'PATH',
+            'PATHEXT',
+            'PROCESSOR_ARCHITECTURE',
+            'PROGRAMDATA',
+            'PROGRAMFILES',
+            'PROGRAMFILES(X86)',
+            'PROGRAMW6432',
+            'SYSTEMDRIVE',
+            'SYSTEMROOT',
+            'TEMP',
+            'USERNAME',
+            'USERPROFILE',
+            'WINDIR'
+        ]);
+    } finally {
+        Object.defineProperty(process, 'platform', { value: originalPlatform });
+        vi.resetModules();
+    }
+});
