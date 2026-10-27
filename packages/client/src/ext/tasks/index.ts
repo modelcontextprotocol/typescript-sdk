@@ -21,19 +21,19 @@ export type {
     GetTaskParams,
     GetTaskRequest,
     GetTaskResult,
-    InputRequest,
-    InputRequests,
     InputRequiredTask,
-    InputResponse,
-    InputResponses,
     Task,
+    TaskInputRequest,
+    TaskInputRequests,
+    TaskInputResponse,
+    TaskInputResponses,
     TasksExtensionCapability,
     TaskStatus,
     UpdateTaskParams,
     UpdateTaskRequest,
     UpdateTaskResult,
     WorkingTask
-} from '@modelcontextprotocol/core-internal/ext/tasks';
+} from '@modelcontextprotocol/core/ext/tasks';
 export {
     cancelledTaskSchema,
     cancelTaskParamsSchema,
@@ -58,5 +58,7 @@ export {
     updateTaskRequestSchema,
     updateTaskResultSchema,
     workingTaskSchema
-} from '@modelcontextprotocol/core-internal/ext/tasks';
-export { TASK_STATUSES, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core-internal/ext/tasks';
+} from '@modelcontextprotocol/core/ext/tasks';
+export { TASK_STATUSES, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/tasks';
+// The SDK's precise input request and response types, which requireInput and update take.
+export type { InputRequest, InputRequests, InputResponse, InputResponses } from '@modelcontextprotocol/core-internal';

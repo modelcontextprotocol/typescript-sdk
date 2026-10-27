@@ -7,7 +7,7 @@
  */
 
 import type { InputResponses } from '@modelcontextprotocol/core-internal';
-import type { DetailedTask, Task } from '@modelcontextprotocol/core-internal/ext/tasks';
+import type { DetailedTask, Task } from '@modelcontextprotocol/core/ext/tasks';
 
 /** What `TasksExtension.create` asks a store to durably create. */
 export interface CreateTaskParams {

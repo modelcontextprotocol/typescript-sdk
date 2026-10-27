@@ -28,13 +28,13 @@ import {
     ProtocolError,
     ProtocolErrorCode
 } from '@modelcontextprotocol/core-internal';
-import type { CancelTaskResult, CreateTaskResult, GetTaskResult, UpdateTaskResult } from '@modelcontextprotocol/core-internal/ext/tasks';
+import type { CancelTaskResult, CreateTaskResult, GetTaskResult, UpdateTaskResult } from '@modelcontextprotocol/core/ext/tasks';
 import {
     cancelTaskParamsSchema,
     getTaskParamsSchema,
     inputResponsesSchema,
     TASKS_EXTENSION_ID
-} from '@modelcontextprotocol/core-internal/ext/tasks';
+} from '@modelcontextprotocol/core/ext/tasks';
 
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
 import type { CreateTaskParams, TaskStore } from './store';

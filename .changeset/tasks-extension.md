@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core-internal': minor
+'@modelcontextprotocol/core': minor
 '@modelcontextprotocol/client': minor
 '@modelcontextprotocol/server': minor
 ---
@@ -10,4 +10,4 @@ The MCP Tasks extension (`io.modelcontextprotocol/tasks`) as a pair of extension
 
 `@modelcontextprotocol/client/ext/tasks`: `new TasksClientExtension()` in `ClientOptions.extensions` declares the capability on every request, accepts task handles on `tools/call`, and wraps the extension's methods: `callTool` (a task handle or the plain result), `get`, `update`, `cancel`, and `waitFor`, which polls at the server's suggested interval to a terminal snapshot.
 
-Both subpaths also export the wire types and zod schemas for the extension's 2026-07-28 schema.
+`@modelcontextprotocol/core/ext/tasks`: the extension's wire constants (`TASKS_EXTENSION_ID`, `TASK_STATUSES`), zod schemas and the types inferred from them, runtime-neutral. The server and client subpaths re-export them, plus the SDK's precise `InputRequest(s)` / `InputResponse(s)` types that `requireInput` and `update` take.
