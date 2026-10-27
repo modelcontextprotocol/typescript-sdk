@@ -1,0 +1,21 @@
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_555766defd684e::t_67ec040978da6b 49,86,145,179,246
+packages/server/test/ext/tasks/inMemoryStore.test.ts
+  s_555766defd684e::t_b7d0b6d95a4bab 111-135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f2c7b0e3895bfda9dc8a55ee73f1fbb9539acb8f",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
