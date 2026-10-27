@@ -1,0 +1,33 @@
+test/conformance/src/tasks.ts
+  s_80a4b4a16be849::t_f79ef40228df93 1-145
+test/conformance/expected-failures.yaml
+  s_555766defd684e::t_c0b9752b7a6eac 58
+test/conformance/src/everythingServer.ts
+  s_555766defd684e::t_6aaf863b3b132a 47,171-172,175
+test/conformance/tsconfig.json
+  s_555766defd684e::t_be87225663bb56 21,28
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4846fbc2b0ced252465162a66f5dcff1fd8a7505",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_80a4b4a16be849": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d69-0235-7298-9450-e4051e060452",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
