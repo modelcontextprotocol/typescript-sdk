@@ -1,5 +1,5 @@
 /*
- * Zod schemas for the MCP Tasks extension wire types (./types), written against
+ * Zod schemas for the MCP Tasks extension wire types, written against
  * modelcontextprotocol/ext-tasks at dcc8d2b (SEP-2663 Final). Objects are loose
  * and `resultType` literals are required on results.
  * https://github.com/modelcontextprotocol/ext-tasks
@@ -9,7 +9,7 @@
 
 import * as z from 'zod/v4';
 
-import { TASK_STATUSES } from './types';
+import { TASK_STATUSES } from './constants';
 
 /** `TaskStatus` */
 export const taskStatusSchema = z.enum(TASK_STATUSES);

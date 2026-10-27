@@ -12,13 +12,15 @@
             "@modelcontextprotocol/core/ext/skills": [
                 "./node_modules/@modelcontextprotocol/core-internal/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
             ],
+            "@modelcontextprotocol/core/ext/tasks": [
+                "./node_modules/@modelcontextprotocol/core-internal/node_modules/@modelcontextprotocol/core/src/ext/tasks/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
             "@modelcontextprotocol/core-internal/ext/skills": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/ext/skills/index.ts"
             ],
-            "@modelcontextprotocol/core-internal/ext/tasks": ["./node_modules/@modelcontextprotocol/core-internal/src/ext/tasks/index.ts"],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],

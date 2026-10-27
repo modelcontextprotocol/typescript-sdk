@@ -71,8 +71,9 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
         // it is not public API — the curated public surface stays the root entry.
         // './ext/skills' is the shared (schemas + types + constants) half of the Skills
         // extension (SEP-2640): public API, runtime-neutral, and deliberately NOT on the root
-        // entry, which stays the curated spec + OAuth `*Schema` surface.
-        exportKeys: ['.', './internal', './ext/skills']
+        // entry, which stays the curated spec + OAuth `*Schema` surface. './ext/tasks' is the
+        // same for the Tasks extension (SEP-2663).
+        exportKeys: ['.', './internal', './ext/skills', './ext/tasks']
     },
     codemod: {
         name: '@modelcontextprotocol/codemod',

@@ -8,6 +8,7 @@
             "@modelcontextprotocol/core-internal": ["./node_modules/@modelcontextprotocol/core-internal/src/index.ts"],
             "@modelcontextprotocol/core/internal": ["./node_modules/@modelcontextprotocol/core/src/internal.ts"],
             "@modelcontextprotocol/core/ext/skills": ["./node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"],
+            "@modelcontextprotocol/core/ext/tasks": ["./node_modules/@modelcontextprotocol/core/src/ext/tasks/index.ts"],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
@@ -21,8 +22,7 @@
                 "./node_modules/@modelcontextprotocol/core-internal/src/validators/cfWorkerProvider.ts"
             ],
             "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
-            "@modelcontextprotocol/client/_shims": ["./src/shimsNode.ts"],
-            "@modelcontextprotocol/core-internal/ext/tasks": ["./node_modules/@modelcontextprotocol/core-internal/src/ext/tasks/index.ts"]
+            "@modelcontextprotocol/client/_shims": ["./src/shimsNode.ts"]
         }
     }
 }
