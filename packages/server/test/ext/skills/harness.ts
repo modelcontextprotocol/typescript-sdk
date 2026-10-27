@@ -20,7 +20,6 @@ export interface Reply {
 
 let nextId = 1;
 
-/** A server with `extensions` set up on it, as `new McpServer(info, { extensions })` does. */
 export function newServer(...extensions: ServerExtension[]): McpServer {
     return new McpServer({ name: 'skills-test', version: '1.0.0' }, { extensions });
 }

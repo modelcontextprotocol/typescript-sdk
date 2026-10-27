@@ -3415,7 +3415,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:skills:resources:app-resource-first': {
         source: 'sdk',
         behavior:
-            'A resource the application registers on a server serving skills wins at its URI in resources/read, and is listed ahead of the skills in resources/list.'
+            'A fixed-URI resource the application registers on a server serving skills wins at its URI in resources/read, and is listed ahead of the skills in resources/list.'
     },
     'skills:list:entries': {
         source: `${SKILLS_SPEC}L139-L231`,
