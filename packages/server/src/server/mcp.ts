@@ -47,6 +47,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';
+import type { ServerExtension } from './extension';
+import { installServerExtensions } from './extension';
 import type { ScopeChallengeHandler } from './scopeChallenge';
 import { supportsScopeChallengeResolver } from './scopeChallenge';
 import type { ServerOptions } from './server';
@@ -86,9 +88,21 @@ function resolveMaxToolInputElements(value: number | undefined): number | undefi
 }
 
 /**
- * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements`.
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `extensions` and `maxToolInputElements`.
  */
 export type McpServerOptions = ServerOptions & {
+    /**
+     * Extensions to set up at construction, in order. Each is advertised under
+     * `capabilities.extensions[id]` as `{}`, then its `setup` runs with a
+     * `ServerExtensionContext`. A duplicate id fails construction before any
+     * extension is set up.
+     *
+     * Experimental: the shape of an extension may change in a minor release.
+     *
+     * @experimental
+     */
+    extensions?: readonly ServerExtension[];
+
     /**
      * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
      * A number of at least 1; unset or `Infinity` means no limit.
@@ -150,7 +164,9 @@ export class McpServer {
     }
 
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
-        this.server = new Server(serverInfo, options);
+        // Extensions are set up at the end of the constructor, where this McpServer exists to hand to them.
+        const { extensions, ...serverOptions } = options ?? {};
+        this.server = new Server(serverInfo, serverOptions);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
         // Per the MCP spec, a server that declares a primitive capability MUST respond to its
@@ -167,6 +183,8 @@ export class McpServer {
         if (options?.capabilities?.prompts) {
             this.setPromptRequestHandlers();
         }
+
+        installServerExtensions(this, extensions ?? []);
     }
 
     /**
@@ -314,8 +332,12 @@ export class McpServer {
                 // wrapped) so the listing and the call cannot diverge.
                 return this.server.projectCallToolResult(result, tool.outputSchemaJson);
             } catch (error) {
-                if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                if (
+                    error instanceof ProtocolError &&
+                    (error.code === ProtocolErrorCode.UrlElicitationRequired ||
+                        error.code === ProtocolErrorCode.MissingRequiredClientCapability)
+                ) {
+                    throw error; // Protocol-level: return the error to the caller without wrapping in CallToolResult
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
