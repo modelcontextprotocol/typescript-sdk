@@ -41,7 +41,7 @@ npm view @modelcontextprotocol/server@latest exports --json | grep -c '"./ext/sk
 grep -c 'ServerExtension' node_modules/@modelcontextprotocol/server/dist/index.d.mts
 ```
 
-If it prints `0`, upgrade if the latest release has the option. Otherwise write `skills.attach(server)` after constructing the server and before it connects, wherever the steps below pass `{ extensions: [skills] }`. `attach` is deprecated in later releases.
+If it prints `0`, the installed release predates the option: write `skills.attach(server)` after constructing the server and before it connects, wherever the steps below pass `{ extensions: [skills] }`. A later release with the option also keeps `attach`, deprecated, so this code keeps working after an upgrade; move it to `extensions` then.
 
 ## Serve skills
 
@@ -118,7 +118,7 @@ Serving:
 - **Writing the protocol by hand.** Serve skills only through `SkillsExtension` (`loadSkills`, `memorySkillFiles`, a `SkillFiles` adapter or a `SkillSource`). Never `setRequestHandler('skills/list', …)`, and never register your own resources under `skill://`: a resource at a skill file's URI takes precedence over the file, and clients then fail to verify it.
 - **Missing the skipped skills.** `loadSkills` skips a skill whose `name` differs from its folder, or that contains a symlink, and only warns (on stderr by default) while the others serve. Read the warnings after loading and tell the user which skills were skipped. Pass `strict: true` (in CI, say) to make the load throw instead.
 - **Dot-named entries.** Files and folders whose names start with `.` are skipped with no warning at all, and `strict: true` does not catch them. A skill in a `.name` folder, or a dotfile its `SKILL.md` refers to, is simply missing: rename it.
-- **A catalog outside the factory's servers.** `serveStdio` and `createMcpHandler` build their servers from a factory, and each server `createMcpHandler` builds lives for one request. Attach inside the factory, and behind `createMcpHandler` call `handler.notify.resourcesChanged()` when `reload()` reports `listChanged`, or connected clients never hear of the change.
+- **A catalog outside the factory's servers.** `serveStdio` and `createMcpHandler` build their servers from a factory, and each server `createMcpHandler` builds lives for one request. Pass the catalog in `extensions` inside the factory, and behind `createMcpHandler` call `handler.notify.resourcesChanged()` when `reload()` reports `listChanged`, or connected clients never hear of the change.
 - **Expecting edits to show up on their own.** The catalog keeps the digests from load time, so a file edited on disk afterwards is refused with an error until `reload()` runs.
 - **`loadSkills` without a file system.** It reads the disk (`ext/skills/node`). On Workers and similar runtimes, use `memorySkillFiles` or a `SkillFiles` adapter from `@modelcontextprotocol/server/ext/skills`.
 
