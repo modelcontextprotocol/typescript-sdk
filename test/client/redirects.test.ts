@@ -742,7 +742,14 @@ describe('redirects in the HTTP client transports', () => {
             const saved: unknown[] = [];
             const authProvider: OAuthClientProvider = {
                 ...createProvider(saved, discoveredAt(endpoint)),
-                tokens: () => ({ access_token: 'access-0', token_type: 'Bearer', refresh_token: 'refresh-1', issuer: endpoint.url.origin })
+                // the token has the challenged scope, so the step-up refreshes it
+                tokens: () => ({
+                    access_token: 'access-0',
+                    token_type: 'Bearer',
+                    refresh_token: 'refresh-1',
+                    scope: 'tools',
+                    issuer: endpoint.url.origin
+                })
             };
             transport = new StreamableHTTPClientTransport(new URL('/mcp', endpoint.url), { ...options, authProvider });
 

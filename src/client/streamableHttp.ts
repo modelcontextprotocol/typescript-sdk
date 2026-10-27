@@ -10,7 +10,15 @@ import {
     unfollowedRedirect
 } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
-import { auth, AuthResult, extractWWWAuthenticateParams, OAuthClientProvider, UnauthorizedError } from './auth.js';
+import {
+    auth,
+    AuthResult,
+    computeScopeUnion,
+    extractWWWAuthenticateParams,
+    isStrictScopeSuperset,
+    OAuthClientProvider,
+    UnauthorizedError
+} from './auth.js';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 // Default reconnection options for StreamableHTTP connections
@@ -562,9 +570,9 @@ export class StreamableHTTPClientTransport implements Transport {
                             throw new StreamableHTTPError(403, 'Server returned 403 after trying upscoping');
                         }
 
-                        if (scope) {
-                            this._scope = scope;
-                        }
+                        // Keep the scopes requested and granted before, so that the new token doesn't lose them.
+                        const tokens = await this._authProvider.tokens();
+                        this._scope = computeScopeUnion(this._scope, tokens?.scope, scope);
 
                         if (resourceMetadataUrl) {
                             this._resourceMetadataUrl = resourceMetadataUrl;
@@ -576,6 +584,8 @@ export class StreamableHTTPClientTransport implements Transport {
                             serverUrl: this._url,
                             resourceMetadataUrl: this._resourceMetadataUrl,
                             scope: this._scope,
+                            // a refresh cannot add the scopes that the token lacks (RFC 6749 §6)
+                            forceReauthorization: isStrictScopeSuperset(this._scope, tokens?.scope),
                             fetchFn: this._fetch
                         });
 

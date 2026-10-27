@@ -15,7 +15,9 @@ import {
     type OAuthClientProvider,
     type OAuthDiscoveryState,
     selectClientAuthMethod,
-    isHttpsUrl
+    isHttpsUrl,
+    computeScopeUnion,
+    isStrictScopeSuperset
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/auth-extensions.js';
 import { InvalidClientMetadataError, ServerError } from '../../src/server/auth/errors.js';
@@ -115,6 +117,38 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
+        });
+    });
+
+    describe('computeScopeUnion', () => {
+        it.each([
+            { inputs: [undefined], expected: undefined },
+            { inputs: [undefined, undefined], expected: undefined },
+            { inputs: ['', '  '], expected: undefined },
+            { inputs: ['read'], expected: 'read' },
+            { inputs: ['read', undefined], expected: 'read' },
+            { inputs: ['read write', 'write admin'], expected: 'read write admin' },
+            { inputs: ['read', 'read'], expected: 'read' },
+            { inputs: ['  read   write  ', 'admin'], expected: 'read write admin' },
+            { inputs: ['a b', 'c', 'b d'], expected: 'a b c d' }
+        ])('union of $inputs is $expected', ({ inputs, expected }) => {
+            expect(computeScopeUnion(...inputs)).toBe(expected);
+        });
+    });
+
+    describe('isStrictScopeSuperset', () => {
+        it.each([
+            { union: undefined, current: undefined, expected: false },
+            { union: undefined, current: 'read', expected: false },
+            { union: 'read', current: undefined, expected: true },
+            { union: 'read', current: '', expected: true },
+            { union: 'read', current: 'read', expected: false },
+            { union: 'read write', current: 'read', expected: true },
+            { union: 'read write', current: 'read write', expected: false },
+            { union: 'read write', current: 'write read admin', expected: false },
+            { union: 'read', current: 'read write', expected: false }
+        ])('isStrictScopeSuperset($union, $current) is $expected', ({ union, current, expected }) => {
+            expect(isStrictScopeSuperset(union, current)).toBe(expected);
         });
     });
 
@@ -2771,6 +2805,66 @@ describe('OAuth Authorization', () => {
             // Resource parameter should not be present when PRM is not available
             expect(body.has('resource')).toBe(false);
             expect(body.get('code')).toBe('auth-code-123');
+        });
+
+        it('starts a new authorization instead of refreshing the token when forceReauthorization is set', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    // a refresh grant cannot add scopes (RFC 6749 section 6)
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({ access_token: 'refreshed-access', token_type: 'Bearer', scope: 'read' })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({ client_id: 'test-client' });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                token_type: 'Bearer',
+                refresh_token: 'refresh123',
+                scope: 'read',
+                issuer: 'https://auth.example.com'
+            });
+
+            const result = await auth(mockProvider, {
+                serverUrl: 'https://api.example.com/mcp-server',
+                scope: 'read write',
+                forceReauthorization: true
+            });
+
+            expect(result).toBe('REDIRECT');
+            expect(mockFetch.mock.calls.find(call => call[0].toString().includes('/token'))).toBeUndefined();
+
+            const authorizationUrl: URL = (mockProvider.redirectToAuthorization as Mock).mock.calls[0][0];
+            expect(authorizationUrl.searchParams.get('scope')).toBe('read write');
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
         it('excludes resource parameter in token refresh when Protected Resource Metadata is not present', async () => {
