@@ -10,4 +10,4 @@ The MCP Tasks extension (`io.modelcontextprotocol/tasks`) as a pair of extension
 
 `@modelcontextprotocol/client/ext/tasks`: `new TasksClientExtension()` in `ClientOptions.extensions` declares the capability on every request, accepts task handles on `tools/call`, and wraps the extension's methods: `callTool` (a task handle or the plain result), `get`, `update`, `cancel`, and `waitFor`, which polls at the server's suggested interval to a terminal snapshot.
 
-Wire types and zod schemas for the extension's 2026-07-28 schema live at `@modelcontextprotocol/core-internal/ext/tasks` and are re-exported from both subpaths.
+Both subpaths also export the wire types and zod schemas for the extension's 2026-07-28 schema.
