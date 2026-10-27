@@ -87,9 +87,17 @@ function resolveMaxToolInputElements(value: number | undefined): number | undefi
 }
 
 /**
- * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements`.
+ * Options for {@linkcode McpServer}: everything {@linkcode ServerOptions} accepts, plus `maxToolInputElements` and `logger`.
  */
 export type McpServerOptions = ServerOptions & {
+    /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
+
     /**
      * Largest combined number of array elements and object members a single `tools/call` `arguments` payload may contain.
      * A number of at least 1; unset or `Infinity` means no limit.

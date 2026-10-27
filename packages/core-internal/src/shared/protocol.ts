@@ -61,7 +61,6 @@ import {
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { GuardedScope, ProtocolInstrumentation } from './instrumentation';
 import { outcomeForAbort, outcomeForError, runInScope, startScope, traceContextCarrier } from './instrumentation';
-import type { SdkLogger } from './logger';
 import type { Transport, TransportSendOptions } from './transport';
 
 /**
@@ -105,14 +104,6 @@ export type ProtocolOptions = {
      * nothing until the application registers an OpenTelemetry SDK.
      */
     openTelemetry?: false;
-
-    /**
-     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
-     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
-     *
-     * @default console
-     */
-    logger?: SdkLogger;
 };
 
 /**
@@ -623,7 +614,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _instrumentation?: ProtocolInstrumentation;
 
     protected _supportedProtocolVersions: string[];
-    protected _logger: SdkLogger;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -651,7 +641,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     constructor(private _options?: ProtocolOptions) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
-        this._logger = _options?.logger ?? console;
 
         this.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
