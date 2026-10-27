@@ -2,7 +2,7 @@
 
 <!-- #region guide -->
 
-`loadSkills` reads a folder of skills once; `attach` serves it on a server.
+`loadSkills` reads a folder of skills once; passing it in `extensions` serves it on a server.
 
 ```ts source="../../../examples/guides/servers/skills.examples.ts#loadSkills_basic"
 import { McpServer } from '@modelcontextprotocol/server';
@@ -10,11 +10,10 @@ import { loadSkills } from '@modelcontextprotocol/server/ext/skills/node';
 
 const skills = await loadSkills('./skills');
 
-const server = new McpServer({ name: 'team-skills', version: '1.0.0' });
-skills.attach(server);
+const server = new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] });
 ```
 
-`attach` is experimental: how an extension is wired to a server may change in a minor release.
+The `extensions` option and the extension shape are experimental: how an extension is wired to a server may change in a minor release.
 
 A **skill** is a folder with a `SKILL.md` and the files it references (SEP-2640). Clients list skills with `skills/list` and read each file with `resources/read`, checking it against the digest your server published.
 
@@ -46,16 +45,12 @@ skill://git-workflow/SKILL.md
 
 ## Serve one catalog from every server
 
-Attach the same catalog to each server your handler creates.
+Pass the same catalog to each server your handler creates.
 
-```ts source="../../../examples/guides/servers/skills.examples.ts#attach_perRequest"
+```ts source="../../../examples/guides/servers/skills.examples.ts#extensions_perRequest"
 import { createMcpHandler } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(() => {
-    const mcp = new McpServer({ name: 'team-skills', version: '1.0.0' });
-    skills.attach(mcp);
-    return mcp;
-});
+const handler = createMcpHandler(() => new McpServer({ name: 'team-skills', version: '1.0.0' }, { extensions: [skills] }));
 ```
 
 The catalog keeps metadata only (paths, digests, sizes, frontmatter); each read goes to the folder, and the SDK serves the bytes only if they still match the published digest. It sends a file as `text` whenever its bytes are valid UTF-8 (a BOM included), whatever its MIME type, and as a base64 `blob` otherwise.
@@ -189,7 +184,7 @@ Skills work on both protocol versions; the `cacheHint` option applies on 2026-07
 
 ## Recap
 
-- `loadSkills('./skills')` builds a catalog once; `attach(server)` serves it on any number of servers.
+- `loadSkills('./skills')` builds a catalog once; `extensions: [skills]` serves it on any number of servers.
 - Each folder with a `SKILL.md` is a skill; other folders group skills in the URI.
 - `reload()` swaps in a rescanned catalog all at once; behind `createMcpHandler`, call `handler.notify.resourcesChanged()` when it reports `listChanged`.
 - `memorySkillFiles`, a `SkillFiles` adapter or a `SkillSource` serve skills without a folder.

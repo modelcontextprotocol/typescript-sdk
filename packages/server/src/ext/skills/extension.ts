@@ -25,6 +25,8 @@ import {
     trimTrailingSlashes
 } from '@modelcontextprotocol/core-internal/ext/skills';
 
+import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
+import { attachServerExtension } from '../../server/extension';
 import type { McpServer } from '../../server/mcp';
 import { ResourceTemplate } from '../../server/mcp';
 import type { Server } from '../../server/server';
@@ -58,23 +60,22 @@ function toContents(uri: string, result: SkillReadResult): ReadResourceResult['c
     return 'text' in result ? { uri, ...mimeType, text: result.text } : { uri, ...mimeType, blob: encodeBase64(result.bytes) };
 }
 
-// Servers with a skills extension attached: one per server, as SEP-3371 rejects a duplicate extension identifier.
-const skillsServers = new WeakSet<McpServer>();
-
-// Runs after a successful `attach`, by extension (`SkillCatalog` tracks servers); off the class so no subclass hooks it.
-const afterAttach = new WeakMap<SkillsExtension, (mcp: McpServer) => void>();
-
 const ONE_PER_SERVER =
     'another skills extension is already attached to this server; attach one per server ' +
     '(to serve several folders or sources, combine them behind one SkillFiles adapter or SkillSource)';
 
+// Runs after a successful `setup`, by extension (`SkillCatalog` tracks servers); off the class so no subclass hooks it.
+const afterSetup = new WeakMap<SkillsExtension, (mcp: McpServer) => void>();
+
 /**
- * The MCP Skills extension (SEP-2640) for one catalog of skills. One instance
- * serves any number of servers: call {@linkcode SkillsExtension.attach} on each
- * (before connecting). Build it from a {@linkcode SkillSource}, or with
- * `SkillsExtension.load(files)` from storage.
+ * The MCP Skills extension (SEP-2640) for one catalog of skills, as a server
+ * extension: `new McpServer(info, { extensions: [skills] })`. One instance
+ * serves any number of servers. Build it from a {@linkcode SkillSource}, or
+ * with `SkillsExtension.load(files)` from storage. To serve several folders
+ * or sources on one server, combine them behind one `SkillFiles` adapter or
+ * `SkillSource`: a server takes one extension per id.
  */
-export class SkillsExtension {
+export class SkillsExtension implements ServerExtension {
     readonly id = SKILLS_EXTENSION_ID;
     readonly #source: SkillSource;
     readonly #trusted: boolean;
@@ -109,47 +110,63 @@ export class SkillsExtension {
     }
 
     /**
-     * Serves these skills on `mcp`: registers the skill resource template and
-     * the skills methods, then declares the capability. Must run before
-     * connecting. Calling it again for the same server does nothing. One
-     * skills extension per server: attaching another one throws and leaves the
-     * server as it was, as does attaching to a server that already handles one
-     * of the skills methods.
+     * Serves these skills on the server being constructed: declares the
+     * capability, then registers the skill resource template and the skills
+     * methods. The server calls this for each entry in `extensions`.
      *
      * @experimental How an extension is wired to a server may change in a minor release.
      */
-    attach(mcp: McpServer): void {
-        if (this.#attached.has(mcp)) return;
-        if (mcp.isConnected()) throw new Error('attach skills before connecting the server');
-        if (skillsServers.has(mcp)) throw new Error(ONE_PER_SERVER);
+    setup(ctx: ServerExtensionContext): void {
+        const mcp = ctx.mcp;
         const server = mcp.server;
         const directoryRead = this.#source.readDirectory !== undefined;
-        const list = this.#source.listResources === undefined ? undefined : (ctx: ServerContext) => this.#listResources(ctx);
-        server.assertCanSetRequestHandler(SKILLS_LIST_METHOD);
-        server.assertCanSetRequestHandler(SKILLS_GET_METHOD);
-        if (directoryRead) server.assertCanSetRequestHandler(RESOURCES_DIRECTORY_READ_METHOD);
-        // Check before changing anything; declare the capability last, so a server never advertises skills it does not serve.
+        if (directoryRead) ctx.capability({ directoryRead: true });
+
+        const list = this.#source.listResources === undefined ? undefined : (requestCtx: ServerContext) => this.#listResources(requestCtx);
         mcp.registerResource(
             SKILLS_EXTENSION_ID,
             new ResourceTemplate(`${this.#baseRoot}{+path}`, { list }),
             this.#cacheHint === undefined ? {} : { cacheHint: this.#cacheHint },
-            (uri, _variables, ctx) => this.#read(uri, ctx)
+            (uri, _variables, requestCtx) => this.#read(uri, requestCtx)
         );
-        server.setRequestHandler(SKILLS_LIST_METHOD, { params: ListSkillsRequestParamsSchema }, (params, ctx) =>
-            this.#list(server, params.cursor, ctx)
+        ctx.setRequestHandler(SKILLS_LIST_METHOD, { params: ListSkillsRequestParamsSchema }, (params, requestCtx) =>
+            this.#list(server, params.cursor, requestCtx)
         );
-        server.setRequestHandler(SKILLS_GET_METHOD, { params: GetSkillRequestParamsSchema }, (params, ctx) =>
-            this.#get(server, params.uri, ctx)
+        ctx.setRequestHandler(SKILLS_GET_METHOD, { params: GetSkillRequestParamsSchema }, (params, requestCtx) =>
+            this.#get(server, params.uri, requestCtx)
         );
         if (directoryRead) {
-            server.setRequestHandler(RESOURCES_DIRECTORY_READ_METHOD, { params: ReadResourceDirectoryRequestParamsSchema }, (params, ctx) =>
-                this.#readDirectory(server, params.uri, params.cursor, ctx)
+            ctx.setRequestHandler(
+                RESOURCES_DIRECTORY_READ_METHOD,
+                { params: ReadResourceDirectoryRequestParamsSchema },
+                (params, requestCtx) => this.#readDirectory(server, params.uri, params.cursor, requestCtx)
             );
         }
-        server.registerCapabilities({ extensions: { [SKILLS_EXTENSION_ID]: directoryRead ? { directoryRead: true } : {} } });
+        afterSetup.get(this)?.(mcp);
+    }
+
+    /**
+     * Serves these skills on `mcp`, which is already constructed. Must run
+     * before connecting. Calling it again for the same server does nothing.
+     * One skills extension per server: attaching another one throws and
+     * leaves the server as it was, as does attaching to a server that
+     * already handles one of the skills methods.
+     *
+     * @deprecated Pass the extension in `extensions` instead:
+     * `new McpServer(info, { extensions: [skills] })`. `attach` will be
+     * removed in a later minor release.
+     */
+    attach(mcp: McpServer): void {
+        if (this.#attached.has(mcp)) return;
+        if (mcp.isConnected()) throw new Error('attach skills before connecting the server');
+        const server = mcp.server;
+        if (server.getCapabilities().extensions?.[SKILLS_EXTENSION_ID] !== undefined) throw new Error(ONE_PER_SERVER);
+        // Check before changing anything, so a refused attach leaves the server as it was.
+        server.assertCanSetRequestHandler(SKILLS_LIST_METHOD);
+        server.assertCanSetRequestHandler(SKILLS_GET_METHOD);
+        if (this.#source.readDirectory !== undefined) server.assertCanSetRequestHandler(RESOURCES_DIRECTORY_READ_METHOD);
+        attachServerExtension(mcp, this);
         this.#attached.add(mcp);
-        skillsServers.add(mcp);
-        afterAttach.get(this)?.(mcp);
     }
 
     #cacheFields(server: Server): { ttlMs?: number; cacheScope?: 'public' | 'private' } {
@@ -236,7 +253,7 @@ interface CatalogInit {
     readonly sourceOptions: SkillSourceOptions;
 }
 
-// Fewest tracked servers at which `attach` drops references to collected ones; then again at twice the survivors.
+// Fewest tracked servers at which `setup` drops references to collected ones; then again at twice the survivors.
 const PRUNE_THRESHOLD = 1024;
 
 function resolveLimits(limits: SkillCatalogOptions['limits']): { files: number; bytes: number } {
@@ -280,7 +297,7 @@ export class SkillCatalog extends SkillsExtension {
         this.#state = init.state;
         this.#files = init.files;
         this.#build = init.build;
-        afterAttach.set(this, mcp => this.#track(mcp));
+        afterSetup.set(this, mcp => this.#track(mcp));
     }
 
     static override async load(files: SkillFiles, options: SkillCatalogOptions = {}): Promise<SkillCatalog> {
@@ -318,12 +335,12 @@ export class SkillCatalog extends SkillsExtension {
      *
      * When skills are added or removed, or a `SKILL.md`'s name or description
      * changes, the result has `listChanged: true` and `resources/list_changed`
-     * goes out through every attached server that is still connected (stdio,
+     * goes out through every server it is set up on that is still connected (stdio,
      * stateful 2025-11-25 HTTP sessions). Servers that `createMcpHandler` builds per
      * request are closed by then, so publish the change on the handler:
      * `if (changes.listChanged) handler.notify.resourcesChanged()`. Where the
      * runtime has no `WeakRef` (Cloudflare Workers with a compatibility date
-     * before 2025-05-05), attached servers are not tracked and nothing is sent.
+     * before 2025-05-05), servers are not tracked and nothing is sent.
      */
     reload(): Promise<SkillCatalogChanges> {
         const run = this.#queue.then(() => this.#reloadNow());
