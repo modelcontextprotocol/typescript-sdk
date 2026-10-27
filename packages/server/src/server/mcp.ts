@@ -780,7 +780,16 @@ export class McpServer {
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.metadata !== undefined) {
+                    registeredResource.metadata = updates.metadata;
+                    if (updates.title === undefined) {
+                        if (Object.prototype.hasOwnProperty.call(updates.metadata, 'title')) {
+                            registeredResource.title = updates.metadata.title;
+                        } else if (registeredResource.title !== undefined) {
+                            registeredResource.metadata = { ...updates.metadata, title: registeredResource.title };
+                        }
+                    }
+                }
                 if (updates.title !== undefined) {
                     registeredResource.title = updates.title;
                     registeredResource.metadata = { ...registeredResource.metadata, title: updates.title };
@@ -821,7 +830,16 @@ export class McpServer {
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
-                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.metadata !== undefined) {
+                    registeredResourceTemplate.metadata = updates.metadata;
+                    if (updates.title === undefined) {
+                        if (Object.prototype.hasOwnProperty.call(updates.metadata, 'title')) {
+                            registeredResourceTemplate.title = updates.metadata.title;
+                        } else if (registeredResourceTemplate.title !== undefined) {
+                            registeredResourceTemplate.metadata = { ...updates.metadata, title: registeredResourceTemplate.title };
+                        }
+                    }
+                }
                 if (updates.title !== undefined) {
                     registeredResourceTemplate.title = updates.title;
                     registeredResourceTemplate.metadata = { ...registeredResourceTemplate.metadata, title: updates.title };

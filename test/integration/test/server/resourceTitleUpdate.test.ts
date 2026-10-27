@@ -51,6 +51,52 @@ describe('resource title updates', () => {
             });
         }
 
+        for (const title of ['New title', undefined]) {
+            test(`${kind}: syncs a metadata-only title update to ${title}`, async () => {
+                const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'document' }] });
+                const resource =
+                    kind === 'static'
+                        ? server.registerResource('docs', 'docs://one', { title: 'Old title' }, read)
+                        : server.registerResource(
+                              'docs',
+                              new ResourceTemplate('docs://{id}', { list: undefined }),
+                              { title: 'Old title' },
+                              read
+                          );
+                await connect();
+
+                resource.update({ metadata: { title, description: 'New description' } });
+
+                expect(resource.title).toBe(title);
+                expect(resource.metadata?.title).toBe(title);
+                const entries = await list(kind);
+                expect(entries).toHaveLength(1);
+                expect(entries[0]?.title).toBe(title);
+                expect(entries[0]?.description).toBe('New description');
+            });
+        }
+
+        test(`${kind}: preserves the title when a metadata-only update omits it`, async () => {
+            const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'document' }] });
+            const resource =
+                kind === 'static'
+                    ? server.registerResource('docs', 'docs://one', { title: 'Old title' }, read)
+                    : server.registerResource(
+                          'docs',
+                          new ResourceTemplate('docs://{id}', { list: undefined }),
+                          { title: 'Old title' },
+                          read
+                      );
+            await connect();
+
+            resource.update({ metadata: { description: 'New description' } });
+
+            expect(resource.title).toBe('Old title');
+            expect(resource.metadata?.title).toBe('Old title');
+            const entries = await list(kind);
+            expect(entries).toEqual([expect.objectContaining({ title: 'Old title', description: 'New description' })]);
+        });
+
         test(`${kind}: keeps an explicit title update when replacing other metadata`, async () => {
             const read = async (uri: URL) => ({ contents: [{ uri: uri.href, text: 'document' }] });
             const resource =
