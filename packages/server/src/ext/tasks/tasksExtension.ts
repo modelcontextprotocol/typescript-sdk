@@ -14,7 +14,8 @@
  *
  * server.registerTool('send_report', { inputSchema }, async (input, ctx) => {
  *     const task = await tasks.create(ctx, { ttlMs: 3_600_000 });
- *     void runReport(store.handle(task.taskId), input); // the server's own execution
+ *     const handle = store.handle(task.taskId);
+ *     void runReport(handle, input).catch(error => handle.fail({ code: -32_603, message: String(error) }));
  *     return task;
  * });
  * ```
