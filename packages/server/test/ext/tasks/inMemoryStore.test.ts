@@ -4,7 +4,7 @@
  * cancel aborts a pending input wait, terminal writes are ignored, TTL purge,
  * principal fail-closed.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { InMemoryTaskStore } from '../../../src/ext/tasks/index';
 
@@ -71,6 +71,24 @@ describe('InMemoryTaskStore', () => {
         expect(await store.get(taskId, { principal: 'alice' })).toBeUndefined();
         expect(() => store.handle(taskId)).toThrow('not found');
         store.close();
+    });
+
+    it('keeps a task whose TTL exceeds the largest setTimeout delay until its deadline', async () => {
+        vi.useFakeTimers();
+        try {
+            const store = new InMemoryTaskStore();
+            const ttlMs = 30 * 24 * 60 * 60 * 1000;
+            const { taskId } = await store.create({ ttlMs });
+            await vi.advanceTimersByTimeAsync(1000);
+            expect(await store.get(taskId)).toBeDefined();
+            await vi.advanceTimersByTimeAsync(ttlMs - 1001);
+            expect(await store.get(taskId)).toBeDefined();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(await store.get(taskId)).toBeUndefined();
+            store.close();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it('rejects invalid ttlMs and pollIntervalMs', async () => {

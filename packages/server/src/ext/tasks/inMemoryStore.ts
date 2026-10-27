@@ -36,6 +36,8 @@ interface TaskRecord {
 
 const TERMINAL: ReadonlySet<TaskStatus> = new Set(['completed', 'failed', 'cancelled']);
 
+const MAX_TIMEOUT_MS = 2_147_483_647;
+
 /**
  * The writer side of a task, for the code that does the work. Obtained from
  * {@link InMemoryTaskStore.handle}; a persistent store exposes its own
@@ -103,10 +105,7 @@ export class InMemoryTaskStore implements TaskStore {
             ...(params.pollIntervalMs !== undefined && { pollIntervalMs: params.pollIntervalMs }),
             abort: new AbortController()
         };
-        if (record.ttlMs !== null) {
-            record.ttlTimer = setTimeout(() => this.#purge(record), record.ttlMs);
-            record.ttlTimer.unref?.();
-        }
+        if (record.ttlMs !== null) this.#schedulePurge(record, record.ttlMs);
         this.#tasks.set(record.taskId, record);
         return this.#snapshot(record);
     }
@@ -207,6 +206,16 @@ export class InMemoryTaskStore implements TaskStore {
 
     #touch(record: TaskRecord): void {
         record.lastUpdatedAt = this.#now();
+    }
+
+    // setTimeout fires at once for a delay above MAX_TIMEOUT_MS, so a longer TTL is waited out in steps.
+    #schedulePurge(record: TaskRecord, remainingMs: number): void {
+        const delay = Math.min(remainingMs, MAX_TIMEOUT_MS);
+        record.ttlTimer = setTimeout(
+            () => (remainingMs > delay ? this.#schedulePurge(record, remainingMs - delay) : this.#purge(record)),
+            delay
+        );
+        record.ttlTimer.unref?.();
     }
 
     #purge(record: TaskRecord): void {
