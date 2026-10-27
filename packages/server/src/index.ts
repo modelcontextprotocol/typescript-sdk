@@ -33,7 +33,11 @@ export type {
     RegisteredResourceTemplate,
     RegisteredTool,
     ResourceMetadata,
-    ToolCallback
+    ToolCallback,
+    ToolErrorResult,
+    ToolResultFor,
+    ToolResultWithStructuredContent,
+    ToolStructuredContent
 } from './server/mcp';
 export { McpServer, ResourceTemplate } from './server/mcp';
 // Runtime-neutral Bearer authentication for web-standard hosts; the Express
