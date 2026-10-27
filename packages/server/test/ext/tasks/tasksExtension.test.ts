@@ -84,6 +84,19 @@ describe('TasksExtension principal', () => {
     });
 });
 
+describe('tasks/update', () => {
+    it('answers -32602 without inputResponses, and for entries the protocol could not take as bare results', async () => {
+        const store = new InMemoryTaskStore();
+        const tasks = new TasksExtension(store);
+        const { taskId } = await store.create({ ttlMs: null });
+        expect((await call(tasks, 'tasks/update', { taskId })).error).toMatchObject({ code: -32_602 });
+        const wrapped = { q: { method: 'elicitation/create', result: { action: 'accept' } } };
+        expect((await call(tasks, 'tasks/update', { taskId, inputResponses: wrapped })).error).toMatchObject({ code: -32_602 });
+        expect((await call(tasks, 'tasks/update', { taskId, inputResponses: {} })).result).toMatchObject({ resultType: 'complete' });
+        store.close();
+    });
+});
+
 describe('TasksExtension on 2025-11-25', () => {
     it('answers the tasks methods with -32601 and refuses task handles with -32021', async () => {
         const store = new InMemoryTaskStore();
