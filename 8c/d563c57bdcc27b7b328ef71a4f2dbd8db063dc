@@ -1,0 +1,28 @@
+packages/server/src/ext/tasks/inMemoryStore.ts
+  s_555766defd684e::t_67ec040978da6b 49,86,145,179,246
+packages/server/test/ext/tasks/inMemoryStore.test.ts
+  s_555766defd684e::t_b7d0b6d95a4bab 111-124,127,129-130,132-137
+  s_555766defd684e::t_9f1f6e468b82c4 125-126,128,131
+packages/client/src/ext/tasks/tasksClientExtension.ts
+  s_555766defd684e::t_5a1039a2aadaa2 3-5,12
+packages/core-internal/src/ext/tasks/schemas.ts
+  s_555766defd684e::t_19b8fad64e9626 2-4
+packages/core-internal/src/ext/tasks/types.ts
+  s_555766defd684e::t_e251984a883fb5 2-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8cd563c57bdcc27b7b328ef71a4f2dbd8db063dc",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
