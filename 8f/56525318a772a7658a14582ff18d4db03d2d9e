@@ -1,0 +1,97 @@
+.changeset/otel-package.md
+  s_a5414f34b12e5c::t_86f53d845d196c 1-5
+.github/workflows/publish.yml
+  s_a5414f34b12e5c::t_6ea742f808c08c 43
+README.md
+  s_a5414f34b12e5c::t_bd49ff12ca915d 62-63
+docs/.vitepress/nav.ts
+  s_a5414f34b12e5c::t_9f95b99d164622 74-75
+docs/_meta/specs/otel.md
+  s_a5414f34b12e5c::t_6440e13d020e5d 1-562
+docs/advanced/opentelemetry.md
+  s_a5414f34b12e5c::t_e00ca215be5501 1-160
+docs/get-started/packages.md
+  s_a5414f34b12e5c::t_a6bad49881ce28 29,33,37
+docs/servers/logging-progress-cancellation.md
+  s_a5414f34b12e5c::t_514933878d8926 77
+examples/README.md
+  s_a5414f34b12e5c::t_1f30f5b4f1b10a 46
+examples/guides/advanced/opentelemetry.examples.ts
+  s_a5414f34b12e5c::t_4de55efa81fd6b 1-131
+examples/opentelemetry/README.md
+  s_a5414f34b12e5c::t_ab5a48c637e409 1-19
+examples/opentelemetry/client.ts
+  s_a5414f34b12e5c::t_8303b71cd1b15e 1-75
+examples/opentelemetry/package.json
+  s_a5414f34b12e5c::t_15df976413beba 1-24
+examples/opentelemetry/server.ts
+  s_a5414f34b12e5c::t_16e46e6885bd5b 1-72
+examples/package.json
+  s_a5414f34b12e5c::t_916746d379aefc 33,36-38
+examples/tsconfig.json
+  s_a5414f34b12e5c::t_b157eaab405341 26
+packages/core-internal/test/packageTopologyPins.test.ts
+  s_f9c41a8e50d69f::t_28c587c378ab71 58
+packages/otel/README.md
+  s_a5414f34b12e5c::t_80366acac00f32 1-46
+packages/otel/eslint.config.mjs
+  s_a5414f34b12e5c::t_4310cddf37ba40 1-12
+packages/otel/package.json
+  s_a5414f34b12e5c::t_4b927d4f91f6b3 1-82
+packages/otel/src/index.ts
+  s_a5414f34b12e5c::t_7e2918b780a965 1-11
+packages/otel/src/openTelemetry.ts
+  s_a5414f34b12e5c::t_8500bc16e2ebdc 1-341
+packages/otel/src/types.ts
+  s_d0ea66223b262b::t_15f001c49b859c 1-52
+packages/otel/test/helpers.ts
+  s_a5414f34b12e5c::t_0ce88792e0be8d 1-67
+packages/otel/test/openTelemetry.test.ts
+  s_a5414f34b12e5c::t_13aad01e637ffd 1-415
+packages/otel/test/types.test.ts
+  s_a5414f34b12e5c::t_84b5ae2c1b4c36 1-17
+packages/otel/tsconfig.json
+  s_a5414f34b12e5c::t_0438604f3cdae9 1-30
+packages/otel/tsdown.config.ts
+  s_a5414f34b12e5c::t_c4c3f6a1975af0 1-21
+packages/otel/typedoc.json
+  s_a5414f34b12e5c::t_6a3e5ca93b59fd 1-10
+packages/otel/vitest.config.js
+  s_a5414f34b12e5c::t_8e323b2bf1c2f0 1-3
+pnpm-lock.yaml
+  s_a5414f34b12e5c::t_7c6eb67be4e4b1 84-102,350-352,359-367,840-876,1878-1946,3511-3554,8217-8260
+pnpm-workspace.yaml
+  s_a5414f34b12e5c::t_2c7695312d430c 49-55
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8f56525318a772a7658a14582ff18d4db03d2d9e",
+  "prompts": {},
+  "sessions": {
+    "s_a5414f34b12e5c": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17e7f-faec-72ed-aea6-f27d0ee483e2",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_d0ea66223b262b": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a16999-18c5-75d4-a1af-bb6b7be3ae3b",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    },
+    "s_f9c41a8e50d69f": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d27-efd9-737f-a929-813730d1b0d0",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
