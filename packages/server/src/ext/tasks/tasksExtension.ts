@@ -45,6 +45,17 @@ export interface TasksExtensionOptions {
     defaultTtlMs?: number | null;
     /** Default polling hint for `create` when the caller gives none, ms. Default 5_000. */
     defaultPollIntervalMs?: number;
+    /**
+     * The identity a task is bound to, read from the request that creates it
+     * and checked on every `tasks/*` request: a request with a different
+     * principal gets "Task not found". `undefined` leaves the task unbound, so
+     * its id is the only credential. The default is the OAuth client id plus
+     * the token subject at `authInfo.extra.sub` when the token verifier sets
+     * one; with a client shared between users and no subject there, set this
+     * to the user's identity, or every user of that client can reach the
+     * others' tasks.
+     */
+    principal?: (ctx: ServerContext) => string | undefined;
 }
 
 /** What a tool handler passes to {@link TasksExtension.create}; every field optional. */
@@ -70,13 +81,31 @@ export const declaresTasksExtension = (ctx: ServerContext): boolean => {
 
 const requireTasksExtension = (ctx: ServerContext, what: string): void => {
     if (declaresTasksExtension(ctx)) return;
+    if (ctx.mcpReq.envelope === undefined) {
+        // Every 2026-07-28 request carries the envelope, so this is a 2025-11-25 request.
+        throw new MissingRequiredClientCapabilityError(
+            { requiredCapabilities: { extensions: { [TASKS_EXTENSION_ID]: {} } } },
+            `${what} requires a 2026-07-28 request that declares the "${TASKS_EXTENSION_ID}" extension; it is not served on 2025-11-25`
+        );
+    }
     throw new MissingRequiredClientCapabilityError(
         { requiredCapabilities: { extensions: { [TASKS_EXTENSION_ID]: {} } } },
         `${what} requires the request to declare the "${TASKS_EXTENSION_ID}" extension capability`
     );
 };
 
-const principalOf = (ctx: ServerContext): string | undefined => ctx.http?.authInfo?.clientId;
+/** The default principal: the OAuth client id, with the token subject when the verifier exposes one. */
+const defaultTaskPrincipal = (ctx: ServerContext): string | undefined => {
+    const authInfo = ctx.http?.authInfo;
+    if (authInfo === undefined) return undefined;
+    const subject = authInfo.extra?.['sub'];
+    return typeof subject === 'string' ? JSON.stringify([authInfo.clientId, subject]) : authInfo.clientId;
+};
+
+// The extension's methods are not served on 2025-11-25, where tasks/get and tasks/cancel are other, core methods.
+const requireModernRequest = (ctx: ServerContext): void => {
+    if (ctx.mcpReq.envelope === undefined) throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+};
 
 const notFound = (): never => {
     throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Task not found');
@@ -97,9 +126,11 @@ export class TasksExtension implements ServerExtension {
     readonly store: TaskStore;
     readonly #defaultTtlMs: number | null;
     readonly #defaultPollIntervalMs: number;
+    readonly #principal: (ctx: ServerContext) => string | undefined;
 
     constructor(store: TaskStore, options?: TasksExtensionOptions) {
         this.store = store;
+        this.#principal = options?.principal ?? defaultTaskPrincipal;
         this.#defaultTtlMs = options?.defaultTtlMs === undefined ? 86_400_000 : options.defaultTtlMs;
         this.#defaultPollIntervalMs = options?.defaultPollIntervalMs ?? 5000;
     }
@@ -112,7 +143,7 @@ export class TasksExtension implements ServerExtension {
      */
     async create(ctx: ServerContext, options?: CreateTaskOptions): Promise<TaskToolResult> {
         requireTasksExtension(ctx, `Tool "${ctx.mcpReq.method}" executes as a task and`);
-        const principal = principalOf(ctx);
+        const principal = this.#principal(ctx);
         const task = await this.store.create({
             ttlMs: options?.ttlMs === undefined ? this.#defaultTtlMs : options.ttlMs,
             pollIntervalMs: options?.pollIntervalMs ?? this.#defaultPollIntervalMs,
@@ -133,8 +164,9 @@ export class TasksExtension implements ServerExtension {
      */
     setup(ctx: ServerExtensionContext): void {
         ctx.setRequestHandler('tasks/get', { params: getTaskParamsSchema }, async (params, requestCtx): Promise<GetTaskResult> => {
+            requireModernRequest(requestCtx);
             requireTasksExtension(requestCtx, 'tasks/get');
-            const task = await this.store.get(params.taskId, { principal: principalOf(requestCtx) });
+            const task = await this.store.get(params.taskId, { principal: this.#principal(requestCtx) });
             if (task === undefined) return notFound();
             return { resultType: 'complete', ...task };
         });
@@ -143,17 +175,19 @@ export class TasksExtension implements ServerExtension {
             'tasks/update',
             { params: updateTaskHandlerParamsSchema },
             async (params, requestCtx): Promise<UpdateTaskResult> => {
+                requireModernRequest(requestCtx);
                 requireTasksExtension(requestCtx, 'tasks/update');
                 const inputResponses = (requestCtx.mcpReq.inputResponses ?? params.inputResponses ?? {}) as InputResponses;
-                const found = await this.store.update(params.taskId, inputResponses, { principal: principalOf(requestCtx) });
+                const found = await this.store.update(params.taskId, inputResponses, { principal: this.#principal(requestCtx) });
                 if (!found) return notFound();
                 return { resultType: 'complete' };
             }
         );
 
         ctx.setRequestHandler('tasks/cancel', { params: cancelTaskParamsSchema }, async (params, requestCtx): Promise<CancelTaskResult> => {
+            requireModernRequest(requestCtx);
             requireTasksExtension(requestCtx, 'tasks/cancel');
-            const found = await this.store.cancel(params.taskId, { principal: principalOf(requestCtx) });
+            const found = await this.store.cancel(params.taskId, { principal: this.#principal(requestCtx) });
             if (!found) return notFound();
             return { resultType: 'complete' };
         });

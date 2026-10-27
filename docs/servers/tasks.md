@@ -52,6 +52,18 @@ async function sendReport(handle: TaskHandle, to: string) {
 
 On the wire the tool answers a flat `CreateTaskResult` (`resultType: "task"`). `requireInput` moves the task to `input_required` and resolves once `tasks/update` has answered every key; it rejects if the task is cancelled or purged meanwhile, which is why the work's promise needs a `catch`. `tasks/cancel` aborts `handle.signal`; a later `complete` or `fail` is ignored.
 
+## Bind tasks to the caller
+
+Every `tasks/*` request is checked against the principal the task was created for, and a request from a different principal gets "Task not found". By default the principal is the OAuth client id, plus the token subject when your token verifier puts it at `authInfo.extra.sub`. If users share one client and your verifier sets no subject, say which identity to bind to:
+
+```ts
+const tasks = new TasksExtension(store, {
+    principal: ctx => ctx.http?.authInfo?.extra?.['userId'] as string | undefined
+});
+```
+
+Without authentication the principal is `undefined` and the task is unbound: anyone holding its id can reach it.
+
 ## Bring your own store
 
 `TaskStore` is four methods over JSON:
@@ -67,7 +79,7 @@ How the work behind a task runs — a queue, a workflow engine, a durable-execut
 
 ## Wire notes
 
-- The extension is served on the 2026-07-28 revision. Task tools are ordinary tools without `outputSchema`; the result encoder forwards `resultType: "task"` for `tools/call` verbatim.
+- The extension is served on the 2026-07-28 revision. On a 2025-11-25 request, `tasks/get`, `tasks/update` and `tasks/cancel` answer `-32601`, and `tasks.create` refuses with `-32021`. Task tools are ordinary tools without `outputSchema`; the result encoder forwards `resultType: "task"` for `tools/call` verbatim.
 - A request that does not declare `io.modelcontextprotocol/tasks` in its client capabilities is refused with `-32021` — from `tasks.create`, from the `tasks/*` methods, and by the extension's `tools/call` middleware for any handle minted some other way.
 - `tasks/update`'s `inputResponses` shares its name with the multi-round-trip retry field: the protocol layer lifts it out of the params and the extension reads it back from `ctx.mcpReq.inputResponses`.
 - A plain `client.callTool` rejects `resultType: "task"`; the requester half of the extension is `TasksClientExtension` from `@modelcontextprotocol/client/ext/tasks` ([Tasks on the client](../clients/tasks.md)).
