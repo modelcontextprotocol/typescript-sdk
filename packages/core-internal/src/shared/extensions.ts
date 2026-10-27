@@ -5,7 +5,7 @@
  * with the same messages.
  */
 import type { StandardSchemaV1 } from '../util/standardSchema';
-import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec';
+import { isExtensionReusedRequestMethod, isSpecRequestMethod } from '../wire/codec';
 import type { BaseContext, InferHandlerResult, Protocol } from './protocol';
 
 /**
@@ -34,8 +34,9 @@ export function requireExtension(side: 'server' | 'client', installed: ReadonlyS
 }
 
 /**
- * `setRequestHandler` on the extension path. It refuses a 2026-07-28 core
- * method name, which an extension wraps with `use` instead, and a method that
+ * `setRequestHandler` on the extension path. It refuses a core method name
+ * of any protocol version, which an extension wraps with `use` instead (except
+ * the names SEP-2663 reuses for the Tasks extension), and a method that
  * already has a handler, such as another extension's.
  */
 export function setExtensionRequestHandler<
@@ -49,7 +50,7 @@ export function setExtensionRequestHandler<
     schemas: { params: P; result?: R },
     handler: (params: StandardSchemaV1.InferOutput<P>, ctx: ContextT) => InferHandlerResult<R> | Promise<InferHandlerResult<R>>
 ): void {
-    if (codecForVersion(MODERN_WIRE_REVISION).hasRequestMethod(name)) {
+    if (isSpecRequestMethod(name) && !isExtensionReusedRequestMethod(name)) {
         throw new Error(`Extension "${extension}" cannot register "${name}": it is a core method; wrap it with use() instead`);
     }
     try {
