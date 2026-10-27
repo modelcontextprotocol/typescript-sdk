@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import type { JSONRPCMessage, SdkLogger } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
@@ -19,6 +19,37 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
         expect(warn).toHaveBeenCalledWith('Tool name validation warning for "bad tool":');
         expect(consoleWarn).not.toHaveBeenCalled();
         consoleWarn.mockRestore();
+    });
+
+    it('ignores a logger that throws', () => {
+        const server = new McpServer(
+            { name: 't', version: '1.0.0' },
+            {
+                logger: {
+                    warn: () => {
+                        throw new Error('log sink closed');
+                    }
+                }
+            }
+        );
+
+        expect(() =>
+            server.registerTool('bad tool', {}, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }]
+            }))
+        ).not.toThrow();
+    });
+
+    it('accepts a logger whose methods take a typed first parameter', () => {
+        const messages: string[] = [];
+        const logger: SdkLogger = { warn: (message: string) => messages.push(message) };
+        const server = new McpServer({ name: 't', version: '1.0.0' }, { logger });
+
+        server.registerTool('bad tool', {}, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        }));
+
+        expect(messages).toContain('Tool name validation warning for "bad tool":');
     });
 
     it('registerTool accepts a raw shape for inputSchema and auto-wraps it', () => {

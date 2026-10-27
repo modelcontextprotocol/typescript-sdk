@@ -96,6 +96,60 @@ describe('Client logger option', () => {
         await serverTransport.close();
     });
 
+    it('still returns the filtered tool list when the logger throws', async () => {
+        const warn = vi.fn(() => {
+            throw new Error('log sink closed');
+        });
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            { logger: { warn }, versionNegotiation: { mode: { pin: MODERN } } }
+        );
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        const invalidTool: Tool = {
+            name: 'bad-tool',
+            inputSchema: { type: 'object', properties: { data: { type: 'object', 'x-mcp-header': 'Data' } } }
+        };
+
+        serverTransport.onmessage = async message => {
+            const request = message as JSONRPCRequest;
+            if (request.id === undefined) return;
+
+            if (request.method === 'server/discover') {
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: 'test-server', version: '1.0.0' }
+                    }
+                });
+            } else if (request.method === 'tools/list') {
+                await serverTransport.send({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: {
+                        resultType: 'complete',
+                        ttlMs: 60_000,
+                        cacheScope: 'public',
+                        tools: [invalidTool]
+                    }
+                });
+            }
+        };
+
+        await Promise.all([client.connect(clientTransport), serverTransport.start()]);
+
+        const result = await client.listTools();
+        expect(result.tools).toEqual([]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'bad-tool'"));
+
+        await client.close();
+        await clientTransport.close();
+        await serverTransport.close();
+    });
+
     it('routes SkillsClient diagnostics to the Client logger', async () => {
         const debug = vi.fn();
         const consoleDebug = vi.spyOn(console, 'debug').mockImplementation(() => {});

@@ -42,6 +42,7 @@ import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    guardLogger,
     httpStatusForErrorCode,
     isJsonContentType,
     mediaTypeEssence,
@@ -683,7 +684,8 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown, op
  * request headers.
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
-    const { legacy, onerror, responseMode, logger = console } = options;
+    const { legacy, onerror, responseMode } = options;
+    const logger = guardLogger(options.logger);
     const maxRequestBodySize = resolveMaxRequestBodySize(options.maxRequestBodySize);
 
     // Construction-time guard for JavaScript callers passing a handler as the

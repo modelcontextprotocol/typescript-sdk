@@ -7,6 +7,7 @@
  * faces, the per-request era write + client-identity backfill, notification
  * routing, the response-mode knob, and close() teardown of the modern leg.
  */
+import type { SdkLogger } from '@modelcontextprotocol/core-internal';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
@@ -861,12 +862,30 @@ describe('createMcpHandler — responseMode', () => {
 
         try {
             createMcpHandler(factory, { responseMode: 'json', logger: { warn } });
+            expect(warn).toHaveBeenCalledWith(expect.stringContaining("responseMode: 'json' drops mid-call notifications"));
+            expect(consoleWarn).not.toHaveBeenCalled();
         } finally {
             consoleWarn.mockRestore();
         }
+    });
 
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining("responseMode: 'json' drops mid-call notifications"));
-        expect(consoleWarn).not.toHaveBeenCalled();
+    it('falls back to console for a null logger and ignores a logger that throws', () => {
+        const { factory } = testFactory();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+        try {
+            createMcpHandler(factory, { responseMode: 'json', logger: null as unknown as SdkLogger });
+            expect(consoleWarn).toHaveBeenCalledWith(expect.stringContaining("responseMode: 'json' drops mid-call notifications"));
+
+            const throwing: SdkLogger = {
+                warn: () => {
+                    throw new Error('log sink closed');
+                }
+            };
+            expect(() => createMcpHandler(factory, { responseMode: 'json', logger: throwing })).not.toThrow();
+        } finally {
+            consoleWarn.mockRestore();
+        }
     });
 
     it("responseMode: 'sse' streams even when the handler emits nothing before its result", async () => {
