@@ -46,7 +46,7 @@ const MAX_TIMEOUT_MS = 2_147_483_647;
  */
 export interface TaskHandle {
     readonly taskId: string;
-    /** Aborted when `tasks/cancel` is acknowledged. */
+    /** Aborted when `tasks/cancel` is acknowledged, the TTL expires, or the store closes; `signal.reason` says which. */
     readonly signal: AbortSignal;
     /** Writes `statusMessage` for pollers. */
     status(message: string): Promise<void>;
@@ -83,7 +83,7 @@ export class InMemoryTaskStore implements TaskStore {
     close(): void {
         for (const record of this.#tasks.values()) {
             if (record.ttlTimer !== undefined) clearTimeout(record.ttlTimer);
-            record.abort.abort();
+            record.abort.abort(new Error(`Task "${record.taskId}" was dropped: the store closed`));
         }
         this.#tasks.clear();
     }
@@ -142,7 +142,7 @@ export class InMemoryTaskStore implements TaskStore {
         record.status = 'cancelled';
         record.pendingInput = undefined;
         this.#touch(record);
-        record.abort.abort();
+        record.abort.abort(new Error(`Task "${taskId}" was cancelled`));
         return true;
     }
 
@@ -176,7 +176,7 @@ export class InMemoryTaskStore implements TaskStore {
                 }
                 return new Promise<InputResponses>((resolve, reject) => {
                     const signal = current.abort.signal;
-                    const onAbort = () => reject(new Error(`Task "${taskId}" was cancelled`));
+                    const onAbort = () => reject(signal.reason as Error);
                     signal.addEventListener('abort', onAbort, { once: true });
                     current.pendingInput = {
                         requests,
@@ -243,7 +243,7 @@ export class InMemoryTaskStore implements TaskStore {
     }
 
     #purge(record: TaskRecord): void {
-        record.abort.abort();
+        record.abort.abort(new Error(`Task "${record.taskId}" expired`));
         this.#tasks.delete(record.taskId);
     }
 

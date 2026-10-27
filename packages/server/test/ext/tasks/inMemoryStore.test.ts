@@ -108,6 +108,33 @@ describe('InMemoryTaskStore', () => {
         }
     });
 
+    it('tells expiry and store close apart from cancellation, on the signal and the input wait', async () => {
+        vi.useFakeTimers();
+        try {
+            const store = new InMemoryTaskStore();
+            const ask = {
+                q: {
+                    method: 'elicitation/create',
+                    params: { message: 'q', mode: 'form', requestedSchema: { type: 'object', properties: {} } }
+                }
+            } as const;
+            const expiring = store.handle((await store.create({ ttlMs: 100 })).taskId);
+            const expiringWait = expiring.requireInput(ask);
+            const closing = store.handle((await store.create({ ttlMs: null })).taskId);
+            const closingWait = closing.requireInput(ask);
+            const expired = expect(expiringWait).rejects.toThrow('expired');
+            const closed = expect(closingWait).rejects.toThrow('the store closed');
+            await vi.advanceTimersByTimeAsync(100);
+            await expired;
+            expect(String(expiring.signal.reason)).toContain('expired');
+            store.close();
+            await closed;
+            expect(String(closing.signal.reason)).toContain('the store closed');
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('rejects invalid ttlMs and pollIntervalMs', async () => {
         const store = new InMemoryTaskStore();
         await expect(store.create({ ttlMs: -1 })).rejects.toBeInstanceOf(RangeError);
