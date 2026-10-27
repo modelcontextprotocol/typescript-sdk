@@ -26,6 +26,7 @@ import {
 } from '@modelcontextprotocol/core-internal/ext/skills';
 
 import type { ServerExtension, ServerExtensionContext } from '../../server/extension';
+import { attachServerExtension } from '../../server/extension';
 import type { McpServer } from '../../server/mcp';
 import { ResourceTemplate } from '../../server/mcp';
 import type { Server } from '../../server/server';
@@ -59,6 +60,10 @@ function toContents(uri: string, result: SkillReadResult): ReadResourceResult['c
     return 'text' in result ? { uri, ...mimeType, text: result.text } : { uri, ...mimeType, blob: encodeBase64(result.bytes) };
 }
 
+const ONE_PER_SERVER =
+    'another skills extension is already attached to this server; attach one per server ' +
+    '(to serve several folders or sources, combine them behind one SkillFiles adapter or SkillSource)';
+
 // Runs after a successful `setup`, by extension (`SkillCatalog` tracks servers); off the class so no subclass hooks it.
 const afterSetup = new WeakMap<SkillsExtension, (mcp: McpServer) => void>();
 
@@ -79,6 +84,7 @@ export class SkillsExtension implements ServerExtension {
     readonly #cache: { ttlMs: number; cacheScope: 'public' | 'private' };
     readonly #strict: boolean;
     readonly #warn: (warning: SkillWarning) => void;
+    readonly #attached = new WeakSet<McpServer>();
 
     /**
      * Builds a catalog from storage through a {@linkcode SkillFiles} adapter
@@ -137,6 +143,30 @@ export class SkillsExtension implements ServerExtension {
             );
         }
         afterSetup.get(this)?.(mcp);
+    }
+
+    /**
+     * Serves these skills on `mcp`, which is already constructed. Must run
+     * before connecting. Calling it again for the same server does nothing.
+     * One skills extension per server: attaching another one throws and
+     * leaves the server as it was, as does attaching to a server that
+     * already handles one of the skills methods.
+     *
+     * @deprecated Pass the extension in `extensions` instead:
+     * `new McpServer(info, { extensions: [skills] })`. `attach` will be
+     * removed in a later minor release.
+     */
+    attach(mcp: McpServer): void {
+        if (this.#attached.has(mcp)) return;
+        if (mcp.isConnected()) throw new Error('attach skills before connecting the server');
+        const server = mcp.server;
+        if (server.getCapabilities().extensions?.[SKILLS_EXTENSION_ID] !== undefined) throw new Error(ONE_PER_SERVER);
+        // Check before changing anything, so a refused attach leaves the server as it was.
+        server.assertCanSetRequestHandler(SKILLS_LIST_METHOD);
+        server.assertCanSetRequestHandler(SKILLS_GET_METHOD);
+        if (this.#source.readDirectory !== undefined) server.assertCanSetRequestHandler(RESOURCES_DIRECTORY_READ_METHOD);
+        attachServerExtension(mcp, this);
+        this.#attached.add(mcp);
     }
 
     #cacheFields(server: Server): { ttlMs?: number; cacheScope?: 'public' | 'private' } {
