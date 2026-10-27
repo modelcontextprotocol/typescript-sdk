@@ -7,7 +7,12 @@
  * capability settings, dependencies and accepted result kinds.
  */
 import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
-import { CLIENT_CAPABILITIES_META_KEY, InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    InMemoryTransport,
+    LATEST_PROTOCOL_VERSION,
+    SdkErrorCode
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -70,7 +75,16 @@ async function scriptedServer(era: 'modern' | 'legacy') {
             void serverTx.send({
                 jsonrpc: '2.0',
                 id: request.id,
-                result: { resultType: 'task', taskId: 't-1', status: 'working', createdAt: 'now', lastUpdatedAt: 'now', ttlMs: null }
+                // McpServer adds `content: []` to a task handle, so it also parses as a CallToolResult.
+                result: {
+                    resultType: 'task',
+                    content: [],
+                    taskId: 't-1',
+                    status: 'working',
+                    createdAt: 'now',
+                    lastUpdatedAt: 'now',
+                    ttlMs: null
+                }
             });
         } else if (request.method === 'tools/list') {
             void serverTx.send({
@@ -171,8 +185,8 @@ describe('ClientOptions.extensions', () => {
         const taskSchema = z.looseObject({ resultType: z.literal('task'), taskId: z.string(), status: z.string() });
         const result = await client.request({ method: 'tools/call', params: { name: 'slow', arguments: {} } }, taskSchema);
         expect(result).toMatchObject({ resultType: 'task', taskId: 't-1', status: 'working' });
-        // callTool validates against CallToolResultSchema, which a task handle does not satisfy.
-        await expect(client.callTool({ name: 'slow', arguments: {} })).rejects.toThrow(/Invalid result for tools\/call/);
+        // Typed calls keep the closed vocabulary: callTool refuses the kind rather than return the handle as a tool result.
+        await expect(client.callTool({ name: 'slow', arguments: {} })).rejects.toMatchObject({ code: SdkErrorCode.UnsupportedResultType });
         await client.close();
     });
 

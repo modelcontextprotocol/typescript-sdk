@@ -89,7 +89,7 @@ The client takes the same shape, `{ id, setup(ctx) }`, in `ClientOptions.extensi
 
 - `ctx.capability(settings)`, `ctx.use(method, middleware)` and `ctx.require(extensionId)`, as on the server.
 - `ctx.setRequestHandler(name, schemas, handler)` for custom server-to-client requests. These are served on 2025-11-25 connections only: 2026-07-28 has no server-to-client request channel.
-- `ctx.acceptResultType(method, resultType)`, so results of `method` may carry a `resultType` the extension defines. The explicit-schema `request()` path then hands them to the caller's schema as-is, instead of rejecting the unknown kind; typed calls such as `callTool` still reject them as an invalid result.
+- `ctx.acceptResultType(method, resultType)`, so results of `method` may carry a `resultType` the extension defines. The explicit-schema `request()` path then hands them to the caller's schema as-is, instead of rejecting the unknown kind; typed calls such as `callTool` keep rejecting the unknown kind.
 - `ctx.client`, the client being set up.
 
 ```ts
