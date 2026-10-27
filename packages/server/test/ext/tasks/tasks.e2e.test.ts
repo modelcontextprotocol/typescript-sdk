@@ -117,7 +117,7 @@ describe('TasksExtension end to end (stateless handler, in-memory store)', () =>
         expect(created).toMatchObject({ resultType: 'task', status: 'working', ttlMs: 86_400_000, pollIntervalMs: 10 });
 
         const seen: string[] = [];
-        const done = await h.clientTasks.waitFor(created.taskId, { onUpdate: task => seen.push(task.status) });
+        const done = await h.clientTasks.waitFor(created.taskId, { onUpdate: task => void seen.push(task.status) });
         expect(done.status === 'completed' && done.result).toEqual({ content: [{ type: 'text', text: 'hello ada' }] });
         expect(done.statusMessage).toBe('greeting ada');
         expect(seen.at(-1)).toBe('completed');
