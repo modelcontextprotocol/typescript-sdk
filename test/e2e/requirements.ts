@@ -1390,6 +1390,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior: "_meta sent in a request's params by the client is delivered intact to the server-side request handler."
     },
+    'protocol:meta:trace-context-instrumentation': {
+        source: 'https://modelcontextprotocol.io/community/seps/414-request-meta',
+        behavior:
+            "With instrumentation configured on both sides, the trace context the client's instrumentation writes for a request reaches the server's instrumentation and the request handler in params._meta, and the handler runs inside the scope the server's instrumentation opened for that request."
+    },
     'protocol:meta:result-to-client': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior:

@@ -59,6 +59,8 @@ import {
     MODERN_WIRE_REVISION
 } from '../wire/codec';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
+import type { GuardedScope, ProtocolInstrumentation } from './instrumentation';
+import { outcomeForAbort, outcomeForError, runInScope, startScope, traceContextCarrier } from './instrumentation';
 import type { Transport, TransportSendOptions } from './transport';
 
 /**
@@ -95,6 +97,14 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Observes every request and notification this instance sends and receives, for tracing and
+     * metrics. Leaving it out costs nothing and leaves the wire unchanged.
+     *
+     * @experimental The shape may change in a minor release.
+     */
+    instrumentation?: ProtocolInstrumentation;
 };
 
 /**
@@ -929,10 +939,18 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        const scope = this._startInbound(rawNotification, true, extra);
+
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
-            .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+        runInScope(scope, () =>
+            Promise.resolve().then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
+        ).then(
+            () => scope?.end({ type: 'delivered' }),
+            error => {
+                scope?.end({ type: 'failed', error });
+                this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
+            }
+        );
     }
 
     private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
@@ -961,7 +979,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
+        const scope = this._startInbound(
+            rawRequest,
+            this._requestHandlers.has(request.method) || this.fallbackRequestHandler !== undefined,
+            extra
+        );
+
         const sendErrorResponse = (code: number, message: string, data?: unknown) => {
+            scope?.end({ type: 'error', error: { code, message } });
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
@@ -1110,9 +1135,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
         const ctx = this.buildContext(baseCtx, extra);
 
+        if (scope !== undefined) {
+            abortController.signal.addEventListener('abort', () => scope.end(outcomeForAbort(abortController.signal.reason)), {
+                once: true
+            });
+        }
+
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => handler(request, ctx))
+        // Only the handler runs in the instrumentation's context; encoding and sending do not need it.
+        runInScope(scope, () => Promise.resolve().then(() => handler(request, ctx)))
             .then(
                 async result => {
                     if (abortController.signal.aborted) {
@@ -1137,6 +1168,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    scope?.end({ type: 'result', result: encoded });
                     const response: JSONRPCResponse = {
                         result: encoded,
                         jsonrpc: '2.0',
@@ -1164,6 +1196,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };
+                    scope?.end({
+                        type: 'error',
+                        error: { code: errorResponse.error.code, message: errorResponse.error.message },
+                        cause: error
+                    });
                     await capturedTransport?.send(errorResponse);
                 }
             )
@@ -1458,15 +1495,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // both share the same `_meta`): a no-op on the legacy era — the
             // envelope seam returns undefined and the request goes out exactly as
             // built above.
-            const outbound = this._envelopeOutbound(jsonrpcRequest);
+            const { message: outbound, scope } = this._startOutbound(this._envelopeOutbound(jsonrpcRequest));
 
             let responseReceived = false;
 
-            const cancel = (reason: unknown) => {
+            const cancel = (reason: unknown, outcome: 'timeout' | 'cancelled') => {
                 if (responseReceived) {
                     return;
                 }
                 this._progressHandlers.delete(messageId);
+                scope?.end({ type: outcome });
 
                 if (requestAbort === undefined) {
                     // "A client MUST NOT attempt to cancel its `initialize`
@@ -1478,19 +1516,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     // legacy era can reach this — `initialize` is absent from the
                     // modern registry, which negotiates via `server/discover`.
                     if (request.method !== 'initialize') {
-                        this._transport
-                            ?.send(
-                                this._envelopeOutbound({
-                                    jsonrpc: '2.0',
-                                    method: 'notifications/cancelled',
-                                    params: {
-                                        requestId: messageId,
-                                        reason: String(reason)
-                                    }
-                                }),
-                                { relatedRequestId, resumptionToken, onresumptiontoken }
-                            )
-                            .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                        this._sendNotificationMessage(
+                            this._envelopeOutbound({
+                                jsonrpc: '2.0',
+                                method: 'notifications/cancelled',
+                                params: {
+                                    requestId: messageId,
+                                    reason: String(reason)
+                                }
+                            }),
+                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                        ).catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
                     }
                 } else {
                     // Modern-era per-request-stream transport: aborting the
@@ -1513,6 +1549,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 responseReceived = true;
 
                 if (response instanceof Error) {
+                    scope?.end(outcomeForError(response));
                     return reject(response);
                 }
 
@@ -1534,12 +1571,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 try {
                     decoded = codec.decodeResult(request.method, response.result);
                 } catch (error) {
-                    return reject(error instanceof Error ? error : new Error(String(error)));
+                    const decodeError = error instanceof Error ? error : new Error(String(error));
+                    scope?.end({ type: 'failed', error: decodeError });
+                    return reject(decodeError);
                 }
                 if (decoded.kind === 'invalid') {
+                    scope?.end({ type: 'failed', error: decoded.error });
                     return reject(decoded.error);
                 }
                 if (decoded.kind === 'input_required') {
+                    scope?.end({ type: 'result', result: response.result });
                     // Manual mode (the primitive any driver layers over):
                     // hand the input-required value back to the caller.
                     if (options?.allowInputRequired === true) {
@@ -1563,33 +1604,59 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                 legOptions
                             )
                     };
-                    return resolve(this._resolveNonCompleteResult(decoded, flow) as Promise<StandardSchemaV1.InferOutput<T>>);
+                    // Embedded input requests are fulfilled in this leg's context, so their spans nest under it.
+                    const inputRequired = decoded;
+                    return resolve(
+                        runInScope(scope, () => this._resolveNonCompleteResult(inputRequired, flow)) as Promise<
+                            StandardSchemaV1.InferOutput<T>
+                        >
+                    );
                 }
                 const result = decoded.result;
 
-                validateStandardSchema(resultSchema, result).then(parseResult => {
-                    if (parseResult.success) {
-                        resolve(parseResult.data);
-                    } else {
-                        reject(new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: ${parseResult.error}`));
+                validateStandardSchema(resultSchema, result).then(
+                    parseResult => {
+                        if (parseResult.success) {
+                            scope?.end({ type: 'result', result: response.result });
+                            resolve(parseResult.data);
+                        } else {
+                            const error = new SdkError(
+                                SdkErrorCode.InvalidResult,
+                                `Invalid result for ${request.method}: ${parseResult.error}`
+                            );
+                            scope?.end({ type: 'failed', error });
+                            reject(error);
+                        }
+                    },
+                    error => {
+                        scope?.end({ type: 'failed', error });
+                        reject(error);
                     }
-                }, reject);
+                );
             });
 
-            onAbort = () => cancel(options?.signal?.reason);
+            onAbort = () => cancel(options?.signal?.reason, 'cancelled');
             options?.signal?.addEventListener('abort', onAbort, { once: true });
 
             const timeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }));
+            const timeoutHandler = () => cancel(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout }), 'timeout');
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport
-                .send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers, requestSignal: requestAbort?.signal })
-                .catch(error => {
-                    this._progressHandlers.delete(messageId);
-                    reject(error);
-                });
+            const transport = this._transport;
+            runInScope(scope, () =>
+                transport.send(outbound, {
+                    relatedRequestId,
+                    resumptionToken,
+                    onresumptiontoken,
+                    headers,
+                    requestSignal: requestAbort?.signal
+                })
+            ).catch(error => {
+                this._progressHandlers.delete(messageId);
+                scope?.end({ type: 'failed', error });
+                reject(error);
+            });
         }).finally(() => {
             // Per-request cleanup that must run on every exit path. Consolidated
             // here so new exit paths added to the promise body can't forget it.
@@ -1667,14 +1734,81 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
                 // Send the notification, but don't await it here to avoid blocking.
                 // Handle potential errors with a .catch().
-                this._transport?.send(jsonrpcNotification, options).catch(error => this._onerror(error));
+                this._sendNotificationMessage(jsonrpcNotification, options).catch(error => this._onerror(error));
             });
 
             // Return immediately.
             return;
         }
 
-        await this._transport.send(jsonrpcNotification, options);
+        await this._sendNotificationMessage(jsonrpcNotification, options);
+    }
+
+    /** Writes an outbound notification to the transport, observed by the instrumentation when one is configured. */
+    private async _sendNotificationMessage(message: JSONRPCNotification, options?: TransportSendOptions): Promise<void> {
+        const transport = this._transport;
+        if (!transport) return;
+        const { message: outbound, scope } = this._startOutbound(message);
+        if (scope === undefined) return transport.send(outbound, options);
+        try {
+            await scope.run(() => transport.send(outbound, options));
+        } catch (error) {
+            scope.end({ type: 'failed', error });
+            throw error;
+        }
+        scope.end({ type: 'delivered' });
+    }
+
+    /** Starts the instrumentation scope for an outbound message and merges its trace-context carrier into `params._meta`. */
+    private _startOutbound<T extends JSONRPCRequest | JSONRPCNotification>(message: T): { message: T; scope: GuardedScope | undefined } {
+        const instrumentation = this._options?.instrumentation;
+        if (instrumentation?.send === undefined) return { message, scope: undefined };
+        const params = message.params;
+        const carrier = traceContextCarrier(params?._meta);
+        const scope = startScope(
+            () =>
+                instrumentation.send?.({
+                    method: message.method,
+                    ...('id' in message && { id: message.id }),
+                    ...(params !== undefined && { params }),
+                    ...this._operationSession(),
+                    carrier
+                }),
+            error => this._onerror(error)
+        );
+        if (Object.keys(carrier).length === 0) return { message, scope };
+        return { message: { ...message, params: { ...params, _meta: { ...params?._meta, ...carrier } } }, scope };
+    }
+
+    /** Starts the instrumentation scope for an inbound request or notification. */
+    private _startInbound(
+        message: JSONRPCRequest | JSONRPCNotification,
+        handled: boolean,
+        extra?: MessageExtraInfo
+    ): GuardedScope | undefined {
+        const instrumentation = this._options?.instrumentation;
+        if (instrumentation?.receive === undefined) return undefined;
+        const params = message.params;
+        const meta = params?._meta;
+        return startScope(
+            () =>
+                instrumentation.receive?.({
+                    method: message.method,
+                    ...('id' in message && { id: message.id }),
+                    ...(params !== undefined && { params }),
+                    ...(isPlainObject(meta) && { meta }),
+                    ...this._operationSession(),
+                    handled,
+                    ...(extra?.request !== undefined && { httpRequest: extra.request })
+                }),
+            error => this._onerror(error)
+        );
+    }
+
+    private _operationSession(): { sessionId?: string; protocolVersion?: string } {
+        const sessionId = this._transport?.sessionId;
+        const protocolVersion = this._negotiatedProtocolVersion;
+        return { ...(sessionId !== undefined && { sessionId }), ...(protocolVersion !== undefined && { protocolVersion }) };
     }
 
     /**
