@@ -7,7 +7,7 @@
  */
 
 import type { CallToolResult, InputRequests, InputResponses } from '@modelcontextprotocol/core-internal';
-import type { DetailedTask, Task, TaskStatus } from '@modelcontextprotocol/core-internal/ext/tasks';
+import type { DetailedTask, Task, TaskStatus } from '@modelcontextprotocol/core/ext/tasks';
 
 import type { CreateTaskParams, TaskAccess, TaskStore } from './store';
 

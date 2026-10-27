@@ -83,6 +83,7 @@ How the work behind a task runs — a queue, a workflow engine, a durable-execut
 - A request that does not declare `io.modelcontextprotocol/tasks` in its client capabilities is refused with `-32021` — from `tasks.create`, from the `tasks/*` methods, and by the extension's `tools/call` middleware for any handle minted some other way.
 - `tasks/update`'s `inputResponses` shares its name with the multi-round-trip retry field: the protocol layer lifts it out of the params and the extension reads it back from `ctx.mcpReq.inputResponses`.
 - A plain `client.callTool` rejects `resultType: "task"`; the requester half of the extension is `TasksClientExtension` from `@modelcontextprotocol/client/ext/tasks` ([Tasks on the client](../clients/tasks.md)).
+- The wire schemas, types and constants live in `@modelcontextprotocol/core/ext/tasks`, for code that implements either side without the SDK's server or client; both subpaths re-export them.
 - `notifications/tasks` over `subscriptions/listen` is not implemented (typescript-sdk#2569); polling only.
 
 ## Recap

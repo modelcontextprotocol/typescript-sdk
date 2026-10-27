@@ -24,8 +24,8 @@
 
 import type { CallToolRequestParams, CallToolResult, InputResponses, RequestOptions } from '@modelcontextprotocol/core-internal';
 import { CompatibilityCallToolResultSchema, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
-import type { CreateTaskResult, DetailedTask } from '@modelcontextprotocol/core-internal/ext/tasks';
-import { createTaskResultSchema, detailedTaskSchema, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core-internal/ext/tasks';
+import type { CreateTaskResult, DetailedTask } from '@modelcontextprotocol/core/ext/tasks';
+import { createTaskResultSchema, detailedTaskSchema, TASKS_EXTENSION_ID } from '@modelcontextprotocol/core/ext/tasks';
 import * as z from 'zod/v4';
 
 import type { Client } from '../../client/client';

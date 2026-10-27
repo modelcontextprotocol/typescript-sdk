@@ -19,6 +19,9 @@
             "@modelcontextprotocol/core/ext/skills": [
                 "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/ext/skills/index.ts"
             ],
+            "@modelcontextprotocol/core/ext/tasks": [
+                "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core/src/ext/tasks/index.ts"
+            ],
             "@modelcontextprotocol/core-internal/public": [
                 "./node_modules/@modelcontextprotocol/client/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ],
