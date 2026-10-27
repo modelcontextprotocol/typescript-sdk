@@ -135,14 +135,18 @@ describe('SEP-2106: registerTool with non-object outputSchema (type-level)', () 
             content: [],
             structuredContent: [n, n + 1] satisfies number[]
         }));
-        // NOTE (SEP-2106 PR-B verification item): the OutputArgs generic on registerTool is
-        // captured but does NOT currently flow into the callback's return type — ToolCallback's
-        // SendResultT is `CallToolResult | InputRequiredResult` (structuredContent: unknown), so
-        // a wrong-typed structuredContent ALSO compiles. Runtime validation (validateToolOutput)
-        // is the guard. Tightening the generic is out of this commit's scope.
-        server.registerTool('arr-loose', { outputSchema: z.array(z.number()) }, async () => ({
+        // @ts-expect-error structuredContent must match the declared outputSchema.
+        server.registerTool('arr-strict', { outputSchema: z.array(z.number()) }, async () => ({
             content: [],
-            structuredContent: 'not-an-array' // compiles: structuredContent is `unknown`
+            structuredContent: 'not-an-array'
+        }));
+        server.registerTool('arr-error', { outputSchema: z.array(z.number()) }, async () => ({
+            content: [{ type: 'text', text: 'failed' }],
+            isError: true
+        }));
+        server.registerTool('untyped-output', {}, async () => ({
+            content: [],
+            structuredContent: 'any JSON value remains valid without outputSchema'
         }));
         expectTypeOf<number[]>().toMatchTypeOf<z.infer<ReturnType<typeof z.array<z.ZodNumber>>>>();
     });
