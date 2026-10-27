@@ -11,9 +11,8 @@ const packageJsonPaths = await fg('packages/**/package.json', {
     ignore: ['**/node_modules/**', '**/batch-test/**']
 });
 const packages = packageJsonPaths.map(p => {
-    const rootDir = join(process.cwd(), p.replace('/package.json', ''));
     const manifest = JSON.parse(readFileSync(join(process.cwd(), p), 'utf8'));
-    return { rootDir, manifest };
+    return { dir: p.replace('/package.json', ''), manifest };
 });
 
 // @modelcontextprotocol/core is published for direct schema imports (CallToolResultSchema.parse(...)),
@@ -22,7 +21,8 @@ const packages = packageJsonPaths.map(p => {
 // (the schemas mirror the documented types 1:1) so monorepo-wide invalid-link validation can stay ON.
 const DOCS_EXCLUDED_PACKAGES = new Set(['@modelcontextprotocol/core']);
 const publicPackages = packages.filter(p => p.manifest.private !== true && !DOCS_EXCLUDED_PACKAGES.has(p.manifest.name));
-const entryPoints = publicPackages.map(p => p.rootDir);
+// TypeDoc reads entry points as globs, where a Windows backslash is an escape.
+const entryPoints = publicPackages.map(p => p.dir);
 
 console.log(
     'Typedoc selected public packages:',
