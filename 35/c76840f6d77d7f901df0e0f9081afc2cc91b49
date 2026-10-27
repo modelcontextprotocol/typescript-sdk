@@ -1,0 +1,39 @@
+.changeset/server-extensions.md
+  s_555766defd684e::t_59f98bd0949236 7,9
+docs/advanced/extensions.md
+  s_555766defd684e::t_2bd4cb55b7ecd9 79,82-97,105,126-134,136,146-147
+packages/client/src/client/client.ts
+  s_555766defd684e::t_ed8e532317c7e6 56,699,832
+packages/client/src/client/extension.ts
+  s_555766defd684e::t_0033bd1724c341 2,10-16,46-51,68-69,80-85,108-110,114-125,133,139
+packages/client/test/client/extensions.test.ts
+  s_555766defd684e::t_ed632e2db5bf7f 203-236
+packages/core-internal/src/shared/extensions.ts
+  s_555766defd684e::t_9e85160001bbd8 7,10-142
+packages/core-internal/src/shared/protocol.ts
+  s_555766defd684e::t_188e4b72f83bd7 61,209-224,832-834,1207,1838-1849,1853-1859,1861,1924,1929-1931,1936-1946,1951,1955
+packages/server/src/server/extension.ts
+  s_555766defd684e::t_657f266a2b05c4 9-15,45-50,65-66,80,99-101,106-113,122,128
+packages/server/src/server/perRequestTransport.ts
+  s_555766defd684e::t_8bf4292c3581a6 55,300-303
+packages/server/src/server/server.ts
+  s_555766defd684e::t_940e45b4a8bd80 42,47,360-362,486
+packages/server/test/server/extensions.test.ts
+  s_555766defd684e::t_fa970b8834d73e 216-308
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "35c76840f6d77d7f901df0e0f9081afc2cc91b49",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
