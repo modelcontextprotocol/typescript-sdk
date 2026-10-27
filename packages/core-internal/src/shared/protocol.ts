@@ -1419,7 +1419,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         request: Request,
         resultSchema: T,
         options?: RequestOptions,
-        // Only the explicit-schema `request()` path consults `acceptResultType`.
+        // Whether an `acceptResultType` kind reaches the caller's schema (explicit-schema calls) or is refused (typed calls).
         acceptExtensionResultTypes = false
     ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
@@ -1894,9 +1894,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * vocabulary (the Tasks extension answers `tools/call` with
      * `resultType: "task"`). A raw response with that discriminator skips the
      * era codec's decode and is validated against the caller's explicit
-     * result schema as-is, discriminator included. Only the explicit-schema
-     * `request(request, resultSchema)` path consults this; typed spec calls
-     * such as `callTool` keep the closed vocabulary. Client extensions reach this through
+     * result schema as-is, discriminator included, on the explicit-schema
+     * `request(request, resultSchema)` path. Typed spec calls such as
+     * `callTool` reject it with `UnsupportedResultType` on either protocol
+     * version. Client extensions reach this through
      * `ctx.acceptResultType` in their `setup`.
      *
      * @returns A function that withdraws the declaration.

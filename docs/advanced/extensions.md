@@ -79,7 +79,7 @@ The server then:
 1. Checks the ids. A duplicate fails construction before any extension is set up, and so does an entry for an installed id in `capabilities.extensions`: an extension's entry belongs to it, so set its settings with `ctx.capability`. `registerCapabilities` refuses that entry later too.
 2. In array order, advertises each extension under `capabilities.extensions[id]` as `{}` and runs its `setup`. Legacy connections see the map in the `initialize` result, and 2026-07-28 connections see it in `server/discover`. Settings from `ctx.capability` replace the `{}`.
 
-A `setup` that throws fails the constructor, so a server with a partly set up extension never exists. That includes `ctx.require` for an extension the server doesn't install.
+A `setup` that throws fails the constructor, so a server with a partly set up extension never exists. That includes `ctx.require` for an extension the server doesn't install. A `setup` that runs after an `await`, or after an async `setup` listed before it, fails `connect` instead, with the same error.
 
 `setup` may be async, to load what the extension serves:
 
@@ -143,6 +143,6 @@ A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool hand
 
 - An extension is `{ id, setup(ctx) }`, passed in `McpServerOptions.extensions` or `ClientOptions.extensions`.
 - `setup` registers everything through `ctx`: `capability`, `setRequestHandler`, `use`, `require`, plus `ctx.mcp` on the server and `acceptResultType` on the client.
-- Extensions are set up in array order, and `setup` may be async; `connect` waits for it. Duplicate ids, a `capabilities.extensions` entry for an installed id, and a `ctx.require` for an extension that isn't installed fail construction.
+- Extensions are set up in array order, and `setup` may be async; `connect` waits for it. Duplicate ids, a `capabilities.extensions` entry for an installed id, and a `ctx.require` for an extension that isn't installed fail construction, or `connect` once an async `setup` is involved.
 - Middleware composes at dispatch time, extensions' outside the application's, and applies to handlers registered later, including other extensions' handlers. It sees the request before validation.
 - The SDK owns the hooks, the checks and the capability advertisement, not the extension's state or execution.
