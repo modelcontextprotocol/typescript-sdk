@@ -35,6 +35,14 @@ npm view @modelcontextprotocol/server@latest exports --json | grep -c '"./ext/sk
 - **The latest release has it:** upgrade (`server` and `client` to the same version, if the project uses both) and continue.
 - **It does not:** stop here. Tell the user that Skills over MCP is not in a released version of the SDK yet, and that this works once a release exports `@modelcontextprotocol/server/ext/skills`. Do not write `skills/list` handlers or `skill://` resources by hand as a workaround. Clients verify every file against the digests and frontmatter the extension publishes, and the extension also declares the capability, pages the catalog and handles both protocol versions, so a hand-written copy is easy to get wrong in ways those clients refuse, and drifts from the spec.
 
+**Check how the installed release takes extensions.** Servers take the skills extension in the `extensions` option. Releases that export `./ext/skills` but predate that option attach it instead:
+
+```bash
+grep -c 'ServerExtension' node_modules/@modelcontextprotocol/server/dist/index.d.mts
+```
+
+If it prints `0`, upgrade if the latest release has the option. Otherwise write `skills.attach(server)` after constructing the server and before it connects, wherever the steps below pass `{ extensions: [skills] }`. `attach` is deprecated in later releases.
+
 ## Serve skills
 
 **Pick where the skills come from.** Each source gives you an extension that you pass in `extensions` as shown below; only the first three have `reload()`:
