@@ -1,0 +1,23 @@
+skills/mcp-typescript-sdk-skills/SKILL.md
+  s_555766defd684e::t_6a0f9cf8ef46b4 44,121
+.changeset/skills-as-extension.md
+  s_555766defd684e::t_8c24b818c1bc89 5
+test/e2e/requirements.ts
+  s_555766defd684e::t_d03c5a79faa313 3418
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1116ccd091c9b184f6585a32dfd227b5dacb7f7f",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
