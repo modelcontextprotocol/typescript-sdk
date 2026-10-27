@@ -180,8 +180,9 @@ export class SkillsClient {
     async list(params: { cursor?: string } = {}, options?: RequestOptions): Promise<SkillListing> {
         if (!this.supported) {
             if (clientInternals.enforceStrictCapabilities(this.#client)) throw unsupported(SKILLS_LIST_METHOD);
-            // eslint-disable-next-line no-console
-            console.debug(`SkillsClient.list() called but the server does not declare ${SKILLS_EXTENSION_ID} - returning an empty list`);
+            clientInternals
+                .logger(this.#client)
+                .debug?.(`SkillsClient.list() called but the server does not declare ${SKILLS_EXTENSION_ID} - returning an empty list`);
             return { skills: [], invalid: [] };
         }
         const page = await this.#pages(SKILLS_LIST_METHOD, this.#envelopes().list, {}, params.cursor, options, result => result.skills);
