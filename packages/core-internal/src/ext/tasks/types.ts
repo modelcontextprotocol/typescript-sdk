@@ -1,19 +1,6 @@
 /*
- * MCP Tasks extension wire types (extension id: io.modelcontextprotocol/tasks).
- *
- * Adapted from modelcontextprotocol/ext-tasks, pinned at commit dcc8d2b
- * (SEP-2663 Final): `schema/draft/schema.ts`, re-based on
- * `@modelcontextprotocol/server` v2 types — the modern SDK ships the MRTR
- * `InputRequest`/`InputResponse` unions the upstream file's TODOs point at, so
- * those are re-exported rather than re-declared. The JSON-RPC request shapes
- * are declared standalone (not extending the SDK's `JSONRPCRequest`) so the
- * wire contract stays pinned to this file. `notifications/tasks` and the
- * subscription additions are omitted: v1 is polling-only (the engine contract)).
- *
- * This module (with ./schemas) is the ONLY import source for task wire types
- * in this repo — the SDK's deprecated 2025-11-25 task exports (`Task`,
- * `CreateTaskResult`, `TaskStatus`, `GetTaskRequest`, ...) carry the removed
- * legacy wire shape and must not be used (the engine contract)).
+ * MCP Tasks extension wire types (io.modelcontextprotocol/tasks), adapted from
+ * modelcontextprotocol/ext-tasks at dcc8d2b (SEP-2663 Final).
  * https://github.com/modelcontextprotocol/ext-tasks
  *
  * Copyright (c) Model Context Protocol contributors

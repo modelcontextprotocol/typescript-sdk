@@ -1,19 +1,8 @@
 /*
- * Hand-written zod v4 schemas for the MCP Tasks extension wire types
- * (./types). Upstream commits only generated JSON Schema
- * (`schema/draft/schema.json`); these runtime schemas are authored against
- * modelcontextprotocol/ext-tasks pinned at commit dcc8d2b (SEP-2663 Final).
+ * Zod schemas for the MCP Tasks extension wire types (./types), written against
+ * modelcontextprotocol/ext-tasks at dcc8d2b (SEP-2663 Final). Objects are loose
+ * and `resultType` literals are required on results.
  * https://github.com/modelcontextprotocol/ext-tasks
- *
- * Deliberate deviations from the generated JSON Schema, which reflects the
- * pre-envelope TS source rather than the wire:
- * - Objects are loose (unknown keys pass through) where the JSON Schema says
- *   `additionalProperties: false`: modern responses carry `resultType` and
- *   `_meta`, and modern request params carry the `_meta` envelope.
- * - `resultType` literals are REQUIRED on result schemas (spec MUST; the
- *   JSON Schema omits the field entirely).
- * - `InputRequest`/`InputResponse` get minimal structural checks (the JSON Schema
- *   degenerates them to `anyOf [{}, {}, {}]`).
  *
  * Copyright (c) Model Context Protocol contributors
  */
