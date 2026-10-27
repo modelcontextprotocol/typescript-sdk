@@ -197,9 +197,10 @@ requests, the per-request `_meta.logLevel` envelope key is the filter — see
 - **`CallToolResult.content` keeps the v1 parse tolerance on the legacy era.** An
   inbound result without `content` defaults to `[]` (deployed servers omit it
   alongside `structuredContent`); 2026-07-28 connections stay strict. Authoring is
-  unchanged and era-independent: the TypeScript surface requires `content` on handler
-  results, and a content-less handler result is normalized to `content: []` before it
-  reaches the wire. One sharpening remains: a content-less body carrying another
+  era-independent: the TypeScript surface requires `content` on handler results, except
+  successful results of a `registerTool` tool with an `outputSchema`, which may omit it.
+  `McpServer` gives such a result a JSON text block of its `structuredContent`; any other
+  content-less handler result is normalized to `content: []` before it reaches the wire. One sharpening remains: a content-less body carrying another
   result family's vocabulary (a task handle or an `input_required` round) is still
   rejected loudly — tolerance never turns a different result kind into a silent empty
   success. A body whose only foreign key was `resultType` strips to an empty object

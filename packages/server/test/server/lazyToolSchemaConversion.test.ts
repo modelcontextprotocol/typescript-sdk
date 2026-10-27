@@ -59,7 +59,7 @@ describe('lazy tool schema conversion', () => {
         const output = counted(z.object({ b: z.number() }));
         const server = new McpServer({ name: 'lazy', version: '0' });
 
-        server.registerTool('t', { inputSchema: input.schema, outputSchema: output.schema }, async () => ({ content: [] }));
+        server.registerTool('t', { inputSchema: input.schema, outputSchema: output.schema }, async () => ({ structuredContent: { b: 1 } }));
         expect(input.calls).toEqual({ input: 0, output: 0 });
         expect(output.calls).toEqual({ input: 0, output: 0 });
 
@@ -86,7 +86,7 @@ describe('lazy tool schema conversion', () => {
     it('outputSchemaJson converts on first read and memoises', () => {
         const output = counted(z.object({ b: z.number() }));
         const server = new McpServer({ name: 'lazy', version: '0' });
-        const tool = server.registerTool('t', { outputSchema: output.schema }, async () => ({ content: [] }));
+        const tool = server.registerTool('t', { outputSchema: output.schema }, async () => ({ structuredContent: { b: 1 } }));
         expect(output.calls.output).toBe(0);
 
         const first = tool.outputSchemaJson;
@@ -99,7 +99,7 @@ describe('lazy tool schema conversion', () => {
 
     it('update({ outputSchema }) replaces outputSchemaJson', () => {
         const server = new McpServer({ name: 'lazy', version: '0' });
-        const tool = server.registerTool('t', { outputSchema: z.object({ b: z.number() }) }, async () => ({ content: [] }));
+        const tool = server.registerTool('t', { outputSchema: z.object({ b: z.number() }) }, async () => ({ structuredContent: { b: 1 } }));
         expect(tool.outputSchemaJson).toEqual(standardSchemaToJsonSchema(z.object({ b: z.number() }), 'output'));
 
         const replacement = counted(z.object({ c: z.string() }));
@@ -135,7 +135,9 @@ describe('lazy tool schema conversion', () => {
         const server = new McpServer({ name: 'lazy', version: '0' });
         const inputSchema = z.object({ a: z.string().describe('first'), n: z.number().optional() });
         const outputSchema = z.object({ ok: z.boolean() });
-        server.registerTool('t', { title: 'T', description: 'd', inputSchema, outputSchema }, async () => ({ content: [] }));
+        server.registerTool('t', { title: 'T', description: 'd', inputSchema, outputSchema }, async () => ({
+            structuredContent: { ok: true }
+        }));
         server.registerTool('bare', {}, async () => ({ content: [] }));
 
         const { body } = await listTools(server);

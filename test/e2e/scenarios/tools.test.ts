@@ -98,12 +98,15 @@ function schemaServer(): McpServer {
     s.registerTool(
         'structured-mismatch',
         { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
-        // intentionally invalid structuredContent (tests server-side validation rejects it)
-        () => ({ structuredContent: { value: 'not-a-number' }, content: [] })
+        // Deliberately bypass the compile-time output check to exercise the runtime validation guard.
+        () => ({ structuredContent: { value: 'not-a-number' }, content: [] }) as never
     );
-    s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
-        content: [{ type: 'text', text: 'handler-body-no-structured' }]
-    }));
+    s.registerTool(
+        'structured-missing',
+        { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
+        // Deliberately bypass the compile-time output check to exercise the runtime missing-output guard.
+        () => ({ content: [{ type: 'text', text: 'handler-body-no-structured' }] }) as never
+    );
     s.registerTool('structured-error-skip', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         isError: true,
         content: [{ type: 'text', text: 'handler-returned-isError' }]
@@ -665,6 +668,27 @@ verifies('tools:call:structured-content:text-mirror', async ({ transport }: Test
     const r = await client.callTool({ name: 'structured', arguments: { n: 21 } });
     expect(r.structuredContent).toEqual({ doubled: 42 });
     expect(r.content).toContainEqual({ type: 'text', text: JSON.stringify({ doubled: 42 }) });
+});
+
+verifies('server:tools:structured-content:text-when-content-omitted', async ({ transport }: TestArgs) => {
+    const makeServer = (): McpServer => {
+        const s = new McpServer({ name: 's', version: '0' });
+        const outputSchema = z.object({ data: z.string() });
+        s.registerTool('omitted', { inputSchema: z.object({}), outputSchema }, () => ({ structuredContent: { data: 'x' } }));
+        s.registerTool('empty', { inputSchema: z.object({}), outputSchema }, () => ({ content: [], structuredContent: { data: 'x' } }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const omitted = await client.callTool({ name: 'omitted', arguments: {} });
+    expect(omitted.isError).toBeFalsy();
+    expect(omitted.structuredContent).toEqual({ data: 'x' });
+    expect(omitted.content).toEqual([{ type: 'text', text: JSON.stringify({ data: 'x' }) }]);
+
+    const empty = await client.callTool({ name: 'empty', arguments: {} });
+    expect(empty.structuredContent).toEqual({ data: 'x' });
+    expect(empty.content).toEqual([]);
 });
 
 verifies(['client:output-schema:validate', 'client:output-schema:missing-structured'], async ({ transport }: TestArgs) => {
