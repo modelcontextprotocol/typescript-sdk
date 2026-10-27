@@ -55,6 +55,7 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
     'middleware/fastify': { name: '@modelcontextprotocol/fastify', exportKeys: ['.'] },
     'middleware/hono': { name: '@modelcontextprotocol/hono', exportKeys: ['.'] },
     'middleware/node': { name: '@modelcontextprotocol/node', exportKeys: ['.'] },
+    otel: { name: '@modelcontextprotocol/otel', exportKeys: ['.'] },
     core: {
         name: '@modelcontextprotocol/core',
         // './internal' is the wholesale internal seam the sibling SDK packages resolve at

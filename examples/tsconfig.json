@@ -23,6 +23,7 @@
             "@modelcontextprotocol/fastify": ["./node_modules/@modelcontextprotocol/fastify/src/index.ts"],
             "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
             "@modelcontextprotocol/hono": ["./node_modules/@modelcontextprotocol/hono/src/index.ts"],
+            "@modelcontextprotocol/otel": ["./node_modules/@modelcontextprotocol/otel/src/index.ts"],
             "@modelcontextprotocol/core-internal": [
                 "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/index.ts"
             ],

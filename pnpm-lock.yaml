@@ -81,6 +81,25 @@ catalogs:
     wrangler:
       specifier: ^4.14.4
       version: 4.78.0
+  otel:
+    '@opentelemetry/api':
+      specifier: ^1.9.0
+      version: 1.9.1
+    '@opentelemetry/context-async-hooks':
+      specifier: ^2.12.0
+      version: 2.12.0
+    '@opentelemetry/core':
+      specifier: ^2.12.0
+      version: 2.12.0
+    '@opentelemetry/sdk-metrics':
+      specifier: ^2.12.0
+      version: 2.12.0
+    '@opentelemetry/sdk-trace-base':
+      specifier: ^2.12.0
+      version: 2.12.0
+    '@opentelemetry/sdk-trace-node':
+      specifier: ^2.12.0
+      version: 2.12.0
   runtimeClientOnly:
     cross-spawn:
       specifier: ^7.0.5
@@ -328,12 +347,24 @@ importers:
       '@modelcontextprotocol/node':
         specifier: workspace:^
         version: link:../packages/middleware/node
+      '@modelcontextprotocol/otel':
+        specifier: workspace:^
+        version: link:../packages/otel
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../packages/server
       '@modelcontextprotocol/server-legacy':
         specifier: workspace:^
         version: link:../packages/server-legacy
+      '@opentelemetry/api':
+        specifier: catalog:otel
+        version: 1.9.1
+      '@opentelemetry/sdk-metrics':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
       '@valibot/to-json-schema':
         specifier: catalog:devTools
         version: 1.6.0(valibot@1.3.1(typescript@5.9.3))
@@ -798,6 +829,43 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+
+  examples/opentelemetry:
+    dependencies:
+      '@hono/node-server':
+        specifier: catalog:runtimeServerOnly
+        version: 2.1.5(hono@4.12.9)
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/hono':
+        specifier: workspace:*
+        version: link:../../packages/middleware/hono
+      '@modelcontextprotocol/otel':
+        specifier: workspace:*
+        version: link:../../packages/otel
+      '@modelcontextprotocol/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      '@opentelemetry/api':
+        specifier: catalog:otel
+        version: 1.9.1
+      '@opentelemetry/sdk-metrics':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-node':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.6
@@ -1806,6 +1874,75 @@ importers:
       vitest:
         specifier: catalog:devTools
         version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/otel:
+    devDependencies:
+      '@eslint/js':
+        specifier: catalog:devTools
+        version: 9.39.4
+      '@modelcontextprotocol/client':
+        specifier: workspace:^
+        version: link:../client
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/node':
+        specifier: workspace:^
+        version: link:../middleware/node
+      '@modelcontextprotocol/server':
+        specifier: workspace:^
+        version: link:../server
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@opentelemetry/api':
+        specifier: catalog:otel
+        version: 1.9.1
+      '@opentelemetry/context-async-hooks':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-metrics':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base':
+        specifier: catalog:otel
+        version: 2.12.0(@opentelemetry/api@1.9.1)
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20260327.2
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.4
+      eslint-config-prettier:
+        specifier: catalog:devTools
+        version: 10.1.8(eslint@9.39.4)
+      eslint-plugin-n:
+        specifier: catalog:devTools
+        version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      typescript-eslint:
+        specifier: catalog:devTools
+        version: 8.57.2(eslint@9.39.4)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
 
   packages/server:
     dependencies:
@@ -3370,6 +3507,50 @@ packages:
   '@opentelemetry/api@1.9.1':
     resolution: {integrity: sha512-gLyJlPHPZYdAk1JENA9LeHejZe1Ti77/pTeFm/nMXmQH/HFZlcS/O2XJB+L8fkbrNSqhdtlvjBVjxwUYanNH5Q==}
     engines: {node: '>=8.0.0'}
+
+  '@opentelemetry/context-async-hooks@2.12.0':
+    resolution: {integrity: sha512-iK/1nD7mmZVkuYjVjkdFBiCvzntJdFny1S3CYbUYyOq7V5enL6XX+gJ7eh965L1LnS11VA8mQ7Ej/ck04SB0MQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/core@2.12.0':
+    resolution: {integrity: sha512-1HsSAuvT4/my0QrXWsyXFdWjKaPeCHsismKZgEEIb8NK13LP6DrMRlsUbvD/0F9mDWK3xDom9AMv3IscxgOnOQ==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/resources@2.12.0':
+    resolution: {integrity: sha512-+rSRoOdln6NhXTVcBdHSlZxJDNzwxadeweK2ltZO3tVtfp6aklABc06xclDk6ovRR+EiGgIcSbh/6NgjFhnb3A==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
+  '@opentelemetry/sdk-metrics@2.12.0':
+    resolution: {integrity: sha512-mVMaEHwCUJuY3S4Esn+nT0yQA3qCEGh+SOPJsXygU0Gl453WcsDNjtEa8EfdewMwoLyr1tlofB4fXytVpiXuow==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.9.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace-base@2.12.0':
+    resolution: {integrity: sha512-JOERgZCxRM06FEJ5kEWxlSRChah6MmXDx3KwCruqEv/iEyLkTokCSemf2y1w8oIHtfrr8EVTpzebq/31vn2Cpg==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace-node@2.12.0':
+    resolution: {integrity: sha512-9DufH1IlmQMoKAfot5y/FhTP1RnmhLb5K6eKmJO/bvzPjYwPAazoiAUbTZFdPbqxOXN0FEbhZx/e6SB1Og4jmg==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    deprecated: Use @opentelemetry/sdk-trace package
+    peerDependencies:
+      '@opentelemetry/api': '>=1.0.0 <1.10.0'
+
+  '@opentelemetry/sdk-trace@2.12.0':
+    resolution: {integrity: sha512-ImVuRQ6faOsTi1Wna88s2avgrrf/iDgXPigIeynkUhjstMuoQUDOJXgkez2j1mlU4btjXcXBGa+q7qKFYR3GsA==}
+    engines: {node: ^18.19.0 || >=20.6.0}
+    peerDependencies:
+      '@opentelemetry/api': '>=1.3.0 <1.10.0'
 
   '@opentelemetry/semantic-conventions@1.40.0':
     resolution: {integrity: sha512-cifvXDhcqMwwTlTK04GBNeIe7yyo28Mfby85QXFe1Yk8nmi36Ab/5UQwptOx84SsoGNRg+EVSjwzfSZMy6pmlw==}
@@ -8033,8 +8214,50 @@ snapshots:
     dependencies:
       '@octokit/openapi-types': 27.0.0
 
-  '@opentelemetry/api@1.9.1':
-    optional: true
+  '@opentelemetry/api@1.9.1': {}
+
+  '@opentelemetry/context-async-hooks@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+
+  '@opentelemetry/core@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/semantic-conventions': 1.40.0
+
+  '@opentelemetry/resources@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.40.0
+
+  '@opentelemetry/sdk-metrics@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.1)
+
+  '@opentelemetry/sdk-trace-base@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.40.0
+
+  '@opentelemetry/sdk-trace-node@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/context-async-hooks': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/sdk-trace-base': 2.12.0(@opentelemetry/api@1.9.1)
+
+  '@opentelemetry/sdk-trace@2.12.0(@opentelemetry/api@1.9.1)':
+    dependencies:
+      '@opentelemetry/api': 1.9.1
+      '@opentelemetry/core': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/resources': 2.12.0(@opentelemetry/api@1.9.1)
+      '@opentelemetry/semantic-conventions': 1.40.0
 
   '@opentelemetry/semantic-conventions@1.40.0': {}
 

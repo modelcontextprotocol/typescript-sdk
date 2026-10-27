@@ -59,6 +59,8 @@ They are intentionally thin adapters: they should not introduce new MCP function
 - **`@modelcontextprotocol/fastify`**: Fastify helpers (app defaults + Host header validation)
 - **`@modelcontextprotocol/hono`**: Hono helpers (app defaults + JSON body parsing hook + Host header validation)
 
+The SDK also publishes **`@modelcontextprotocol/otel`**, OpenTelemetry tracing and metrics for clients and servers (see [OpenTelemetry](docs/advanced/opentelemetry.md)).
+
 ## Installation
 
 ### Server
