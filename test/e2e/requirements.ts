@@ -3599,6 +3599,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A skills/list that repeats a URI makes SkillsClient.list() throw INVALID_RESULT naming every copy; with skipInvalid it returns the valid entries and lists the refused ones, by index, in invalid.'
     },
+    'typescript:skills:attach:rules': {
+        source: 'sdk',
+        behavior:
+            'The deprecated SkillsExtension.attach: attaching the same skills extension to a server twice does nothing; attaching a second extension throws and leaves the server serving the first; attaching to a connected server throws.',
+        transports: ['inMemory'],
+        note: 'local API; the transport plays no part'
+    },
     'typescript:skills:extension:one-per-server': {
         source: 'sdk',
         behavior:

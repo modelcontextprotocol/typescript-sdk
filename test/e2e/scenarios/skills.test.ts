@@ -16,7 +16,7 @@ import { expect, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { Wired } from '../helpers/index';
-import { tapWire, wire } from '../helpers/index';
+import { defined, tapWire, wire } from '../helpers/index';
 import { verifies } from '../helpers/verifies';
 import type { TestArgs } from '../types';
 
@@ -889,6 +889,29 @@ verifies('typescript:skills:client:skip-invalid', async ({ transport }: TestArgs
 // ───────────────────────────────────────────────────────────────────────────────
 // Lifecycle
 // ───────────────────────────────────────────────────────────────────────────────
+
+verifies('typescript:skills:attach:rules', async ({ transport }: TestArgs) => {
+    const a = await catalogOf({ 'alpha/SKILL.md': skillMd('alpha', 'First catalog.') });
+    const b = await catalogOf({ 'bravo/SKILL.md': skillMd('bravo', 'Second catalog.') });
+    let server: McpServer | undefined;
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        a.attach(s);
+        a.attach(s);
+        expect(() => b.attach(s)).toThrow(/another skills extension is already attached/);
+        server = s;
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client, SKILLS_WIRE);
+
+    const { skills } = await new SkillsClient(client).list();
+    expect(skills.map(entry => entry.uri)).toEqual(['skill://alpha/SKILL.md']);
+
+    const connected = defined(server, 'server');
+    expect(() => a.attach(connected)).not.toThrow();
+    expect(() => b.attach(connected)).toThrow('attach skills before connecting the server');
+});
 
 verifies('typescript:skills:extension:one-per-server', async ({ transport }: TestArgs) => {
     const a = await catalogOf({ 'alpha/SKILL.md': skillMd('alpha', 'First catalog.') });

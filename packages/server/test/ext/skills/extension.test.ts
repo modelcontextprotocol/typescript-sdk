@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 
 import type { Skill } from '@modelcontextprotocol/core/ext/skills';
 import { ListSkillsRequestParamsSchema, ReadResourceDirectoryRequestParamsSchema } from '@modelcontextprotocol/core/ext/skills';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import type { SkillSource, SkillWarning } from '../../../src/ext/skills/index';
@@ -256,7 +257,7 @@ describe('setup', () => {
         const takesName: ServerExtension = {
             id: 'com.example/app',
             setup: ctx =>
-                ctx.mcp.registerResource(
+                void ctx.mcp.registerResource(
                     'io.modelcontextprotocol/skills',
                     new ResourceTemplate('app://{+path}', { list: undefined }),
                     {},
@@ -278,6 +279,38 @@ describe('setup', () => {
         newServer(new Hooked({ source: sourceOf() }));
         expect(calls).toBe(0);
         expect('afterSetup' in SkillsExtension.prototype).toBe(false);
+    });
+
+    it('still serves through the deprecated attach, with its rules', async () => {
+        const mcp = newServer();
+        const skills = new SkillsExtension({ source: sourceOf() });
+        skills.attach(mcp);
+        skills.attach(mcp);
+        expect(mcp.server.getCapabilities().extensions).toEqual({ 'io.modelcontextprotocol/skills': {} });
+        expect(await resultOf(mcp, 'skills/list')).toMatchObject({ skills: [gitWorkflow] });
+        expect(() => new SkillsExtension({ source: sourceOf() }).attach(mcp)).toThrow(/another skills extension is already attached/);
+        expect(() => new SkillsExtension({ source: sourceOf() }).attach(newServer(new SkillsExtension({ source: sourceOf() })))).toThrow(
+            /another skills extension is already attached/
+        );
+        const connected = newServer();
+        const [, serverSide] = InMemoryTransport.createLinkedPair();
+        await connected.connect(serverSide);
+        expect(() => new SkillsExtension({ source: sourceOf() }).attach(connected)).toThrow(/before connecting/);
+        await connected.close();
+    });
+
+    it('leaves no capability when attach fails on a taken template name', () => {
+        const mcp = newServer();
+        mcp.registerResource(
+            'io.modelcontextprotocol/skills',
+            new ResourceTemplate('app://{+path}', { list: undefined }),
+            {},
+            async uri => ({
+                contents: [{ uri: uri.href, text: 'app' }]
+            })
+        );
+        expect(() => new SkillsExtension({ source: sourceOf() }).attach(mcp)).toThrow(/already registered/);
+        expect(mcp.server.getCapabilities().extensions?.['io.modelcontextprotocol/skills']).toBeUndefined();
     });
 
     it('rejects an invalid cacheHint at construction', () => {
