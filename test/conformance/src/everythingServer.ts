@@ -44,6 +44,7 @@ import express from 'express';
 import * as z from 'zod/v4';
 
 import { conformanceSkills } from './skills';
+import { conformanceTasks, registerTaskFixtures } from './tasks';
 
 // Server state
 const resourceSubscriptions = new Set<string>();
@@ -167,9 +168,11 @@ function createMcpServer() {
             // data.reason 'invalid_request_state'.
             requestState: { verify: requestStateCodec.verify },
             // SEP-2640: skills/list, skills/get, resources/directory/read and the skill:// resource template.
-            extensions: [conformanceSkills]
+            // SEP-2663: tasks/get, tasks/update, tasks/cancel and task handles on tools/call.
+            extensions: [conformanceSkills, conformanceTasks]
         }
     );
+    registerTaskFixtures(mcpServer);
 
     // Helper to send log messages using the underlying server
     function sendLog(
