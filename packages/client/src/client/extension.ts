@@ -71,7 +71,8 @@ export interface ClientExtensionContext {
      * Registers the handler for a custom server-to-client request, like
      * `Client.setRequestHandler` with schemas, but checked: throws when `name`
      * is a core method (wrap those with `use` instead) or when a handler
-     * already serves it, such as another extension's.
+     * already serves it, such as another extension's. Served on 2025-11-25
+     * connections only: 2026-07-28 has no server-to-client request channel.
      */
     setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(
         name: string,
