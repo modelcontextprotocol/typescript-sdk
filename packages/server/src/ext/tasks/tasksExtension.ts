@@ -177,7 +177,16 @@ export class TasksExtension implements ServerExtension {
             async (params, requestCtx): Promise<UpdateTaskResult> => {
                 requireModernRequest(requestCtx);
                 requireTasksExtension(requestCtx, 'tasks/update');
-                const inputResponses = (requestCtx.mcpReq.inputResponses ?? params.inputResponses ?? {}) as InputResponses;
+                const dropped = requestCtx.mcpReq.droppedInputResponseKeys ?? [];
+                if (dropped.length > 0) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InvalidParams,
+                        `inputResponses entries must be bare results; refused: ${dropped.join(', ')}`
+                    );
+                }
+                const inputResponses = (requestCtx.mcpReq.inputResponses ?? params.inputResponses) as InputResponses | undefined;
+                if (inputResponses === undefined)
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'tasks/update requires inputResponses');
                 const found = await this.store.update(params.taskId, inputResponses, { principal: this.#principal(requestCtx) });
                 if (!found) return notFound();
                 return { resultType: 'complete' };
@@ -192,14 +201,18 @@ export class TasksExtension implements ServerExtension {
             return { resultType: 'complete' };
         });
 
-        // A task handle may only be answered to a client that can consume it.
-        // `create(ctx, …)` checks up front; this catches handles minted some
-        // other way (an external engine's own create) — the extension owns
-        // the wire regardless of where the task came from.
+        // Refuses task handles minted outside `create` to a client that cannot consume them, cancelling the task first.
         ctx.use('tools/call', async (request: JSONRPCRequest, requestCtx, next): Promise<Result> => {
             const result = await next(request, requestCtx);
-            if ((result as { resultType?: unknown }).resultType === 'task') {
+            const handle = result as { resultType?: unknown; taskId?: unknown };
+            if (handle.resultType !== 'task') return result;
+            try {
                 requireTasksExtension(requestCtx, `Tool "${String((request.params as { name?: unknown })?.name)}" executes as a task and`);
+            } catch (error) {
+                if (typeof handle.taskId === 'string') {
+                    await this.store.cancel(handle.taskId, { principal: this.#principal(requestCtx) }).catch(() => false);
+                }
+                throw error;
             }
             return result;
         });
