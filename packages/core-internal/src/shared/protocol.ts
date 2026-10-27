@@ -748,7 +748,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * input request).
      */
     protected _getRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
-        return this._requestHandlers.get(method);
+        const handler = this._requestHandlers.get(method);
+        return handler === undefined ? undefined : this._withMiddleware(method, handler);
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
@@ -1891,13 +1892,23 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
-        const stack = this._requestMiddleware.filter(entry => entry.method === method);
-        if (stack.length === 0) return base;
-        let composed: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> =
+        if (!this._requestMiddleware.some(entry => entry.method === method)) return base;
+        return this._withMiddleware(
+            method,
             base ??
-            (async () => {
-                throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
-            });
+                (async () => {
+                    throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+                })
+        );
+    }
+
+    /** `handler` with the middleware for `method` composed around it, first registered outermost. */
+    private _withMiddleware(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
+    ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
+        const stack = this._requestMiddleware.filter(entry => entry.method === method);
+        let composed = handler;
         // Wrap from the innermost (last registered) outwards so the first
         // registered middleware ends up outermost.
         for (const { middleware } of stack.toReversed()) {
