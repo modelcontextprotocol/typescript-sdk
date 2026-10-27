@@ -1,0 +1,59 @@
+demos/capnweb-gatekeeper/.gitignore
+  s_555766defd684e::t_dd884d389452cb 1-2
+demos/capnweb-gatekeeper/README.md
+  s_555766defd684e::t_babbd00e6e3219 1-70
+demos/capnweb-gatekeeper/client/demo.ts
+  s_555766defd684e::t_1b8a24593a936d 1-150
+demos/capnweb-gatekeeper/client/local.ts
+  s_555766defd684e::t_b05b96afec37b2 1-66
+demos/capnweb-gatekeeper/package.json
+  s_555766defd684e::t_06dfbab8529d1b 1-25
+demos/capnweb-gatekeeper/src/capnweb/client.ts
+  s_555766defd684e::t_5c362ca5239944 1-84
+demos/capnweb-gatekeeper/src/capnweb/index.ts
+  s_555766defd684e::t_4f4129a5e8b02c 1-3
+demos/capnweb-gatekeeper/src/capnweb/server.ts
+  s_555766defd684e::t_694ee6bd462a00 1-30
+demos/capnweb-gatekeeper/src/capnweb/shared.ts
+  s_555766defd684e::t_01a74b3d665fe0 1-21
+demos/capnweb-gatekeeper/tsconfig.json
+  s_555766defd684e::t_755ca3f6f03c92 1-13
+demos/capnweb-gatekeeper/workers/gatekeeper-notes/src/index.ts
+  s_555766defd684e::t_6ab59304108eb5 1-288
+demos/capnweb-gatekeeper/workers/gatekeeper-notes/src/types.d.ts
+  s_555766defd684e::t_9a944f30910b76 1-34
+demos/capnweb-gatekeeper/workers/gatekeeper-notes/src/types.txt
+  s_555766defd684e::t_3d71f38b2f305f 1
+demos/capnweb-gatekeeper/workers/gatekeeper-notes/wrangler.jsonc
+  s_555766defd684e::t_a1c4a11a3cc058 1-8
+demos/capnweb-gatekeeper/workers/mcp-server/src/index.ts
+  s_555766defd684e::t_239e5a683b3270 1-254
+demos/capnweb-gatekeeper/workers/mcp-server/wrangler.jsonc
+  s_555766defd684e::t_46efc210d0042e 1-17
+demos/capnweb-gatekeeper/workers/shared/gatekeeper-api.ts
+  s_555766defd684e::t_5651e22de2582c 1-49
+demos/capnweb-gatekeeper/workers/shared/text-modules.d.ts
+  s_555766defd684e::t_1694341b462573 1-4
+demos/capnweb-gatekeeper/workers/tsconfig.json
+  s_555766defd684e::t_4ab37d28a9798d 1-13
+pnpm-lock.yaml
+  s_555766defd684e::t_bae0f40f7a1933 305-335,503,1087,2522-2525,2535-2543,2550-2555,2562-2567,2574-2579,2586-2591,2598-2606,2637-2639,2664-2669,2688-2693,2712-2717,2736-2741,2760-2765,2784-2789,2808-2813,2832-2837,2856-2861,2880-2885,2904-2909,2928-2933,2952-2957,2976-2981,3000-3005,3024-3029,3048-3053,3066-3071,3090-3095,3108-3113,3132-3137,3150-3155,3174-3179,3198-3203,3222-3227,3246-3251,3364-3369,3376-3386,3392-3396,3402-3406,3413-3418,3425-3430,3437-3442,3449-3454,3461-3466,3473-3478,3485-3490,3497-3502,3510-3516,3524-3530,3538-3544,3552-3558,3566-3572,3580-3586,3594-3600,3608-3614,3620-3628,3635-3640,3647-3652,3659-3664,4963-4965,5287-5291,6206-6209,6723-6727,6761-6769,7122-7125,7377-7391,7417-7428,7621,7633,7636,7638,7641,7643,7648,7650,7653,7655,7658,7660,7663,7665,7837-7838,7845-7850,7854-7856,7860-7862,7866-7868,7872-7874,7878-7882,7917-7921,7941-7943,7953-7955,7965-7967,7977-7979,7989-7991,8001-8003,8013-8015,8025-8027,8037-8039,8049-8051,8061-8063,8073-8075,8085-8087,8097-8099,8109-8111,8121-8123,8133-8135,8142-8144,8154-8156,8163-8165,8175-8177,8184-8186,8196-8198,8208-8210,8220-8222,8232-8234,8357-8361,8367-8376,8380-8382,8386-8388,8392-8394,8398-8400,8404-8406,8410-8412,8416-8418,8422-8424,8428-8430,8434-8436,8442-8446,8452-8456,8462-8466,8472-8476,8482-8486,8492-8496,8502-8506,8512-8516,8522-8531,8535-8537,8541-8543,8547-8549,9653,9655-9661,9789-9790,10178-10206,11216-11228,11345,11347,11773-11774,11859-11891,12274-12275,12597-12622,12643-12644
+pnpm-workspace.yaml
+  s_555766defd684e::t_479576690daeb5 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8ede38c94411e9ed38816c451b0056b8dbda917c",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
