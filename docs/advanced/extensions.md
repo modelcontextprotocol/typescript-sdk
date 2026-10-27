@@ -76,10 +76,25 @@ const server = new McpServer({ name: 'gated', version: '1.0.0' }, { extensions: 
 
 The server then:
 
-1. Checks the ids. A duplicate fails construction before any extension is set up.
+1. Checks the ids. A duplicate fails construction before any extension is set up, and so does an entry for an installed id in `capabilities.extensions`: an extension's entry belongs to it, so set its settings with `ctx.capability`. `registerCapabilities` refuses that entry later too.
 2. In array order, advertises each extension under `capabilities.extensions[id]` as `{}` and runs its `setup`. Legacy connections see the map in the `initialize` result, and 2026-07-28 connections see it in `server/discover`. Settings from `ctx.capability` replace the `{}`.
 
-A `setup` that throws fails the constructor, so a server with a partly set up extension never exists. That includes `ctx.require` for an extension the server doesn't install. The ids are known before any `setup` runs, so a required extension can be listed before or after the one that needs it.
+A `setup` that throws fails the constructor, so a server with a partly set up extension never exists. That includes `ctx.require` for an extension the server doesn't install.
+
+`setup` may be async, to load what the extension serves:
+
+```ts
+const catalog: ServerExtension = {
+    id: 'com.example/catalog',
+    async setup(ctx) {
+        const entries = await loadCatalog();
+        ctx.capability({ size: entries.length });
+        ctx.setRequestHandler('catalog/list', { params: z.looseObject({}) }, () => ({ entries }));
+    }
+};
+```
+
+The setups after an async one wait for it, so they still run in array order. `connect` waits for every setup to finish before the server processes anything, and rejects with the error if one fails. The ids are known before any `setup` runs, so a required extension can be listed before or after the one that needs it.
 
 `ctx.require` is for an extension that can't work without another one. When the other one only adds something optional, check for what you need in code, such as in a handler or middleware at the moment it runs, and carry on without it. Extensions are an `McpServer` option; the low-level `Server` doesn't take them.
 
@@ -87,7 +102,7 @@ A `setup` that throws fails the constructor, so a server with a partly set up ex
 
 The client takes the same shape, `{ id, setup(ctx) }`, in `ClientOptions.extensions`. The client advertises each extension under its own `capabilities.extensions[id]`: in `initialize` on a legacy connection, and in every request's `_meta` client-capabilities envelope on a 2026-07-28 connection, which is where a server extension reads it. Its context has:
 
-- `ctx.capability(settings)`, `ctx.use(method, middleware)` and `ctx.require(extensionId)`, as on the server.
+- `ctx.capability(settings)`, `ctx.use(method, middleware)` and `ctx.require(extensionId)`, as on the server. `setup` may be async here too; `connect` waits for it before sending anything.
 - `ctx.setRequestHandler(name, schemas, handler)` for custom server-to-client requests. These are served on 2025-11-25 connections only: 2026-07-28 has no server-to-client request channel.
 - `ctx.acceptResultType(method, resultType)`, so results of `method` may carry a `resultType` the extension defines. The explicit-schema `request()` path then hands them to the caller's schema as-is, instead of rejecting the unknown kind; typed calls such as `callTool` keep rejecting the unknown kind.
 - `ctx.client`, the client being set up.
@@ -108,9 +123,17 @@ const client = new Client({ name: 'gated-client', version: '1.0.0' }, { extensio
 
 ## How middleware composes
 
-`ctx.setRequestHandler` registers the route handler. `ctx.use(method, middleware)` is the middleware around it, in the Koa style. It receives the request as it arrived, before the handler validates its params: `await next(request, requestCtx)` yields the result, and the middleware returns what goes on the wire. It wraps whatever handler serves `method` at dispatch time, including one another extension registered. That matters for `tools/call`, which `McpServer` registers on the first tool registration: middleware installed at construction still applies. With no underlying handler, `next` throws `MethodNotFound`.
+`ctx.setRequestHandler` registers the route handler. `ctx.use(method, middleware)` is the middleware around it, in the Koa style: `await next(request, requestCtx)` yields the result, and the middleware returns what goes on the wire. It wraps whatever handler serves `method` at dispatch time, including one another extension registered. That matters for `tools/call`, which `McpServer` registers on the first tool registration: middleware installed at construction still applies.
 
-Several middleware nest in registration order, the first outermost. Extensions are set up in array order, so the first extension's middleware is outermost, and all of it runs outside middleware the application adds afterwards with `server.server.use`. Method names are exact, and there is no wildcard.
+Middleware works at the JSON-RPC level, before the handler's own steps:
+
+- It receives the request as it arrived. Params are not validated yet.
+- `requestCtx.mcpReq.requestState()` is the raw wire value. The `requestState.verify` hook runs inside the handler, so don't trust that state in middleware.
+- A result the middleware returns without calling `next` skips the handler's result validation.
+
+With no underlying handler, `next` throws `MethodNotFound`. If the middleware lets it through, the request is answered as an unknown method (HTTP 404 on a per-request HTTP exchange), the way a web framework answers 404 through route middleware. If the middleware answers instead, its answer goes out. Over 2026-07-28, a request that lacks the `_meta` envelope is refused with `-32602` before middleware runs, even for a method only middleware serves.
+
+Several middleware nest in registration order, the first outermost. Extension middleware runs outside middleware the application adds with `server.server.use`, whenever either was added, and extensions' middleware nests in array order, the first extension's outermost. Method names are exact, and there is no wildcard.
 
 An extension wraps the methods it doesn't own with `ctx.use`, and never registers them again; `ctx.setRequestHandler` refuses to. Something every peer must know about the extension belongs in its advertised capability (`ctx.capability`), not in per-request `_meta`. Where a result does carry extension `_meta`, the middleware adds its own namespaced key, and the encoder still stamps the SDK's reserved keys and `resultType` on top.
 
@@ -120,6 +143,6 @@ A thrown `ProtocolError` becomes the JSON-RPC error response. Inside a tool hand
 
 - An extension is `{ id, setup(ctx) }`, passed in `McpServerOptions.extensions` or `ClientOptions.extensions`.
 - `setup` registers everything through `ctx`: `capability`, `setRequestHandler`, `use`, `require`, plus `ctx.mcp` on the server and `acceptResultType` on the client.
-- Extensions are set up in array order. Duplicate ids, and a `ctx.require` for an extension that isn't installed, fail construction.
-- Middleware composes at dispatch time, first registered outermost, and applies to handlers registered later, including other extensions' handlers.
+- Extensions are set up in array order, and `setup` may be async; `connect` waits for it. Duplicate ids, a `capabilities.extensions` entry for an installed id, and a `ctx.require` for an extension that isn't installed fail construction.
+- Middleware composes at dispatch time, extensions' outside the application's, and applies to handlers registered later, including other extensions' handlers. It sees the request before validation.
 - The SDK owns the hooks, the checks and the capability advertisement, not the extension's state or execution.

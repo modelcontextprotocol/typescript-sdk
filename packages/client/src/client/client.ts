@@ -53,6 +53,7 @@ import type {
     XMcpHeaderScanResult
 } from '@modelcontextprotocol/core-internal';
 import {
+    assertExtensionCapabilitiesUnowned,
     buildMcpParamHeaders,
     codecForVersion,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
@@ -695,7 +696,7 @@ export class Client extends Protocol<ClientContext> {
             this._listChangedConfig = options.listChanged;
         }
 
-        installClientExtensions(this, options?.extensions ?? []);
+        installClientExtensions(this, options?.extensions ?? [], options?.capabilities);
     }
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
@@ -828,6 +829,7 @@ export class Client extends Protocol<ClientContext> {
         if (this.transport) {
             throw new Error('Cannot register capabilities after connecting to transport');
         }
+        assertExtensionCapabilitiesUnowned(this, capabilities);
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
     }

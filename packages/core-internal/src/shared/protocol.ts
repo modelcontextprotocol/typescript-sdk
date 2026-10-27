@@ -58,6 +58,7 @@ import {
     isSpecRequestMethod,
     MODERN_WIRE_REVISION
 } from '../wire/codec';
+import { extensionStateOf } from './extensions';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine';
 import type { Transport, TransportSendOptions } from './transport';
 
@@ -204,6 +205,22 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
  * (a vendor notification may legitimately use the same names).
  */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
+
+// "Method not found" raised under middleware for a method with no handler, and the error responses carrying it.
+const noHandlerErrors = new WeakSet<object>();
+const noHandlerResponses = new WeakSet<object>();
+
+/**
+ * Whether `message` answers a request for a method with no handler, raised
+ * after middleware passed it through. Transports that map pre-dispatch
+ * rejections to an HTTP status (404 for `-32601`) treat it as one, as a web
+ * framework answers 404 through route middleware.
+ *
+ * Package-internal.
+ */
+export function isNoHandlerResponse(message: object): boolean {
+    return noHandlerResponses.has(message);
+}
 
 /**
  * Request middleware (see `Protocol.use`): receives the JSON-RPC request as
@@ -812,6 +829,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        // Asynchronous extension setups finish before anything is processed; a failed one fails the connect.
+        const extensionsReady = extensionStateOf(this)?.ready;
+        if (extensionsReady !== undefined) await extensionsReady;
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
@@ -1184,6 +1204,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }
                     };
+                    if (noHandlerErrors.has(error)) noHandlerResponses.add(errorResponse);
                     await capturedTransport?.send(errorResponse);
                 }
             )
@@ -1814,23 +1835,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * Installs middleware on the request handler for `method`. The middleware
-     * receives the JSON-RPC request as received (its params not yet
-     * validated), the context, and `next` — the handler it wraps, which
-     * validates them — and may answer itself, transform what `next` returns, or throw
-     * a `ProtocolError` that becomes the JSON-RPC error response.
-     * `setRequestHandler` is the route handler; this is the middleware
-     * around it, Koa-shaped: `await next(request, ctx)` yields the result and
-     * the middleware returns what goes on the wire.
+     * receives the JSON-RPC request as received, the context, and `next` —
+     * the handler it wraps — and may answer itself, transform what `next`
+     * returns, or throw a `ProtocolError` that becomes the JSON-RPC error
+     * response. `setRequestHandler` is the route handler; this is the
+     * middleware around it, Koa-shaped: `await next(request, ctx)` yields the
+     * result and the middleware returns what goes on the wire.
+     *
+     * Middleware sits at the JSON-RPC level, before the handler's own
+     * steps: params are not validated yet, `ctx.mcpReq.requestState()` is
+     * the raw wire value (the server's `requestState.verify` hook has not run),
+     * and a result the middleware returns without calling `next` skips the
+     * handler's result validation.
      *
      * Middleware composes at dispatch time, so middleware installed before
      * the underlying handler exists (e.g. `tools/call`, which `McpServer`
-     * registers on the first tool registration) still applies; with no
-     * underlying handler and no fallback, `next` throws `MethodNotFound`.
-     * Middleware runs in registration order: the first installed is the
-     * outermost. Method names are exact — there is no wildcard; what an
+     * registers on the first tool registration) still applies. With no
+     * underlying handler and no fallback, `next` throws `MethodNotFound`;
+     * passed through, it is answered as an unknown method (HTTP 404 on a
+     * per-request HTTP exchange), as a web framework answers 404 through route
+     * middleware. Middleware runs in registration order, the first installed
+     * outermost, and all of it inside middleware extensions add with
+     * `ctx.use`. Method names are exact — there is no wildcard; what an
      * extension needs every peer to know belongs in its advertised
-     * capability, not in per-request middleware. Extensions reach this
-     * through `ctx.use` in their `setup`.
+     * capability, not in per-request middleware.
      *
      * @returns A function that removes the middleware.
      *
@@ -1893,26 +1921,38 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     private _resolveRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         const base = this._requestHandlers.get(method) ?? this.fallbackRequestHandler;
-        if (!this._requestMiddleware.some(entry => entry.method === method)) return base;
+        if (this._middlewareFor(method).length === 0) return base;
         return this._withMiddleware(
             method,
             base ??
                 (async () => {
-                    throw new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+                    const error = new ProtocolError(ProtocolErrorCode.MethodNotFound, 'Method not found');
+                    noHandlerErrors.add(error);
+                    throw error;
                 })
         );
     }
 
-    /** `handler` with the middleware for `method` composed around it, first registered outermost. */
+    /** The middleware for `method`, outermost first: extension middleware (`ctx.use`), then `use()`. */
+    private _middlewareFor(method: string): RequestMiddleware<ContextT>[] {
+        // The installer records each side's middleware with its own context type.
+        const extension = (extensionStateOf(this)?.middleware ?? []) as unknown as Array<{
+            method: string;
+            middleware: RequestMiddleware<ContextT>;
+        }>;
+        return [...extension, ...this._requestMiddleware].filter(entry => entry.method === method).map(entry => entry.middleware);
+    }
+
+    /** `handler` with the middleware for `method` composed around it, outermost first. */
     private _withMiddleware(
         method: string,
         handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
-        const stack = this._requestMiddleware.filter(entry => entry.method === method);
+        const stack = this._middlewareFor(method);
         let composed = handler;
         // Wrap from the innermost (last registered) outwards so the first
         // registered middleware ends up outermost.
-        for (const { middleware } of stack.toReversed()) {
+        for (const middleware of stack.toReversed()) {
             const next = composed;
             composed = async (request, ctx) => middleware(request, ctx, next);
         }
