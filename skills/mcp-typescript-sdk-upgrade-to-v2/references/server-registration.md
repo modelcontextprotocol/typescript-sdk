@@ -29,6 +29,25 @@ server.registerTool('ping', { description: 'Liveness check' }, async ctx => ({ c
 A one-parameter callback typechecks under either reading, so remember that the first
 parameter here is the context object, not an args object.
 
+#### `outputSchema` types the callback's `structuredContent`
+
+When a tool declares `outputSchema`, `registerTool` now checks the callback's successful
+result against it. Earlier v2 releases typed `structuredContent` as `unknown`, and v1 as
+`{ [k: string]: unknown }`; neither connected it to `outputSchema`. Code that compiled
+before can now fail to compile when it:
+
+- returns a `structuredContent` that does not match the schema (wrong root, missing field, wrong field type);
+- returns a successful result with no `structuredContent` (the server already rejected this at runtime);
+- builds the value from a wider type, e.g. a `string` where the schema has an enum. Narrow it, or annotate it with `satisfies`;
+- types the callback's result as plain `CallToolResult`, e.g. a `Promise<CallToolResult>` return annotation, a helper returning `CallToolResult`, or a callback annotated `ToolCallback<typeof inputSchema>`. Drop the annotation, or use `ToolCallback<typeof inputSchema, typeof outputSchema>` / `ToolResultFor<typeof outputSchema>`;
+- passes an `outputSchema` typed as possibly `undefined` (a registry forwarding an optional schema). TypeScript drops the `undefined` at the call site, so the callback is checked as if the schema were present.
+
+`isError: true` results, input-required results, and tools without an `outputSchema`
+are unchanged. Successful typed results may leave out `content`; the server then sends
+the JSON of `structuredContent` as a text block. Runtime validation is unchanged and
+still authoritative. A test fixture that deliberately returns invalid output can cast
+the result: `() => ({ ... }) as never`.
+
 #### Standard Schema objects (raw shapes deprecated)
 
 v2 expects schema objects implementing the [Standard Schema spec](https://standardschema.dev/)
@@ -95,8 +114,8 @@ and fails at the first `tools/list`** (the quiet runtime path above). With
 `~standard.jsonSchema` (zod 4.0–4.1, and zod 3.25.x via the `zod/v4` subpath) — the
 same code **runs** through the bundled fallback but **fails to compile**:
 `registerTool`/`registerPrompt` reject the schema with `TS2769: No overload matches
-this call` listing both overloads. The real cause is buried in the first overload's
-elaboration — `Property 'jsonSchema' is missing in type …` (that property is
+this call` listing both overloads. The real cause is buried in the Standard Schema
+overload's elaboration (listed first for `registerPrompt`, last for `registerTool`) — `Property 'jsonSchema' is missing in type …` (that property is
 `~standard.jsonSchema`, added in zod 4.2.0) — and a follow-on implicit-`any` error on
 the handler's arguments usually appears below it. If you see that two-overload error on
 a registration call with a zod schema, check the installed zod version before anything

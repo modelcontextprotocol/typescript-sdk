@@ -164,8 +164,6 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
-        "ajv": "catalog:runtimeShared",
-        "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
@@ -174,6 +172,10 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
+        "@valibot/to-json-schema": "catalog:devTools",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
+        "arktype": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
@@ -182,6 +184,7 @@
         "tsdown": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
+        "valibot": "catalog:devTools",
         "vitest": "catalog:devTools"
     }
 }
