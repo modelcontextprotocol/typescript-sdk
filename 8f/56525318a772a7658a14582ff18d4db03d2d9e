@@ -8,6 +8,7 @@ docs/.vitepress/nav.ts
   s_a5414f34b12e5c::t_9f95b99d164622 74-75
 docs/_meta/specs/otel.md
   s_a5414f34b12e5c::t_6440e13d020e5d 1-562
+  s_a5414f34b12e5c::t_98513b3d13e417 1-2,4-9,18-562
 docs/advanced/opentelemetry.md
   s_a5414f34b12e5c::t_e00ca215be5501 1-160
 docs/get-started/packages.md
