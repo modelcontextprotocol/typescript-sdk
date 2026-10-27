@@ -1389,9 +1389,6 @@ importers:
       '@modelcontextprotocol/core':
         specifier: workspace:*
         version: link:../core
-      '@opentelemetry/api':
-        specifier: catalog:otel
-        version: 1.10.0
       cross-spawn:
         specifier: catalog:runtimeClientOnly
         version: 7.0.6
@@ -1432,6 +1429,9 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
+      '@opentelemetry/api':
+        specifier: catalog:otel
+        version: 1.10.0
       '@types/content-type':
         specifier: catalog:devTools
         version: 1.1.9
@@ -1889,9 +1889,6 @@ importers:
       '@modelcontextprotocol/core':
         specifier: workspace:*
         version: link:../core
-      '@opentelemetry/api':
-        specifier: catalog:otel
-        version: 1.10.0
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.6
@@ -1917,6 +1914,9 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../common/vitest-config
+      '@opentelemetry/api':
+        specifier: catalog:otel
+        version: 1.10.0
       '@types/eventsource':
         specifier: catalog:devTools
         version: 1.1.15

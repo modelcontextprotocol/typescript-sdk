@@ -104,7 +104,7 @@ describe('Protocol instrumentation', () => {
         expect(sent.outcomes).toEqual([{ type: 'result', result: { ok: true } }]);
 
         const received = server.find('receive', 'acme/echo')!;
-        expect(received.operation).toMatchObject({ method: 'acme/echo', id: 0, handled: true, meta: { traceparent: INJECTED } });
+        expect(received.operation).toMatchObject({ method: 'acme/echo', id: 0, knownMethod: true, meta: { traceparent: INJECTED } });
         expect(received.outcomes).toEqual([{ type: 'result', result: { ok: true } }]);
         expect(metaInHandler).toEqual({ traceparent: INJECTED });
         expect(activeInHandler).toBe('receive acme/echo');
@@ -169,14 +169,14 @@ describe('Protocol instrumentation', () => {
         ]);
     });
 
-    it('reports an unhandled method with handled: false and a method-not-found error', async () => {
+    it('reports an unknown method with knownMethod: false and a method-not-found error', async () => {
         const server = recorder();
         const { a } = await pair({ b: server.instrumentation });
 
         await expect(a.request({ method: 'acme/missing', params: {} }, Ok)).rejects.toThrow();
 
         const received = server.find('receive', 'acme/missing')!;
-        expect(received.operation.handled).toBe(false);
+        expect(received.operation.knownMethod).toBe(false);
         expect(received.outcomes).toEqual([
             { type: 'error', error: { code: ProtocolErrorCode.MethodNotFound, message: 'Method not found' } }
         ]);
@@ -278,7 +278,7 @@ describe('Protocol instrumentation', () => {
 
         expect(client.find('send', 'acme/event')!.outcomes).toEqual([{ type: 'delivered' }]);
         const received = server.find('receive', 'acme/event')!;
-        expect(received.operation).toMatchObject({ method: 'acme/event', handled: true, meta: { traceparent: INJECTED } });
+        expect(received.operation).toMatchObject({ method: 'acme/event', knownMethod: true, meta: { traceparent: INJECTED } });
         expect(received.operation.id).toBeUndefined();
         expect(received.outcomes).toEqual([{ type: 'delivered' }]);
         expect(activeInHandler).toBe('receive acme/event');

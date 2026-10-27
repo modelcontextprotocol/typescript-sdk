@@ -1,4 +1,4 @@
-import type { Attributes, Context, Histogram, Link, Span, TextMapGetter } from '@opentelemetry/api';
+import type { Attributes, Context, Histogram, Link, MeterProvider, Span, TextMapGetter } from '@opentelemetry/api';
 import {
     context,
     defaultTextMapSetter,
@@ -10,7 +10,9 @@ import {
     trace
 } from '@opentelemetry/api';
 
+import { SUPPORTED_PROTOCOL_VERSIONS } from '../types/index';
 import type { InboundOperation, OperationBase, OperationOutcome, OutboundOperation, ProtocolInstrumentation } from './instrumentation';
+import { SUPPORTED_MODERN_PROTOCOL_VERSIONS } from './protocolEras';
 
 /** Bucket boundaries the MCP semantic conventions specify for every MCP duration histogram. */
 const DURATION_BUCKETS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 30, 60, 120, 300];
@@ -23,6 +25,9 @@ const RESOURCE_URI_METHODS = new Set(['resources/read', 'resources/subscribe', '
 
 /** Log notifications are deprecated (SEP-2577) and belong in logs, not spans. */
 const SKIPPED_METHODS = new Set(['notifications/message']);
+
+/** Protocol versions a receiver may record before negotiation; anything else a client sends is unbounded. */
+const KNOWN_PROTOCOL_VERSIONS = new Set([...SUPPORTED_PROTOCOL_VERSIONS, ...SUPPORTED_MODERN_PROTOCOL_VERSIONS]);
 
 const STANDARD_ERROR_NAMES = new Set(['Error', 'TypeError', 'RangeError', 'SyntaxError', 'AbortError', 'TimeoutError']);
 
@@ -47,20 +52,18 @@ const metaGetter: TextMapGetter<Readonly<Record<string, unknown>>> = {
 
 type Side = 'client' | 'server';
 
-/**
- * OpenTelemetry instrumentation for MCP traffic, following the OpenTelemetry semantic conventions
- * for MCP: one span per request and notification, the `mcp.client.operation.duration` and
- * `mcp.server.operation.duration` histograms, and trace context in `params._meta`. It goes through
- * the global OpenTelemetry API, so nothing is recorded until the application registers an SDK.
- */
+// MCP spans, duration histograms and `_meta` trace context through the global OpenTelemetry API.
 export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrumentation {
     const tracer = trace.getTracer(scopeName);
 
-    // Created on first use: the global meter provider has no proxy, so instruments made before the SDK starts would stay no-ops.
+    // Recreated when the global meter provider changes: the metrics API has no proxy, so instruments from an earlier provider stay no-ops.
     let durations: Record<Side, Histogram> | undefined;
+    let durationsProvider: MeterProvider | undefined;
     const duration = (side: Side): Histogram => {
-        if (durations === undefined) {
-            const meter = metrics.getMeter(scopeName);
+        const provider = metrics.getMeterProvider();
+        if (durations === undefined || durationsProvider !== provider) {
+            durationsProvider = provider;
+            const meter = provider.getMeter(scopeName);
             const histogram = (name: string, description: string) =>
                 meter.createHistogram(name, { unit: 's', description, advice: { explicitBucketBoundaries: DURATION_BUCKETS } });
             durations = {
@@ -100,17 +103,14 @@ export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrum
             case 'error': {
                 const { code, message } = outcome.error;
                 span.setAttribute('rpc.response.status_code', String(code));
-                metricAttributes['rpc.response.status_code'] = String(code);
+                // A server can answer with any code; outside the JSON-RPC reserved range it is bucketed on the client's metrics.
+                const metricCode = side === 'client' && !isReservedErrorCode(code) ? '_OTHER' : String(code);
+                metricAttributes['rpc.response.status_code'] = metricCode;
                 if (side === 'client' || !NOT_RECEIVER_ERRORS.has(code)) {
                     errorType = String(code);
+                    metricAttributes['error.type'] = metricCode;
                     span.setStatus({ code: SpanStatusCode.ERROR, message });
                     if (side === 'server' && isUnexpectedException(outcome.cause)) span.recordException(outcome.cause);
-                }
-                // An unknown or disabled tool or prompt: keep the client-chosen name out of the span name and metrics.
-                if (side === 'server' && code === INVALID_PARAMS && target !== undefined) {
-                    span.updateName(method);
-                    delete metricAttributes['gen_ai.tool.name'];
-                    delete metricAttributes['gen_ai.prompt.name'];
                 }
                 break;
             }
@@ -136,7 +136,13 @@ export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrum
         }
         if (errorType !== undefined) {
             span.setAttribute('error.type', errorType);
-            metricAttributes['error.type'] = errorType;
+            metricAttributes['error.type'] ??= errorType;
+        }
+        // On the server a tool or prompt name is client-chosen: keep it only once the handler has recognised it.
+        if (side === 'server' && target !== undefined && !recognisedTarget(outcome)) {
+            span.updateName(method);
+            delete metricAttributes['gen_ai.tool.name'];
+            delete metricAttributes['gen_ai.prompt.name'];
         }
         span.end();
         duration(side).record((performance.now() - started) / 1000, metricAttributes);
@@ -146,14 +152,14 @@ export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrum
         send(operation: OutboundOperation) {
             if (SKIPPED_METHODS.has(operation.method)) return;
             const target = targetOf(operation);
-            const attributes = startAttributes(operation, operation.method, target);
+            const attributes = startAttributes(operation, operation.method, target, 'client');
             // Trace context the caller already put in `_meta` parents the span; otherwise the active context does.
             const parent = extract(context.active(), operation.carrier);
             const span = tracer.startSpan(spanName(operation.method, target), { kind: SpanKind.CLIENT, attributes }, parent);
             const spanContext = trace.setSpan(parent, span);
             const injected: Record<string, string> = {};
             // Injected with the span's context active: some propagators (Sentry's) only inject the active context.
-            context.with(spanContext, () => propagation.inject(context.active(), injected, defaultTextMapSetter));
+            context.with(spanContext, () => propagation.inject(spanContext, injected, defaultTextMapSetter));
             Object.assign(operation.carrier, injected);
             const metricAttributes = pickMetricAttributes(attributes);
             const started = performance.now();
@@ -165,10 +171,10 @@ export function openTelemetryInstrumentation(scopeName: string): ProtocolInstrum
 
         receive(operation: InboundOperation) {
             if (SKIPPED_METHODS.has(operation.method)) return;
-            // A method nobody handles is a client-chosen string: record it as `_OTHER` to bound cardinality.
-            const method = operation.handled ? operation.method : '_OTHER';
-            const target = operation.handled ? targetOf(operation) : undefined;
-            const attributes = startAttributes(operation, method, target);
+            // Any other method name is client-chosen: record it as `_OTHER` to bound cardinality.
+            const method = operation.knownMethod ? operation.method : '_OTHER';
+            const target = operation.knownMethod ? targetOf(operation) : undefined;
+            const attributes = startAttributes(operation, method, target, 'server');
             if (operation.httpRequest !== undefined) {
                 attributes['network.protocol.name'] = 'http';
                 attributes['network.transport'] = 'tcp';
@@ -209,11 +215,14 @@ function spanName(method: string, target: string | undefined): string {
     return target === undefined ? method : `${method} ${target}`;
 }
 
-function startAttributes(operation: OperationBase, method: string, target: string | undefined): Attributes {
+function startAttributes(operation: OperationBase, method: string, target: string | undefined, side: Side): Attributes {
     const attributes: Attributes = { 'mcp.method.name': method };
     if (operation.id !== undefined) attributes['jsonrpc.request.id'] = String(operation.id);
-    const requestedVersion = operation.method === 'initialize' ? operation.params?.protocolVersion : undefined;
-    const protocolVersion = operation.protocolVersion ?? (typeof requestedVersion === 'string' ? requestedVersion : undefined);
+    // Before negotiation `initialize` names a version; a receiver only records one it supports.
+    const requested = operation.method === 'initialize' ? operation.params?.protocolVersion : undefined;
+    const requestedVersion =
+        typeof requested === 'string' && (side === 'client' || KNOWN_PROTOCOL_VERSIONS.has(requested)) ? requested : undefined;
+    const protocolVersion = operation.protocolVersion ?? requestedVersion;
     if (protocolVersion !== undefined) attributes['mcp.protocol.version'] = protocolVersion;
     if (operation.sessionId !== undefined) attributes['mcp.session.id'] = operation.sessionId;
     if (method === 'tools/call') {
@@ -234,6 +243,16 @@ function pickMetricAttributes(attributes: Attributes): Attributes {
         if (attributes[key] !== undefined) picked[key] = attributes[key];
     }
     return picked;
+}
+
+/** Whether the outcome shows the server's handler recognised the requested tool or prompt (unknown ones answer -32602). */
+function recognisedTarget(outcome: OperationOutcome): boolean {
+    return outcome.type === 'result' || (outcome.type === 'error' && outcome.error.code !== INVALID_PARAMS);
+}
+
+/** JSON-RPC reserves -32768 to -32000; codes outside it are application-defined and unbounded. */
+function isReservedErrorCode(code: number): boolean {
+    return Number.isInteger(code) && code >= -32_768 && code <= -32_000;
 }
 
 /** A thrown value that is not a protocol error (those carry a numeric `code`) and is worth an exception event. */

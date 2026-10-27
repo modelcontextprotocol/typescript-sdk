@@ -2,94 +2,42 @@ import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
 import type { RequestId, Result } from '../types/index';
 import { BAGGAGE_META_KEY, ProtocolError, TRACEPARENT_META_KEY, TRACESTATE_META_KEY } from '../types/index';
 
-/**
- * Observes the requests and notifications a {@linkcode Protocol} instance sends
- * and receives, for tracing and metrics. Pass it as
- * {@linkcode ProtocolOptions.instrumentation}.
- *
- * The SDK calls `send` or `receive` once per JSON-RPC request or notification
- * (never for responses) and calls `end` on the returned scope exactly once when
- * that message settles. An instrumentation that throws never fails the
- * operation: the error goes to `onerror` and the operation carries on.
- *
- * @experimental The shape may change in a minor release.
- */
+// Observes the requests and notifications a Protocol instance sends and receives. `end` runs exactly once per scope.
 export interface ProtocolInstrumentation {
-    /** A request or notification is about to be sent. Trace-context keys written to `operation.carrier` go into `params._meta`. */
     send?(operation: OutboundOperation): OperationScope | undefined;
-    /** A request or notification arrived and is about to be handled. */
     receive?(operation: InboundOperation): OperationScope | undefined;
 }
 
-/**
- * Fields shared by {@linkcode OutboundOperation} and {@linkcode InboundOperation}.
- *
- * @experimental
- */
 export interface OperationBase {
     readonly method: string;
-    /** The JSON-RPC request id; absent for notifications. */
+    // Absent for notifications.
     readonly id?: RequestId;
-    /** The params as they go on, or came off, the wire. Do not mutate. */
+    // As the params go on, or came off, the wire. Do not mutate.
     readonly params?: Readonly<Record<string, unknown>>;
-    /** The transport's session id, when it has one. */
     readonly sessionId?: string;
-    /** The negotiated protocol version, once there is one. */
+    // The negotiated protocol version, once there is one.
     readonly protocolVersion?: string;
 }
 
-/**
- * A request or notification this instance is sending.
- *
- * @experimental
- */
 export interface OutboundOperation extends OperationBase {
-    /**
-     * Keys written here are copied into the outgoing `params._meta`. Prefilled
-     * with any `traceparent`, `tracestate` and `baggage` the caller already set.
-     */
+    // Keys written here go into `params._meta`; prefilled with caller-supplied trace-context keys.
     readonly carrier: Record<string, string>;
 }
 
-/**
- * A request or notification this instance received.
- *
- * @experimental
- */
 export interface InboundOperation extends OperationBase {
-    /** The message's `params._meta`, including `traceparent`, `tracestate` and `baggage` when present. */
     readonly meta?: Readonly<Record<string, unknown>>;
-    /** Whether a handler (or fallback handler) is registered for `method`. */
-    readonly handled: boolean;
-    /** The HTTP request the message arrived in, when the transport supplied one. */
+    // A spec method, or one with its own handler. Fallback handlers don't count: the name is client-chosen.
+    readonly knownMethod: boolean;
     readonly httpRequest?: Request;
 }
 
-/**
- * The lifetime of one observed operation.
- *
- * @experimental
- */
 export interface OperationScope {
-    /** Runs the operation's work (the transport send, or the handler) in the instrumentation's context. Must call `fn` once. */
+    // Runs the operation's work (the transport send, or the handler) in the instrumentation's context; must call `fn` once.
     run<T>(fn: () => T): T;
-    /** Called exactly once when the operation settles. */
     end(outcome: OperationOutcome): void;
 }
 
-/**
- * How an observed operation settled.
- *
- * - `result`: a request answered with a result, as it went on or came off the wire.
- * - `error`: a request answered with a JSON-RPC error; `cause` is what the local handler threw, if anything.
- * - `delivered`: a notification was written to the transport, or its handler returned.
- * - `timeout`: the request timed out locally.
- * - `cancelled`: the request was cancelled, by the caller's signal or by the peer.
- * - `closed`: the connection closed before the operation settled.
- * - `failed`: any other local failure, such as a failed send or a result that fails validation.
- *
- * @experimental
- */
+// `error` is a JSON-RPC error answer; `delivered` a sent or handled notification; `failed` any other local failure.
 export type OperationOutcome =
     | { type: 'result'; result: Result }
     | { type: 'error'; error: { code: number; message: string }; cause?: unknown }

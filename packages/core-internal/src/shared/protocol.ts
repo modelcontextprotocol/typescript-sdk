@@ -559,11 +559,7 @@ export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
 
 let writeInstrumentation: <ContextT extends BaseContext>(instance: Protocol<ContextT>, instrumentation: ProtocolInstrumentation) => void;
 
-/**
- * Package-internal: attaches the instrumentation that observes a {@linkcode Protocol}
- * instance's traffic. `Client` and `Server` attach OpenTelemetry in their constructors.
- * Exported on the core internal barrel only — never public API.
- */
+// Package-internal: `Client` and `Server` attach OpenTelemetry through this. Not public API.
 export function setProtocolInstrumentation<ContextT extends BaseContext>(
     instance: Protocol<ContextT>,
     instrumentation: ProtocolInstrumentation
@@ -608,7 +604,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
     }
 
-    /** Observes this instance's traffic; attached package-internally via `setProtocolInstrumentation`. */
     private _instrumentation?: ProtocolInstrumentation;
 
     protected _supportedProtocolVersions: string[];
@@ -951,7 +946,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
-        const scope = this._startInbound(rawNotification, true, extra);
+        const scope = this._startInbound(
+            rawNotification,
+            this._notificationHandlers.has(notification.method) || isSpecNotificationMethod(notification.method),
+            extra
+        );
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         runInScope(scope, () =>
@@ -993,7 +992,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const scope = this._startInbound(
             rawRequest,
-            this._requestHandlers.has(request.method) || this.fallbackRequestHandler !== undefined,
+            this._requestHandlers.has(request.method) || isSpecRequestMethod(request.method),
             extra
         );
 
@@ -1795,7 +1794,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /** Starts the instrumentation scope for an inbound request or notification. */
     private _startInbound(
         message: JSONRPCRequest | JSONRPCNotification,
-        handled: boolean,
+        knownMethod: boolean,
         extra?: MessageExtraInfo
     ): GuardedScope | undefined {
         const instrumentation = this._instrumentation;
@@ -1810,7 +1809,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     ...(params !== undefined && { params }),
                     ...(isPlainObject(meta) && { meta }),
                     ...this._operationSession(),
-                    handled,
+                    knownMethod,
                     ...(extra?.request !== undefined && { httpRequest: extra.request })
                 }),
             error => this._onerror(error)

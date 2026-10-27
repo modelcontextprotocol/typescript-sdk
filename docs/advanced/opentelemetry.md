@@ -4,7 +4,7 @@ shape: how-to
 
 # OpenTelemetry
 
-`Client`, `McpServer` and `Server` emit OpenTelemetry spans and metrics for every MCP request and notification, following the [OpenTelemetry semantic conventions for MCP](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md). Register an OpenTelemetry SDK and they show up.
+`Client`, `McpServer` and `Server` emit OpenTelemetry spans and metrics for every MCP request and notification (except `notifications/message`), following the [OpenTelemetry semantic conventions for MCP](https://github.com/open-telemetry/semantic-conventions-genai/blob/main/docs/gen-ai/mcp.md). Register an OpenTelemetry SDK and they show up.
 
 ```ts source="../../examples/guides/advanced/opentelemetry.examples.ts#sdk_setup"
 import { context, metrics, propagation, trace } from '@opentelemetry/api';
@@ -85,6 +85,10 @@ The server span comes from the `@modelcontextprotocol/server` instrumentation sc
 }
 ```
 
+::: warning
+If your propagator includes W3C Baggage (the `NodeSDK` default), baggage entries travel in `params._meta` to every MCP server you call, including third-party ones. Register `W3CTraceContextPropagator` on its own to send trace context only.
+:::
+
 ::: info
 Any SDK that follows [SEP-414](https://modelcontextprotocol.io/community/seps/414-request-meta) reads the same `traceparent`, `tracestate` and `baggage` keys, so a Python or C# peer joins the trace too.
 :::
@@ -102,7 +106,7 @@ mcp.client.operation.duration (s) {
 }
 ```
 
-Metrics never carry session ids, request ids or resource URIs. A server records a method it has no handler for as `_OTHER`, and leaves an unknown tool or prompt name out, so a client can't grow your metric cardinality.
+Metrics never carry session ids, request ids or resource URIs. A server records any method that is neither a spec method nor registered with its own handler as `_OTHER`, keeps a tool or prompt name only once its handler has recognised it, and only records protocol versions it supports, so a client can't grow your metric cardinality.
 
 ## Know what counts as an error
 
@@ -113,7 +117,7 @@ Failed operations set `error.type` and an `ERROR` status:
 - Local failures record `timeout`, `cancelled`, `connection_closed`, or the SDK error code (`SEND_FAILED`, `INVALID_RESULT`).
 - A handler that throws something other than a `ProtocolError` also gets an exception event on the server span.
 
-Spans never carry tool arguments, tool results or prompt arguments.
+Spans don't record tool arguments, tool results or prompt arguments. They do record JSON-RPC error messages, handler exception messages and resource URIs.
 
 ## Serve over HTTP
 
@@ -131,4 +135,4 @@ The `examples/opentelemetry` story runs a traced client and server in separate p
 - Without a registered SDK, nothing is recorded and `params._meta` is untouched.
 - Trace context travels in `params._meta`, so client and server spans join one trace and handler spans nest under the server span.
 - Each instance records `mcp.client.operation.duration` and `mcp.server.operation.duration` with low-cardinality attributes.
-- Spans never carry tool arguments, tool results or prompt arguments.
+- Spans don't record tool arguments, tool results or prompt arguments.
