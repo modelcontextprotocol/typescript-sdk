@@ -1,0 +1,21 @@
+packages/client/test/client/inputRequiredEngine.test.ts
+  s_555766defd684e::t_cd61f214766558 322-355
+packages/core-internal/src/shared/protocol.ts
+  s_555766defd684e::t_e96eb3a561537c 751-752,1895-1897,1899-1911
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "c69d9fca5453bf9b4229854425c6765fe036cb09",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
