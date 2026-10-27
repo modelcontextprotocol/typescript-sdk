@@ -104,13 +104,7 @@ export interface ClientExtensionContext {
     acceptResultType(method: string, resultType: string): void;
 }
 
-/**
- * Sets up `extensions` on `client`, in order (see `installExtensions`). A
- * `setup` that throws, including an unmet `ctx.require`, fails the `Client`
- * constructor; one that rejects fails `connect`.
- *
- * Package-internal: called by the `Client` constructor.
- */
+/** Package-internal: sets `extensions` up for the constructor (see `installExtensions`). */
 export function installClientExtensions(
     client: Client,
     extensions: readonly ClientExtension[],
