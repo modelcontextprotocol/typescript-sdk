@@ -1,0 +1,29 @@
+docs/advanced/extensions.md
+  s_555766defd684e::t_88444d3b33e756 107,130
+packages/client/src/client/extension.ts
+  s_555766defd684e::t_91e95b11edff4f 107
+packages/client/test/client/extensions.test.ts
+  s_555766defd684e::t_9c722f79f3b062 193-200
+packages/core-internal/src/shared/extensions.ts
+  s_555766defd684e::t_78e0b82915286d 31,73-74
+packages/core-internal/src/shared/protocol.ts
+  s_555766defd684e::t_4817e3bd557fe7 209,213,219-222,826,1086-1093,1134,1559-1571,1846,1854-1856,1926,1957
+packages/server/src/server/extension.ts
+  s_555766defd684e::t_559e73d409ac07 98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "985f367dc95ee774aaa70a2bc297a3a188d6b16a",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
