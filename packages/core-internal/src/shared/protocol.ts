@@ -1307,7 +1307,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (isStandardSchema(schemaOrOptions)) {
             // Only the Tasks extension names skip the era gate here; every other spec method stays gated.
             if (!isExtensionReusedRequestMethod(request.method)) this._assertOutboundRequestInEra(codec, request.method);
-            return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
+            return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions, true);
         }
         this._assertOutboundRequestInEra(codec, request.method);
         const validate = codecResultValidator(codec, request.method);
@@ -1400,7 +1400,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
         codec: WireCodec,
         request: Request,
         resultSchema: T,
-        options?: RequestOptions
+        options?: RequestOptions,
+        // Only the explicit-schema `request()` path consults `acceptResultType`.
+        acceptExtensionResultTypes = false
     ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
@@ -1537,7 +1539,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
 
                 // Extension result kinds (see `acceptResultType`) skip the codec and reach the caller's schema as-is.
-                if (this._isAcceptedResultType(request.method, response.result)) {
+                if (acceptExtensionResultTypes && this._isAcceptedResultType(request.method, response.result)) {
                     validateStandardSchema(resultSchema, response.result).then(parseResult => {
                         if (parseResult.success) {
                             resolve(parseResult.data);
@@ -1592,7 +1594,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
                                 codec,
                                 params === undefined ? { method: request.method } : { method: request.method, params },
                                 resultSchema,
-                                legOptions
+                                legOptions,
+                                acceptExtensionResultTypes
                             )
                     };
                     return resolve(this._resolveNonCompleteResult(decoded, flow) as Promise<StandardSchemaV1.InferOutput<T>>);
@@ -1853,9 +1856,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * vocabulary (the Tasks extension answers `tools/call` with
      * `resultType: "task"`). A raw response with that discriminator skips the
      * era codec's decode and is validated against the caller's explicit
-     * result schema as-is, discriminator included. Typed spec calls such as
-     * `callTool` validate it against the spec result schema, which rejects it
-     * with `InvalidResult`. Client extensions reach this through
+     * result schema as-is, discriminator included. Only the explicit-schema
+     * `request(request, resultSchema)` path consults this; typed spec calls
+     * such as `callTool` keep the closed vocabulary. Client extensions reach this through
      * `ctx.acceptResultType` in their `setup`.
      *
      * @returns A function that withdraws the declaration.
