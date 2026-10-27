@@ -1,3 +1,4 @@
+import type { SdkLogger } from '@modelcontextprotocol/core-internal';
 import { createMockOAuthFetch } from '@modelcontextprotocol/test-helpers';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -256,7 +257,7 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
 });
 
 describe('expectedIssuer', () => {
-    const providers: Array<[string, (options: { expectedIssuer?: string }) => OAuthClientProvider]> = [
+    const providers: Array<[string, (options: { expectedIssuer?: string; logger?: SdkLogger }) => OAuthClientProvider]> = [
         ['ClientCredentialsProvider', o => new ClientCredentialsProvider({ clientId: 'c', clientSecret: 's', ...o })],
         ['PrivateKeyJwtProvider', o => new PrivateKeyJwtProvider({ clientId: 'c', privateKey: 'k'.repeat(64), algorithm: 'HS256', ...o })],
         ['StaticPrivateKeyJwtProvider', o => new StaticPrivateKeyJwtProvider({ clientId: 'c', jwtBearerAssertion: 'a', ...o })],
@@ -275,6 +276,20 @@ describe('expectedIssuer', () => {
         expect(warn).toHaveBeenCalledTimes(1);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('Omitting `expectedIssuer` is deprecated'));
         warn.mockRestore();
+    });
+
+    it.each(providers)('%s sends the deprecation message to options.logger instead of console', async (_name, create) => {
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const fetchFn = createMockOAuthFetch({ resourceServerUrl: RESOURCE_SERVER_URL, authServerUrl: AUTH_SERVER_URL });
+
+        const provider = create({ logger: { warn } });
+        expect(provider.logger).toEqual({ warn });
+        expect(await auth(provider, { serverUrl: RESOURCE_SERVER_URL, fetchFn })).toBe('AUTHORIZED');
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Omitting `expectedIssuer` is deprecated'));
+        expect(consoleWarn).not.toHaveBeenCalled();
+        consoleWarn.mockRestore();
     });
 
     it.each([null, '', 42, new URL(AUTH_SERVER_URL)])('rejects %j at construction', value => {
