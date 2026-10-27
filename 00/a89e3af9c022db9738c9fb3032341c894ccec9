@@ -1,0 +1,37 @@
+demos/capnweb-gatekeeper/.gitignore
+  s_555766defd684e::t_1b041c1eedd5d6 3
+demos/capnweb-gatekeeper/README.md
+  s_555766defd684e::t_0e6d2e85827d17 32-33
+demos/capnweb-gatekeeper/client/api.ts
+  s_555766defd684e::t_d5cc244737b024 1-52
+demos/capnweb-gatekeeper/client/demo.ts
+  s_555766defd684e::t_b41b7ca4b5aea0 16
+demos/capnweb-gatekeeper/package.json
+  s_555766defd684e::t_c09dbbeab8deec 6,9-11,24-25
+demos/capnweb-gatekeeper/ui/app.ts
+  s_555766defd684e::t_d61e8a0cd5ce13 1-213
+demos/capnweb-gatekeeper/ui/public/index.html
+  s_555766defd684e::t_2cc1d2bb5a04ef 1-298
+demos/capnweb-gatekeeper/ui/tsconfig.json
+  s_555766defd684e::t_2a969e9e5bb4b6 1-12
+demos/capnweb-gatekeeper/workers/mcp-server/wrangler.jsonc
+  s_555766defd684e::t_e7c0281bfd89f5 8
+pnpm-lock.yaml
+  s_555766defd684e::t_ae23030c80a0c0 326-328,11904,12122,12136
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "00a89e3af9c022db9738c9fb3032341c894ccec9",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
