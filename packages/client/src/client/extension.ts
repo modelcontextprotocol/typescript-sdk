@@ -1,4 +1,5 @@
 import type {
+    ClientCapabilities,
     ClientContext,
     InferHandlerResult,
     JSONObject,
@@ -6,7 +7,13 @@ import type {
     RequestMiddleware,
     StandardSchemaV1
 } from '@modelcontextprotocol/core-internal';
-import { requireExtension, setExtensionRequestHandler, uniqueExtensionIds } from '@modelcontextprotocol/core-internal';
+import {
+    installExtensions,
+    requireExtension,
+    setExtensionRequestHandler,
+    useAsExtension,
+    writeExtensionCapability
+} from '@modelcontextprotocol/core-internal';
 
 import type { Client } from './client';
 
@@ -36,8 +43,12 @@ export interface ClientExtension {
      * `capabilities.extensions`, and unique per client.
      */
     readonly id: string;
-    /** Adds the extension to the client. Called once, at construction, in `extensions` order. */
-    setup(ctx: ClientExtensionContext): void;
+    /**
+     * Adds the extension to the client. Called once, at construction, in
+     * `extensions` order. It may be async: the setups after it wait for it,
+     * and `connect` waits for all of them and rejects if one fails.
+     */
+    setup(ctx: ClientExtensionContext): void | Promise<void>;
 }
 
 /**
@@ -54,7 +65,8 @@ export interface ClientExtensionContext {
      * Sets what the client advertises under `capabilities.extensions[id]`:
      * in `initialize` on a legacy connection, and in every request's
      * client-capabilities envelope on a 2026-07-28 connection. Without a call,
-     * the client advertises `{}`.
+     * the client advertises `{}`. The entry belongs to the extension: setting
+     * it anywhere else throws.
      */
     capability(settings: JSONObject): void;
     /**
@@ -65,7 +77,12 @@ export interface ClientExtensionContext {
      * optional, check in code instead and carry on without it.
      */
     require(extensionId: `${string}/${string}`): void;
-    /** Middleware around whatever handler serves a server-to-client request `method`. See `Protocol.use`. */
+    /**
+     * Middleware around whatever handler serves a server-to-client request
+     * `method`. Runs outside middleware the application adds with
+     * `client.use`, and inside middleware from extensions earlier in
+     * `extensions`. See `Protocol.use`.
+     */
     use(method: RequestMethod | (string & {}), middleware: RequestMiddleware<ClientContext>): void;
     /**
      * Registers the handler for a custom server-to-client request, like
@@ -88,25 +105,24 @@ export interface ClientExtensionContext {
 }
 
 /**
- * Sets up `extensions` on `client`, in order. Ids are checked before anything
- * is set up, so a duplicate leaves the client untouched. A `setup` that
- * throws, including an unmet `ctx.require`, fails the `Client` constructor
- * that called this.
+ * Sets up `extensions` on `client`, in order (see `installExtensions`). A
+ * `setup` that throws, including an unmet `ctx.require`, fails the `Client`
+ * constructor; one that rejects fails `connect`.
  *
  * Package-internal: called by the `Client` constructor.
  */
-export function installClientExtensions(client: Client, extensions: readonly ClientExtension[]): void {
-    const ids = uniqueExtensionIds(extensions);
-    for (const extension of extensions) {
-        if (typeof extension.setup !== 'function') {
-            throw new TypeError(`Extension "${String((extension as { id: unknown }).id)}" has no setup`);
-        }
-    }
-
-    for (const extension of extensions) {
-        client.registerCapabilities({ extensions: { [extension.id]: {} } });
-        extension.setup(contextFor(client, extension.id, ids));
-    }
+export function installClientExtensions(
+    client: Client,
+    extensions: readonly ClientExtension[],
+    capabilities: ClientCapabilities | undefined
+): void {
+    installExtensions(
+        client,
+        extensions,
+        capabilities,
+        capabilities => client.registerCapabilities(capabilities),
+        (id, installed) => contextFor(client, id, installed)
+    );
 }
 
 /** The context one extension's `setup` receives; everything it registers is attributed to `id`. */
@@ -114,13 +130,13 @@ function contextFor(client: Client, id: string, installed: ReadonlySet<string>):
     return {
         client,
         capability(settings) {
-            client.registerCapabilities({ extensions: { [id]: settings } });
+            writeExtensionCapability(client, id, settings, capabilities => client.registerCapabilities(capabilities));
         },
         require(extensionId) {
             requireExtension('client', installed, id, extensionId);
         },
         use(method, middleware) {
-            client.use(method, middleware);
+            useAsExtension(client, method, middleware);
         },
         setRequestHandler(name, schemas, handler) {
             setExtensionRequestHandler(client, id, name, schemas, handler);
