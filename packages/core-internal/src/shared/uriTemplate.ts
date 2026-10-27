@@ -227,6 +227,15 @@ export class UriTemplate {
 
         switch (part.operator) {
             case '': {
+                if (!part.exploded && part.names.length > 1) {
+                    for (let i = 0; i < part.names.length; i++) {
+                        patterns.push({
+                            pattern: (i === 0 ? '' : ',') + '([^/,]+)',
+                            name: part.names[i]!
+                        });
+                    }
+                    return patterns;
+                }
                 pattern = part.exploded ? '([^/,]+(?:,[^/,]+)*)' : '([^/,]+)';
                 break;
             }
