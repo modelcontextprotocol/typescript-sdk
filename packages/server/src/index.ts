@@ -42,6 +42,8 @@ export type { BearerAuthOptions, OAuthTokenVerifier, VerifyBearerTokenOptions } 
 export { bearerAuthChallengeResponse, requireBearerAuth, verifyBearerToken } from './server/middleware/bearerAuth';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation';
+// Server extensions (experimental): `McpServerOptions.extensions`.
+export type { ServerExtension, ServerExtensionContext } from './server/extension';
 // OAuth discovery documents (RFC 9728 / RFC 8414) for web-standard hosts; the
 // Express metadata router in @modelcontextprotocol/express adapts the same core.
 export type { AuthMetadataOptions } from './server/middleware/oauthMetadata';
@@ -54,7 +56,6 @@ export type { OriginValidationResult } from './server/middleware/originValidatio
 export { localhostAllowedOrigins, originValidationResponse, validateOriginHeader } from './server/middleware/originValidation';
 export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerRequestResponseMode } from './server/perRequestTransport';
 export { PerRequestHTTPServerTransport } from './server/perRequestTransport';
-export type { ServerExtension, ServerExtensionContext } from './server/extension';
 // Opt-in HMAC sealing for the multi-round-trip requestState (SEP-2322): the
 // convenience codec consumers drop into ServerOptions.requestState.verify.
 export type { RequestStateCodec, RequestStateCodecOptions } from './server/requestStateCodec';
