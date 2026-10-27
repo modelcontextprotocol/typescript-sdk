@@ -15,6 +15,7 @@ interface PendingInput {
     requests: InputRequests;
     responses: InputResponses;
     resolve: (responses: InputResponses) => void;
+    reject: (error: Error) => void;
 }
 
 interface TaskRecord {
@@ -52,7 +53,8 @@ export interface TaskHandle {
     /**
      * Moves the task to `input_required` with `requests` outstanding and
      * resolves once `tasks/update` has answered every key (partial updates
-     * accumulate). Rejects if the task is cancelled while waiting.
+     * accumulate). Rejects if the task is cancelled, purged or settled while
+     * waiting, and when another `requireInput` is already outstanding.
      */
     requireInput(requests: InputRequests): Promise<InputResponses>;
     complete(result: CallToolResult): Promise<void>;
@@ -169,13 +171,27 @@ export class InMemoryTaskStore implements TaskStore {
             requireInput: requests => {
                 const current = live();
                 if (current === undefined) return Promise.reject(new Error(`Task "${taskId}" is no longer running`));
+                if (current.pendingInput !== undefined) {
+                    return Promise.reject(new Error(`Task "${taskId}" is already waiting for input`));
+                }
                 return new Promise<InputResponses>((resolve, reject) => {
-                    current.pendingInput = { requests, responses: {}, resolve };
+                    const signal = current.abort.signal;
+                    const onAbort = () => reject(new Error(`Task "${taskId}" was cancelled`));
+                    signal.addEventListener('abort', onAbort, { once: true });
+                    current.pendingInput = {
+                        requests,
+                        responses: {},
+                        resolve: responses => {
+                            signal.removeEventListener('abort', onAbort);
+                            resolve(responses);
+                        },
+                        reject: error => {
+                            signal.removeEventListener('abort', onAbort);
+                            reject(error);
+                        }
+                    };
                     current.status = 'input_required';
                     this.#touch(current);
-                    current.abort.signal.addEventListener('abort', () => reject(new Error(`Task "${taskId}" was cancelled`)), {
-                        once: true
-                    });
                 });
             },
             complete: async result => {
@@ -183,6 +199,7 @@ export class InMemoryTaskStore implements TaskStore {
                 if (current === undefined) return;
                 current.status = 'completed';
                 current.result = result;
+                this.#settlePendingInput(current);
                 this.#touch(current);
             },
             fail: async error => {
@@ -190,6 +207,7 @@ export class InMemoryTaskStore implements TaskStore {
                 if (current === undefined) return;
                 current.status = 'failed';
                 current.error = error;
+                this.#settlePendingInput(current);
                 this.#touch(current);
             }
         };
@@ -202,6 +220,12 @@ export class InMemoryTaskStore implements TaskStore {
         if (record === undefined) return undefined;
         if (record.principal !== undefined && record.principal !== access?.principal) return undefined;
         return record;
+    }
+
+    #settlePendingInput(record: TaskRecord): void {
+        const pending = record.pendingInput;
+        record.pendingInput = undefined;
+        pending?.reject(new Error(`Task "${record.taskId}" settled while waiting for input`));
     }
 
     #touch(record: TaskRecord): void {
