@@ -2203,7 +2203,7 @@ export class Client extends Protocol<ClientContext> {
      * `setNotificationHandler` / `fallbackNotificationHandler` instead of
      * being silently swallowed.
      */
-    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
+    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void | Promise<void> {
         // Response-cache invalidation: a `list_changed` notification means the
         // matching cached list result is stale. Evict (do NOT refetch) before
         // dispatch so a handler that reaches the cache observes the cleared
@@ -2263,7 +2263,7 @@ export class Client extends Protocol<ClientContext> {
                 return;
             }
         }
-        super._onnotification(raw, extra);
+        return super._onnotification(raw, extra);
     }
 
     /**
@@ -2276,7 +2276,7 @@ export class Client extends Protocol<ClientContext> {
      * NUMBER and never holds a listen id, so passing a string-id response
      * through would surface as "unknown message ID" via `onerror`).
      */
-    protected override _onresponse(response: JSONRPCResponse): void {
+    protected override _onresponse(response: JSONRPCResponse): void | Promise<void> {
         const id = response.id;
         const entry = typeof id === 'string' ? this._listenState.get(id) : undefined;
         if (entry !== undefined) {
@@ -2305,7 +2305,7 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
-        super._onresponse(response);
+        return super._onresponse(response);
     }
 
     /**
