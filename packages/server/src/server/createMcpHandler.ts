@@ -281,7 +281,8 @@ function jsonRpcErrorResponse(httpStatus: number, code: number, message: string,
             error: { code, message, ...(data !== undefined && { data }) },
             id
         },
-        { status: httpStatus }
+        // This entry serves POST only, so every 405 it answers names POST (RFC 9110 §15.5.6).
+        { status: httpStatus, ...(httpStatus === 405 && { headers: { Allow: 'POST' } }) }
     );
 }
 
@@ -829,7 +830,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
             if (inputSchema !== undefined) {
                 const scan = scanXMcpHeaderDeclarations(inputSchema);
-                if (scan.valid && scan.declarations.length > 0) {
+                // A tool that is invalid only for a `number`-typed declaration is still checked.
+                if (scan.declarations !== undefined && scan.declarations.length > 0) {
                     const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
                     if (rejection !== undefined) {
                         void product.close().catch(reportError);

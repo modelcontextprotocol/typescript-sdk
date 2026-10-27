@@ -35,6 +35,11 @@ const REGION_INPUT_SCHEMA = {
     properties: { region: { type: 'string', 'x-mcp-header': 'Region' }, query: { type: 'string' } }
 } as const;
 
+const SCORE_INPUT_SCHEMA = {
+    type: 'object',
+    properties: { score: { type: 'number', 'x-mcp-header': 'Score' }, region: { type: 'string', 'x-mcp-header': 'Region' } }
+} as const;
+
 function makeFactory(): () => McpServer {
     return () => {
         const s = new McpServer({ name: 'param-server', version: '1.0.0' });
@@ -115,6 +120,26 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         const response = await handler.fetch(call({ region: 'Hello' }, { 'Mcp-Param-Region': '=?base64?SGVsbG8?=' }));
         expect(response.status).toBe(400);
         expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
+    });
+
+    it('a number-typed declaration does not switch the check off: its header and a valid sibling header are still compared', async () => {
+        const handler = createMcpHandler(() => {
+            const s = new McpServer({ name: 'param-server', version: '1.0.0' });
+            s.registerTool('route', { inputSchema: fromJsonSchema<{ score?: number; region?: string }>(SCORE_INPUT_SCHEMA) }, async () => ({
+                content: []
+            }));
+            return s;
+        });
+        const outcome = async (paramHeaders: Record<string, string>) => {
+            const response = await handler.fetch(call({ score: 1.5, region: 'us-west1' }, paramHeaders));
+            const body = (await response.json()) as { error?: { code: number; data?: { mismatch?: { header?: string } } } };
+            return [response.status, body.error?.code, body.error?.data?.mismatch?.header];
+        };
+        expect(await outcome({ 'Mcp-Param-Score': '1.5', 'Mcp-Param-Region': 'us-west1' })).toEqual([200, undefined, undefined]);
+        expect(await outcome({ 'Mcp-Param-Score': '1.5', 'Mcp-Param-Region': 'eu' })).toEqual([400, -32_020, 'Mcp-Param-Region']);
+        expect(await outcome({ 'Mcp-Param-Score': '9.9', 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
+        expect(await outcome({ 'Mcp-Param-Region': 'us-west1' })).toEqual([400, -32_020, 'Mcp-Param-Score']);
+        expect(await outcome({})).toEqual([400, -32_020, 'Mcp-Param-Score']);
     });
 });
 
