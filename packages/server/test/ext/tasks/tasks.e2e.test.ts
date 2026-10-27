@@ -7,7 +7,7 @@
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { TasksClientExtension } from '@modelcontextprotocol/client/ext/tasks';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { DetailedTask, TaskHandle } from '../../../src/ext/tasks/index';
@@ -189,8 +189,13 @@ describe('TasksExtension end to end (stateless handler, in-memory store)', () =>
         });
         const refused = await plain.callTool('greet', { name: 'x' });
         expect(refused.error).toMatchObject({ code: -32_021 });
+        const cancel = vi.spyOn(plain.store, 'cancel');
         const sneaky = await plain.callTool('sneaky', {});
         expect(sneaky.error).toMatchObject({ code: -32_021 });
+        // The refused handle's task is cancelled, not left running.
+        expect(cancel).toHaveBeenCalledTimes(1);
+        const [taskId] = cancel.mock.calls[0]!;
+        expect((await plain.store.get(taskId))?.status).toBe('cancelled');
         plain.store.close();
     });
 });
