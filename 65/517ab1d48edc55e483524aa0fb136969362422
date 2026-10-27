@@ -1,0 +1,25 @@
+packages/core-internal/src/shared/extensions.ts
+  s_555766defd684e::t_b450cf020889da 31-36
+packages/server/src/server/createMcpHandler.ts
+  s_555766defd684e::t_2779efe007c637 44,798-799
+packages/server/src/server/serveStdio.ts
+  s_555766defd684e::t_c54d76ddaec852 63,515-516
+packages/server/test/server/scopeChallengeModern.test.ts
+  s_555766defd684e::t_346e4ea617de37 273-301
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "65517ab1d48edc55e483524aa0fb136969362422",
+  "prompts": {},
+  "sessions": {
+    "s_555766defd684e": {
+      "agent_id": {
+        "tool": "pi",
+        "id": "01a17d32-1415-7664-9ce6-6ff0dcabe30f",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "Matt Carey <mcarey@cloudflare.com>"
+    }
+  }
+}
