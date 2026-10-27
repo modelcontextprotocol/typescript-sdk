@@ -188,6 +188,14 @@ export type ClientOptions = ProtocolOptions & {
     capabilities?: ClientCapabilities;
 
     /**
+     * Console-compatible sink for local SDK diagnostics. This does not affect MCP protocol
+     * logging (`notifications/message`). Omitted methods discard diagnostics at that level.
+     *
+     * @default console
+     */
+    logger?: SdkLogger;
+
+    /**
      * JSON Schema validator for tool output validation.
      *
      * The validator is used to validate structured content returned by tools
@@ -551,6 +559,7 @@ export class Client extends Protocol<ClientContext> {
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private readonly _logger: SdkLogger;
     /**
      * The response-cache substrate. Owns the backing store, the per-method
      * eviction-generation counter, the user-supplied/default flag, and the
@@ -659,6 +668,7 @@ export class Client extends Protocol<ClientContext> {
         options?: ClientOptions
     ) {
         super(options);
+        this._logger = options?.logger ?? console;
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
