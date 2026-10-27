@@ -73,7 +73,7 @@ Only the result comes back:
 
 ## Route SDK diagnostics
 
-Pass `logger` to route local warnings and debug messages from SDK internals. On stdio, send every level to stderr so diagnostics never enter the JSON-RPC channel.
+Pass `logger` to `McpServer` to route the warnings and debug messages the SDK prints locally. On stdio, send every level to stderr so diagnostics never enter the JSON-RPC channel.
 
 ```ts source="../../examples/guides/servers/logging-progress-cancellation.examples.ts#sdkLogger_stderr"
 const sdkLogger = {
@@ -86,7 +86,9 @@ const sdkLogger = {
 const diagnosticServer = new McpServer({ name: 'file-processor', version: '1.0.0' }, { logger: sdkLogger });
 ```
 
-The same option works on `Client` and low-level `Server`; `createMcpHandler` also accepts it for handler diagnostics. Every method is optional, and an omitted method discards diagnostics at that level. The default is `console`.
+`Client` and `createMcpHandler` take the same option. The low-level `Server` accepts it too, but has no diagnostics of its own to send through it. Every method is optional, and an omitted method discards diagnostics at that level. The default is `console`.
+
+The OAuth helpers in `@modelcontextprotocol/client` (`auth()` and the built-in providers such as `ClientCredentialsProvider`) run outside a `Client`, so their warnings still go to `console.warn`.
 
 This logger stays local to the process. It does not send MCP `notifications/message`; use `ctx.mcpReq.log` for that deprecated protocol feature.
 
