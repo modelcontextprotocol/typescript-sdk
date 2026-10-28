@@ -2130,11 +2130,13 @@ export async function startAuthorization(
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
     if (metadata) {
-        authorizationUrl = new URL(metadata.authorization_endpoint);
-
         if (!metadata.response_types_supported.includes(AUTHORIZATION_CODE_RESPONSE_TYPE)) {
             throw new Error(`Incompatible auth server: does not support response type ${AUTHORIZATION_CODE_RESPONSE_TYPE}`);
         }
+        if (!metadata.authorization_endpoint) {
+            throw new Error('Incompatible auth server: missing authorization_endpoint');
+        }
+        authorizationUrl = new URL(metadata.authorization_endpoint);
 
         if (
             metadata.code_challenge_methods_supported &&
