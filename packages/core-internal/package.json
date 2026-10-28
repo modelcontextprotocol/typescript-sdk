@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/core-internal",
     "private": true,
-    "version": "2.0.4",
+    "version": "2.0.5",
     "description": "Model Context Protocol implementation for TypeScript - Core package",
     "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -32,6 +32,10 @@
         "./public": {
             "types": "./src/exports/public/index.ts",
             "import": "./src/exports/public/index.ts"
+        },
+        "./ext/skills": {
+            "types": "./src/ext/skills/index.ts",
+            "import": "./src/ext/skills/index.ts"
         },
         "./validators/ajv": {
             "types": "./src/validators/ajvProvider.ts",
@@ -97,6 +101,7 @@
         "prettier": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "vitest": "catalog:devTools",
+        "yaml": "^2.8.3"
     }
 }

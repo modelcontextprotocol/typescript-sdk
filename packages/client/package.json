@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/client",
-    "version": "2.3.1",
+    "version": "2.4.0",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
     "license": "Apache-2.0",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -38,6 +38,16 @@
             "require": {
                 "types": "./dist/stdio.d.cts",
                 "default": "./dist/stdio.cjs"
+            }
+        },
+        "./ext/skills": {
+            "import": {
+                "types": "./dist/ext/skills/index.d.mts",
+                "default": "./dist/ext/skills/index.mjs"
+            },
+            "require": {
+                "types": "./dist/ext/skills/index.d.cts",
+                "default": "./dist/ext/skills/index.cjs"
             }
         },
         "./validators/ajv": {
@@ -107,6 +117,9 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
+            "ext/skills": [
+                "dist/ext/skills/index.d.mts"
+            ],
             "validators/ajv": [
                 "dist/validators/ajv.d.mts"
             ],
