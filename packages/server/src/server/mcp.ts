@@ -539,7 +539,11 @@ export class McpServer {
                 .map(([uri, resource]) => ({
                     uri,
                     name: resource.name,
-                    ...resource.metadata
+                    ...resource.metadata,
+                    // `title` is advertised from metadata, but the registration form also stores it
+                    // beside metadata, and a metadata-only update replaces the carrier wholesale.
+                    // Deriving it here keeps the advertised title independent of how it was last written.
+                    title: resource.metadata?.title ?? resource.title
                 }));
 
             const templateResources: Resource[] = [];
@@ -552,6 +556,9 @@ export class McpServer {
                 for (const resource of result.resources) {
                     templateResources.push({
                         ...template.metadata,
+                        // Same derivation as `resources/list`: a template registered with a title keeps
+                        // advertising it for its listed instances after a metadata-only update.
+                        title: template.metadata?.title ?? template.title,
                         // the defined resource metadata should override the template metadata if present
                         ...resource
                     });
@@ -565,7 +572,8 @@ export class McpServer {
             const resourceTemplates = Object.entries(this._registeredResourceTemplates).map(([name, template]) => ({
                 name,
                 uriTemplate: template.resourceTemplate.uriTemplate.toString(),
-                ...template.metadata
+                ...template.metadata,
+                title: template.metadata?.title ?? template.title
             }));
 
             return { resourceTemplates };
