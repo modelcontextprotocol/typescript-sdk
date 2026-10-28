@@ -570,9 +570,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _customSchemaRequestMethods = new Set<string>();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
-    private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
-    private _progressHandlers: Map<number, ProgressCallback> = new Map();
-    private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
+    private _responseHandlers: Map<RequestId, (response: JSONRPCResultResponse | Error) => void> = new Map();
+    private _progressHandlers: Map<RequestId, ProgressCallback> = new Map();
+    private _timeoutInfo: Map<RequestId, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
     /**
@@ -744,7 +744,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _setupTimeout(
-        messageId: number,
+        messageId: RequestId,
         timeout: number,
         maxTotalTimeout: number | undefined,
         onTimeout: () => void,
@@ -760,7 +760,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         });
     }
 
-    private _resetTimeout(messageId: number): boolean {
+    private _resetTimeout(messageId: RequestId): boolean {
         const info = this._timeoutInfo.get(messageId);
         if (!info) return false;
 
@@ -778,7 +778,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         return true;
     }
 
-    private _cleanupTimeout(messageId: number) {
+    private _cleanupTimeout(messageId: RequestId) {
         const info = this._timeoutInfo.get(messageId);
         if (info) {
             clearTimeout(info.timeoutId);
@@ -1177,7 +1177,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _onprogress(notification: ProgressNotification): void {
         const { progressToken, ...params } = notification.params;
-        const messageId = Number(progressToken);
+        const messageId = progressToken;
 
         const handler = this._progressHandlers.get(messageId);
         if (!handler) {
@@ -1211,10 +1211,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * else.
      */
     protected _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
-        const messageId = Number(response.id);
+        const messageId = response.id;
 
-        const handler = this._responseHandlers.get(messageId);
-        if (handler === undefined) {
+        const handler = messageId === undefined ? undefined : this._responseHandlers.get(messageId);
+        if (messageId === undefined || handler === undefined) {
             this._onerror(new Error(`Received a response for an unknown message ID: ${JSON.stringify(response)}`));
             return;
         }
