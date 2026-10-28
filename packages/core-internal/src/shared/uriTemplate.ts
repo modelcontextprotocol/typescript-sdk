@@ -106,7 +106,7 @@ export class UriTemplate {
         if (operator === '+' || operator === '#') {
             return encodeURI(value);
         }
-        return encodeURIComponent(value);
+        return encodeURIComponent(value).replaceAll(/[!'()*]/g, character => '%' + character.codePointAt(0)!.toString(16).toUpperCase());
     }
 
     private expandPart(
