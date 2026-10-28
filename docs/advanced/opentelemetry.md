@@ -86,7 +86,9 @@ The server span comes from the `@modelcontextprotocol/server` instrumentation sc
 ```
 
 ::: warning
-If your propagator includes W3C Baggage (the `NodeSDK` default), baggage entries travel in `params._meta` to every MCP server you call, including third-party ones. Register `W3CTraceContextPropagator` on its own to send trace context only.
+`params._meta` gets whatever your global propagator writes, as HTTP headers do. If it includes W3C Baggage (the `NodeSDK` default), baggage entries reach every MCP server you call, including third-party ones. Register `W3CTraceContextPropagator` on its own to send trace context only.
+
+On Cloudflare Workers, a span's trace flags don't reflect sampling, so a W3C propagator sends `traceparent` with flags `00` and peers may treat the request as unsampled.
 :::
 
 ::: info
@@ -124,7 +126,7 @@ Spans don't record tool arguments, tool results or prompt arguments. They do rec
 With HTTP instrumentation active too, the MCP server span stays a child of the client's MCP span and links to the HTTP server span. `createMcpHandler` needs nothing extra.
 
 ::: tip
-Already tracing MCP with another tool, such as Sentry's MCP integration? Drop one of the two to avoid duplicate spans: filter the `@modelcontextprotocol/client` and `@modelcontextprotocol/server` instrumentation scopes out in your SDK's span processor, or turn off the other integration.
+Sentry's `McpServer` integration also traces MCP, so with Sentry you get two spans per message. Remove the integration with `integrations: defaults => defaults.filter(integration => integration.name !== 'McpServer')`. Don't filter the `@modelcontextprotocol/*` scopes in a span processor instead: handler spans and the peer's spans would point at parents that are never exported.
 :::
 
 The `examples/opentelemetry` story runs a traced client and server in separate processes over stdio and Streamable HTTP, and checks the trace crosses the wire.

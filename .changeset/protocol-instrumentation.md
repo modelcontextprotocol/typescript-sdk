@@ -10,8 +10,8 @@
 
 What changes for applications that already run an OpenTelemetry SDK:
 
-- MCP spans and metrics appear under the `@modelcontextprotocol/client` and `@modelcontextprotocol/server` instrumentation scopes. To drop them (for example when Sentry's MCP integration already traces MCP), filter those scopes in your SDK.
-- Outgoing requests and notifications carry the keys your propagator writes in `params._meta`: `traceparent` and `tracestate`, and `baggage` if your propagator includes W3C Baggage (the `NodeSDK` default), in which case baggage entries reach MCP peers, including third-party servers. Register `W3CTraceContextPropagator` alone to send trace context only.
+- MCP spans and metrics appear under the `@modelcontextprotocol/client` and `@modelcontextprotocol/server` instrumentation scopes. Sentry's `McpServer` integration also traces MCP; remove it to avoid duplicate spans. Filtering the MCP scopes instead leaves handler spans parented on spans that are never exported.
+- Outgoing requests and notifications carry whatever your global propagator writes, in `params._meta`, as HTTP requests carry it in headers: `traceparent` and `tracestate`, plus `baggage` if the propagator includes W3C Baggage (the `NodeSDK` default), so baggage entries reach MCP peers, including third-party servers. Register `W3CTraceContextPropagator` alone to send trace context only.
 - Servers that validate a custom method's params with a strict schema need an optional `_meta` member, as they already do for callers that pass `onprogress`.
 
 Spans do not record tool arguments, tool results or prompt arguments. They do record JSON-RPC error messages, handler exception messages and resource URIs. The span and attribute names are experimental while the MCP semantic conventions are in development.
