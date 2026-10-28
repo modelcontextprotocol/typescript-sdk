@@ -80,6 +80,23 @@ describe('client-chosen strings stay out of span names and metrics', () => {
         await server.close();
     });
 
+    it('drops a tool name sent to a server that has no tool handler at all', async () => {
+        const server = new McpServer({ name: 'docs', version: '1.0.0' });
+        server.registerResource('readme', 'file:///readme.md', {}, uri => ({ contents: [{ uri: uri.href, text: '# hi' }] }));
+        const { peer, received } = await rawPeer(server);
+        await peer.send(initialize('2025-11-25'));
+        await peer.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+        await peer.send({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'random-tool-5555', arguments: {} } });
+        await tick();
+
+        expect(received).toContainEqual(expect.objectContaining({ id: 1, error: expect.objectContaining({ code: -32_601 }) }));
+        const span = sdk.span('tools/call', SpanKind.SERVER);
+        expect(span.attributes['rpc.response.status_code']).toBe('-32601');
+        expect(JSON.stringify(await metricAttributes('mcp.server.operation.duration'))).not.toContain('random-tool');
+        await server.close();
+    });
+
     it('records the protocol version an initialize requests only when the server supports it', async () => {
         const server = new McpServer({ name: 'weather', version: '1.0.0' });
         const { peer } = await rawPeer(server);

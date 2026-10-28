@@ -245,9 +245,9 @@ function pickMetricAttributes(attributes: Attributes): Attributes {
     return picked;
 }
 
-/** Whether the outcome shows the server's handler recognised the requested tool or prompt (unknown ones answer -32602). */
+/** Whether a handler answered and recognised the tool or prompt: errors sent before dispatch carry no cause, and unknown names answer -32602. */
 function recognisedTarget(outcome: OperationOutcome): boolean {
-    return outcome.type === 'result' || (outcome.type === 'error' && outcome.error.code !== INVALID_PARAMS);
+    return outcome.type === 'result' || (outcome.type === 'error' && outcome.cause !== undefined && outcome.error.code !== INVALID_PARAMS);
 }
 
 /** JSON-RPC reserves -32768 to -32000; codes outside it are application-defined and unbounded. */

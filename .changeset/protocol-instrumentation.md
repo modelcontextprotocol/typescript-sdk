@@ -6,7 +6,7 @@
 
 `Client`, `Server` and `McpServer` now emit OpenTelemetry spans and `mcp.client.operation.duration` / `mcp.server.operation.duration` histograms for every MCP request and notification except `notifications/message`, following the OpenTelemetry semantic conventions for MCP, and propagate W3C trace context through `params._meta` (SEP-414). There is nothing to configure: register an OpenTelemetry SDK and MCP traffic shows up. Without one, the OpenTelemetry API is a no-op, nothing is recorded and messages are unchanged.
 
-`@opentelemetry/api` (`^1.9.0`) is a new peer dependency of `@modelcontextprotocol/client` and `@modelcontextprotocol/server`, so the SDK uses the same copy as the application's OpenTelemetry SDK. npm, pnpm and Bun install it automatically; with Yarn PnP add it to your dependencies.
+`@opentelemetry/api` (`^1.9.0`) is a new required peer dependency of `@modelcontextprotocol/client` and `@modelcontextprotocol/server`, so the SDK uses the same copy as the application's OpenTelemetry SDK. npm 7+, pnpm 8+ and Bun install it automatically. Setups that don't install peers must add `@opentelemetry/api` to their dependencies, or importing either package fails: Yarn (classic, and Berry with any linker), `npm --legacy-peer-deps`, and pnpm with `auto-install-peers=false`.
 
 What changes for applications that already run an OpenTelemetry SDK:
 
