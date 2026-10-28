@@ -229,16 +229,18 @@ export function mcpParamPrimitiveToString(value: unknown): string | undefined {
 function needsBase64(s: string): boolean {
     if (s.length === 0) return true;
     if (s.startsWith(BASE64_SENTINEL_PREFIX) && s.endsWith(BASE64_SENTINEL_SUFFIX)) return true;
+    // Field parsing strips leading/trailing whitespace, a tab included.
     if (s !== s.trim()) return true;
+    return !hasOnlyPlainFieldChars(s);
+}
+
+/** `true` when every character is visible ASCII `0x21–0x7E`, space `0x20` or horizontal tab `0x09`. */
+function hasOnlyPlainFieldChars(s: string): boolean {
     for (let i = 0; i < s.length; i++) {
         const c = s.codePointAt(i)!;
-        // Visible ASCII 0x21–0x7E, plus space 0x20 and horizontal tab 0x09; a
-        // tab is only safe when it is interior whitespace (the trim() check
-        // above already covered leading/trailing).
-        if (c === 0x09 || (c >= 0x20 && c <= 0x7e)) continue;
-        return true;
+        if (c !== 0x09 && (c < 0x20 || c > 0x7e)) return false;
     }
-    return false;
+    return true;
 }
 
 function utf8ToBase64(s: string): string {
@@ -267,13 +269,14 @@ export function encodeMcpParamValue(value: string): string {
 /**
  * Decode an `Mcp-Param-*` header value: when it carries the Base64 sentinel,
  * the payload is decoded as UTF-8; otherwise the value is returned as-is.
- * Returns `undefined` when the sentinel is present but the payload is not
- * canonical Base64 (or not valid UTF-8) — the spec requires servers to reject
- * such values.
+ * Returns `undefined` when a plain value holds a character outside
+ * `0x20–0x7E` / `0x09` (such a value has to arrive Base64-wrapped), or when the
+ * sentinel is present but the payload is not canonical Base64 (or not valid
+ * UTF-8) — the spec requires servers to reject such values.
  */
 export function decodeMcpParamValue(value: string): string | undefined {
     if (!(value.startsWith(BASE64_SENTINEL_PREFIX) && value.endsWith(BASE64_SENTINEL_SUFFIX))) {
-        return value;
+        return hasOnlyPlainFieldChars(value) ? value : undefined;
     }
     const b64 = value.slice(BASE64_SENTINEL_PREFIX.length, value.length - BASE64_SENTINEL_SUFFIX.length);
     if (!BASE64_CANONICAL.test(b64)) return undefined;
@@ -282,6 +285,16 @@ export function decodeMcpParamValue(value: string): string | undefined {
     } catch {
         return undefined;
     }
+}
+
+/**
+ * Why {@linkcode decodeMcpParamValue} returned `undefined` for `value`, worded for an error message, so
+ * that a client author can tell a plain value that needed Base64 wrapping from a broken sentinel.
+ */
+export function describeMcpParamDecodeFailure(value: string): string {
+    return value.startsWith(BASE64_SENTINEL_PREFIX) && value.endsWith(BASE64_SENTINEL_SUFFIX)
+        ? 'an invalid Base64 sentinel value'
+        : 'a plain value with a character outside 0x20-0x7E / 0x09, which has to be sent Base64-wrapped';
 }
 
 /* ------------------------------------------------------------------------ *
@@ -330,8 +343,9 @@ export function buildMcpParamHeaders(
  * `arguments` carries a value, the matching `Mcp-Param-{Name}` header MUST be
  * present and decode to an equal value; when the body value is `null` or
  * absent the server MUST NOT expect the header (a present header is ignored).
- * A sentinel-carrying header whose payload is not canonical Base64 / valid
- * UTF-8 is rejected as invalid characters.
+ * A plain header holding a character outside `0x20–0x7E` / `0x09`, or a
+ * sentinel-carrying header whose payload is not canonical Base64 / valid
+ * UTF-8, is rejected as invalid characters.
  *
  * Integer- and number-typed declarations are compared numerically (the spec's SHOULD —
  * `42.0` and `42` are equal); everything else is compared as decoded strings.
@@ -374,7 +388,7 @@ export function validateMcpParamHeaders(
             return paramHeaderMismatchRejection(
                 'param-header-invalid-encoding',
                 headerKey,
-                `the ${headerKey} header carries an invalid Base64 sentinel value`
+                `the ${headerKey} header carries ${describeMcpParamDecodeFailure(headerValue)}`
             );
         }
         // Integer/number-typed declarations compare numerically (the spec's
