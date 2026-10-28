@@ -321,6 +321,22 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         ).toBeUndefined();
     });
 
+    test('an unterminated sentinel is a plain value: accepted as a literal, or rejected as one', () => {
+        // The sentinel needs both the prefix and the `?=` suffix, so without the suffix the value takes the plain path.
+        expect(decodeMcpParamValue('=?base64?SGVsbG8=')).toBe('=?base64?SGVsbG8=');
+        expect(decodeMcpParamValue('=?base64?café')).toBeUndefined();
+        const r = validateMcpParamHeaders(
+            DECLS,
+            { region: '=?base64?café' },
+            new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: '=?base64?café' })
+        );
+        expect(r).toMatchObject({
+            kind: 'reject',
+            cell: 'param-header-invalid-encoding',
+            message: expect.stringContaining('has to be sent Base64-wrapped')
+        });
+    });
+
     test('integer-typed declarations are compared numerically (42.0 == 42)', () => {
         const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
         expect(validateMcpParamHeaders(intDecl, { n: 42 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '42.0' }))).toBeUndefined();
