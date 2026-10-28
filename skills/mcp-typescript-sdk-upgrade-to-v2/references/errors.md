@@ -39,6 +39,7 @@ class to match per scenario:
 | Scenario                                         | v1                                        | v2                                                                 |
 | ------------------------------------------------ | ----------------------------------------- | ------------------------------------------------------------------ |
 | Request timeout                                  | `McpError` + `ErrorCode.RequestTimeout`   | `SdkError` + `SdkErrorCode.RequestTimeout`                         |
+| Request cancelled via `AbortSignal`              | `McpError` + `ErrorCode.RequestTimeout` / raw `reason` | `SdkError` + `SdkErrorCode.RequestAborted`       |
 | Connection closed                                | `McpError` + `ErrorCode.ConnectionClosed` | `SdkError` + `SdkErrorCode.ConnectionClosed`                       |
 | Capability not supported                         | `new Error(...)`                          | `SdkError` + `SdkErrorCode.CapabilityNotSupported`                 |
 | Not connected                                    | `new Error('Not connected')`              | `SdkError` + `SdkErrorCode.NotConnected`                           |
@@ -158,6 +159,7 @@ the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
 | `NotInitialized`                      | Protocol is not initialized                                                |
 | `CapabilityNotSupported`              | Required capability is not supported                                       |
 | `RequestTimeout`                      | Request timed out waiting for response                                     |
+| `RequestAborted`                      | The request's `AbortSignal` fired before a response arrived                |
 | `ConnectionClosed`                    | Connection was closed                                                      |
 | `SendFailed`                          | Failed to send message                                                     |
 | `InvalidResult`                       | Response result failed local schema validation                             |
