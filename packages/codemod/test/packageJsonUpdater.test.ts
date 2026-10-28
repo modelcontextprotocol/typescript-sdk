@@ -354,3 +354,34 @@ describe('updatePackageJson', () => {
         expect(deps['@modelcontextprotocol/express']).toBeDefined();
     });
 });
+
+describe('optional SDK dependency migration', () => {
+    it('keeps optional SDK replacements optional', () => {
+        const dir = createTempDir();
+        const manifestPath = path.join(dir, 'package.json');
+        writePkgJson(dir, { optionalDependencies: { '@modelcontextprotocol/sdk': '^1' } });
+        updatePackageJson(discoverManifests(dir), new Map([[manifestPath, new Set(['@modelcontextprotocol/client'])]]), false);
+        const output = readPkgJson(dir);
+        expect(output.optionalDependencies).not.toHaveProperty('@modelcontextprotocol/sdk');
+        expect(output.optionalDependencies).toHaveProperty('@modelcontextprotocol/client');
+        expect(output.dependencies).toBeUndefined();
+    });
+});
+
+describe('injected Zod with optional SDK migration', () => {
+    it('keeps the newly injected dependency optional with the SDK replacements', () => {
+        const dir = createTempDir();
+        const manifestPath = path.join(dir, 'package.json');
+        writePkgJson(dir, { optionalDependencies: { '@modelcontextprotocol/sdk': '^1' } });
+        updatePackageJson(
+            discoverManifests(dir),
+            new Map([[manifestPath, new Set(['@modelcontextprotocol/server'])]]),
+            false,
+            new Map([[manifestPath, [path.join(dir, 'server.ts')]]])
+        );
+        const output = readPkgJson(dir);
+        expect(output.optionalDependencies).toHaveProperty('zod');
+        expect(output.optionalDependencies).toHaveProperty('@modelcontextprotocol/server');
+        expect(output.dependencies).toBeUndefined();
+    });
+});
