@@ -84,8 +84,8 @@ async function runForecastOutcomes(transport: Transport, makeClient: () => Clien
     const client = makeClient();
     await using _ = await wire(transport, forecastServer, client);
 
-    // listTools() primes the client's output-schema validator cache — this is
-    // where the configured provider compiles the schema.
+    // listTools() retains the full catalog. The configured provider compiles
+    // an output schema later, when callTool names that tool.
     const { tools } = await client.listTools();
     expect(tools.map(t => t.name).toSorted()).toEqual(['forecast', 'forecast-corrupted']);
 
@@ -147,25 +147,45 @@ verifies('validation:pluggable-provider', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'c', version: '0' }, { jsonSchemaValidator: recorder });
     await using _ = await wire(transport, forecastServer, client);
 
-    await client.listTools();
-
-    // Derived-view behavior: the validator index is compiled lazily on the
-    // first callTool against the cached tools/list entry's stamp, not eagerly
-    // at listTools time.
+    const listed = await client.listTools();
+    expect(listed.tools.map(tool => tool.name).toSorted()).toEqual(['forecast', 'forecast-corrupted']);
+    // The catalog is complete before any output schema is compiled.
     expect(recorder.compiledSchemas).toEqual([]);
 
-    // The custom provider's validator is the one consulted on tools/call, and
-    // its (delegated) verdict is what the caller sees. The first call
-    // re-derives the whole name → validator index (once per tool that
-    // declares an outputSchema — both forecast tools share the same schema).
-    const result = await client.callTool({ name: 'forecast', arguments: {} });
-    expect(result.structuredContent).toEqual({ celsius: 21, summary: 'mild and sunny' });
-    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA, FORECAST_OUTPUT_SCHEMA]);
+    const accepted = await client.callTool({ name: 'forecast', arguments: {} });
+    expect(accepted.structuredContent).toEqual({ celsius: 21, summary: 'mild and sunny' });
+    // The first call compiles only the named tool, even though forecast-corrupted
+    // advertises the same schema bytes.
+    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA]);
     expect(recorder.validatedValues).toEqual([{ celsius: 21, summary: 'mild and sunny' }]);
 
-    await expect(client.callTool({ name: 'forecast-corrupted', arguments: {} })).rejects.toBeInstanceOf(ProtocolError);
+    const repeated = await client.callTool({ name: 'forecast', arguments: {} });
+    expect(repeated.structuredContent).toEqual({ celsius: 21, summary: 'mild and sunny' });
+    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA]);
     expect(recorder.validatedValues).toEqual([
         { celsius: 21, summary: 'mild and sunny' },
+        { celsius: 21, summary: 'mild and sunny' }
+    ]);
+
+    const firstCorrupt = client.callTool({ name: 'forecast-corrupted', arguments: {} });
+    await expect(firstCorrupt).rejects.toBeInstanceOf(ProtocolError);
+    await expect(firstCorrupt).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+    // A distinct tool compiles its own validator. Equal schema bytes do not reuse the other tool's.
+    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA, FORECAST_OUTPUT_SCHEMA]);
+    expect(recorder.validatedValues).toEqual([
+        { celsius: 21, summary: 'mild and sunny' },
+        { celsius: 21, summary: 'mild and sunny' },
+        { celsius: 'mild', summary: 42 }
+    ]);
+
+    const repeatedCorrupt = client.callTool({ name: 'forecast-corrupted', arguments: {} });
+    await expect(repeatedCorrupt).rejects.toBeInstanceOf(ProtocolError);
+    await expect(repeatedCorrupt).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+    expect(recorder.compiledSchemas).toEqual([FORECAST_OUTPUT_SCHEMA, FORECAST_OUTPUT_SCHEMA]);
+    expect(recorder.validatedValues).toEqual([
+        { celsius: 21, summary: 'mild and sunny' },
+        { celsius: 21, summary: 'mild and sunny' },
+        { celsius: 'mild', summary: 42 },
         { celsius: 'mild', summary: 42 }
     ]);
 });
