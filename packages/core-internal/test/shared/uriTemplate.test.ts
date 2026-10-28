@@ -311,4 +311,28 @@ describe('UriTemplate', () => {
             expect(elapsed).toBeLessThan(100);
         });
     });
+
+    describe('RFC 6570 prefix-operator expansion', () => {
+        it('joins a non-exploded list value with commas (§3.2.8, §3.2.9)', () => {
+            expect(new UriTemplate('X{.list}').expand({ list: ['red', 'green', 'blue'] })).toBe('X.red,green,blue');
+            expect(new UriTemplate('{/list}').expand({ list: ['red', 'green', 'blue'] })).toBe('/red,green,blue');
+        });
+
+        it('keeps joining an exploded list value with the operator separator (§3.2.8, §3.2.9)', () => {
+            expect(new UriTemplate('X{.list*}').expand({ list: ['red', 'green', 'blue'] })).toBe('X.red.green.blue');
+            expect(new UriTemplate('{/list*}').expand({ list: ['red', 'green', 'blue'] })).toBe('/red/green/blue');
+        });
+
+        it('encodes and separates the values of a multi-variable expression (§3.2.1, §3.2.8, §3.2.9)', () => {
+            expect(new UriTemplate('{x,half,y}').expand({ x: '1024', half: '50%', y: '768' })).toBe('1024,50%25,768');
+            expect(new UriTemplate('X{#x,half,y}').expand({ x: '1024', half: '50%', y: '768' })).toBe('X#1024,50%25,768');
+            expect(new UriTemplate('{.who,who}').expand({ who: 'fred' })).toBe('.fred.fred');
+            expect(new UriTemplate('{/who,dub}').expand({ who: 'fred', dub: 'me/too' })).toBe('/fred/me%2Ftoo');
+        });
+
+        it('skips undefined variables of a multi-variable expression', () => {
+            expect(new UriTemplate('X{.who,who}').expand({})).toBe('X');
+            expect(new UriTemplate('{/who,dub}').expand({ dub: 'me/too' })).toBe('/me%2Ftoo');
+        });
+    });
 });
