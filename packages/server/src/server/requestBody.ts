@@ -28,7 +28,9 @@ export function resolveMaxRequestBodySize(value: number | undefined): number {
  * Reads a request body as text, up to `maxBytes` (default
  * {@linkcode DEFAULT_MAX_REQUEST_BODY_SIZE}). A declared `Content-Length` over the
  * limit is refused without reading anything; otherwise the read stops as soon as
- * more than the limit has arrived. Stream failures propagate.
+ * more than the limit has arrived. Where the runtime has no `Request.body` stream
+ * (Firefox), the body is read whole and then checked against the limit. Stream
+ * failures propagate.
  */
 export async function readRequestBody(
     request: Request,
@@ -39,6 +41,11 @@ export async function readRequestBody(
     }
     if (request.body === null) {
         return { tooLarge: false, text: '' };
+    }
+    // Firefox does not implement `Request.body` yet, though `arrayBuffer()` works.
+    if (request.body === undefined) {
+        const bytes = await request.arrayBuffer();
+        return bytes.byteLength > maxBytes ? { tooLarge: true } : { tooLarge: false, text: new TextDecoder().decode(bytes) };
     }
     const reader = request.body.getReader();
     const decoder = new TextDecoder();
