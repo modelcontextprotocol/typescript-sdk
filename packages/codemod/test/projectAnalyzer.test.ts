@@ -289,3 +289,11 @@ describe('resolveTypesPackage', () => {
         expect(resolveTypesPackage({ projectType: 'unknown' }, false, true)).toBe('@modelcontextprotocol/server');
     });
 });
+
+describe('split SDK dependency declarations', () => {
+    it.each(['peerDependencies', 'optionalDependencies'])('infers client-only projects from %s', section => {
+        const dir = createTempDir();
+        writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ [section]: { '@modelcontextprotocol/client': '^2.0.0' } }));
+        expect(analyzeProject(dir).projectType).toBe('client');
+    });
+});
