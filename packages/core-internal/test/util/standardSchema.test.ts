@@ -12,7 +12,10 @@ describe('validateStandardSchema', () => {
             }
         };
 
-        await expect(validateStandardSchema(schema, { name: 'example' })).resolves.toEqual({ success: false, error: '' });
+        await expect(validateStandardSchema(schema, { name: 'example' })).resolves.toEqual({
+            success: false,
+            error: 'validation failed'
+        });
     });
 
     test('preserves transformed values when validation succeeds', async () => {
