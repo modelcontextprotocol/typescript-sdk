@@ -42,7 +42,7 @@ jobs:
 
             - name: Create or update Version Packages PR
               id: changesets
-              uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
+              uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v1
               env:
                   GITHUB_TOKEN: ${{ github.token }}
 
@@ -81,7 +81,7 @@ jobs:
               run: npm install -g npm@11.5.1
 
             - name: Publish to npm
-              uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1
+              uses: changesets/action@ae32849d5ba541f9ae29e40e22a623bc13562f51 # v1
               with:
                   publish: pnpm run ci:publish
               env:
