@@ -25,7 +25,8 @@ export function withoutIssuer(body: unknown): unknown {
 /**
  * Checks if a requested resource URL matches a configured resource URL.
  * A requested resource matches if it has the same scheme, domain, port,
- * and its path starts with the configured resource's path.
+ * and its path starts with the configured resource's path. A single trailing
+ * slash is not significant, so `/mcp` and `/mcp/` match in either direction.
  *
  * @param options - The options object
  * @param options.requestedResource - The resource URL being requested
@@ -44,11 +45,6 @@ export function checkResourceAllowed({
 
     // Compare the origin (scheme, domain, and port)
     if (requested.origin !== configured.origin) {
-        return false;
-    }
-
-    // Handle cases like requested=/foo and configured=/foo/
-    if (requested.pathname.length < configured.pathname.length) {
         return false;
     }
 
