@@ -149,9 +149,12 @@ describe('InMemoryResponseCacheStore', () => {
 });
 
 describe('ClientResponseCache', () => {
-    it('write skips when the captured generation moved (list_changed-during-walk guard)', async () => {
+    it('write skips when the captured generation moved or the key was never captured (list_changed-during-walk guard)', async () => {
         const store = new InMemoryResponseCacheStore();
         const cache = new ClientResponseCache(store, false);
+        // Uncaptured key with literal generation 0 → no-op without a prior captureGeneration().
+        await cache.write('tools/list', { tools: [TOOL_A] }, 0);
+        expect(store.get({ method: 'tools/list', partition: PRE })).toBeUndefined();
         const gen = cache.captureGeneration('tools/list');
         await cache.evict('tools/list');
         await cache.write('tools/list', { tools: [TOOL_A] }, gen);
