@@ -122,6 +122,14 @@ git checkout-index --index -- packages/core-internal/test/corpus/schema-twins/20
 
 This recreates the files from the index without changing the staged contents. Keep the backups if they contain local edits. Fresh clones do not need this step. Do not update the manifest’s hashes or sizes to make the test pass.
 
+To check the working-tree line endings:
+
+```sh
+git ls-files --eol -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
+```
+
+Both files should show `w/lf`. This checks line endings, not the manifest’s sizes or hashes.
+
 ### Good to know
 
 Details about this repository that neither the code nor the tools will tell you.
