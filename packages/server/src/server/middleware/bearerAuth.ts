@@ -1,6 +1,8 @@
 import type { AuthInfo } from '@modelcontextprotocol/core-internal';
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 
+import { buildWwwAuthenticateHeader as buildChallengeHeader } from './authChallenge';
+
 /**
  * Minimal token-verifier interface for MCP servers acting as an OAuth 2.0
  * Resource Server. Implementations introspect or locally validate an access
@@ -95,12 +97,15 @@ function sameResource(reported: URL | undefined, expected: URL): boolean {
     return comparableResource(reported) === comparableResource(expected);
 }
 
-function headerQuotedValue(value: string): string {
-    // HTTP quoted-string per RFC 7235: escape backslash and double quote, and
-    // replace characters a header cannot carry (controls, anything beyond
-    // printable ASCII) so a verifier-authored message can never make the
-    // challenge Response constructor throw.
-    return value.replaceAll(/[\\"]/g, String.raw`\$&`).replaceAll(/[^\u0020-\u007E]/g, ' ');
+/**
+ * Refuse a token whose reported resource is not `expectedResource`.
+ * Shared by {@link verifyBearerToken} and `verifyDpopToken` so both gates apply the same check.
+ * No-op when `expectedResource` is unset.
+ */
+export function assertExpectedResource(authInfo: AuthInfo, expectedResource: URL | undefined): void {
+    if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
+    }
 }
 
 /**
@@ -118,14 +123,7 @@ export function buildWwwAuthenticateHeader(
     requiredScopes: readonly string[],
     resourceMetadataUrl: string | undefined
 ): string {
-    let header = `Bearer error="${headerQuotedValue(errorCode)}", error_description="${headerQuotedValue(description)}"`;
-    if (requiredScopes.length > 0) {
-        header += `, scope="${headerQuotedValue(requiredScopes.join(' '))}"`;
-    }
-    if (resourceMetadataUrl) {
-        header += `, resource_metadata="${headerQuotedValue(resourceMetadataUrl)}"`;
-    }
-    return header;
+    return buildChallengeHeader('Bearer', errorCode, description, requiredScopes, resourceMetadataUrl);
 }
 
 /**
@@ -160,8 +158,15 @@ export async function verifyBearerToken(
     const authInfo = await verifier.verifyAccessToken(token);
 
     // Check if the token was issued for this server (if configured)
-    if (expectedResource !== undefined && !sameResource(authInfo.resource, expectedResource)) {
-        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token was not issued for this resource');
+    assertExpectedResource(authInfo, expectedResource);
+
+    // RFC 9449 §7.2 ("Compatibility with the Bearer Authentication Scheme"): a DPoP-bound token
+    // (cnf.jkt set) MUST NOT be honored under the plain Bearer scheme — accepting it here would
+    // defeat the point of binding it to a proof key.
+    // Only reachable when a verifier shared between bearerAuth and DPoP's requireDpopAuth
+    // returns a bound token's AuthInfo to this (Bearer-only) gate.
+    if (authInfo.cnf?.jkt) {
+        throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token is DPoP-bound and must be presented with the DPoP scheme, not Bearer');
     }
 
     // Check if token has the required scopes (if any)
