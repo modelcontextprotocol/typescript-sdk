@@ -200,7 +200,10 @@ verifies('transport:stdio:shutdown-escalation', async (_args: TestArgs) => {
 
         // The fixture survives stdin EOF and swallows SIGTERM, so on POSIX close()
         // walks the whole escalation ladder (two grace periods, ~4s wall clock).
+        const closeStarted = performance.now();
         await client.close();
+        // Surviving rung 1 (stdin EOF) costs the first 2s grace period on every platform, Windows included.
+        expect(performance.now() - closeStarted).toBeGreaterThanOrEqual(1900);
 
         // Windows has no POSIX signals: kill('SIGTERM') terminates the child outright, so it can't be ignored there.
         if (process.platform !== 'win32') {
