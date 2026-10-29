@@ -4,6 +4,7 @@ import {
     FetchLike,
     createFetchWithInit,
     fetchLeavingRedirects,
+    normalizeHeaders,
     fetchWithinOrigin,
     followWithinOrigin,
     unfollowedRedirect
@@ -228,7 +229,9 @@ export class StreamableHTTPClientTransport implements Transport {
         }
 
         const merged = new Headers(headers);
-        new Headers(this._requestInit?.headers || undefined).forEach((value, key) => merged.set(key, value));
+        for (const [key, value] of Object.entries(normalizeHeaders(this._requestInit?.headers))) {
+            merged.set(key, value);
+        }
         return merged;
     }
 
