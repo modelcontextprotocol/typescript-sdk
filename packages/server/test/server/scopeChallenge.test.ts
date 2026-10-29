@@ -7,6 +7,7 @@ import * as z from 'zod/v4';
 import { McpServer } from '../../src/server/mcp';
 import type { ScopeChallengeHandler } from '../../src/server/scopeChallenge';
 import { createScopeChallengeResponse, requireScopes } from '../../src/server/scopeChallenge';
+import { Server } from '../../src/server/server';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 const RESOURCE_METADATA_URL = 'https://auth.example.com/.well-known/oauth-protected-resource';
@@ -288,5 +289,28 @@ describe('legacy Streamable HTTP scope preflight', () => {
         expect(response.status).toBe(403);
         expect(response.headers.get('WWW-Authenticate')).not.toContain('resource_metadata');
         await harness.transport.close();
+    });
+
+    it('challenges a low-level Server through its scope challenge handler', async () => {
+        const calls = vi.fn();
+        const server = new Server({ name: 'scope-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/call', async () => {
+            calls();
+            return { content: [] };
+        });
+        server.setScopeChallengeHandler(requireScopes('repo:write'));
+        const transport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        await server.connect(transport);
+        const sessionId = await initializeLegacy(transport);
+
+        const response = await transport.handleRequest(legacyRequest(toolCall('operate'), sessionId), { authInfo: auth(['repo:read']) });
+
+        expect(response.status).toBe(403);
+        expect(response.headers.get('WWW-Authenticate')).toContain('scope="repo:write"');
+        expect(calls).not.toHaveBeenCalled();
+        await transport.close();
     });
 });

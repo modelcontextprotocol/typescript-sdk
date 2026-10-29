@@ -67,6 +67,8 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims'
 
 import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
 import { perRequestClassificationOf } from './perRequestTransport';
+import type { ScopeChallengeHandler } from './scopeChallenge';
+import { supportsScopeChallengeResolver } from './scopeChallenge';
 
 /**
  * The request methods whose 2026-07-28 result vocabulary includes
@@ -210,6 +212,16 @@ export type ServerOptions = ProtocolOptions & {
 let writeClientIdentity: (server: Server, identity: PerRequestClientIdentity) => void;
 let installDiscoverHandler: (server: Server, servedModernVersions: readonly string[]) => void;
 let readServerIdentity: (server: Server) => Implementation;
+let readPreflightHooks: (server: Server) => PreflightHooks;
+
+/** The callbacks the HTTP entry consults before dispatching a request to an instance. */
+export interface PreflightHooks {
+    scopeChallenge?: ScopeChallengeHandler;
+    toolInputSchema?: ToolInputSchemaResolver;
+}
+
+/** Looks up a tool's JSON `inputSchema`, as `tools/list` emits it, or answers `undefined` for an unknown tool. */
+export type ToolInputSchemaResolver = (name: string) => Record<string, unknown> | undefined;
 
 /** Connection-scoped client-identity fields backfilled per request from a validated `_meta` envelope. */
 export interface PerRequestClientIdentity {
@@ -254,6 +266,11 @@ export function serverIdentityOf(server: Server): Implementation {
     return readServerIdentity(server);
 }
 
+/** Package-internal: the instance's pre-dispatch callbacks, for the HTTP entry's preflight. Not public API. */
+export function preflightHooksOf(server: Server): PreflightHooks {
+    return readPreflightHooks(server);
+}
+
 /**
  * An MCP server on top of a pluggable transport.
  *
@@ -284,7 +301,10 @@ export class Server extends Protocol<ServerContext> {
             server.setRequestHandler('server/discover', () => server._ondiscover());
         };
         readServerIdentity = server => server._serverInfo;
+        readPreflightHooks = server => ({ scopeChallenge: server._scopeChallenge, toolInputSchema: server._toolInputSchema });
     }
+    private _scopeChallenge?: ScopeChallengeHandler;
+    private _toolInputSchema?: ToolInputSchemaResolver;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -377,7 +397,33 @@ export class Server extends Protocol<ServerContext> {
             this._negotiatedProtocolVersion = revision;
             this._boundFromTransport = true;
         }
+        const scopeChallenge = this._scopeChallenge;
+        if (scopeChallenge !== undefined && supportsScopeChallengeResolver(transport)) {
+            transport.setScopeChallengeResolver(context => scopeChallenge(context));
+        }
         await super.connect(transport);
+    }
+
+    /**
+     * Sets the callback that decides, before a request is dispatched, whether it
+     * needs an OAuth scope challenge (`403 insufficient_scope`). The HTTP entries
+     * consult it for every request this instance serves. This is the low-level
+     * counterpart of the per-primitive `scopeChallenge` option of
+     * {@linkcode server/mcp.McpServer | McpServer}, which sets it itself.
+     */
+    setScopeChallengeHandler(handler: ScopeChallengeHandler): void {
+        this._scopeChallenge = handler;
+    }
+
+    /**
+     * Sets the lookup `createMcpHandler` uses to validate SEP-2243 `Mcp-Param-*`
+     * headers on a `tools/call` before dispatch: the named tool's JSON
+     * `inputSchema`, as this instance's `tools/list` emits it, or `undefined`
+     * for an unknown tool. {@linkcode server/mcp.McpServer | McpServer} sets it
+     * itself.
+     */
+    setToolInputSchemaResolver(resolver: ToolInputSchemaResolver): void {
+        this._toolInputSchema = resolver;
     }
 
     /**
