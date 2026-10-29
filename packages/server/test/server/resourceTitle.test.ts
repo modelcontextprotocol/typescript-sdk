@@ -7,7 +7,9 @@
  * (the handle and the metadata carrier), but `update({ metadata })` replaces the
  * carrier wholesale, so a metadata-only update used to drop the advertised title
  * even though the handle still held it. Both read paths now derive the field, with
- * metadata winning when it carries one and the handle value as the fallback.
+ * metadata winning when it carries one and the handle value as the fallback, and both
+ * update paths mirror a metadata-carried title onto the handle so the fallback can
+ * never be a title the caller has already superseded.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -85,5 +87,36 @@ describe('resource title survives a metadata-only update', () => {
         handle.update({ metadata: { title: 'From metadata' } });
         const [listed] = await listOf(server, 'resources/list', 'resources');
         expect(listed).toMatchObject({ title: 'From metadata' });
+    });
+
+    it('a later metadata replacement that omits the title keeps the last written one', async () => {
+        const server = new McpServer({ name: 'titles', version: '0' });
+        const handle = server.registerResource('docs', 'mem://docs', { title: 'Docs' }, async () => ({ contents: [] }));
+
+        handle.update({ metadata: { title: 'X' } });
+        const [afterMetadataTitle] = await listOf(server, 'resources/list', 'resources');
+        expect(afterMetadataTitle).toMatchObject({ title: 'X' });
+
+        handle.update({ metadata: {} });
+        const [afterTitlelessMetadata] = await listOf(server, 'resources/list', 'resources');
+        expect(afterTitlelessMetadata).toMatchObject({ title: 'X' });
+    });
+
+    it('applies the same rule to templates', async () => {
+        const server = new McpServer({ name: 'titles', version: '0' });
+        const handle = server.registerResource(
+            'thing',
+            new ResourceTemplate('mem://things/{id}', { list: undefined }),
+            { title: 'Thing' },
+            async () => ({ contents: [] })
+        );
+
+        handle.update({ metadata: { title: 'Y' } });
+        const [afterMetadataTitle] = await listOf(server, 'resources/templates/list', 'resourceTemplates');
+        expect(afterMetadataTitle).toMatchObject({ title: 'Y' });
+
+        handle.update({ metadata: {} });
+        const [afterTitlelessMetadata] = await listOf(server, 'resources/templates/list', 'resourceTemplates');
+        expect(afterTitlelessMetadata).toMatchObject({ title: 'Y' });
     });
 });

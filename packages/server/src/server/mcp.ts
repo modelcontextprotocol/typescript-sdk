@@ -788,7 +788,13 @@ export class McpServer {
                     if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
-                if (updates.metadata !== undefined) registeredResource.metadata = updates.metadata;
+                if (updates.metadata !== undefined) {
+                    registeredResource.metadata = updates.metadata;
+                    // A metadata-carried title is authoritative on the read paths, so mirror it onto the
+                    // handle as well. Otherwise a later metadata replacement that omits the title falls
+                    // back to a stale handle value and re-advertises a title the caller superseded.
+                    if (updates.metadata.title !== undefined) registeredResource.title = updates.metadata.title;
+                }
                 if (updates.title !== undefined) {
                     registeredResource.title = updates.title;
                     registeredResource.metadata = { ...registeredResource.metadata, title: updates.title };
@@ -829,7 +835,13 @@ export class McpServer {
                     if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
                 }
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
-                if (updates.metadata !== undefined) registeredResourceTemplate.metadata = updates.metadata;
+                if (updates.metadata !== undefined) {
+                    registeredResourceTemplate.metadata = updates.metadata;
+                    // Same mirror as `_createRegisteredResource`: the metadata-carried title wins on the
+                    // read paths, so the handle has to follow it or a later titleless replacement
+                    // resurrects the previous value.
+                    if (updates.metadata.title !== undefined) registeredResourceTemplate.title = updates.metadata.title;
+                }
                 if (updates.title !== undefined) {
                     registeredResourceTemplate.title = updates.title;
                     registeredResourceTemplate.metadata = { ...registeredResourceTemplate.metadata, title: updates.title };
