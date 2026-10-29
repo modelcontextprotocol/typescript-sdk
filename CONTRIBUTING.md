@@ -110,6 +110,18 @@ Then:
 4. Run `pnpm test:all` to verify all tests pass
 5. Submit a pull request
 
+### Schema-twin checkout recovery
+
+If the schema-twin test fails after pulling the `.gitattributes` change in an existing clone with `core.autocrlf=true`, Git may have kept CRLF copies of the schema files.
+
+Back up any local edits to these two files, then run this from the repository root:
+
+```sh
+git checkout-index --force --index -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
+```
+
+This overwrites only those two working-tree files with the versions in the index. Fresh clones do not need this step. Do not update the manifest’s hashes or sizes to make the test pass.
+
 ### Good to know
 
 Details about this repository that neither the code nor the tools will tell you.
