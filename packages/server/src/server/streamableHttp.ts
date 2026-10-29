@@ -1087,26 +1087,29 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         const stream = this._streamMapping.get(streamId);
-        if (stream === undefined) {
-            return;
-        }
+        if (stream !== undefined) {
+            if (this._enableJsonResponse && stream.resolveJson !== undefined) {
+                const headers: Record<string, string> = {};
+                if (this.sessionId !== undefined) {
+                    headers['mcp-session-id'] = this.sessionId;
+                }
 
-        if (this._enableJsonResponse && stream.resolveJson !== undefined) {
-            const headers: Record<string, string> = {};
-            if (this.sessionId !== undefined) {
-                headers['mcp-session-id'] = this.sessionId;
+                if (relatedIds.length === 0) {
+                    stream.resolveJson(new Response(null, { status: 202, headers }));
+                } else {
+                    headers['Content-Type'] = 'application/json';
+                    const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
+                    stream.resolveJson(Response.json(responses.length === 1 ? responses[0] : responses, { status: 200, headers }));
+                }
             }
 
-            if (relatedIds.length === 0) {
-                stream.resolveJson(new Response(null, { status: 202, headers }));
-            } else {
-                headers['Content-Type'] = 'application/json';
-                const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
-                stream.resolveJson(Response.json(responses.length === 1 ? responses[0] : responses, { status: 200, headers }));
-            }
+            stream.cleanup();
         }
 
-        stream.cleanup();
+        // Retire answered siblings even when there is no live stream: with an
+        // eventStore their responses were stored for replay, and without one
+        // nothing is left that could deliver them — keeping the ids would only
+        // leak.
         for (const id of relatedIds) {
             this._requestResponseMap.delete(id);
             this._requestToStreamMapping.delete(id);

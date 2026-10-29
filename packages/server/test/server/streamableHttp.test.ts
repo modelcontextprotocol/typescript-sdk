@@ -942,6 +942,71 @@ describe('Zod v4', () => {
             expect((transport as any)._requestToStreamMapping.has('disconnect-1')).toBe(false);
         });
 
+        it('retires an answered batch sibling when the cancelled id has no live stream left', async () => {
+            // Batch [answered, cancelled]: the answered sibling's response is
+            // stored and parked in _requestResponseMap while the cancelled id
+            // is still pending. The handler closed the per-request stream, so
+            // by the time the cancellation settles the batch there is no
+            // _streamMapping entry. The answered id must still be retired —
+            // send() does the same when the stream is missing.
+            mcpServer.registerTool(
+                'closeThenReturn',
+                { description: 'closeSSE then return', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    ctx.http?.closeSSE?.();
+                    return { content: [{ type: 'text', text: 'answered' }] };
+                }
+            );
+            mcpServer.registerTool(
+                'hangUntilCancelled',
+                { description: 'wait for cancellation', inputSchema: z.object({}) },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    await new Promise<void>(resolve => {
+                        ctx.mcpReq.signal.addEventListener('abort', () => resolve(), { once: true });
+                    });
+                    return { content: [] };
+                }
+            );
+
+            sessionId = await initializeServer();
+            storedEvents.clear();
+
+            const batch: JSONRPCMessage[] = [
+                { jsonrpc: '2.0', method: 'tools/call', params: { name: 'closeThenReturn', arguments: {} }, id: 'answered' },
+                { jsonrpc: '2.0', method: 'tools/call', params: { name: 'hangUntilCancelled', arguments: {} }, id: 'cancel-me' }
+            ];
+            const response = await transport.handleRequest(createRequest('POST', batch, { sessionId }));
+            await response.text().catch(() => {});
+
+            // Wait until the answered sibling is parked and its stream is gone.
+            for (let i = 0; i < 100; i++) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                if ((transport as any)._requestResponseMap.has('answered')) break;
+                await new Promise(resolve => setTimeout(resolve, 5));
+            }
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._streamMapping.size).toBe(0);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestResponseMap.has('answered')).toBe(true);
+
+            const cancel = await transport.handleRequest(
+                createRequest(
+                    'POST',
+                    { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'cancel-me' } },
+                    { sessionId }
+                )
+            );
+            expect(cancel.status).toBe(202);
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestResponseMap.size).toBe(0);
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            expect((transport as any)._requestToStreamMapping.size).toBe(0);
+
+            const stored = [...storedEvents.values()].map(e => e.message);
+            expect(stored.some(m => 'id' in m && m.id === 'answered' && 'result' in m)).toBe(true);
+        });
+
         it('should accept Last-Event-ID reconnect after closeSSEStream() and replay stored events', async () => {
             // closeSSEStream() removes the _streamMapping entry, so the
             // replayEvents() conflict check sees no active connection and the
