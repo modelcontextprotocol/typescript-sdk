@@ -4,9 +4,9 @@ import {
     FetchLike,
     createFetchWithInit,
     fetchLeavingRedirects,
+    normalizeHeaders,
     fetchWithinOrigin,
     followWithinOrigin,
-    normalizeHeaders,
     unfollowedRedirect
 } from '../shared/transport.js';
 import { isInitializedNotification, isJSONRPCRequest, isJSONRPCResultResponse, JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
@@ -228,12 +228,11 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-        return new Headers({
-            ...headers,
-            ...extraHeaders
-        });
+        const merged = new Headers(headers);
+        for (const [key, value] of Object.entries(normalizeHeaders(this._requestInit?.headers))) {
+            merged.set(key, value);
+        }
+        return merged;
     }
 
     private async _startOrAuthSse(options: StartSSEOptions): Promise<void> {

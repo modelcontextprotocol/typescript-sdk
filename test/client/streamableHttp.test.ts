@@ -565,6 +565,49 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
+    it('keeps the last value when array-of-tuples headers repeat a name in different case', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            requestInit: {
+                headers: [
+                    ['MCP-Protocol-Version', '2025-03-26'],
+                    ['mcp-protocol-version', '2025-06-18']
+                ]
+            }
+        });
+        transport.setProtocolVersion('2025-11-25');
+
+        let actualReqInit: RequestInit = {};
+
+        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('mcp-protocol-version')).toBe('2025-06-18');
+    });
+
+    it('keeps a repeated name in a Headers instance as one comma-joined value', async () => {
+        const headers = new Headers();
+        headers.append('X-Trace', 'a');
+        headers.append('x-trace', 'b');
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { requestInit: { headers } });
+
+        let actualReqInit: RequestInit = {};
+
+        (global.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+        expect((actualReqInit.headers as Headers).get('x-trace')).toBe('a, b');
+    });
+
     it('should have exponential backoff with configurable maxRetries', () => {
         // This test verifies the maxRetries and backoff calculation directly
 

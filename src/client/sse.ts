@@ -4,8 +4,8 @@ import {
     FetchLike,
     createFetchWithInit,
     fetchLeavingRedirects,
-    fetchWithinOrigin,
     normalizeHeaders,
+    fetchWithinOrigin,
     unfollowedRedirect
 } from '../shared/transport.js';
 import { JSONRPCMessage, JSONRPCMessageSchema } from '../types.js';
@@ -156,12 +156,11 @@ export class SSEClientTransport implements Transport {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
 
-        const extraHeaders = normalizeHeaders(this._requestInit?.headers);
-
-        return new Headers({
-            ...headers,
-            ...extraHeaders
-        });
+        const merged = new Headers(headers);
+        for (const [key, value] of Object.entries(normalizeHeaders(this._requestInit?.headers))) {
+            merged.set(key, value);
+        }
+        return merged;
     }
 
     private _startOrAuth(): Promise<void> {

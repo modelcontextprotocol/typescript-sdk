@@ -410,6 +410,76 @@ describe('SSEClientTransport', () => {
                 global.fetch = originalFetch;
             }
         });
+
+        it('sends one value when a custom header differs only in case from a transport header', async () => {
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: { 'MCP-Protocol-Version': '2025-03-26' }
+                }
+            });
+            transport.setProtocolVersion('2025-11-25');
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('mcp-protocol-version')).toBe('2025-03-26');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('keeps the last value when array-of-tuples headers repeat a name in different case', async () => {
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: {
+                    headers: [
+                        ['MCP-Protocol-Version', '2025-03-26'],
+                        ['mcp-protocol-version', '2025-06-18']
+                    ]
+                }
+            });
+            transport.setProtocolVersion('2025-11-25');
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('mcp-protocol-version')).toBe('2025-06-18');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
+
+        it('keeps a repeated name in a Headers instance as one comma-joined value', async () => {
+            const headers = new Headers();
+            headers.append('X-Trace', 'a');
+            headers.append('x-trace', 'b');
+            transport = new SSEClientTransport(resourceBaseUrl, { requestInit: { headers } });
+
+            await transport.start();
+
+            const originalFetch = global.fetch;
+            try {
+                global.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                await transport.send({ jsonrpc: '2.0', id: '1', method: 'test', params: {} });
+
+                const calledHeaders = (global.fetch as Mock).mock.calls[0][1].headers;
+                expect(calledHeaders.get('x-trace')).toBe('a, b');
+            } finally {
+                global.fetch = originalFetch;
+            }
+        });
     });
 
     describe('auth handling', () => {
