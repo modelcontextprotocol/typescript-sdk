@@ -114,13 +114,13 @@ Then:
 
 If the schema-twin test fails after pulling the `.gitattributes` change in an existing clone with `core.autocrlf=true`, Git may have kept CRLF copies of the schema files.
 
-Back up any local edits to these two files, then run this from the repository root:
+Move the two schema files listed below to a backup directory outside the repository, then run this from the repository root:
 
 ```sh
-git checkout-index --force --index -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
+git checkout-index --index -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
 ```
 
-This overwrites only those two working-tree files with the versions in the index. Fresh clones do not need this step. Do not update the manifest’s hashes or sizes to make the test pass.
+This recreates the files from the index without changing the staged contents. Keep the backups if they contain local edits. Fresh clones do not need this step. Do not update the manifest’s hashes or sizes to make the test pass.
 
 ### Good to know
 
