@@ -112,9 +112,9 @@ Then:
 
 ### Schema-twin checkout recovery
 
-If the schema-twin test fails after pulling the `.gitattributes` change in an existing clone with `core.autocrlf=true`, Git may have kept CRLF copies of the schema files.
+These steps require your branch to contain the `.gitattributes` change. In an existing clone with `core.autocrlf=true`, Git may keep CRLF copies of the schema files after pulling that change.
 
-Move the two schema files listed below to a backup directory outside the repository, then run this from the repository root:
+Move the two schema files listed below to a new backup directory outside the repository, then run this from the repository root:
 
 ```sh
 git checkout-index --index -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
@@ -128,7 +128,7 @@ To check the working-tree line endings:
 git ls-files --eol -- packages/core-internal/test/corpus/schema-twins/2025-11-25.schema.json packages/core-internal/test/corpus/schema-twins/2026-07-28.schema.json
 ```
 
-Both files should show `w/lf`. This checks line endings, not the manifest’s sizes or hashes.
+For unchanged schema twins, both files should show `i/lf w/lf attr/-text`: `i/` describes the index, `w/` the working tree, and `attr/-text` means text conversion is disabled. This checks line endings, not the manifest’s sizes or hashes.
 
 ### Good to know
 
