@@ -1,7 +1,7 @@
 /**
  * The 2025-era wire codec: decode/encode ≈ identity.
  *
- * This codec serves every legacy protocol version (2024-10-07 … 2025-11-25).
+ * This codec serves every legacy protocol version (2024-11-05 … 2025-11-25).
  * It is BEHAVIOR-FROZEN behind the Q10-L2 byte-identity suite — its schemas
  * are today's schemas, its registry is today's method map, and its encode
  * path is the identity.
