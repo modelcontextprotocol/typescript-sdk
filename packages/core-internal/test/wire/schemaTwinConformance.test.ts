@@ -51,11 +51,11 @@ describe('twin provenance integrity (the manifest lock)', () => {
         const raw = readFileSync(join(TWINS_ROOT, `${revision}.schema.json`));
         expect(
             raw.byteLength,
-            `byte size drifted for ${revision}.schema.json — the vendored twin was rewritten (for existing CRLF checkouts, see CONTRIBUTING.md#schema-twin-checkout-recovery)`
+            `byte size drifted for ${revision}.schema.json — the vendored twin was rewritten (if you haven't edited this file and have core.autocrlf=true, see CONTRIBUTING.md#schema-twin-checkout-recovery)`
         ).toBe(entry.bytes);
         expect(
             createHash('sha256').update(raw).digest('hex'),
-            `sha256 drifted for ${revision}.schema.json — the vendored twin was rewritten (for existing CRLF checkouts, see CONTRIBUTING.md#schema-twin-checkout-recovery; otherwise re-vendor raw bytes via pnpm fetch:schema-twins)`
+            `sha256 drifted for ${revision}.schema.json — the vendored twin was rewritten (if you haven't edited this file and have core.autocrlf=true, see CONTRIBUTING.md#schema-twin-checkout-recovery; otherwise re-vendor raw bytes via pnpm fetch:schema-twins)`
         ).toBe(entry.sha256);
     });
 });
