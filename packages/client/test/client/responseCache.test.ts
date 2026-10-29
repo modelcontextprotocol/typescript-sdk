@@ -149,9 +149,12 @@ describe('InMemoryResponseCacheStore', () => {
 });
 
 describe('ClientResponseCache', () => {
-    it('write skips when the captured generation moved (list_changed-during-walk guard)', async () => {
+    it('write skips when the captured generation moved or the key was never captured (list_changed-during-walk guard)', async () => {
         const store = new InMemoryResponseCacheStore();
         const cache = new ClientResponseCache(store, false);
+        // Uncaptured key with literal generation 0 → no-op without a prior captureGeneration().
+        await cache.write('tools/list', { tools: [TOOL_A] }, 0);
+        expect(store.get({ method: 'tools/list', partition: PRE })).toBeUndefined();
         const gen = cache.captureGeneration('tools/list');
         await cache.evict('tools/list');
         await cache.write('tools/list', { tools: [TOOL_A] }, gen);
@@ -173,7 +176,9 @@ describe('ClientResponseCache', () => {
         expect(userCache.captureGeneration('prompts/list')).toBe(1);
         userCache.resetForReconnect();
         expect(userStore.get({ method: 'tools/list', partition: PRE })).toBeDefined();
-        expect(userCache.captureGeneration('prompts/list')).toBe(0);
+        expect((userCache as unknown as { _evictionGeneration: Map<string, number> })._evictionGeneration.size).toBe(0);
+        expect(userCache.captureGeneration('prompts/list')).toBe(2);
+        expect(userCache.captureGeneration('resources/list')).toBe(2);
         // Index dropped → re-derived from the (still-populated) store on next read.
         expect((userCache as unknown as { _toolIndex?: unknown })._toolIndex).toBeUndefined();
         expect((await userCache.toolDefinition('a'))?.name).toBe('a');
@@ -1336,4 +1341,193 @@ describe('Client honours cacheHints (SEP-2549)', () => {
         expect(listCount()).toBe(1);
         expect(errors.map(e => e.message)).toContain('redis down');
     });
+
+    it.each(
+        (['private', 'public'] as const).flatMap(scope =>
+            [false, true].flatMap(changeServer =>
+                (
+                    [
+                        'none',
+                        'double-reset',
+                        'reset-capture-reset-stale',
+                        'capture-write-stale',
+                        'capture-stale-write',
+                        'write-recapture-stale',
+                        'concurrent-post-reset',
+                        'evicted-pre-reset-and-post-reset',
+                        'post-reset-capture-evict-write'
+                    ] as const
+                ).map(ordering => ({
+                    scope,
+                    changeServer,
+                    ordering
+                }))
+            )
+        )
+    )(
+        'rejects pre-reset writes after resetForReconnect (scope=$scope, changeServer=$changeServer, ordering=$ordering)',
+        async ({ scope, changeServer, ordering }) => {
+            const store = new InMemoryResponseCacheStore();
+            const cache = new ClientResponseCache(store, true, undefined, 'alice');
+            cache.setServerIdentity('server-a');
+            if (ordering === 'evicted-pre-reset-and-post-reset') {
+                await cache.evict('tools/list');
+            }
+            const oldGeneration = cache.captureGeneration('tools/list');
+
+            cache.resetForReconnect();
+            const targetServer = changeServer ? 'server-b' : 'server-a';
+            cache.setServerIdentity(targetServer);
+            const freshness = { expiresAt: Date.now() + 60_000, scope };
+
+            const expectCacheMiss = async (): Promise<void> => {
+                expect(await cache.read('tools/list')).toBeUndefined();
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            };
+
+            if (ordering === 'none') {
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'double-reset') {
+                cache.resetForReconnect();
+                cache.setServerIdentity(targetServer);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'reset-capture-reset-stale') {
+                const midGeneration = cache.captureGeneration('tools/list');
+                cache.resetForReconnect();
+                cache.setServerIdentity(targetServer);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, midGeneration, freshness);
+                await expectCacheMiss();
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, midGeneration, freshness);
+            } else if (ordering === 'capture-write-stale') {
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'capture-stale-write') {
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+            } else if (ordering === 'write-recapture-stale') {
+                const firstPostResetGen = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, firstPostResetGen, freshness);
+                cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else if (ordering === 'concurrent-post-reset') {
+                const toolC: Tool = { name: 'c', inputSchema: { type: 'object', properties: {} } };
+                const gen1 = cache.captureGeneration('tools/list');
+                const gen2 = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
+                await cache.write('tools/list', { tools: [TOOL_A] }, gen1, freshness);
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_A] } });
+                await cache.write('tools/list', { tools: [toolC] }, oldGeneration, freshness);
+                expect(await cache.read('tools/list')).toEqual({ value: { tools: [TOOL_A] } });
+                expect(await cache.toolDefinition('c')).toBeUndefined();
+                await cache.write('tools/list', { tools: [TOOL_B] }, gen2, freshness);
+                await cache.write('tools/list', { tools: [toolC] }, oldGeneration, freshness);
+            } else if (ordering === 'evicted-pre-reset-and-post-reset') {
+                await cache.evict('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
+                const newGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, newGeneration, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+            } else {
+                const toolStale1: Tool = { name: 'stale1', inputSchema: { type: 'object', properties: {} } };
+                const toolStale2: Tool = { name: 'stale2', inputSchema: { type: 'object', properties: {} } };
+                const postResetBeforeEvict1 = cache.captureGeneration('tools/list');
+                const postResetBeforeEvict2 = cache.captureGeneration('tools/list');
+                await cache.evict('tools/list');
+                await cache.write('tools/list', { tools: [toolStale1] }, postResetBeforeEvict1, freshness);
+                await cache.write('tools/list', { tools: [toolStale2] }, postResetBeforeEvict2, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                await expectCacheMiss();
+                expect(await cache.toolDefinition('stale1')).toBeUndefined();
+                expect(await cache.toolDefinition('stale2')).toBeUndefined();
+                const postEvictGeneration = cache.captureGeneration('tools/list');
+                await cache.write('tools/list', { tools: [TOOL_B] }, postEvictGeneration, freshness);
+                await cache.write('tools/list', { tools: [toolStale1] }, postResetBeforeEvict1, freshness);
+                await cache.write('tools/list', { tools: [toolStale2] }, postResetBeforeEvict2, freshness);
+                await cache.write('tools/list', { tools: [TOOL_A] }, oldGeneration, freshness);
+                expect(await cache.toolDefinition('stale1')).toBeUndefined();
+                expect(await cache.toolDefinition('stale2')).toBeUndefined();
+            }
+
+            const hit = await cache.read('tools/list');
+            if (ordering !== 'none') {
+                expect(hit).toEqual({ value: { tools: [TOOL_B] } });
+                expect((await cache.toolDefinition('b'))?.name).toBe('b');
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            } else {
+                expect(hit).toBeUndefined();
+                expect(await cache.toolDefinition('a')).toBeUndefined();
+            }
+        }
+    );
+
+    it.each((['private', 'public'] as const).flatMap(scope => [false, true].map(changeServer => ({ scope, changeServer }))))(
+        'rejects pre-reset and pre-evictKey resources/read writes after resetForReconnect (scope=$scope, changeServer=$changeServer)',
+        async ({ scope, changeServer }) => {
+            const store = new InMemoryResponseCacheStore();
+            const cache = new ClientResponseCache(store, true, undefined, 'alice');
+            cache.setServerIdentity('server-a');
+            const oldGen = cache.captureGeneration('resources/read', 'res://a');
+            const oldGenB = cache.captureGeneration('resources/read', 'res://b');
+
+            cache.resetForReconnect();
+            const targetServer = changeServer ? 'server-b' : 'server-a';
+            cache.setServerIdentity(targetServer);
+            const freshnessA = { expiresAt: Date.now() + 60_000, scope, params: 'res://a' };
+            const freshnessB = { expiresAt: Date.now() + 60_000, scope, params: 'res://b' };
+            const freshnessC = { expiresAt: Date.now() + 60_000, scope, params: 'res://c' };
+
+            await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
+            expect(await cache.read('resources/read', 'res://a')).toBeUndefined();
+            expect(await cache.read('resources/read', 'res://b')).toBeUndefined();
+
+            const unseenGenC = cache.captureGeneration('resources/read', 'res://c');
+            expect(unseenGenC).toBe(1);
+            await cache.write('resources/read', { contents: [{ text: 'fresh-c' }] }, unseenGenC, freshnessC);
+            expect(await cache.read('resources/read', 'res://c')).toEqual({
+                value: { contents: [{ text: 'fresh-c' }] }
+            });
+
+            const postResetBeforeEvict1 = cache.captureGeneration('resources/read', 'res://a');
+            const postResetBeforeEvict2 = cache.captureGeneration('resources/read', 'res://a');
+            const siblingGenB = cache.captureGeneration('resources/read', 'res://b');
+            await cache.evictKey('resources/read', 'res://a');
+
+            await cache.write('resources/read', { contents: [{ text: 'stale-a1' }] }, postResetBeforeEvict1, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'stale-a2' }] }, postResetBeforeEvict2, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
+            expect(await cache.read('resources/read', 'res://a')).toBeUndefined();
+            expect(await cache.read('resources/read', 'res://b')).toBeUndefined();
+
+            await cache.write('resources/read', { contents: [{ text: 'fresh-b' }] }, siblingGenB, freshnessB);
+            await cache.write('resources/read', { contents: [{ text: 'old-b' }] }, oldGenB, freshnessB);
+            expect(await cache.read('resources/read', 'res://b')).toEqual({
+                value: { contents: [{ text: 'fresh-b' }] }
+            });
+
+            const postEvictGen = cache.captureGeneration('resources/read', 'res://a');
+            await cache.write('resources/read', { contents: [{ text: 'fresh-a' }] }, postEvictGen, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'stale-a1' }] }, postResetBeforeEvict1, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'stale-a2' }] }, postResetBeforeEvict2, freshnessA);
+            await cache.write('resources/read', { contents: [{ text: 'old-a' }] }, oldGen, freshnessA);
+
+            expect(await cache.read('resources/read', 'res://a')).toEqual({
+                value: { contents: [{ text: 'fresh-a' }] }
+            });
+        }
+    );
 });
